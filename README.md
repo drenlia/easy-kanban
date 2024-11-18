@@ -1,6 +1,6 @@
 # kanban
 
-This simple Kanban application allows a team to manage and assigned tasks in different stages (To do, In progress, Testing, Completed).
+This simple Kanban application allows a team to manage and assign tasks in different stages (To do, In progress, Testing, Completed).
 Stages can be renamed as needed. 
 
 See a [screenshot](/screenshots/overview.png)
