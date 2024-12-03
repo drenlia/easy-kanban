@@ -58,7 +58,7 @@ Developped with AI assistance (bolt.new and cursor.sh)
 No restrictions.  Use and modify as you please, but please keep this free and leave comments.
 
 ## Project status
-This project was created for to answer a specific need and may be useful for someone else.
+This project was created to answer a specific need and may be useful for someone else.
 
 Improvements are always welcome.  I'm not a developer!
 
