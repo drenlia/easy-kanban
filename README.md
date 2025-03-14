@@ -8,27 +8,27 @@ See a [screenshot](/screenshots/overview.png)
 ## Getting started
 
 1. Add your team members using the "Add Member" button.
-2. Rename your board or leave it as is "Main Board"
-3. Rename Stages as needed (double-click or click the tripple-dotted menu).
-4. Delete "Demo User"
-5. Create Tasks by *selecting* a user and clicking on "+" in the necessary Stage
-6. Move tasks as they progress in the board.
+1. Rename your board or leave it as is "Main Board"
+1. Rename Stages as needed (double-click or click the tripple-dotted menu).
+1. Delete "Demo User"
+1. Create Tasks by *selecting* a user and clicking on "+" in the necessary Stage
+1. Move tasks as they progress in the board.
 
 **Features**
 1. Add/remove team members.
-2. Add/remove/rename boards.
-3. Add/remove/rename columns.
-4. Add/remove/copy tasks.
-5. Distinct colors for easy viewing of tasks associations.
-6. Drag and drop tasks between boards.
-7. Quickly transfer a task to another member (click the user icon).
-8. Quick Edit task information (click the pen icon). (see: [screenshot](/screenshots/quick_edit_task.png))
-9. Edit task details for more (click the (i) icon) (see: [screenshot](/task_details_view_and_comment_tooltip.png)):
+1. Add/remove/rename boards.
+1. Add/remove/rename columns.
+1. Add/remove/copy tasks.
+1. Distinct colors for easy viewing of tasks associations.
+1. Drag and drop tasks between boards.
+1. Quickly transfer a task to another member (click the user icon).
+1. Quick Edit task information (click the pen icon). (see: [screenshot](/screenshots/quick_edit_task.png))
+1. Edit task details for more (click the (i) icon) (see: [screenshot](/task_details_view_and_comment_tooltip.png)):
     1. update task information.
     1. choose a requester (defaults to assigned member).
     1. add comments (timestamped)
     1. include attachments (under /server/attachments/) associated to comments.
-10. Backend db using sqlite - data is always saved (under /server/kanban.db).
+1. Backend db using sqlite - data is always saved (under /server/kanban.db).
 
 ## Requirements
 
@@ -58,10 +58,9 @@ Developped with AI assistance (bolt.new and cursor.sh)
 No restrictions.  Use and modify as you please, but please keep this free and leave comments.
 
 ## Project status
-This project was created to answer a specific need and may be useful for someone else.
+This project was created for to answer a specific need and may be useful for someone else.
 
 Improvements are always welcome.  I'm not a developer!
-
 
 
 

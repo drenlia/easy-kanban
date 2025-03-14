@@ -19,6 +19,7 @@ export interface Comment {
   text: string;
   authorId: string;
   createdAt: string;
+  taskId: string;
   attachments: Attachment[];
 }
 
@@ -26,12 +27,12 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  memberId: string;
+  columnId: string;
+  memberId?: string;
+  requesterId?: string;
   startDate: string;
   effort: number;
-  columnId: string;
   priority: Priority;
-  requesterId: string;
   comments: Comment[];
 }
 
@@ -39,8 +40,15 @@ export interface Column {
   id: string;
   title: string;
   tasks: Task[];
+  boardId: string;
 }
 
 export interface Columns {
   [key: string]: Column;
+}
+
+export interface Board {
+  id: string;
+  title: string;
+  columns: Columns;
 }
