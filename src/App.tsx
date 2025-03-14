@@ -242,7 +242,7 @@ export default function App() {
             </a>
           </div>
           <a
-            href="https://github.com/Dan-code7ca/kanban"
+            href="https://github.com/DanielAtDrenlia/easy-kanban"
             target="_blank"
             rel="noopener noreferrer"
             className="text-gray-600 hover:text-gray-900"
