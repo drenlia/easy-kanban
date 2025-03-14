@@ -17,9 +17,25 @@ import {
 } from 'lucide-react';
 
 interface CommentEditorProps {
-  onSubmit: (content: string, attachments: File[]) => void;
+  onSubmit: (content: string, attachments: File[]) => Promise<void>;
   onCancel?: () => void;
 }
+
+const formatDateTime = (dateString: string) => {
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat('default', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).format(date);
+};
+
+const getLocalISOString = (date: Date) => {
+  return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString();
+};
 
 export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
@@ -30,7 +46,16 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        bulletList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+        orderedList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+      }),
       Underline,
       Link.configure({
         openOnClick: false,
@@ -78,12 +103,21 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
     }
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!editor) return;
+    
     const content = editor.getHTML();
-    onSubmit(content, attachments);
-    editor.commands.clearContent();
-    setAttachments([]);
+    const isEmptyContent = !content || content.replace(/<[^>]*>/g, '').trim() === '';
+    
+    if (!isEmptyContent || attachments.length > 0) {
+      try {
+        await onSubmit(content, [...attachments]);
+        editor.commands.clearContent();
+        setAttachments([]);
+      } catch (error) {
+        console.error('Failed to submit comment:', error);
+      }
+    }
   };
 
   if (!editor) return null;
@@ -189,7 +223,12 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
         )}
         <button
           onClick={handleSubmit}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600"
+          disabled={!editor?.getText().trim() && attachments.length === 0}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded ${
+            !editor?.getText().trim() && attachments.length === 0
+              ? 'bg-gray-300 cursor-not-allowed text-gray-500'
+              : 'bg-blue-500 hover:bg-blue-600 text-white'
+          }`}
         >
           <Check size={16} />
           <span>Add Comment</span>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { Task, Priority, TeamMember } from '../types';
+import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 
 interface QuickEditModalProps {
   task: Task;
@@ -19,8 +20,15 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Store the date as is without timezone conversion
-    setEditedTask(prev => ({ ...prev, startDate: e.target.value }));
+    // Ensure the date is stored in YYYY-MM-DD format without timezone conversion
+    const localDate = e.target.value;
+    setEditedTask(prev => ({ ...prev, startDate: localDate }));
+  };
+
+  const formatDateTime = (dateString: string) => formatToYYYYMMDDHHmm(dateString);
+  const formatDateForInput = (dateString: string) => {
+    if (!dateString) return '';
+    return dateString.split(' ')[0]; // This will take only the date part
   };
 
   return (
@@ -87,7 +95,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </label>
               <input
                 type="date"
-                value={editedTask.startDate}
+                value={formatDateForInput(editedTask.startDate)}
                 onChange={handleDateChange}
                 className="w-full px-3 py-2 border rounded-md"
               />

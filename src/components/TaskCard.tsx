@@ -1,7 +1,8 @@
-import React from 'react';
-import { Calendar, Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2, MessageSquare } from 'lucide-react';
 import { Task, TeamMember, Priority } from '../types';
 import QuickEditModal from './QuickEditModal';
+import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 
 const PRIORITY_COLORS = {
   low: 'bg-blue-50 text-blue-700',
@@ -16,12 +17,32 @@ interface TaskCardProps {
   onRemove: (taskId: string) => void;
   onEdit: (task: Task) => void;
   onCopy: (task: Task) => void;
-  onDragStart: (taskId: string, columnId: string, currentIndex: number) => void;
+  onDragStart: (task: Task) => void;
   onDragEnd: () => void;
-  onDragOver: (e: React.DragEvent, index: number) => void;
   onSelect: (task: Task) => void;
-  index: number;
 }
+
+const getLatestComment = (comments?: Comment[]) => {
+  if (!comments || comments.length === 0) return null;
+  return comments.sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
+};
+
+const formatDate = (dateString: string) => formatToYYYYMMDD(dateString);
+const formatDateTime = (dateString: string) => formatToYYYYMMDDHHmmss(dateString);
+
+const getValidCommentCount = (comments: Comment[] | undefined | null) => {
+  if (!comments) return 0;
+  
+  return comments
+    .filter(comment => 
+      comment && 
+      typeof comment.text === 'string' && 
+      comment.text.trim() !== ''
+    )
+    .length;
+};
 
 export default function TaskCard({
   task,
@@ -32,22 +53,15 @@ export default function TaskCard({
   onCopy,
   onDragStart,
   onDragEnd,
-  onDragOver,
-  onSelect,
-  index
+  onSelect
 }: TaskCardProps) {
-  const [showQuickEdit, setShowQuickEdit] = React.useState(false);
-  const [showMemberSelect, setShowMemberSelect] = React.useState(false);
+  const [showQuickEdit, setShowQuickEdit] = useState(false);
+  const [showMemberSelect, setShowMemberSelect] = useState(false);
+  const [showCommentTooltip, setShowCommentTooltip] = useState(false);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    onDragStart(task.id, task.columnId, index);
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onDragOver(e, index);
+    onDragStart(task);
   };
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -60,19 +74,22 @@ export default function TaskCard({
     setShowMemberSelect(false);
   };
 
-  // Convert UTC date to local date for display
-  const localStartDate = new Date(task.startDate + 'T00:00:00')
-    .toLocaleDateString();
+  const latestComment = getLatestComment(task.comments);
+  const commentAuthor = latestComment ? members.find(m => m.id === latestComment.authorId) : null;
+
+  const commentCount = task.comments?.length || 0;
+
+  const validComments = (task.comments || [])
+    .filter(comment => comment && comment.text && comment.text.trim() !== '');
 
   return (
     <>
       <div
-        className="task-card p-4 rounded-lg shadow-sm mb-3 cursor-move relative"
-        style={{ backgroundColor: `${member.color}10`, borderLeft: `4px solid ${member.color}` }}
+        className="task-card bg-white p-4 rounded-lg shadow-sm cursor-move relative"
+        style={{ borderLeft: `4px solid ${member.color}` }}
         draggable="true"
         onDragStart={handleDragStart}
         onDragEnd={onDragEnd}
-        onDragOver={handleDragOver}
       >
         <div className="flex justify-between items-start mb-2">
           <h3 className="font-medium text-gray-800">{task.title}</h3>
@@ -142,15 +159,45 @@ export default function TaskCard({
         <div className="flex items-center gap-4 text-sm text-gray-500">
           <div className="flex items-center gap-1">
             <Calendar size={14} />
-            <span>{localStartDate}</span>
+            <span>{formatDate(task.startDate)}</span>
           </div>
           <div className="flex items-center gap-1">
             <Clock size={14} />
             <span>{task.effort}h</span>
           </div>
-          <div className="flex items-center gap-1">
+          <div 
+            className="flex items-center gap-1 relative"
+            onMouseEnter={() => setShowCommentTooltip(true)}
+            onMouseLeave={() => setShowCommentTooltip(false)}
+          >
             <MessageCircle size={14} />
-            <span>{task.comments?.length || 0}</span>
+            <span>
+              {validComments.length}
+            </span>
+            
+            {/* Comment Tooltip - Only show if there are comments */}
+            {showCommentTooltip && 
+             task.comments && 
+             task.comments.length > 0 && 
+             latestComment && 
+             commentAuthor && (
+              <div className="absolute bottom-full left-0 mb-2 w-64 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-20">
+                <div className="flex items-center gap-2 mb-1">
+                  <div 
+                    className="w-2 h-2 rounded-full" 
+                    style={{ backgroundColor: commentAuthor.color }} 
+                  />
+                  <span className="font-medium">{commentAuthor.name}</span>
+                  <span className="text-gray-400 text-xs">
+                    {formatDateTime(latestComment.createdAt)}
+                  </span>
+                </div>
+                <p className="text-gray-200 line-clamp-3">
+                  {latestComment.text.replace(/<[^>]*>/g, '')}
+                </p>
+                <div className="absolute -bottom-1 left-2 w-2 h-2 bg-gray-800 transform rotate-45" />
+              </div>
+            )}
           </div>
           <div
             className={`px-2 py-1 rounded-full text-xs ${PRIORITY_COLORS[task.priority]}`}
