@@ -3,7 +3,7 @@
 This simple Kanban application allows a team to manage and assign tasks in different stages (To do, In progress, Testing, Completed).
 Stages can be renamed as needed. 
 
-See a [screenshot](/screenshots/overview.png)
+<img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
 ## Getting started
 
