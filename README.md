@@ -23,7 +23,7 @@ See a [screenshot](/screenshots/overview.png)
 1. Drag and drop tasks between boards.
 1. Quickly transfer a task to another member (click the user icon).
 1. Quick Edit task information (click the pen icon). (see: [screenshot](/screenshots/quick_edit_task.png))
-1. Edit task details for more (click the (i) icon) (see: [screenshot](/task_details_view_and_comment_tooltip.png)):
+1. Edit task details for more (click the (i) icon) (see: [screenshot](/screenshots/task_details_view_and_comment_tooltip.png))
     1. update task information.
     1. choose a requester (defaults to assigned member).
     1. add comments (timestamped)

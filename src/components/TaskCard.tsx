@@ -58,6 +58,8 @@ export default function TaskCard({
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(task.title);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -72,6 +74,33 @@ export default function TaskCard({
   const handleMemberChange = (memberId: string) => {
     onEdit({ ...task, memberId });
     setShowMemberSelect(false);
+  };
+
+  const handleTitleDoubleClick = () => {
+    setIsEditingTitle(true);
+    setEditedTitle(task.title);
+  };
+
+  const handleTitleSave = () => {
+    if (editedTitle.trim() && editedTitle !== task.title) {
+      onEdit({ ...task, title: editedTitle.trim() });
+    }
+    setIsEditingTitle(false);
+  };
+
+  const handleTitleCancel = () => {
+    setEditedTitle(task.title);
+    setIsEditingTitle(false);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleTitleSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleTitleCancel();
+    }
   };
 
   const latestComment = getLatestComment(task.comments);
@@ -92,7 +121,26 @@ export default function TaskCard({
         onDragEnd={onDragEnd}
       >
         <div className="flex justify-between items-start mb-2">
-          <h3 className="font-medium text-gray-800">{task.title}</h3>
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              onBlur={handleTitleSave}
+              onKeyDown={handleTitleKeyDown}
+              className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 flex-1 mr-2"
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <h3 
+              className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded flex-1 mr-2"
+              onDoubleClick={handleTitleDoubleClick}
+              title="Double-click to edit"
+            >
+              {task.title}
+            </h3>
+          )}
           <div className="flex gap-1">
             <button
               onClick={(e) => {

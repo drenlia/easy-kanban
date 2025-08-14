@@ -34,6 +34,8 @@ export interface Task {
   effort: number;
   priority: Priority;
   comments: Comment[];
+  position?: number;
+  boardId?: string;
 }
 
 export interface Column {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Task, TeamMember, Comment, Attachment } from '../types';
 import { X, Paperclip } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import CommentEditor from './CommentEditor';
 import { createComment, uploadFile, updateTask, deleteComment, fetchCommentAttachments } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm, getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
@@ -429,7 +430,7 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
                   </div>
                   <div
                     className="prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: comment.text }}
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.text) }}
                   />
                   {attachments.length > 0 && (
                     <div className="mt-3 space-y-1">
