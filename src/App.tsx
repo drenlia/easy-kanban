@@ -1,12 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
 import TeamMembers from './components/TeamMembers';
 import KanbanColumn from './components/Column';
 import TaskDetails from './components/TaskDetails';
 import BoardHeader from './components/BoardHeader';
 import DebugPanel from './components/DebugPanel';
+import ErrorBoundary from './components/ErrorBoundary';
+import LoadingSpinner from './components/LoadingSpinner';
 import { Github } from 'lucide-react';
 import * as api from './api';
+import { useLoadingState } from './hooks/useLoadingState';
+import { TaskSchema, MemberSchema, BoardSchema, ColumnSchema } from './validation/schemas';
+import { z } from 'zod';
 
 interface QueryLog {
   id: string;
@@ -32,30 +37,33 @@ export default function App() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
+  const { loading, withLoading } = useLoadingState();
 
   // Load initial data
   useEffect(() => {
     const loadInitialData = async () => {
-      try {
-        const [loadedMembers, loadedBoards] = await Promise.all([
-          api.getMembers(),
-          api.getBoards()
-        ]);
-        
-        setMembers(loadedMembers);
-        setBoards(loadedBoards);
-        
-        if (loadedBoards.length > 0) {
-          setSelectedBoard(loadedBoards[0].id);
-          setColumns(loadedBoards[0].columns || {});
-        }
+      await withLoading('general', async () => {
+        try {
+          const [loadedMembers, loadedBoards] = await Promise.all([
+            api.getMembers(),
+            api.getBoards()
+          ]);
+          
+          setMembers(loadedMembers);
+          setBoards(loadedBoards);
+          
+          if (loadedBoards.length > 0) {
+            setSelectedBoard(loadedBoards[0].id);
+            setColumns(loadedBoards[0].columns || {});
+          }
 
-        if (loadedMembers.length > 0) {
-          setSelectedMember(loadedMembers[0].id);
+          if (loadedMembers.length > 0) {
+            setSelectedMember(loadedMembers[0].id);
+          }
+        } catch (error) {
+          console.error('Failed to load initial data:', error);
         }
-      } catch (error) {
-        console.error('Failed to load initial data:', error);
-      }
+      });
       await fetchQueryLogs();
     };
 
@@ -99,12 +107,22 @@ export default function App() {
 
   const handleAddMember = async (member: TeamMember) => {
     try {
-      const createdMember = await api.createMember(member);
-      setMembers([...members, createdMember]);
-      if (!selectedMember) setSelectedMember(createdMember.id);
-      await fetchQueryLogs();
+      // Validate input
+      const validatedMember = MemberSchema.parse(member);
+      
+      await withLoading('members', async () => {
+        const createdMember = await api.createMember(validatedMember);
+        setMembers([...members, createdMember]);
+        if (!selectedMember) setSelectedMember(createdMember.id);
+        await fetchQueryLogs();
+      });
     } catch (error) {
-      console.error('Failed to add member:', error);
+      if (error instanceof z.ZodError) {
+        console.error('Validation error:', error.errors);
+        alert('Validation error: ' + error.errors.map(e => e.message).join(', '));
+      } else {
+        console.error('Failed to add member:', error);
+      }
     }
   };
 
@@ -195,56 +213,79 @@ export default function App() {
   const handleAddTask = async (columnId: string) => {
     if (!selectedMember || !selectedBoard) return;
 
-    try {
-      // 1. Get current tasks in the column and sort them by position
-      const columnTasks = [...(columns[columnId]?.tasks || [])]
-        .sort((a, b) => (a.position || 0) - (b.position || 0));
+    const columnTasks = [...(columns[columnId]?.tasks || [])]
+      .sort((a, b) => (a.position || 0) - (b.position || 0));
 
-      // 2. Create new task with position 0
-      const newTask: Task = {
-        id: crypto.randomUUID(),
-        title: 'New Task',
-        description: 'Task description',
-        memberId: selectedMember,
-        startDate: new Date().toISOString().split('T')[0],
-        effort: 1,
-        columnId,
-        position: 0,
-        priority: 'medium' as Priority,
-        requesterId: selectedMember,
-        boardId: selectedBoard,
-        comments: []
-      };
+    const newTask: Task = {
+      id: crypto.randomUUID(),
+      title: 'New Task',
+      description: 'Task description',
+      memberId: selectedMember,
+      startDate: new Date().toISOString().split('T')[0],
+      effort: 1,
+      columnId,
+      position: 0,
+      priority: 'medium' as Priority,
+      requesterId: selectedMember,
+      boardId: selectedBoard,
+      comments: []
+    };
 
-      // 3. First create the new task in the database
-      await api.createTask(newTask);
-
-      // 4. Update positions of existing tasks
-      const tasksToUpdate = columnTasks.map((task, index) => ({
-        ...task,
-        position: (index + 1) * 1000
-      }));
-
-      // 5. Update all existing tasks with new positions
-      if (tasksToUpdate.length > 0) {
-        const updatePromises = tasksToUpdate.map(task => api.updateTask(task));
-        await Promise.all(updatePromises);
+    // Optimistic update
+    const updatedTasks = [newTask, ...columnTasks.map((task, index) => ({
+      ...task,
+      position: (index + 1) * 1000
+    }))];
+    
+    setColumns(prev => ({
+      ...prev,
+      [columnId]: {
+        ...prev[columnId],
+        tasks: updatedTasks
       }
+    }));
 
-      // 6. Refresh the board to get the updated state
-      await refreshBoardData();
-
+    try {
+      await withLoading('tasks', async () => {
+        await api.createTask(newTask);
+        
+        if (columnTasks.length > 0) {
+          const updatePromises = columnTasks.map((task, index) => 
+            api.updateTask({ ...task, position: (index + 1) * 1000 })
+          );
+          await Promise.all(updatePromises);
+        }
+      });
     } catch (error) {
       console.error('Failed to create task:', error);
+      // Rollback by refreshing
+      await refreshBoardData();
     }
   };
 
   const handleEditTask = async (task: Task) => {
+    // Optimistic update
+    const previousColumns = { ...columns };
+    
+    // Update UI immediately
+    setColumns(prev => ({
+      ...prev,
+      [task.columnId]: {
+        ...prev[task.columnId],
+        tasks: prev[task.columnId].tasks.map(t => 
+          t.id === task.id ? task : t
+        )
+      }
+    }));
+    
     try {
-      const updatedTask = await api.updateTask(task);
-      await refreshBoardData(); // Refresh to ensure consistent state
-      await fetchQueryLogs();
+      await withLoading('tasks', async () => {
+        await api.updateTask(task);
+        await fetchQueryLogs();
+      });
     } catch (error) {
+      // Rollback on error
+      setColumns(previousColumns);
       console.error('Failed to update task:', error);
     }
   };
@@ -458,16 +499,26 @@ export default function App() {
 
       <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''}`}>
         <div className="max-w-[1400px] mx-auto">
-          <TeamMembers
-            members={members}
-            selectedMember={selectedMember}
-            onSelectMember={setSelectedMember}
-            onAdd={handleAddMember}
-            onRemove={handleRemoveMember}
-          />
+          {loading.general ? (
+            <LoadingSpinner size="large" className="mt-20" />
+          ) : (
+            <>
+              <TeamMembers
+                members={members}
+                selectedMember={selectedMember}
+                onSelectMember={setSelectedMember}
+                onAdd={handleAddMember}
+                onRemove={handleRemoveMember}
+              />
 
-          {selectedBoard && (
-            <div style={gridStyle}>
+              {selectedBoard && (
+                <div className="relative">
+                  {(loading.tasks || loading.boards || loading.columns) && (
+                    <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
+                      <LoadingSpinner size="medium" />
+                    </div>
+                  )}
+                  <div style={gridStyle}>
               {Object.values(columns).map(column => (
                 <KanbanColumn
                   key={column.id}
@@ -489,7 +540,10 @@ export default function App() {
                   onSelectTask={setSelectedTask}
                 />
               ))}
-            </div>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
