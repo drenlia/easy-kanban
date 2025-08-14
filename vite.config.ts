@@ -8,7 +8,7 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: '3010',
+    port: '3221',
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:3222',

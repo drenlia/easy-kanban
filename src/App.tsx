@@ -5,6 +5,7 @@ import KanbanColumn from './components/Column';
 import TaskDetails from './components/TaskDetails';
 import BoardHeader from './components/BoardHeader';
 import DebugPanel from './components/DebugPanel';
+import ResetCountdown from './components/ResetCountdown';
 import { Github } from 'lucide-react';
 import * as api from './api';
 
@@ -430,6 +431,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
+      <ResetCountdown />
       <header className="bg-white shadow-md">
         <div className="max-w-[1400px] mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -446,7 +448,7 @@ export default function App() {
             />
           </div>
           <a
-            href="https://github.com/Dan-code7ca/kanban"
+            href="https://github.com/DanielAtDrenlia/easy-kanban"
             target="_blank"
             rel="noopener noreferrer"
             className="text-gray-600 hover:text-gray-900"
