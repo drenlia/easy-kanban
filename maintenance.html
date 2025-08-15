@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Site - Maintenance</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .maintenance-container {
+            background: white;
+            border-radius: 16px;
+            padding: 3rem;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 500px;
+            margin: 2rem;
+        }
+        .icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 2rem;
+        }
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 1.5rem;
+        }
+        .countdown {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 1rem;
+            margin: 1.5rem 0;
+            font-size: 1.2rem;
+            color: #495057;
+        }
+        .refresh-info {
+            font-size: 0.9rem;
+            color: #868e96;
+            margin-top: 2rem;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .site-name {
+            font-weight: bold;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="maintenance-container">
+        <div class="icon">🔄</div>
+        <h1>Demo Reset in Progress</h1>
+        <p>The <span class="site-name" id="siteName">demo site</span> is currently being reset and will be back online shortly.</p>
+        
+        <div class="countdown">
+            <div class="spinner"></div>
+            Checking availability...
+        </div>
+        
+        <p>This demo resets every hour to provide a fresh experience for all visitors.</p>
+        
+        <div class="refresh-info">
+            This page will automatically refresh every 10 seconds to check if the service is back online.
+        </div>
+    </div>
+
+    <script>
+        // Detect which site this is and update the display
+        function updateSiteName() {
+            const hostname = window.location.hostname;
+            const siteNameElement = document.getElementById('siteName');
+            
+            if (hostname.includes('kanban')) {
+                siteNameElement.textContent = 'Kanban demo';
+                document.title = 'Kanban Demo - Maintenance';
+            } else if (hostname.includes('teamcal')) {
+                siteNameElement.textContent = 'Team Calendar demo';
+                document.title = 'Team Calendar Demo - Maintenance';
+            } else if (hostname.includes('website')) {
+                siteNameElement.textContent = 'Website demo';
+                document.title = 'Website Demo - Maintenance';
+            } else {
+                siteNameElement.textContent = 'demo site';
+                document.title = 'Demo Site - Maintenance';
+            }
+        }
+
+        function checkService() {
+            // Try to connect to the current domain
+            fetch('/', { 
+                method: 'GET',
+                mode: 'no-cors' // Avoid CORS issues during maintenance
+            })
+            .then(() => {
+                // If we get here, service is back up
+                window.location.reload();
+            })
+            .catch(() => {
+                // Service still down, continue checking
+                setTimeout(checkService, 10000); // Check every 10 seconds
+            });
+        }
+
+        // Initialize
+        updateSiteName();
+        
+        // Start checking after 5 seconds
+        setTimeout(checkService, 5000);
+    </script>
+</body>
+</html>
