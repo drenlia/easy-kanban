@@ -2,6 +2,7 @@ import React from 'react';
 import { Plus, X } from 'lucide-react';
 import { TeamMember } from '../types';
 import * as api from '../api';
+import { generateUUID } from '../utils/uuid';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -53,7 +54,7 @@ export default function TeamMembers({
     const availableColor = PRESET_COLORS.find(c => !usedColors.has(c)) || PRESET_COLORS[0];
 
     const newMember: TeamMember = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       name: newMemberName.trim(),
       color: availableColor
     };
