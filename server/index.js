@@ -23,10 +23,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Serve static files from the built frontend in production
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '..', 'public')));
-}
+
 
 // Query logging
 const queryLogs = [];
@@ -807,12 +804,7 @@ app.get('/health', (req, res) => {
   }
 });
 
-// Serve frontend for any non-API routes in production
-if (process.env.NODE_ENV === 'production') {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
-  });
-}
+
 
 const PORT = process.env.PORT || 3222;
 app.listen(PORT, '0.0.0.0', () => {
