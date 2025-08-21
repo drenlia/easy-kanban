@@ -19,9 +19,16 @@ This guide explains how to run the Easy Kanban application using Docker.
 - This is typically related to resource constraints or memory issues
 - The application works when running but may need monitoring
 
+## 🎯 **IMPORTANT: Port Information**
+
+| Mode | Command | Access URL | What You Get |
+|------|---------|------------|--------------|
+| **Production** | `npm run docker:prod` | **http://localhost:3222** | Frontend + Backend together |
+| **Development** | `npm run docker:dev` | Frontend: 3010, Backend: 3222 | Separate servers with hot reloading |
+
 ## Quick Start
 
-### 1. Build and Run (Production Mode)
+### 1. Build and Run (Production Mode) - **RECOMMENDED**
 
 ```bash
 # Build and start the application (Docker Compose V2)
@@ -35,9 +42,9 @@ npm run docker:prod-legacy
 # Or: docker-compose up --build
 ```
 
-The application will be available at:
-- Frontend: http://localhost:3010
-- Backend API: http://localhost:3222
+**🚀 Access your application at: http://localhost:3222**
+
+**Note**: In production mode, everything runs on port 3222 - both the frontend and backend are served together.
 
 ### 2. Development Mode (with Hot Reloading)
 
@@ -91,6 +98,22 @@ npm run docker:stop-legacy
 npm run docker:clean-legacy
 ```
 
+## Port Configuration
+
+### Production Mode (`npm run docker:prod`)
+- **Single Port**: http://localhost:3222
+- **What it serves**: Frontend + Backend API together
+- **Why one port**: Built frontend is served by the backend server
+- **Best for**: Production use, simple deployment, end users
+
+### Development Mode (`npm run docker:dev`)
+- **Two Ports**: 
+  - Frontend: http://localhost:3010 (Vite dev server)
+  - Backend: http://localhost:3222 (API server)
+- **What it serves**: Separate frontend dev server + backend API
+- **Why two ports**: Hot reloading, source maps, faster development
+- **Best for**: Development, debugging, code changes
+
 ## Docker Compose Files
 
 ### Production (`docker-compose.yml`)
@@ -140,6 +163,26 @@ The application includes a health check endpoint at `/health` that:
 - Used by Docker for container health monitoring
 
 ## Known Issues & Troubleshooting
+
+### Port Confusion - Common Issue!
+
+**❌ Don't do this**: Trying to access http://localhost:3010 in production mode
+**✅ Do this instead**: Access http://localhost:3222 in production mode
+
+**Why this happens:**
+- Production mode serves everything from port 3222
+- Port 3010 is only used in development mode
+- The frontend and backend are combined in production
+
+**Quick fix:**
+```bash
+# If you're in production mode, use:
+http://localhost:3222
+
+# If you want separate ports, use development mode:
+npm run docker:dev
+# Then access: Frontend: 3010, Backend: 3222
+```
 
 ### Container Exits Unexpectedly (Exit Code 137)
 
