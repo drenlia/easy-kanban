@@ -36,12 +36,29 @@ Stages can be renamed as needed.
 
 ## KanbanApp Installation
 
+### On your system
 ```
 git clone the project
 cd into the folder
 npm install
 npm run dev
 ```
+
+### Docker
+
+```
+# Clone the repo
+git clone https://github.com/drenlia/easy-kanban.git
+cd easy-kanban
+
+# Build the Docker image
+./build.sh
+
+# Run in development mode (with hot reloading)
+npm run docker:dev
+```
+*more info here for docker: [DOCKER.md](/DOCKER.md)*
+
 The frontend service will be listening on system IP and port 3010.  The backend listens on port 3222.
 
 You can change ports by editing `vite.config.ts` file

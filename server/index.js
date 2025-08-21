@@ -23,6 +23,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from the built frontend in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '..', 'public')));
+}
+
 // Query logging
 const queryLogs = [];
 let queryId = 0;
@@ -782,7 +787,34 @@ app.get('/attachments/:filename', (req, res) => {
   }
 });
 
-const PORT = 3222;
-app.listen(PORT, () => {
+// Health check endpoint for Docker
+app.get('/health', (req, res) => {
+  try {
+    // Check if database is accessible
+    db.prepare('SELECT 1').get();
+    res.status(200).json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      database: 'connected'
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'unhealthy', 
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: error.message
+    });
+  }
+});
+
+// Serve frontend for any non-API routes in production
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
+  });
+}
+
+const PORT = process.env.PORT || 3222;
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
 });

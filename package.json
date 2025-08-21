@@ -7,7 +7,17 @@
     "dev": "concurrently \"vite\" \"node server/index.js\"",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docker:build": "docker build -t easy-kanban .",
+    "docker:run": "docker run -p 3010:3010 -p 3222:3222 easy-kanban",
+    "docker:dev": "docker compose -f docker-compose.dev.yml up --build",
+    "docker:prod": "docker compose up --build",
+    "docker:stop": "docker compose down",
+    "docker:clean": "docker compose down -v && docker system prune -f",
+    "docker:dev-legacy": "docker-compose -f docker-compose.dev.yml up --build",
+    "docker:prod-legacy": "docker-compose up --build",
+    "docker:stop-legacy": "docker-compose down",
+    "docker:clean-legacy": "docker-compose down -v && docker system prune -f"
   },
   "dependencies": {
     "@tiptap/extension-bold": "^2.2.4",
