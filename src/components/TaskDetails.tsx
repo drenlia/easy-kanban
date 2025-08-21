@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Task, TeamMember, Comment, Attachment } from '../types';
 import { X, Paperclip } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import CommentEditor from './CommentEditor';
 import { createComment, uploadFile, updateTask, deleteComment, fetchCommentAttachments } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm, getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { generateUUID } from '../utils/uuid';
 
 interface TaskDetailsProps {
   task: Task;
@@ -47,9 +48,11 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
       }))
   }));
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingText, setIsSavingText] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -85,15 +88,92 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
     const updatedTask = { ...editedTask, ...updatedFields };
     setEditedTask(updatedTask);
 
-    try {
-      setIsSubmitting(true);
-      await onUpdate(updatedTask);
-    } catch (error) {
-      console.error('Failed to update task:', error);
-    } finally {
-      setIsSubmitting(false);
+    // Don't update server immediately for text fields to prevent focus loss
+    // Only update server for non-text fields or when explicitly needed
+    const isTextUpdate = 'title' in updatedFields || 'description' in updatedFields;
+    
+    if (!isTextUpdate) {
+      try {
+        setIsSubmitting(true);
+        await onUpdate(updatedTask);
+      } catch (error) {
+        console.error('Failed to update task:', error);
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
+
+  // Separate function for text field updates (local only)
+  const handleTextUpdate = async (field: 'title' | 'description', value: string) => {
+    const updatedTask = { ...editedTask, [field]: value };
+    setEditedTask(updatedTask);
+    
+    // Schedule auto-save in 3 seconds
+    scheduleAutoSave(updatedTask);
+  };
+
+  // Function to schedule auto-save
+  const scheduleAutoSave = useCallback((updatedTask: Task) => {
+    // Clear existing timeout
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    
+    // Set new timeout for 3 seconds
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        setIsSavingText(true);
+        await onUpdate(updatedTask);
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+      } finally {
+        setIsSavingText(false);
+      }
+    }, 3000);
+  }, [onUpdate]);
+
+  // Function to save changes immediately
+  const saveChanges = async () => {
+    if (editedTask.title !== task.title || editedTask.description !== task.description) {
+      try {
+        setIsSavingText(true);
+        await onUpdate(editedTask);
+      } catch (error) {
+        console.error('Failed to save task:', error);
+      } finally {
+        setIsSavingText(false);
+      }
+    }
+  };
+
+  // Handle click outside to save changes
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (resizeRef.current && !resizeRef.current.contains(target)) {
+        // Check if click is outside the TaskDetails panel
+        const taskDetailsPanel = document.querySelector('[data-task-details]');
+        if (taskDetailsPanel && !taskDetailsPanel.contains(target)) {
+          saveChanges();
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [editedTask.title, editedTask.description, task.title, task.description]);
+
+  // Cleanup auto-save timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleAddComment = async (content: string, attachments: File[]) => {
     if (isSubmitting) return;
@@ -117,7 +197,7 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
 
       // Create new comment with attachments
       const newComment = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         text: content,
         authorId: editedTask.memberId || members[0].id,
         createdAt: getLocalISOString(new Date()),
@@ -263,6 +343,7 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
     <div 
       className="fixed top-0 right-0 h-full bg-white border-l border-gray-200 flex" 
       style={{ width: `${width}px` }}
+      data-task-details
     >
       <div
         ref={resizeRef}
@@ -280,14 +361,22 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
               <input
                 type="text"
                 value={editedTask.title}
-                onChange={e => handleUpdate({ title: e.target.value })}
+                onChange={e => handleTextUpdate('title', e.target.value)}
                 className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0"
                 disabled={isSubmitting}
               />
             </div>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-2">
+              {isSavingText && (
+                <div className="text-xs text-gray-500 flex items-center gap-1">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                  Auto-saving...
+                </div>
+              )}
+              <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           <div className="space-y-6">
@@ -297,7 +386,7 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
               </label>
               <textarea
                 value={editedTask.description}
-                onChange={e => handleUpdate({ description: e.target.value })}
+                onChange={e => handleTextUpdate('description', e.target.value)}
                 className="w-full px-3 py-2 border rounded-md"
                 rows={3}
                 disabled={isSubmitting}

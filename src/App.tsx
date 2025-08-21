@@ -4,14 +4,16 @@ import TeamMembers from './components/TeamMembers';
 import KanbanColumn from './components/Column';
 import TaskDetails from './components/TaskDetails';
 import BoardHeader from './components/BoardHeader';
+import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
-import { Github } from 'lucide-react';
+import { Github, HelpCircle } from 'lucide-react';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { TaskSchema, MemberSchema, BoardSchema, ColumnSchema } from './validation/schemas';
 import { z } from 'zod';
+import { generateUUID } from './utils/uuid';
 
 interface QueryLog {
   id: string;
@@ -37,6 +39,7 @@ export default function App() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const { loading, withLoading } = useLoadingState();
 
   // Load initial data
@@ -73,12 +76,11 @@ export default function App() {
   // Update columns when selected board changes
   useEffect(() => {
     if (selectedBoard) {
-      const board = boards.find(b => b.id === selectedBoard);
-      if (board) {
-        setColumns(board.columns || {});
-      }
+      // Always refresh board data from server when switching boards
+      // This ensures we have the latest data including new tasks
+      refreshBoardData();
     }
-  }, [selectedBoard, boards]);
+  }, [selectedBoard]);
 
   const refreshBoardData = async () => {
     try {
@@ -141,7 +143,7 @@ export default function App() {
 
   const handleAddBoard = async () => {
     try {
-      const boardId = crypto.randomUUID();
+      const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
         title: 'New Board',
@@ -217,7 +219,7 @@ export default function App() {
       .sort((a, b) => (a.position || 0) - (b.position || 0));
 
     const newTask: Task = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       title: 'New Task',
       description: 'Task description',
       memberId: selectedMember,
@@ -303,7 +305,7 @@ export default function App() {
   const handleCopyTask = async (task: Task) => {
     const newTask: Task = {
       ...task,
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       title: `${task.title} (Copy)`,
       comments: []
     };
@@ -434,7 +436,7 @@ export default function App() {
   const handleAddColumn = async () => {
     if (!selectedBoard) return;
 
-    const columnId = crypto.randomUUID();
+    const columnId = generateUUID();
     const newColumn: Column = {
       id: columnId,
       title: 'New Column',
@@ -469,6 +471,19 @@ export default function App() {
   // Get debug parameter from URL
   const showDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
 
+  // Keyboard shortcut for help (F1)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'F1') {
+        event.preventDefault();
+        setShowHelpModal(true);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       <header className="bg-white shadow-md">
@@ -486,14 +501,23 @@ export default function App() {
               onRemoveBoard={handleRemoveBoard}
             />
           </div>
-          <a
-            href="https://github.com/Dan-code7ca/kanban"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-gray-600 hover:text-gray-900"
-          >
-            <Github size={24} />
-          </a>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setShowHelpModal(true)}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-600 hover:text-gray-900"
+              title="Help (F1)"
+            >
+              <HelpCircle size={24} />
+            </button>
+            <a
+              href="https://github.com/drenlia/easy-kanban"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-gray-600 hover:text-gray-900"
+            >
+              <Github size={24} />
+            </a>
+          </div>
         </div>
       </header>
 
@@ -565,6 +589,11 @@ export default function App() {
           onClear={clearQueryLogs}
         />
       )}
+
+      <HelpModal
+        isOpen={showHelpModal}
+        onClose={() => setShowHelpModal(false)}
+      />
     </div>
   );
 }
