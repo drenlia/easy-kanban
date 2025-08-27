@@ -9,6 +9,8 @@ services:
       - NODE_ENV=development
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
+      # Enable demo mode to show countdown timer for hourly resets (demo environments only)
+      - DEMO_ENABLED=true
     volumes:
       - .:/app
       - /app/node_modules

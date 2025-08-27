@@ -6,6 +6,9 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  define: {
+    'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED),
+  },
   server: {
     host: '0.0.0.0',
     port: '3010',
