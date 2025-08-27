@@ -6,6 +6,7 @@ import TaskDetails from './components/TaskDetails';
 import BoardHeader from './components/BoardHeader';
 import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
+import ResetCountdown from './components/ResetCountdown';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
 import { Github, HelpCircle } from 'lucide-react';
@@ -486,6 +487,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
+      {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       <header className="bg-white shadow-md">
         <div className="max-w-[1400px] mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
