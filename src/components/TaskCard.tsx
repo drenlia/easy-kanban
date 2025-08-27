@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2, MessageSquare } from 'lucide-react';
 import { Task, TeamMember, Priority } from '../types';
 import QuickEditModal from './QuickEditModal';
@@ -60,6 +60,14 @@ export default function TaskCard({
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
+  const [isEditingDate, setIsEditingDate] = useState(false);
+  const [isEditingEffort, setIsEditingEffort] = useState(false);
+  const [showPrioritySelect, setShowPrioritySelect] = useState(false);
+  const [editedDate, setEditedDate] = useState(task.startDate);
+  const [editedEffort, setEditedEffort] = useState(task.effort);
+  const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
+  const priorityButtonRef = useRef<HTMLButtonElement>(null);
+  const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -102,6 +110,119 @@ export default function TaskCard({
       handleTitleCancel();
     }
   };
+
+  const handleDateSave = () => {
+    if (editedDate !== task.startDate) {
+      onEdit({ ...task, startDate: editedDate });
+    }
+    setIsEditingDate(false);
+  };
+
+  const handleDateCancel = () => {
+    setEditedDate(task.startDate);
+    setIsEditingDate(false);
+  };
+
+  const handleDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleDateSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleDateCancel();
+    }
+  };
+
+  const handleEffortSave = () => {
+    if (editedEffort !== task.effort) {
+      onEdit({ ...task, effort: editedEffort });
+    }
+    setIsEditingEffort(false);
+  };
+
+  const handleEffortCancel = () => {
+    setEditedEffort(task.effort);
+    setIsEditingEffort(false);
+  };
+
+  const handleEffortKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleEffortSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleEffortCancel();
+    }
+  };
+
+  const handlePriorityChange = (priority: Priority) => {
+    console.log('Priority change requested:', { from: task.priority, to: priority, taskId: task.id });
+    console.log('onEdit function:', onEdit);
+    console.log('Updated task object:', { ...task, priority });
+    
+    try {
+      onEdit({ ...task, priority });
+      console.log('onEdit called successfully');
+    } catch (error) {
+      console.error('Error calling onEdit:', error);
+    }
+    
+    setShowPrioritySelect(false);
+  };
+
+  const handleCommentTooltipShow = () => {
+    if (commentTooltipTimeoutRef.current) {
+      clearTimeout(commentTooltipTimeoutRef.current);
+    }
+    setShowCommentTooltip(true);
+  };
+
+  const handleCommentTooltipHide = () => {
+    commentTooltipTimeoutRef.current = setTimeout(() => {
+      setShowCommentTooltip(false);
+    }, 150); // Small delay to allow moving mouse to tooltip
+  };
+
+  const calculateDropdownPosition = () => {
+    if (!priorityButtonRef.current) return 'below';
+    
+    const rect = priorityButtonRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    // If there's more space above than below, position above
+    return spaceAbove > spaceBelow ? 'above' : 'below';
+  };
+
+  // Close expanded priority view when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showPrioritySelect) {
+        // Check if the click is on the priority container
+        const target = event.target as HTMLElement;
+        const priorityContainer = target.closest('.priority-container');
+        
+        if (!priorityContainer) {
+          console.log('Click outside detected, closing expanded priority view');
+          setShowPrioritySelect(false);
+        }
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showPrioritySelect]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (commentTooltipTimeoutRef.current) {
+        clearTimeout(commentTooltipTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const latestComment = getLatestComment(task.comments);
   const commentAuthor = latestComment ? members.find(m => m.id === latestComment.authorId) : null;
@@ -176,6 +297,7 @@ export default function TaskCard({
             <button
               onClick={() => onRemove(task.id)}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+              title="Delete Task"
             >
               <X size={16} className="text-gray-500" />
             </button>
@@ -206,51 +328,159 @@ export default function TaskCard({
         
         <div className="flex items-center gap-4 text-sm text-gray-500">
           <div className="flex items-center gap-1">
-            <Calendar size={14} />
-            <span>{formatDate(task.startDate)}</span>
+            {isEditingDate ? (
+              <input
+                type="date"
+                value={editedDate}
+                onChange={(e) => setEditedDate(e.target.value)}
+                onBlur={handleDateSave}
+                onKeyDown={handleDateKeyDown}
+                className="text-xs bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-28"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingDate(true);
+                }}
+                className="hover:bg-gray-100 rounded px-1 py-0.5 transition-colors cursor-pointer w-20 text-xs"
+                title="Click to change date"
+              >
+                {formatDate(task.startDate)}
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-1">
             <Clock size={14} />
-            <span>{task.effort}h</span>
+            {isEditingEffort ? (
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={editedEffort}
+                onChange={(e) => setEditedEffort(parseInt(e.target.value) || 0)}
+                onBlur={handleEffortSave}
+                onKeyDown={handleEffortKeyDown}
+                className="text-sm bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-12"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsEditingEffort(true);
+                }}
+                className="hover:bg-gray-100 rounded px-1 py-0.5 transition-colors cursor-pointer"
+                title="Click to change effort"
+              >
+                {task.effort}h
+              </button>
+            )}
           </div>
           <div 
             className="flex items-center gap-1 relative"
-            onMouseEnter={() => setShowCommentTooltip(true)}
-            onMouseLeave={() => setShowCommentTooltip(false)}
+            onMouseEnter={handleCommentTooltipShow}
+            onMouseLeave={handleCommentTooltipHide}
           >
-            <MessageCircle size={14} />
-            <span>
-              {validComments.length}
-            </span>
+            <button
+              onClick={() => onSelect(task)}
+              className="flex items-center gap-1 hover:bg-gray-100 rounded px-1 py-0.5 transition-colors"
+              title="Click to add comment or view details"
+            >
+              <MessageCircle 
+                size={14} 
+                className={validComments.length > 0 ? "text-blue-600" : "text-gray-500"} 
+              />
+              <span className={validComments.length > 0 ? "text-blue-600 font-medium" : "text-gray-500"}>
+                {validComments.length}
+              </span>
+            </button>
             
-            {/* Comment Tooltip - Only show if there are comments */}
+            {/* Comment Tooltip - Show all comments in chronological order */}
             {showCommentTooltip && 
-             task.comments && 
-             task.comments.length > 0 && 
-             latestComment && 
-             commentAuthor && (
-              <div className="absolute bottom-full left-0 mb-2 w-64 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-20">
-                <div className="flex items-center gap-2 mb-1">
-                  <div 
-                    className="w-2 h-2 rounded-full" 
-                    style={{ backgroundColor: commentAuthor.color }} 
-                  />
-                  <span className="font-medium">{commentAuthor.name}</span>
-                  <span className="text-gray-400 text-xs">
-                    {formatDateTime(latestComment.createdAt)}
-                  </span>
+             validComments && 
+             validComments.length > 0 && (
+              <div 
+                className="absolute bottom-full left-0 mb-2 w-80 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-20 max-h-64 overflow-y-auto"
+                onMouseEnter={handleCommentTooltipShow}
+                onMouseLeave={handleCommentTooltipHide}
+              >
+                <div className="text-gray-300 font-medium mb-2 border-b border-gray-600 pb-1">
+                  Comments ({validComments.length})
                 </div>
-                <p className="text-gray-200 line-clamp-3">
-                  {latestComment.text.replace(/<[^>]*>/g, '')}
-                </p>
+                {validComments
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                  .map((comment, index) => {
+                    const author = members.find(m => m.id === comment.authorId);
+                    return (
+                      <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <div 
+                            className="w-2 h-2 rounded-full flex-shrink-0" 
+                            style={{ backgroundColor: author?.color || '#6B7280' }} 
+                          />
+                          <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
+                          <span className="text-gray-400 text-xs">
+                            {formatDateTime(comment.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-gray-300 text-xs leading-relaxed">
+                          {comment.text.replace(/<[^>]*>/g, '')}
+                        </p>
+                      </div>
+                    );
+                  })}
                 <div className="absolute -bottom-1 left-2 w-2 h-2 bg-gray-800 transform rotate-45" />
               </div>
             )}
           </div>
-          <div
-            className={`px-2 py-1 rounded-full text-xs ${PRIORITY_COLORS[task.priority]}`}
-          >
-            {task.priority}
+          <div className="relative priority-container">
+            <button
+              ref={priorityButtonRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                console.log('Priority button clicked, showing floating menu');
+                setShowPrioritySelect(!showPrioritySelect);
+                if (!showPrioritySelect) {
+                  setDropdownPosition(calculateDropdownPosition());
+                }
+              }}
+              className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${PRIORITY_COLORS[task.priority]} ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
+              title="Click to change priority"
+            >
+              {task.priority}
+            </button>
+            
+            {showPrioritySelect && (
+              <div 
+                className={`absolute left-0 w-24 bg-white rounded-md shadow-lg z-50 border border-gray-200 ${
+                  dropdownPosition === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'
+                }`}
+              >
+                {(['low', 'medium', 'high'] as Priority[])
+                  .filter(priority => priority !== task.priority)
+                  .map(priority => (
+                    <button
+                      key={priority}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        console.log('Priority option clicked:', priority);
+                        handlePriorityChange(priority);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100 border-b border-gray-100 last:border-b-0 flex items-center gap-2"
+                    >
+                      <div 
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: priority === 'low' ? '#3B82F6' : priority === 'medium' ? '#F59E0B' : '#EF4444' }}
+                      />
+                      {priority}
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
