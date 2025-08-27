@@ -62,9 +62,11 @@ export default function TaskCard({
   const [editedTitle, setEditedTitle] = useState(task.title);
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [isEditingEffort, setIsEditingEffort] = useState(false);
+  const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showPrioritySelect, setShowPrioritySelect] = useState(false);
   const [editedDate, setEditedDate] = useState(task.startDate);
   const [editedEffort, setEditedEffort] = useState(task.effort);
+  const [editedDescription, setEditedDescription] = useState(task.description);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -152,6 +154,28 @@ export default function TaskCard({
     } else if (e.key === 'Escape') {
       e.preventDefault();
       handleEffortCancel();
+    }
+  };
+
+  const handleDescriptionSave = () => {
+    if (editedDescription !== task.description) {
+      onEdit({ ...task, description: editedDescription });
+    }
+    setIsEditingDescription(false);
+  };
+
+  const handleDescriptionCancel = () => {
+    setEditedDescription(task.description);
+    setIsEditingDescription(false);
+  };
+
+  const handleDescriptionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleDescriptionSave();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      handleDescriptionCancel();
     }
   };
 
@@ -324,7 +348,32 @@ export default function TaskCard({
           </div>
         )}
         
-        <p className="text-sm text-gray-600 mb-3">{task.description}</p>
+        {isEditingDescription ? (
+          <div className="mb-3">
+            <textarea
+              value={editedDescription}
+              onChange={(e) => setEditedDescription(e.target.value)}
+              onBlur={handleDescriptionSave}
+              onKeyDown={handleDescriptionKeyDown}
+              className="text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 w-full resize-y"
+              autoFocus
+              rows={3}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Enter task description..."
+            />
+            <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+              <span>💡 Press Enter to save, Shift+Enter for new line</span>
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="text-sm text-gray-600 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
+            onDoubleClick={() => setIsEditingDescription(true)}
+            title="Double-click to edit description"
+          >
+            {task.description}
+          </div>
+        )}
         
         <div className="flex items-center gap-4 text-sm text-gray-500">
           <div className="flex items-center gap-1">

@@ -3,7 +3,7 @@ import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
 import TeamMembers from './components/TeamMembers';
 import KanbanColumn from './components/Column';
 import TaskDetails from './components/TaskDetails';
-import BoardHeader from './components/BoardHeader';
+import BoardTabs from './components/BoardTabs';
 import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
@@ -494,14 +494,6 @@ export default function App() {
             <a href="https://drenlia.com" target="_blank" rel="noopener noreferrer" className="text-gray-600 hover:text-blue-700">
               Drenlia Inc.
             </a>
-            <BoardHeader
-              boards={boards}
-              selectedBoard={selectedBoard}
-              onSelectBoard={setSelectedBoard}
-              onAddBoard={handleAddBoard}
-              onEditBoard={handleEditBoard}
-              onRemoveBoard={handleRemoveBoard}
-            />
           </div>
           <div className="flex items-center gap-4">
             <button
@@ -535,6 +527,16 @@ export default function App() {
                 onSelectMember={setSelectedMember}
                 onAdd={handleAddMember}
                 onRemove={handleRemoveMember}
+              />
+
+              {/* Board Tabs */}
+              <BoardTabs
+                boards={boards}
+                selectedBoard={selectedBoard}
+                onSelectBoard={setSelectedBoard}
+                onAddBoard={handleAddBoard}
+                onEditBoard={handleEditBoard}
+                onRemoveBoard={handleRemoveBoard}
               />
 
               {selectedBoard && (
