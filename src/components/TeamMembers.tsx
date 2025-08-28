@@ -82,41 +82,41 @@ export default function TeamMembers({
   };
 
   return (
-    <div className="p-4 bg-white shadow-md rounded-lg mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-xl font-bold text-gray-800">Team Members</h2>
+    <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Team Members</h2>
         <button
           onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-md hover:bg-blue-600 transition-colors"
         >
-          <Plus size={18} /> Add Member
+          <Plus size={14} /> Add
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-2">
         {members.map(member => (
           <div
             key={member.id}
-            className={`flex items-center gap-2 px-3 py-2 rounded-full cursor-pointer transition-all ${
-              selectedMember === member.id ? 'ring-2 ring-offset-2' : ''
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full cursor-pointer transition-all ${
+              selectedMember === member.id ? 'ring-2 ring-offset-1' : ''
             }`}
             style={{
-              backgroundColor: `${member.color}20`,
+              backgroundColor: `${member.color}15`,
               color: member.color,
               ringColor: member.color
             }}
             onClick={() => onSelectMember(member.id)}
           >
-            <span className="font-medium">{member.name}</span>
+            <span className="text-xs font-medium">{member.name}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleRemove(member.id);
               }}
-              className="p-1 hover:bg-white/20 rounded-full transition-colors"
+              className="p-0.5 hover:bg-white/30 rounded-full transition-colors"
               disabled={isSubmitting}
             >
-              <X size={14} />
+              <X size={12} />
             </button>
           </div>
         ))}
@@ -124,29 +124,29 @@ export default function TeamMembers({
 
       {showAddForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <form onSubmit={handleAdd} className="bg-white p-6 rounded-lg shadow-xl w-96">
-            <h3 className="text-lg font-semibold mb-4">Add Team Member</h3>
+          <form onSubmit={handleAdd} className="bg-white p-4 rounded-lg shadow-xl w-80">
+            <h3 className="text-base font-semibold mb-3 text-gray-800">Add Team Member</h3>
             <input
               type="text"
               value={newMemberName}
               onChange={e => setNewMemberName(e.target.value)}
               placeholder="Member name"
-              className="w-full px-3 py-2 border rounded-md mb-4"
+              className="w-full px-3 py-2 border rounded-md mb-3 text-sm"
               autoFocus
               disabled={isSubmitting}
             />
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowAddForm(false)}
-                className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
+                className="px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-md text-sm"
                 disabled={isSubmitting}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className={`px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center gap-2 ${
+                className={`px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center gap-1.5 text-sm ${
                   isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
                 disabled={isSubmitting}
