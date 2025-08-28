@@ -34,12 +34,12 @@ export default function BoardHeader({
   if (boards.length === 0) {
     return (
       <div className="flex items-center gap-2">
-        <h2 className="text-lg font-semibold">No Boards</h2>
+        <h2 className="text-base font-semibold text-gray-700">No Boards</h2>
         <button
           onClick={onAddBoard}
-          className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-full transition-colors"
         >
-          <Plus size={18} className="text-gray-500" />
+          <Plus size={16} className="text-gray-500" />
         </button>
       </div>
     );
@@ -51,7 +51,7 @@ export default function BoardHeader({
         <select
           value={selectedBoard || boards[0]?.id || ''}
           onChange={(e) => onSelectBoard(e.target.value)}
-          className="text-lg font-semibold bg-transparent border-none focus:ring-0 cursor-pointer pr-8"
+          className="text-base font-semibold bg-transparent border-none focus:ring-0 cursor-pointer pr-6 text-gray-800"
         >
           {boards.map(board => (
             <option key={board.id} value={board.id}>
@@ -61,22 +61,22 @@ export default function BoardHeader({
         </select>
         <button
           onClick={() => setShowMenu(!showMenu)}
-          className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+          className="p-1 hover:bg-gray-100 rounded-full transition-colors"
         >
-          <Settings2 size={18} className="text-gray-500" />
+          <Settings2 size={16} className="text-gray-500" />
         </button>
       </div>
 
       {showMenu && (
-        <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-50">
+        <div className="absolute top-full right-0 mt-1 w-40 bg-white rounded-md shadow-lg z-50 border border-gray-100">
           <button
             onClick={() => {
               onAddBoard();
               setShowMenu(false);
             }}
-            className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 flex items-center gap-2"
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 border-b border-gray-50"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             Add Board
           </button>
           <button
@@ -84,7 +84,7 @@ export default function BoardHeader({
               setShowRenameModal(true);
               setShowMenu(false);
             }}
-            className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50 border-b border-gray-50"
           >
             Rename Board
           </button>
@@ -96,7 +96,7 @@ export default function BoardHeader({
                 }
                 setShowMenu(false);
               }}
-              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+              className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-gray-50"
             >
               Delete Board
             </button>

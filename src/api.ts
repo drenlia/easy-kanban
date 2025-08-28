@@ -42,6 +42,11 @@ export const deleteBoard = async (id: string) => {
   return data;
 };
 
+export const reorderBoards = async (boardId: string, newPosition: number) => {
+  const { data } = await api.post('/boards/reorder', { boardId, newPosition });
+  return data;
+};
+
 // Columns
 export const createColumn = async (column: Column) => {
   const { data } = await api.post<Column>('/columns', column);
@@ -55,6 +60,11 @@ export const updateColumn = async (id: string, title: string) => {
 
 export const deleteColumn = async (id: string) => {
   const { data } = await api.delete(`/columns/${id}`);
+  return data;
+};
+
+export const reorderColumns = async (columnId: string, newPosition: number, boardId: string) => {
+  const { data } = await api.post('/columns/reorder', { columnId, newPosition, boardId });
   return data;
 };
 

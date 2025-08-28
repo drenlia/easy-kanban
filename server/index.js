@@ -198,11 +198,11 @@ if (boardCount.count === 0) {
 
   // Create default columns
   const columnStmt = wrapQuery(
-    db.prepare('INSERT INTO columns (id, boardId, title) VALUES (?, ?, ?)'),
+    db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
     'INSERT'
   );
-  defaultBoard.columns.forEach(column => {
-    columnStmt.run(column.id, defaultBoard.id, column.title);
+  defaultBoard.columns.forEach((column, index) => {
+    columnStmt.run(column.id, defaultBoard.id, column.title, index);
   });
 
   // Create a sample task
@@ -289,13 +289,13 @@ app.delete('/api/members/:id', (req, res) => {
 
 app.get('/api/boards', (req, res) => {
   try {
-    // Get all boards
-    const boardsStmt = wrapQuery(db.prepare('SELECT * FROM boards'), 'SELECT');
+    // Get all boards ordered by position (cast to integer for proper sorting)
+    const boardsStmt = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER)'), 'SELECT');
     const boards = boardsStmt.all();
     
     // Prepare statements for related data
     const columnsStmt = wrapQuery(
-      db.prepare('SELECT * FROM columns WHERE boardId = ?'),
+      db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'),
       'SELECT'
     );
     const tasksStmt = wrapQuery(
@@ -350,19 +350,23 @@ app.post('/api/boards', (req, res) => {
   const { id, title, columns } = req.body;
   
   try {
+    // Get the highest position and add 1
+    const maxPosition = db.prepare('SELECT COALESCE(MAX(CAST(position AS INTEGER)), -1) as maxPos FROM boards').get();
+    const newPosition = maxPosition.maxPos + 1;
+    
     const boardStmt = wrapQuery(
-      db.prepare('INSERT INTO boards (id, title) VALUES (?, ?)'),
+      db.prepare('INSERT INTO boards (id, title, position) VALUES (?, ?, ?)'),
       'INSERT'
     );
-    boardStmt.run(id, title);
+    boardStmt.run(id, title, newPosition);
     
     const columnStmt = wrapQuery(
-      db.prepare('INSERT INTO columns (id, boardId, title) VALUES (?, ?, ?)'),
+      db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
       'INSERT'
     );
     
-    Object.values(columns).forEach(column => {
-      columnStmt.run(column.id, id, column.title);
+    Object.values(columns).forEach((column, index) => {
+      columnStmt.run(column.id, id, column.title, index);
     });
     
     res.json({ id, title, columns });
@@ -405,16 +409,64 @@ app.delete('/api/boards/:id', (req, res) => {
   }
 });
 
+app.post('/api/boards/reorder', (req, res) => {
+  const { boardId, newPosition } = req.body;
+  
+  try {
+    // Get current board position
+    const currentBoard = db.prepare('SELECT position FROM boards WHERE id = ?').get(boardId);
+    if (!currentBoard) {
+      return res.status(404).json({ error: 'Board not found' });
+    }
+    
+    const currentPosition = parseInt(currentBoard.position) || 0;
+    if (currentPosition === newPosition) {
+      return res.json({ message: 'No change needed' });
+    }
+    
+    const transaction = db.transaction(() => {
+      // Get all boards ordered by current position
+      const allBoards = db.prepare('SELECT id, position FROM boards ORDER BY position').all();
+      
+      // Reset all positions to simple integers (0, 1, 2, 3, etc.)
+      allBoards.forEach((board, index) => {
+        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(index, board.id);
+      });
+      
+      // Now get the normalized positions and find the target and dragged boards
+      const normalizedBoards = db.prepare('SELECT id, position FROM boards ORDER BY position').all();
+      const draggedBoard = normalizedBoards.find(board => board.id === boardId);
+      const targetBoard = normalizedBoards.find(board => board.position === newPosition);
+      
+      if (draggedBoard && targetBoard) {
+        // Simple swap: just swap the two positions
+        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(targetBoard.position, draggedBoard.id);
+        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(draggedBoard.position, targetBoard.id);
+      }
+    });
+    
+    transaction();
+    res.json({ message: 'Boards reordered successfully' });
+  } catch (error) {
+    console.error('Error reordering boards:', error);
+    res.status(500).json({ error: 'Failed to reorder boards' });
+  }
+});
+
 app.post('/api/columns', (req, res) => {
   const { id, boardId, title } = req.body;
   
   try {
+    // Get the highest position for this board and add 1
+    const maxPosition = db.prepare('SELECT COALESCE(MAX(position), -1) as maxPos FROM columns WHERE boardId = ?').get(boardId);
+    const newPosition = maxPosition.maxPos + 1;
+    
     const stmt = wrapQuery(
-      db.prepare('INSERT INTO columns (id, boardId, title) VALUES (?, ?, ?)'),
+      db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
       'INSERT'
     );
-    stmt.run(id, boardId, title);
-    res.json({ id, boardId, title, tasks: [] });
+    stmt.run(id, boardId, title, newPosition);
+    res.json({ id, boardId, title, position: newPosition, tasks: [] });
   } catch (error) {
     console.error('Error creating column:', error);
     res.status(500).json({ error: 'Failed to create column' });
@@ -451,6 +503,52 @@ app.delete('/api/columns/:id', (req, res) => {
   } catch (error) {
     console.error('Error deleting column:', error);
     res.status(500).json({ error: 'Failed to delete column' });
+  }
+});
+
+app.post('/api/columns/reorder', (req, res) => {
+  const { columnId, newPosition, boardId } = req.body;
+  
+  try {
+    // Get current position of the column being moved
+    const currentColumn = db.prepare('SELECT position FROM columns WHERE id = ? AND boardId = ?').get(columnId, boardId);
+    if (!currentColumn) {
+      return res.status(404).json({ error: 'Column not found' });
+    }
+    
+    const currentPosition = currentColumn.position;
+    
+    if (currentPosition === newPosition) {
+      return res.json({ message: 'No change needed' });
+    }
+    
+    // Begin transaction for position updates
+    const transaction = db.transaction(() => {
+      if (currentPosition < newPosition) {
+        // Moving down: shift columns between current and new position up by 1
+        db.prepare(`
+          UPDATE columns 
+          SET position = position - 1 
+          WHERE boardId = ? AND position > ? AND position <= ?
+        `).run(boardId, currentPosition, newPosition);
+      } else {
+        // Moving up: shift columns between new and current position down by 1
+        db.prepare(`
+          UPDATE columns 
+          SET position = position + 1 
+          WHERE boardId = ? AND position >= ? AND position < ?
+        `).run(boardId, newPosition, currentPosition);
+      }
+      
+      // Update the moved column to its new position
+      db.prepare('UPDATE columns SET position = ? WHERE id = ?').run(newPosition, columnId);
+    });
+    
+    transaction();
+    res.json({ message: 'Columns reordered successfully' });
+  } catch (error) {
+    console.error('Error reordering columns:', error);
+    res.status(500).json({ error: 'Failed to reorder columns' });
   }
 });
 

@@ -43,6 +43,7 @@ export interface Column {
   title: string;
   tasks: Task[];
   boardId: string;
+  position?: number;
 }
 
 export interface Columns {
@@ -53,4 +54,5 @@ export interface Board {
   id: string;
   title: string;
   columns: Columns;
+  position?: number;
 }

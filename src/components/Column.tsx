@@ -2,12 +2,15 @@ import React, { useState, useCallback } from 'react';
 import { Plus, MoreVertical } from 'lucide-react';
 import { Column, Task, TeamMember } from '../types';
 import TaskCard from './TaskCard';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface KanbanColumnProps {
   column: Column;
   members: TeamMember[];
   selectedMember: string | null;
   draggedTask: Task | null;
+  draggedColumn: Column | null;
   onAddTask: (columnId: string) => void;
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
@@ -27,6 +30,7 @@ export default function KanbanColumn({
   members,
   selectedMember,
   draggedTask,
+  draggedColumn,
   onAddTask,
   onRemoveTask,
   onEditTask,
@@ -45,6 +49,21 @@ export default function KanbanColumn({
   const [showMenu, setShowMenu] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // Use @dnd-kit sortable hook for columns
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: column.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
 
   // Filter and sort tasks by column
   const columnTasks = React.useMemo(() => {
@@ -91,6 +110,8 @@ export default function KanbanColumn({
     }
     setDropIndex(null);
   };
+
+  // Column drag and drop is now handled by @dnd-kit in App.tsx
 
   const handleAddTask = async () => {
     if (!selectedMember || isSubmitting) return;
@@ -168,9 +189,15 @@ export default function KanbanColumn({
     onSelectTask
   ]);
 
+  const isBeingDraggedOver = draggedColumn && draggedColumn.id !== column.id;
+  
   return (
     <div 
-      className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px]"
+      ref={setNodeRef}
+      style={style}
+      className={`bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ${
+        isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''
+      }`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -192,8 +219,10 @@ export default function KanbanColumn({
           ) : (
             <>
               <h3
-                className="text-lg font-semibold text-gray-700 cursor-pointer hover:text-gray-900"
+                className="text-lg font-semibold text-gray-700 cursor-move hover:text-gray-900"
                 onClick={() => setIsEditing(true)}
+                {...attributes}
+                {...listeners}
               >
                 {column.title}
               </h3>
