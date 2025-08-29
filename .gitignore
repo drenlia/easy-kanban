@@ -25,6 +25,7 @@ server/kanban.db
 
 # File uploads and attachments
 server/attachments/
+server/avatars/
 
 # Logs
 logs/

@@ -23,6 +23,7 @@ interface KanbanColumnProps {
   onTaskDragOver: (e: React.DragEvent, columnId: string, index: number) => void;
   onSelectTask: (task: Task | null) => void;
   onTaskDrop: (columnId: string, index: number) => void;
+  isAdmin?: boolean;
 }
 
 export default function KanbanColumn({
@@ -42,7 +43,8 @@ export default function KanbanColumn({
   onTaskDragEnd,
   onTaskDragOver,
   onSelectTask,
-  onTaskDrop
+  onTaskDrop,
+  isAdmin = false
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -50,7 +52,30 @@ export default function KanbanColumn({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
-  // Use @dnd-kit sortable hook for columns
+  // Auto-close menu when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showMenu) {
+        const target = event.target as HTMLElement;
+        // Check if click is outside the menu button and menu content
+        if (!target.closest('.column-menu-container')) {
+          setShowMenu(false);
+        }
+      }
+    };
+
+    // Add event listener when menu is open
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    // Cleanup event listener
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMenu]);
+
+  // Use @dnd-kit sortable hook for columns (Admin only)
   const {
     attributes,
     listeners,
@@ -58,7 +83,7 @@ export default function KanbanColumn({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: column.id });
+  } = useSortable({ id: column.id, disabled: !isAdmin });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -219,10 +244,15 @@ export default function KanbanColumn({
           ) : (
             <>
               <h3
-                className="text-lg font-semibold text-gray-700 cursor-move hover:text-gray-900"
-                onClick={() => setIsEditing(true)}
-                {...attributes}
-                {...listeners}
+                className={`text-lg font-semibold text-gray-700 ${
+                  isAdmin 
+                    ? 'cursor-move hover:text-gray-900' 
+                    : 'cursor-default'
+                }`}
+                onClick={() => isAdmin && setIsEditing(true)}
+                {...(isAdmin ? attributes : {})}
+                {...(isAdmin ? listeners : {})}
+                title={isAdmin ? 'Click to edit, drag to reorder' : 'Column title'}
               >
                 {column.title}
               </h3>
@@ -242,40 +272,44 @@ export default function KanbanColumn({
           )}
         </div>
         
-        <div className="relative">
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            className="p-1 hover:bg-gray-200 rounded-full transition-colors"
-            disabled={isSubmitting}
-          >
-            <MoreVertical size={18} className="text-gray-500" />
-          </button>
-          
-          {showMenu && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-              <button
-                onClick={() => {
-                  onAddColumn();
-                  setShowMenu(false);
-                }}
-                className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
-                disabled={isSubmitting}
-              >
-                Add Column
-              </button>
-              <button
-                onClick={() => {
-                  onRemoveColumn(column.id);
-                  setShowMenu(false);
-                }}
-                className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
-                disabled={isSubmitting}
-              >
-                Delete Column
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Column Management Menu - Admin Only */}
+        {isAdmin && (
+          <div className="relative column-menu-container">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+              disabled={isSubmitting}
+              title="Column management options"
+            >
+              <MoreVertical size={18} className="text-gray-500" />
+            </button>
+            
+            {showMenu && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
+                <button
+                  onClick={() => {
+                    onAddColumn();
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                  disabled={isSubmitting}
+                >
+                  Add Column
+                </button>
+                <button
+                  onClick={() => {
+                    onRemoveColumn(column.id);
+                    setShowMenu(false);
+                  }}
+                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                  disabled={isSubmitting}
+                >
+                  Delete Column
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-h-[100px] space-y-3">

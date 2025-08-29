@@ -44,7 +44,7 @@ export default function TeamMembers({
         <img 
           src={member.googleAvatarUrl} 
           alt={member.name}
-          className="w-6 h-6 rounded-full object-cover"
+          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -54,7 +54,7 @@ export default function TeamMembers({
         <img 
           src={member.avatarUrl} 
           alt={member.name}
-          className="w-6 h-6 rounded-full object-cover"
+          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -63,7 +63,7 @@ export default function TeamMembers({
     const initials = member.name.split(' ').map(n => n[0]).join('').toUpperCase();
     return (
       <div 
-        className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white border-2 border-white shadow-sm"
         style={{ backgroundColor: member.color }}
       >
         {initials}

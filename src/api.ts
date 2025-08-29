@@ -218,8 +218,18 @@ export const deleteUser = async (userId: string) => {
   return data;
 };
 
+export const updateMemberColor = async (userId: string, color: string) => {
+  const { data } = await api.put(`/admin/users/${userId}/color`, { color });
+  return data;
+};
+
 export const getSettings = async () => {
   const { data } = await api.get('/admin/settings');
+  return data;
+};
+
+export const getPublicSettings = async () => {
+  const { data } = await api.get('/settings');
   return data;
 };
 

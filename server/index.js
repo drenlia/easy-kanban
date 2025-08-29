@@ -215,7 +215,10 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        roles: userRoles
+        roles: userRoles,
+        avatarUrl: user.avatar_path,
+        authProvider: user.auth_provider || 'local',
+        googleAvatarUrl: user.google_avatar_url
       }
     });
     
@@ -231,10 +234,13 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
     const users = db.prepare(`
       SELECT 
         u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
+        u.avatar_path, u.auth_provider, u.google_avatar_url,
+        m.color as member_color,
         GROUP_CONCAT(r.name) as roles
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
+      LEFT JOIN members m ON u.id = m.user_id
       GROUP BY u.id
       ORDER BY u.created_at DESC
     `).all();
@@ -247,7 +253,11 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       isActive: user.is_active,
       roles: user.roles ? user.roles.split(',') : [],
       joined: new Date(user.created_at).toLocaleDateString(),
-      createdAt: user.created_at
+      createdAt: user.created_at,
+      avatarUrl: user.avatar_path,
+      authProvider: user.auth_provider || 'local',
+      googleAvatarUrl: user.google_avatar_url,
+      memberColor: user.member_color || '#4ECDC4'
     }));
     
     res.json(formattedUsers);
@@ -439,6 +449,39 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
   }
 });
 
+// Update member color
+app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { color } = req.body;
+    
+    if (!color) {
+      return res.status(400).json({ error: 'Color is required' });
+    }
+    
+    // Validate color format (hex color)
+    if (!/^#[0-9A-F]{6}$/i.test(color)) {
+      return res.status(400).json({ error: 'Invalid color format. Use hex color (e.g., #FF6B6B)' });
+    }
+    
+    // Update member color
+    const updateStmt = db.prepare('UPDATE members SET color = ? WHERE user_id = ?');
+    const result = updateStmt.run(color, userId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    
+    res.json({ 
+      message: 'Member color updated successfully',
+      color: color
+    });
+  } catch (error) {
+    console.error('Update member color error:', error);
+    res.status(500).json({ error: 'Failed to update member color' });
+  }
+});
+
 app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     const settings = db.prepare('SELECT key, value FROM settings').all();
@@ -476,6 +519,21 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   } catch (error) {
     console.error('Update setting error:', error);
     res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+// Public settings endpoint for non-admin users
+app.get('/api/settings', (req, res) => {
+  try {
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?)').all('SITE_NAME', 'SITE_URL');
+    const settingsObj = {};
+    settings.forEach(setting => {
+      settingsObj[setting.key] = setting.value;
+    });
+    res.json(settingsObj);
+  } catch (error) {
+    console.error('Get public settings error:', error);
+    res.status(500).json({ error: 'Failed to get public settings' });
   }
 });
 
@@ -1422,6 +1480,61 @@ app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), 
   } catch (error) {
     console.error('Error uploading avatar:', error);
     res.status(500).json({ error: 'Failed to upload avatar' });
+  }
+});
+
+
+
+// Remove user avatar
+app.delete('/api/users/avatar', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Get current avatar path to delete file
+    const user = db.prepare('SELECT avatar_path FROM users WHERE id = ?').get(userId);
+    
+    if (user?.avatar_path) {
+      // Delete the avatar file
+      const avatarPath = join(AVATARS_DIR, user.avatar_path.split('/').pop());
+      if (fs.existsSync(avatarPath)) {
+        fs.unlinkSync(avatarPath);
+      }
+    }
+    
+    // Clear avatar_path in database
+    const updateStmt = db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?');
+    updateStmt.run(userId);
+    
+    res.json({ 
+      message: 'Avatar removed successfully'
+    });
+  } catch (error) {
+    console.error('Avatar removal error:', error);
+    res.status(500).json({ error: 'Failed to remove avatar' });
+  }
+});
+
+// Allow users to update their own profile (display name)
+app.put('/api/users/profile', authenticateToken, (req, res) => {
+  try {
+    const { displayName } = req.body;
+    const userId = req.user.id;
+    
+    if (!displayName || displayName.trim().length === 0) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+    
+    // Update the member's name in the members table
+    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
+    updateMemberStmt.run(displayName.trim(), userId);
+    
+    res.json({ 
+      message: 'Profile updated successfully',
+      displayName: displayName.trim()
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
