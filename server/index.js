@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import path from 'path';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import nodemailer from 'nodemailer';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // In Docker, use the data volume path; otherwise use local path
@@ -525,14 +526,122 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
     
     // If this is a Google OAuth setting, reload the OAuth configuration
     if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
-      // Reload OAuth config (we'll implement this later)
-      console.log(`Google OAuth setting updated: ${key}`);
+      console.log(`Google OAuth setting updated: ${key} - Hot reloading OAuth config...`);
+      // Invalidate OAuth configuration cache
+      if (global.oauthConfigCache) {
+        global.oauthConfigCache.invalidated = true;
+        console.log('✅ OAuth configuration cache invalidated - new settings will be loaded on next OAuth request');
+      }
     }
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {
     console.error('Update setting error:', error);
     res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+// Test email configuration endpoint
+app.post('/api/admin/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    // Get mail server settings
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)').all(
+      'SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 
+      'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME', 'SMTP_SECURE', 'MAIL_ENABLED'
+    );
+    
+    const mailSettings = {};
+    settings.forEach(setting => {
+      mailSettings[setting.key] = setting.value;
+    });
+    
+    // Check if mail is enabled
+    if (mailSettings.MAIL_ENABLED !== 'true') {
+      return res.status(400).json({ error: 'Mail server is not enabled. Please enable it first.' });
+    }
+    
+    // Check if all required settings are present
+    const requiredFields = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME'];
+    for (const field of requiredFields) {
+      if (!mailSettings[field]) {
+        console.log(`Missing field: ${field}, value: ${mailSettings[field]}`);
+        return res.status(400).json({ error: `Missing required setting: ${field}` });
+      }
+    }
+    
+    // Create a safe copy of mail settings for logging (hide password)
+    const safeMailSettings = { ...mailSettings };
+    if (safeMailSettings.SMTP_PASSWORD) {
+      safeMailSettings.SMTP_PASSWORD = '*'.repeat(safeMailSettings.SMTP_PASSWORD.length);
+    }
+    console.log('Mail settings validation passed:', safeMailSettings);
+    
+    // Create transporter with the configured settings
+    const transporter = nodemailer.createTransport({
+      host: mailSettings.SMTP_HOST,
+      port: parseInt(mailSettings.SMTP_PORT),
+      secure: mailSettings.SMTP_SECURE === 'ssl', // true for 465, false for other ports
+      auth: {
+        user: mailSettings.SMTP_USERNAME,
+        pass: mailSettings.SMTP_PASSWORD,
+      },
+      tls: {
+        rejectUnauthorized: false // Allow self-signed certificates
+      }
+    });
+    
+    // Send test email to the logged-in admin user
+    const testEmail = {
+      from: `"${mailSettings.SMTP_FROM_NAME}" <${mailSettings.SMTP_FROM_EMAIL}>`,
+      to: req.user.email, // Send to the logged-in admin user
+      subject: 'Kanban Mail Server Test - Configuration Validated',
+      html: `
+        <h2>✅ Mail Server Configuration Test Successful!</h2>
+        <p>Your Kanban mail server configuration is working correctly.</p>
+        <h3>Configuration Details:</h3>
+        <ul>
+          <li><strong>SMTP Host:</strong> ${mailSettings.SMTP_HOST}</li>
+          <li><strong>SMTP Port:</strong> ${mailSettings.SMTP_PORT}</li>
+          <li><strong>Security:</strong> ${mailSettings.SMTP_SECURE}</li>
+          <li><strong>From Email:</strong> ${mailSettings.SMTP_FROM_EMAIL}</li>
+          <li><strong>From Name:</strong> ${mailSettings.SMTP_FROM_NAME}</li>
+        </ul>
+        <p><em>This email was sent automatically to test your mail server configuration.</em></p>
+      `
+    };
+    
+    // Send the email
+    const info = await transporter.sendMail(testEmail);
+    
+    res.json({ 
+      message: 'Test email sent successfully! Check your inbox.',
+      messageId: info.messageId,
+      settings: {
+        host: mailSettings.SMTP_HOST,
+        port: mailSettings.SMTP_PORT,
+        secure: mailSettings.SMTP_SECURE,
+        from: `${mailSettings.SMTP_FROM_NAME} <${mailSettings.SMTP_FROM_EMAIL}>`,
+        to: req.user.email
+      }
+    });
+    
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({ error: 'Failed to test email configuration' });
+  }
+});
+
+// Manual OAuth config reload endpoint (for testing)
+app.post('/api/admin/reload-oauth', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    if (global.oauthConfigCache) {
+      global.oauthConfigCache.invalidated = true;
+      console.log('🔄 Manual OAuth config reload triggered by admin');
+    }
+    res.json({ message: 'OAuth configuration reloaded successfully' });
+  } catch (error) {
+    console.error('Reload OAuth error:', error);
+    res.status(500).json({ error: 'Failed to reload OAuth configuration' });
   }
 });
 
@@ -562,14 +671,35 @@ app.get('/api/auth/check-default-admin', (req, res) => {
   }
 });
 
+// Helper function to get OAuth settings with caching
+function getOAuthSettings() {
+  // Check if we have cached settings and no cache invalidation flag
+  if (global.oauthConfigCache && !global.oauthConfigCache.invalidated) {
+    return global.oauthConfigCache.settings;
+  }
+  
+  // Fetch fresh settings from database
+  const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+  const settingsObj = {};
+  settings.forEach(setting => {
+    settingsObj[setting.key] = setting.value;
+  });
+  
+  // Cache the settings
+  global.oauthConfigCache = {
+    settings: settingsObj,
+    invalidated: false,
+    timestamp: Date.now()
+  };
+  
+  console.log('🔄 OAuth settings loaded from database:', Object.keys(settingsObj).map(k => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '));
+  return settingsObj;
+}
+
 // Google OAuth endpoints
 app.get('/api/auth/google/url', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
-    const settingsObj = {};
-    settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
-    });
+    const settingsObj = getOAuthSettings();
     
     if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
       return res.status(400).json({ error: 'Google OAuth not fully configured. Please set Client ID, Client Secret, and Callback URL.' });
@@ -598,11 +728,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     }
     
     // Get OAuth settings
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
-    const settingsObj = {};
-    settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
-    });
+    const settingsObj = getOAuthSettings();
     
     if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
       return res.redirect('/?error=oauth_not_configured');
@@ -917,6 +1043,16 @@ if (roleCount.count === 0) {
   insertSetting.run('GOOGLE_CALLBACK_URL', 'http://localhost:3000/api/auth/google/callback');
   insertSetting.run('SITE_NAME', 'Easy Kanban');
   insertSetting.run('SITE_URL', 'http://localhost:3000');
+  
+  // Initialize mail server settings
+  insertSetting.run('SMTP_HOST', 'smtp.gmail.com');
+  insertSetting.run('SMTP_PORT', '587');
+  insertSetting.run('SMTP_USERNAME', 'admin@example.com');
+  insertSetting.run('SMTP_PASSWORD', 'xxxx xxxx xxxx xxxx');
+  insertSetting.run('SMTP_FROM_EMAIL', 'admin@example.com');
+  insertSetting.run('SMTP_FROM_NAME', 'Kanban Admin');
+  insertSetting.run('SMTP_SECURE', 'tls');
+  insertSetting.run('MAIL_ENABLED', 'false');
   
   // Create admin member
   const adminMember = {

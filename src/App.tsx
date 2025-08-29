@@ -74,6 +74,7 @@ export default function App() {
   const [siteSettings, setSiteSettings] = useState({ SITE_NAME: 'Easy Kanban', SITE_URL: 'http://localhost:3000' });
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
+  const [intendedDestination, setIntendedDestination] = useState<string | null>(null);
   const { loading, withLoading } = useLoadingState();
 
   // Authentication handlers
@@ -81,6 +82,12 @@ export default function App() {
     localStorage.setItem('authToken', token);
     setCurrentUser(userData);
     setIsAuthenticated(true);
+    
+    // Redirect to intended destination if available
+    if (intendedDestination) {
+      window.location.hash = intendedDestination;
+      setIntendedDestination(null); // Clear the intended destination
+    }
   };
 
   const handleLogout = () => {
@@ -213,6 +220,11 @@ export default function App() {
     // Only change page if we're definitely not authenticated (not during auth check)
     // Don't change page during the initial auth check when isAuthenticated is false
     if (!isAuthenticated && currentPage === 'admin' && !localStorage.getItem('authToken')) {
+      // Store the intended destination before redirecting to login
+      const currentHash = window.location.hash;
+      if (currentHash) {
+        setIntendedDestination(currentHash);
+      }
       setCurrentPage('kanban');
     }
   }, [isAuthenticated, currentPage]);
@@ -222,6 +234,11 @@ export default function App() {
     const handleHashChange = () => {
       const fullHash = window.location.hash;
       const hash = fullHash.replace('#', '');
+      
+      // Store intended destination if user is not authenticated
+      if (!isAuthenticated && fullHash && fullHash !== '#login') {
+        setIntendedDestination(fullHash);
+      }
       
       // Parse the hash to determine routing
       const routeParts = hash.split('#');
@@ -272,7 +289,7 @@ export default function App() {
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [currentPage, boards]);
+  }, [currentPage, boards, isAuthenticated]);
 
   // Handle initial routing when app loads
   useEffect(() => {
@@ -332,6 +349,19 @@ export default function App() {
     }
   }, [boards, currentPage, selectedBoard]);
 
+  // Ensure default board is selected when on kanban page with no specific board
+  useEffect(() => {
+    if (currentPage === 'kanban' && boards.length > 0 && !selectedBoard) {
+      // If no board is selected and we're on kanban page, select the first board
+      const firstBoard = boards[0];
+      if (firstBoard) {
+        setSelectedBoard(firstBoard.id);
+        // Update URL to reflect the selected board
+        window.location.hash = `#kanban#${firstBoard.id}`;
+      }
+    }
+  }, [currentPage, boards, selectedBoard]);
+
   // Handle Google OAuth callback with token - MUST run before routing
   useEffect(() => {
     // Check for token in URL hash (for OAuth callback)
@@ -349,14 +379,9 @@ export default function App() {
         // Store the token
         localStorage.setItem('authToken', token);
         
-        // Clear the URL hash and redirect appropriately
-        if (isNewUser) {
-          // New Google users go to default board
-          window.location.hash = '#default-board';
-        } else {
-          // Existing users go to kanban page
-          window.location.hash = '#kanban';
-        }
+        // Clear the URL hash and let the routing logic handle the destination
+        // The routing will automatically select the first board if no specific board is specified
+        window.location.hash = '#kanban';
         
         // Force authentication check by triggering a state change
         // This ensures the auth effect runs with the new token
