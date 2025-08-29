@@ -40,10 +40,14 @@ export default function App() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(() => {
-    // Get board from URL hash, fallback to null
-    // Note: We'll set a default board after boards are loaded
+    // Get board from URL hash, but only if it's not a page identifier or admin tab
     const hash = window.location.hash.replace('#', '');
-    return hash || null;
+    // Don't treat as board ID if it's a page identifier or admin tab
+    const pageIdentifiers = ['kanban', 'admin'];
+    const adminTabs = ['users', 'site-settings', 'sso'];
+    const isPageOrTab = pageIdentifiers.includes(hash) || adminTabs.includes(hash);
+    
+    return hash && !isPageOrTab ? hash : null;
   });
   const [columns, setColumns] = useState<Columns>({});
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
@@ -62,6 +66,8 @@ export default function App() {
     return ['kanban', 'admin'].includes(hash) ? hash : 'kanban';
   });
   const [siteSettings, setSiteSettings] = useState({ SITE_NAME: 'Easy Kanban', SITE_URL: 'http://localhost:3000' });
+  const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
+  const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const { loading, withLoading } = useLoadingState();
 
   // Authentication handlers
@@ -107,6 +113,13 @@ export default function App() {
       // Also refresh members to get updated display names
       const loadedMembers = await api.getMembers();
       setMembers(loadedMembers);
+      
+      // If current user is admin, also refresh admin data to show updated display names
+      if (response.user.roles?.includes('admin')) {
+        // Force a re-render of the admin component by updating a key
+        // This will cause the admin component to reload its data
+        setAdminRefreshKey(prev => prev + 1);
+      }
     } catch (error) {
       console.error('Failed to refresh profile data:', error);
     }
@@ -165,44 +178,153 @@ export default function App() {
     loadSiteSettings();
   }, []);
 
+  // Check if default admin account exists
+  useEffect(() => {
+    const checkDefaultAdmin = async () => {
+      try {
+        // Check if default admin account exists using dedicated endpoint
+        const response = await fetch('/api/auth/check-default-admin');
+        
+        if (response.ok) {
+          const data = await response.json();
+          setHasDefaultAdmin(data.exists);
+        } else {
+          // If we can't check, assume it exists for safety
+          setHasDefaultAdmin(true);
+        }
+      } catch (error) {
+        // Network or other errors - assume it exists for safety
+        console.warn('Could not check default admin status, assuming exists for safety:', error);
+        setHasDefaultAdmin(true);
+      }
+    };
+    
+    checkDefaultAdmin();
+  }, []);
+
   // Handle authentication state changes
   useEffect(() => {
-    // If not authenticated, ensure we're not on admin page
-    if (!isAuthenticated && currentPage === 'admin') {
+    // Only change page if we're definitely not authenticated (not during auth check)
+    // Don't change page during the initial auth check when isAuthenticated is false
+    if (!isAuthenticated && currentPage === 'admin' && !localStorage.getItem('authToken')) {
       setCurrentPage('kanban');
     }
   }, [isAuthenticated, currentPage]);
 
-  // Handle URL hash changes for board selection and page selection
+  // Handle URL hash changes with PROPER ROUTING
   useEffect(() => {
     const handleHashChange = () => {
-      const hash = window.location.hash.replace('#', '');
+      const fullHash = window.location.hash;
+      const hash = fullHash.replace('#', '');
       
-      // Handle page selection
-      if (['kanban', 'admin'].includes(hash) && hash !== currentPage) {
-        setCurrentPage(hash as 'kanban' | 'admin');
-      }
+      // Parse the hash to determine routing
+      const routeParts = hash.split('#');
+      const mainRoute = routeParts[0];
+      const subRoute = routeParts[1];
       
-      // Handle board selection
-      if (hash && boards.length > 0) {
-        const board = boards.find(b => b.id === hash);
-        if (board && board.id !== selectedBoard) {
-          setSelectedBoard(board.id);
+      // Handle main page routing
+      if (['kanban', 'admin'].includes(mainRoute)) {
+        if (mainRoute !== currentPage) {
+          setCurrentPage(mainRoute as 'kanban' | 'admin');
         }
+        
+        // Handle admin sub-routes
+        if (mainRoute === 'admin' && subRoute) {
+          const validAdminTabs = ['users', 'site-settings', 'sso'];
+          if (validAdminTabs.includes(subRoute)) {
+            // The Admin component will handle this via its own hash handling
+          }
+        }
+        
+        // Handle kanban board sub-routes
+        if (mainRoute === 'kanban' && subRoute) {
+          // Check if this is a valid board ID
+          if (boards.length > 0) {
+            const board = boards.find(b => b.id === subRoute);
+            if (board) {
+              setSelectedBoard(board.id);
+            } else {
+              setSelectedBoard(null);
+            }
+          }
+        }
+      } else if (mainRoute && boards.length > 0) {
+        // Check if this is a valid board ID
+        const board = boards.find(b => b.id === mainRoute);
+        if (board) {
+          setSelectedBoard(board.id);
+        } else {
+          setCurrentPage('kanban');
+          setSelectedBoard(null);
+        }
+      } else if (mainRoute) {
+        // Unknown route, redirect to kanban page
+        setCurrentPage('kanban');
+        setSelectedBoard(null);
       }
     };
 
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [boards, selectedBoard, currentPage]);
+  }, [currentPage, boards]);
 
-  // Ensure a board is selected when boards are available
+  // Handle initial routing when app loads
   useEffect(() => {
-    if (boards.length > 0 && !selectedBoard && currentPage === 'kanban') {
-      // No board selected and we're on kanban page, select the first board
-      handleBoardSelection(boards[0].id);
+    const hash = window.location.hash.replace('#', '');
+    
+    if (hash) {
+      // Parse the initial hash to determine routing
+      const routeParts = hash.split('#');
+      const mainRoute = routeParts[0];
+      const subRoute = routeParts[1];
+      
+      // Handle main page routing
+      if (['kanban', 'admin'].includes(mainRoute)) {
+        if (mainRoute !== currentPage) {
+          setCurrentPage(mainRoute as 'kanban' | 'admin');
+        }
+        
+        // Handle admin sub-routes
+        if (mainRoute === 'admin' && subRoute) {
+          const validAdminTabs = ['users', 'site-settings', 'sso'];
+          if (validAdminTabs.includes(subRoute)) {
+            // The Admin component will handle this via its own hash handling
+          }
+        }
+        
+        // Handle kanban board sub-routes
+        if (mainRoute === 'kanban' && subRoute) {
+          // Check if this is a valid board ID
+          if (boards.length > 0) {
+            const board = boards.find(b => b.id === subRoute);
+            if (board) {
+              setSelectedBoard(board.id);
+            } else {
+              setSelectedBoard(null);
+            }
+          }
+        }
+      } else if (mainRoute && boards.length > 0) {
+        // Check if this is a valid board ID
+        const board = boards.find(b => b.id === mainRoute);
+        if (board) {
+          setSelectedBoard(board.id);
+        } else {
+          setCurrentPage('kanban');
+          setSelectedBoard(null);
+        }
+      } else if (mainRoute) {
+        // Unknown route, redirect to kanban page
+        setCurrentPage('kanban');
+        setSelectedBoard(null);
+      }
+    } else {
+      // No hash - apply the simple rule: select default board if on kanban page
+      if (currentPage === 'kanban' && !selectedBoard && boards.length > 0) {
+        handleBoardSelection(boards[0].id);
+      }
     }
-  }, [boards, selectedBoard, currentPage]);
+  }, [boards, currentPage, selectedBoard]);
 
   // Load initial data
   useEffect(() => {
@@ -216,24 +338,20 @@ export default function App() {
             api.getBoards()
           ]);
           
+
+          
           setMembers(loadedMembers);
           setBoards(loadedBoards);
           
           if (loadedBoards.length > 0) {
-            // If no board is selected from URL hash, select the first one
-            if (!selectedBoard) {
-              handleBoardSelection(loadedBoards[0].id);
-            }
-            // Set columns for the selected board
-            const boardToUse = selectedBoard ? loadedBoards.find(b => b.id === selectedBoard) : loadedBoards[0];
+            // Set columns for the selected board (board selection is handled by separate effect)
+            const boardToUse = selectedBoard ? loadedBoards.find(b => b.id === selectedBoard) : null;
             if (boardToUse) {
               setColumns(boardToUse.columns || {});
             }
           }
 
-          if (loadedMembers.length > 0) {
-            setSelectedMember(loadedMembers[0].id);
-          }
+          // Member selection is now handled by a separate useEffect
         } catch (error) {
           console.error('Failed to load initial data:', error);
         }
@@ -247,20 +365,31 @@ export default function App() {
   // Update columns when selected board changes
   useEffect(() => {
     if (selectedBoard) {
-      console.log('Board selection changed:', { selectedBoard, boardsLength: boards.length });
       // Find the selected board in the current boards array
       const board = boards.find(b => b.id === selectedBoard);
       if (board) {
-        console.log('Found board:', { id: board.id, title: board.title, columnsCount: Object.keys(board.columns || {}).length });
         // Update columns immediately from the boards array
         setColumns(board.columns || {});
       } else {
-        console.log('Board not found in current array, refreshing from server');
         // If board not found in current array, refresh from server
         refreshBoardData();
       }
     }
   }, [selectedBoard, boards]);
+
+  // Set default member selection when both members and currentUser are available
+  useEffect(() => {
+    if (members.length > 0 && currentUser && !selectedMember) {
+      // Default to current user if they exist in members, otherwise first member
+      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+      
+      if (currentUserMember) {
+        setSelectedMember(currentUserMember.id);
+      } else {
+        setSelectedMember(members[0].id);
+      }
+    }
+  }, [members, currentUser, selectedMember]);
 
   const refreshBoardData = async () => {
     try {
@@ -268,17 +397,15 @@ export default function App() {
       setBoards(loadedBoards);
       
       if (loadedBoards.length > 0) {
-        // If no board is selected, select the first one
-        if (!selectedBoard) {
-          handleBoardSelection(loadedBoards[0].id);
-        } else {
-          // Check if the selected board still exists
+        // Check if the selected board still exists
+        if (selectedBoard) {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
             setColumns(board.columns || {});
           } else {
-            // Selected board no longer exists, select the first one
-            handleBoardSelection(loadedBoards[0].id);
+            // Selected board no longer exists, clear selection
+            setSelectedBoard(null);
+            setColumns({});
           }
         }
       }
@@ -726,7 +853,7 @@ export default function App() {
 
   // Show login page if not authenticated
   if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} />;
+    return <Login onLogin={handleLogin} hasDefaultAdmin={hasDefaultAdmin} />;
   }
 
   return (
@@ -757,8 +884,13 @@ export default function App() {
                           className="h-8 w-8 rounded-full object-cover"
                         />
                       ) : (
-                        <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center">
-                          <span className="text-sm font-medium text-gray-600">
+                        <div 
+                          className="h-8 w-8 rounded-full flex items-center justify-center"
+                          style={{ 
+                            backgroundColor: members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4' 
+                          }}
+                        >
+                          <span className="text-sm font-medium text-white">
                             {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
                           </span>
                         </div>
@@ -789,19 +921,26 @@ export default function App() {
                 
                 {/* Navigation */}
                 <div className="flex items-center gap-2 ml-4">
-                  <button
-                    onClick={() => {
-                      setCurrentPage('kanban');
-                      window.location.hash = 'kanban';
-                    }}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      currentPage === 'kanban'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                  >
-                    Kanban
-                  </button>
+                  {currentUser.roles?.includes('admin') && (
+                    <button
+                      onClick={() => {
+                        setCurrentPage('kanban');
+                        // If there was a previously selected board, restore it
+                        if (selectedBoard) {
+                          window.location.hash = `kanban#${selectedBoard}`;
+                        } else {
+                          window.location.hash = 'kanban';
+                        }
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        currentPage === 'kanban'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                        }`}
+                    >
+                      Kanban
+                    </button>
+                  )}
                   {currentUser.roles?.includes('admin') && (
                     <button
                       onClick={() => {
@@ -843,6 +982,7 @@ export default function App() {
         <div className="max-w-[1400px] mx-auto">
           {currentPage === 'admin' ? (
             <Admin 
+              key={adminRefreshKey}
               currentUser={currentUser} 
               onUsersChanged={async () => {
                 try {
@@ -1015,7 +1155,10 @@ export default function App() {
       <Profile 
         isOpen={showProfileModal} 
         onClose={() => setShowProfileModal(false)} 
-        currentUser={currentUser}
+        currentUser={{
+          ...currentUser,
+          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`
+        }}
         onProfileUpdated={handleProfileUpdated}
       />
     </div>

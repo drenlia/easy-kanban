@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Upload, User } from 'lucide-react';
 import { uploadAvatar } from '../api';
 import api from '../api';
@@ -16,7 +16,17 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setDisplayName(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setError(null);
+      setIsSubmitting(false);
+    }
+  }, [isOpen, currentUser]);
 
   // Handle file selection with live preview
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,15 +55,12 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   // Handle file removal
   const handleRemoveFile = async () => {
-    console.log('Remove button clicked!'); // Debug log
-    
     try {
       // If there's a preview (new file), just clear it
       if (previewUrl) {
         setSelectedFile(null);
         URL.revokeObjectURL(previewUrl);
         setPreviewUrl(null);
-        console.log('Preview cleared');
         return;
       }
       
@@ -64,9 +71,6 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         
         // Refresh user data to get updated avatar state
         onProfileUpdated();
-        
-        setSuccess('Avatar removed successfully!');
-        console.log('Avatar removed from backend');
       }
     } catch (error) {
       console.error('Failed to remove avatar:', error);
@@ -86,27 +90,25 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
     setIsSubmitting(true);
     setError(null);
-    setSuccess(null);
 
     try {
-      // Update display name
-      await api.put('/users/profile', { displayName: displayName.trim() });
+      // Update display name and upload avatar in parallel if both are needed
+      const promises = [
+        api.put('/users/profile', { displayName: displayName.trim() })
+      ];
       
-      // Upload avatar if selected
       if (selectedFile) {
-        await uploadAvatar(selectedFile);
-        setSuccess('Profile and avatar updated successfully!');
-      } else {
-        setSuccess('Profile updated successfully!');
+        promises.push(uploadAvatar(selectedFile));
       }
+      
+      // Wait for all operations to complete
+      await Promise.all(promises);
 
       // Call the callback to refresh user data
       onProfileUpdated();
       
-      // Close modal after a short delay to show success message
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+      // Close modal immediately
+      onClose();
       
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update profile');
@@ -254,16 +256,10 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               </p>
             </div>
 
-            {/* Error/Success Messages */}
+            {/* Error Messages */}
             {error && (
               <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md border border-red-200">
                 {error}
-              </div>
-            )}
-
-            {success && (
-              <div className="text-green-600 text-sm bg-green-50 p-3 rounded-md border border-green-200">
-                {success}
               </div>
             )}
 

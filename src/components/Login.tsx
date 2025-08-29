@@ -3,13 +3,16 @@ import { login } from '../api';
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => void;
+  hasDefaultAdmin?: boolean;
 }
 
-export default function Login({ onLogin }: LoginProps) {
+export default function Login({ onLogin, hasDefaultAdmin = true }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -118,13 +121,15 @@ export default function Login({ onLogin }: LoginProps) {
             </button>
           </div>
 
-          <div className="text-center text-sm text-gray-600">
-            <p>Default credentials:</p>
-            <p className="font-mono text-xs mt-1">
-              Email: admin@example.com<br />
-              Password: admin
-            </p>
-          </div>
+          {hasDefaultAdmin && (
+            <div className="text-center text-sm text-gray-600">
+              <p>Default credentials:</p>
+              <p className="font-mono text-xs mt-1">
+                Email: admin@example.com<br />
+                Password: admin
+              </p>
+            </div>
+          )}
         </form>
       </div>
     </div>
