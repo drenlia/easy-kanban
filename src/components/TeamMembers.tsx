@@ -77,9 +77,6 @@ export default function TeamMembers({
     <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Team Members</h2>
-        <div className="text-xs text-gray-500 italic">
-          Members managed from Admin page
-        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

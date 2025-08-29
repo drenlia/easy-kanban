@@ -13,6 +13,7 @@ interface User {
   email: string;
   firstName: string;
   lastName: string;
+  displayName?: string;
   isActive: boolean;
   roles: string[];
   joined: string;
@@ -49,17 +50,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     email: '',
     firstName: '',
     lastName: '',
-    isActive: true
+    displayName: '',
+    isActive: true,
+    avatarUrl: '',
+    memberColor: '#4ECDC4',
+    selectedFile: null as File | null
   });
   const [newUser, setNewUser] = useState({
     email: '',
     password: '',
     firstName: '',
     lastName: '',
+    displayName: '',
     role: 'user'
   });
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
   const [editingColor, setEditingColor] = useState<string>('#4ECDC4');
+  const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   
   // Preset colors for easy selection
   const presetColors = [
@@ -69,7 +79,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     '#E599F7', '#40C057', '#F59F00', '#0CA678', '#FA5252'
   ];
   
-  console.log('Admin component state - users:', users, 'loading:', loading, 'error:', error);
+
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
@@ -86,6 +96,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     };
 
+    // Handle initial hash on component mount
+    const initialHash = window.location.hash.replace('#', '');
+    if (['users', 'site-settings', 'sso'].includes(initialHash) && initialHash !== activeTab) {
+      setActiveTab(initialHash);
+    }
+
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [activeTab]);
@@ -98,12 +114,15 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         api.get('/admin/settings')
       ]);
       
-      console.log('Users response:', usersResponse);
-      console.log('Settings response:', settingsResponse);
-      
       setUsers(usersResponse.data || []);
       setSettings(settingsResponse.data || {});
       setEditingSettings(settingsResponse.data || {});
+      
+      // Check if default admin account still exists
+      const defaultAdminExists = usersResponse.data?.some((user: any) => 
+        user.email === 'admin@example.com'
+      );
+      setHasDefaultAdmin(defaultAdminExists);
     } catch (err) {
       setError('Failed to load admin data');
       console.error(err);
@@ -129,25 +148,44 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       return;
     }
 
-    if (!window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
-      return;
-    }
-    
+    // Show confirmation menu
+    setShowDeleteConfirm(userId);
+  };
+
+  const confirmDeleteUser = async (userId: string) => {
     try {
       await api.delete(`/admin/users/${userId}`);
       await loadData(); // Reload users
       if (onUsersChanged) {
         onUsersChanged();
       }
+      setShowDeleteConfirm(null);
     } catch (err) {
       setError('Failed to delete user');
       console.error(err);
     }
   };
 
+  const cancelDeleteUser = () => {
+    setShowDeleteConfirm(null);
+  };
+
+  // Close confirmation menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteConfirm && !(event.target as Element).closest('.delete-confirmation')) {
+        setShowDeleteConfirm(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDeleteConfirm]);
+
   const handleColorChange = (userId: string, currentColor: string) => {
     setShowColorPicker(userId);
     setEditingColor(currentColor);
+    setOriginalColor(currentColor);
   };
 
   const handleSaveColor = async (userId: string) => {
@@ -167,9 +205,52 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleCancelColor = () => {
     setShowColorPicker(null);
-    setEditingColor('#4ECDC4');
+    setEditingColor(originalColor);
     setError(null);
   };
+
+  // Handle user avatar file selection
+  const handleUserAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError('Please select an image file');
+        return;
+      }
+      
+      // Validate file size (2MB limit)
+      if (file.size > 2 * 1024 * 1024) {
+        setError('Image size must be less than 2MB');
+        return;
+      }
+
+      setEditingUserData(prev => ({ ...prev, selectedFile: file }));
+      setError(null);
+    }
+  };
+
+  // Handle removing user avatar
+  const handleRemoveUserAvatar = async (userId: string) => {
+    try {
+      setIsSubmitting(true);
+      await api.delete(`/admin/users/${userId}/avatar`);
+      
+      // Update local state
+      setEditingUserData(prev => ({ ...prev, avatarUrl: '' }));
+      
+      // Refresh data
+      await loadData();
+      if (onUsersChanged) {
+        onUsersChanged();
+      }
+    } catch (error) {
+      console.error('Failed to remove user avatar:', error);
+      setError('Failed to remove avatar');
+    } finally {
+      setIsSubmitting(false);
+    }
+    }
 
   const handleSaveSettings = async () => {
     try {
@@ -202,6 +283,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         password: '',
         firstName: '',
         lastName: '',
+        displayName: '',
         role: 'user'
       });
       await loadData(); // Reload users
@@ -222,14 +304,39 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      isActive: user.isActive
+      displayName: user.displayName || `${user.firstName} ${user.lastName}`,
+      isActive: user.isActive,
+      avatarUrl: user.avatarUrl || '',
+      memberColor: user.memberColor || '#4ECDC4',
+      selectedFile: null
     });
     setShowEditUserForm(true);
   };
 
   const handleSaveUser = async () => {
     try {
+      setIsSubmitting(true);
+      setError(null);
+
+      // Update user basic info
       await updateUser(editingUserData.id, editingUserData);
+      
+      // Update display name in members table
+      if (editingUserData.displayName) {
+        await api.put(`/admin/users/${editingUserData.id}/member-name`, { 
+          displayName: editingUserData.displayName.trim() 
+        });
+      }
+      
+      // Upload avatar if selected
+      if (editingUserData.selectedFile) {
+        const formData = new FormData();
+        formData.append('avatar', editingUserData.selectedFile);
+        await api.post(`/admin/users/${editingUserData.id}/avatar`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+      }
+      
       setShowEditUserForm(false);
       await loadData(); // Reload users
       if (onUsersChanged) {
@@ -239,6 +346,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update user');
       console.error(err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -261,6 +370,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       password: '',
       firstName: '',
       lastName: '',
+      displayName: '',
       role: 'user'
     });
     setError(null);
@@ -273,8 +383,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    // Update URL hash for tab persistence
-    window.location.hash = tab;
+    // Update URL hash for tab persistence - preserve admin context
+    window.location.hash = `admin#${tab}`;
   };
 
   if (!currentUser?.roles?.includes('admin')) {
@@ -309,6 +419,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             Manage users, site settings, and authentication configuration
           </p>
         </div>
+
+        {/* Security Warning - Default Admin Account */}
+        {hasDefaultAdmin && (
+          <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-yellow-800">Security Warning</h3>
+                <p className="text-sm text-yellow-700 mt-1">
+                  The default admin account (admin@example.com) still exists. This is a security risk. 
+                  Please create a new admin user first, then delete this default account.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Error Display */}
         {error && (
@@ -375,21 +505,22 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avatar</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AUTH TYPE</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Avatar</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Name</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">DISPLAY NAME</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Role</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">AUTH TYPE</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Color</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Joined</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {Array.isArray(users) && users.length > 0 ? (
                       users.map((user) => (
                       <tr key={user.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap w-16">
                           <div className="flex-shrink-0 h-10 w-10">
                             {user.avatarUrl ? (
                               <img
@@ -407,15 +538,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap w-32">
                           <div className="text-sm font-medium text-gray-900">
                             {user.firstName} {user.lastName}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-48">
                           {user.email}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-32">
+                          {user.displayName || `${user.firstName} ${user.lastName}`}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap w-20">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             user.roles.includes('admin') 
                               ? 'bg-green-100 text-green-800' 
@@ -424,7 +558,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             {user.roles.includes('admin') ? 'Admin' : 'User'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-24">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             user.authProvider === 'google' 
                               ? 'bg-blue-100 text-blue-800' 
@@ -433,91 +567,117 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             {user.authProvider === 'google' ? 'Google' : 'Local'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="px-6 py-4 whitespace-nowrap w-20">
                           {showColorPicker === user.id ? (
-                            <div className="flex items-center space-x-2">
-                              <input
-                                type="color"
-                                value={editingColor}
-                                onChange={(e) => setEditingColor(e.target.value)}
-                                className="w-8 h-8 rounded border border-gray-300"
-                              />
-                              <button
-                                onClick={() => handleSaveColor(user.id)}
-                                className="p-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors"
-                                title="Save color"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={handleCancelColor}
-                                className="p-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded transition-colors"
-                                title="Cancel"
-                              >
-                                ✕
-                              </button>
+                            <div className="relative">
+                              <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-lg border border-gray-200">
+                                <input
+                                  type="color"
+                                  value={editingColor}
+                                  onChange={(e) => setEditingColor(e.target.value)}
+                                  className="w-8 h-8 rounded border border-gray-300 cursor-pointer"
+                                />
+                                <div className="flex flex-col space-y-1">
+                                  <button
+                                    onClick={() => handleSaveColor(user.id)}
+                                    className="px-2 py-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors font-medium"
+                                  >
+                                    Apply
+                                  </button>
+                                  <button
+                                    onClick={handleCancelColor}
+                                    className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
                             </div>
                           ) : (
-                            <div className="flex items-center space-x-2">
-                              <div 
-                                className="w-6 h-6 rounded-full border-2 border-gray-200"
-                                style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
-                              />
-                              <button
-                                onClick={() => handleColorChange(user.id, user.memberColor || '#4ECDC4')}
-                                className="p-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
-                                title="Change color"
-                              >
-                                <Edit size={14} />
-                              </button>
-                            </div>
+                            <div 
+                              className="w-6 h-6 rounded-full border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
+                              style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                              onClick={() => handleColorChange(user.id, user.memberColor || '#4ECDC4')}
+                              title="Click to change color"
+                            />
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-28">
                           {user.joined}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                          {user.roles.includes('admin') ? (
-                            <button
-                              onClick={() => handleRoleChange(user.id, 'demote')}
-                              disabled={user.id === currentUser?.id}
-                              className={`p-1.5 rounded transition-colors ${
-                                user.id === currentUser?.id
-                                  ? 'text-gray-400 cursor-not-allowed'
-                                  : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                              }`}
-                              title={user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
+                          <div className="flex items-center space-x-2">
+                            {user.roles.includes('admin') ? (
+                              <button
+                                onClick={() => handleRoleChange(user.id, 'demote')}
+                                disabled={user.id === currentUser?.id}
+                                className={`p-1.5 rounded transition-colors group relative ${
+                                  user.id === currentUser?.id
+                                    ? 'text-gray-400 cursor-not-allowed'
+                                    : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                                }`}
+                                title={user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
+                              >
+                                <UserIcon size={16} />
+                                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                  {user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
+                                </span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleRoleChange(user.id, 'promote')}
+                                className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-50 rounded transition-colors group relative"
+                                title="Promote to admin"
+                              >
+                                <Crown size={16} />
+                                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                                  Promote to admin
+                                </span>
+                              </button>
+                            )}
+                            <button 
+                              onClick={() => handleEditUser(user)}
+                              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                              title="Edit user"
                             >
-                              <UserIcon size={16} />
+                              <Edit size={16} />
                             </button>
-                          ) : (
-                            <button
-                              onClick={() => handleRoleChange(user.id, 'promote')}
-                              className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-50 rounded transition-colors"
-                              title="Promote to admin"
-                            >
-                              <Crown size={16} />
-                            </button>
-                          )}
-                          <button 
-                            onClick={() => handleEditUser(user)}
-                            className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-                            title="Edit user"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(user.id)}
-                            disabled={user.id === currentUser?.id}
-                            className={`p-1.5 rounded transition-colors ${
-                              user.id === currentUser?.id
-                                ? 'text-gray-400 cursor-not-allowed'
-                                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                            }`}
-                            title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                            <div className="relative">
+                              <button
+                                onClick={() => handleDeleteUser(user.id)}
+                                disabled={user.id === currentUser?.id}
+                                className={`p-1.5 rounded transition-colors ${
+                                  user.id === currentUser?.id
+                                    ? 'text-gray-400 cursor-not-allowed'
+                                    : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                                }`}
+                                title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                              
+                              {/* Delete Confirmation Menu */}
+                              {showDeleteConfirm === user.id && (
+                                <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-10 min-w-[120px]">
+                                  <div className="text-sm text-gray-700 mb-2">Are you sure?</div>
+                                  <div className="flex space-x-2">
+                                    <button
+                                      onClick={() => confirmDeleteUser(user.id)}
+                                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                    >
+                                      Yes
+                                    </button>
+                                    <button
+                                      onClick={cancelDeleteUser}
+                                      className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+                                    >
+                                      No
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </td>
                       </tr>
                       ))
@@ -580,6 +740,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                           />
                         </div>
                         <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                          <input
+                            type="text"
+                            value={newUser.displayName || `${newUser.firstName} ${newUser.lastName}`}
+                            onChange={(e) => setNewUser(prev => ({ ...prev, displayName: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Display Name"
+                          />
+                        </div>
+                        <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                           <select
                             value={newUser.role}
@@ -638,6 +808,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                           />
                         </div>
                         <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                          <input
+                            type="text"
+                            value={editingUserData.displayName}
+                            onChange={(e) => setEditingUserData(prev => ({ ...prev, displayName: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Display Name"
+                          />
+                        </div>
+                        <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                           <input
                             type="email"
@@ -658,17 +838,62 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             <span className="ml-2 text-sm text-gray-700">Active</span>
                           </label>
                         </div>
+                        
+                        {/* Avatar Section */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Avatar</label>
+                          <div className="flex items-center space-x-3">
+                            {/* Current Avatar Display */}
+                            <div className="flex-shrink-0">
+                              {editingUserData.avatarUrl ? (
+                                <img
+                                  src={editingUserData.avatarUrl}
+                                  alt="User avatar"
+                                  className="w-12 h-12 rounded-full border-2 border-gray-200"
+                                />
+                              ) : (
+                                <div 
+                                  className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg"
+                                  style={{ backgroundColor: editingUserData.memberColor || '#4ECDC4' }}
+                                >
+                                  {editingUserData.firstName?.charAt(0)}{editingUserData.lastName?.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            
+                            {/* Avatar Upload Controls */}
+                            <div className="flex-1 space-y-2">
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={handleUserAvatarSelect}
+                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                              />
+                              {editingUserData.avatarUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveUserAvatar(editingUserData.id)}
+                                  className="text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                                >
+                                  Remove Avatar
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                       <div className="flex space-x-3 mt-6">
                         <button
                           onClick={handleSaveUser}
-                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                          disabled={isSubmitting}
+                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Save Changes
+                          {isSubmitting ? 'Saving...' : 'Save Changes'}
                         </button>
                         <button
                           onClick={handleCancelEditUser}
-                          className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                          disabled={isSubmitting}
+                          className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Cancel
                         </button>
