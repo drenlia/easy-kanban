@@ -6,7 +6,7 @@ services:
       - "3010:3010"
       - "3222:3222"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - DOCKER_ENV=true
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
@@ -19,7 +19,7 @@ services:
       - kanban-attachments:/app/server/attachments
       - kanban-avatars:/app/server/avatars
 
-    command: npm run dev
+    command: sh -c "npm run build && npm run serve & npm start"
     restart: unless-stopped
 
 volumes:

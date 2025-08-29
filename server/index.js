@@ -209,6 +209,14 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     
     const userRoles = roles.map(r => r.name);
     
+    // Determine the correct avatar URL based on auth provider
+    let avatarUrl = null;
+    if (user.auth_provider === 'google' && user.google_avatar_url) {
+      avatarUrl = user.google_avatar_url;
+    } else if (user.avatar_path) {
+      avatarUrl = user.avatar_path;
+    }
+    
     res.json({
       user: {
         id: user.id,
@@ -216,7 +224,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
         firstName: user.first_name,
         lastName: user.last_name,
         roles: userRoles,
-        avatarUrl: user.avatar_path,
+        avatarUrl: avatarUrl,
         authProvider: user.auth_provider || 'local',
         googleAvatarUrl: user.google_avatar_url
       }
@@ -516,7 +524,7 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
     `).run(key, value);
     
     // If this is a Google OAuth setting, reload the OAuth configuration
-    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET') {
+    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
       // Reload OAuth config (we'll implement this later)
       console.log(`Google OAuth setting updated: ${key}`);
     }
@@ -531,7 +539,7 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?)').all('SITE_NAME', 'SITE_URL');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -551,6 +559,149 @@ app.get('/api/auth/check-default-admin', (req, res) => {
   } catch (error) {
     console.error('Error checking default admin:', error);
     res.status(500).json({ error: 'Failed to check default admin status' });
+  }
+});
+
+// Google OAuth endpoints
+app.get('/api/auth/google/url', (req, res) => {
+  try {
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+    const settingsObj = {};
+    settings.forEach(setting => {
+      settingsObj[setting.key] = setting.value;
+    });
+    
+    if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
+      return res.status(400).json({ error: 'Google OAuth not fully configured. Please set Client ID, Client Secret, and Callback URL.' });
+    }
+    
+    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${encodeURIComponent(settingsObj.GOOGLE_CLIENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(settingsObj.GOOGLE_CALLBACK_URL)}` +
+      `&response_type=code` +
+      `&scope=${encodeURIComponent('openid email profile')}` +
+      `&access_type=offline`;
+    
+    res.json({ url: googleAuthUrl });
+  } catch (error) {
+    console.error('Error generating Google OAuth URL:', error);
+    res.status(500).json({ error: 'Failed to generate OAuth URL' });
+  }
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  try {
+    const { code } = req.query;
+    
+    if (!code) {
+      return res.redirect('/?error=oauth_failed');
+    }
+    
+    // Get OAuth settings
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+    const settingsObj = {};
+    settings.forEach(setting => {
+      settingsObj[setting.key] = setting.value;
+    });
+    
+    if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
+      return res.redirect('/?error=oauth_not_configured');
+    }
+    
+    // Exchange code for access token
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: settingsObj.GOOGLE_CLIENT_ID,
+        client_secret: settingsObj.GOOGLE_CLIENT_SECRET,
+        code,
+        grant_type: 'authorization_code',
+        redirect_uri: settingsObj.GOOGLE_CALLBACK_URL
+      })
+    });
+    
+    if (!tokenResponse.ok) {
+      console.error('Google token exchange failed:', await tokenResponse.text());
+      return res.redirect('/?error=oauth_token_failed');
+    }
+    
+    const tokenData = await tokenResponse.json();
+    
+    // Get user info from Google
+    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    
+    if (!userInfoResponse.ok) {
+      console.error('Google user info failed:', await userInfoResponse.text());
+      return res.redirect('/?error=oauth_userinfo_failed');
+    }
+    
+    const userInfo = await userInfoResponse.json();
+    
+    // Check if user exists
+    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(userInfo.email);
+    let isNewUser = false;
+    
+    if (!user) {
+      // Create new user
+      const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Generate a dummy password hash for Google users (they don't have passwords)
+      const dummyPasswordHash = bcrypt.hashSync('google-oauth-user', 10);
+      const userStmt = db.prepare(`
+        INSERT INTO users (id, email, first_name, last_name, auth_provider, google_avatar_url, password_hash) 
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      userStmt.run(userId, userInfo.email, userInfo.given_name || '', userInfo.family_name || '', 'google', userInfo.picture, dummyPasswordHash);
+      
+      // Assign user role
+      const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
+      const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
+      userRoleStmt.run(userId, userRoleId);
+      
+      // Create team member
+      const memberName = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim();
+      const memberColor = '#' + Math.floor(Math.random()*16777215).toString(16);
+      const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
+      memberStmt.run(userId, memberName, memberColor, userId);
+      
+      user = { id: userId, email: userInfo.email, firstName: userInfo.given_name, lastName: userInfo.family_name };
+      isNewUser = true;
+    }
+    
+    // Get user roles from database (for both new and existing users)
+    const roles = db.prepare(`
+      SELECT r.name 
+      FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).all(user.id);
+    
+    const userRoles = roles.map(r => r.name);
+    
+    // Generate JWT token - must match local login structure
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        role: userRoles.includes('admin') ? 'admin' : 'user',
+        roles: userRoles
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Redirect to login page with token and newUser flag
+    if (isNewUser) {
+      res.redirect(`/#login?token=${token}&newUser=true`);
+    } else {
+      res.redirect(`/#login?token=${token}`);
+    }
+    
+  } catch (error) {
+    console.error('Google OAuth callback error:', error);
+    res.redirect('/?error=oauth_failed');
   }
 });
 
@@ -763,6 +914,7 @@ if (roleCount.count === 0) {
   const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
   insertSetting.run('GOOGLE_CLIENT_ID', null);
   insertSetting.run('GOOGLE_CLIENT_SECRET', null);
+  insertSetting.run('GOOGLE_CALLBACK_URL', 'http://localhost:3000/api/auth/google/callback');
   insertSetting.run('SITE_NAME', 'Easy Kanban');
   insertSetting.run('SITE_URL', 'http://localhost:3000');
   
