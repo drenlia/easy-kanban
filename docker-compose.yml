@@ -7,17 +7,17 @@ services:
       - "3222:3222"
     environment:
       - NODE_ENV=development
+      - DOCKER_ENV=true
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
-      - DEMO_ENABLED=true
+      - DEMO_ENABLED=false
     volumes:
       - .:/app
       - /app/node_modules
       - kanban-data:/app/server/data
       - kanban-attachments:/app/server/attachments
       - kanban-avatars:/app/server/avatars
-      - ./server/kanban.db:/app/server/kanban.db
 
     command: npm run dev
     restart: unless-stopped
