@@ -16,6 +16,7 @@ services:
       - /app/node_modules
       - kanban-data:/app/server/data
       - kanban-attachments:/app/server/attachments
+      - kanban-avatars:/app/server/avatars
       - ./server/kanban.db:/app/server/kanban.db
 
     command: npm run dev
@@ -25,4 +26,6 @@ volumes:
   kanban-data:
     driver: local
   kanban-attachments:
+    driver: local
+  kanban-avatars:
     driver: local

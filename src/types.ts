@@ -2,6 +2,9 @@ export interface TeamMember {
   id: string;
   name: string;
   color: string;
+  avatarUrl?: string;
+  authProvider?: 'local' | 'google';
+  googleAvatarUrl?: string;
 }
 
 export type Priority = 'low' | 'medium' | 'high';

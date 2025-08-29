@@ -6,8 +6,11 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import multer from 'multer';
 import { mkdir } from 'fs/promises';
+import { writeFileSync } from 'fs';
 import crypto from 'crypto';
 import path from 'path';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbPath = join(__dirname, 'kanban.db');
@@ -19,15 +22,452 @@ if (!fs.existsSync(dbPath)) {
 const db = new Database(dbPath);
 const app = express();
 
+// JWT configuration
+const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_EXPIRES_IN = '24h';
+
 // Enable CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
 
 
 
+// Authentication middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Role-based access control middleware
+const requireRole = (roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    next();
+  };
+};
+
 // Query logging
 const queryLogs = [];
 let queryId = 0;
+
+// Authentication endpoints
+app.post('/api/auth/login', async (req, res) => {
+  const { email, password } = req.body;
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  
+  try {
+    // Find user by email
+    const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Get user roles
+    const roles = db.prepare(`
+      SELECT r.name 
+      FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).all(user.id);
+    
+    const userRoles = roles.map(r => r.name);
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email, 
+        role: userRoles.includes('admin') ? 'admin' : 'user',
+        roles: userRoles
+      }, 
+      JWT_SECRET, 
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    // Return user info and token
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        roles: userRoles
+      },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { email, password, firstName, lastName, role } = req.body;
+  
+  if (!email || !password || !firstName || !lastName || !role) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  
+  try {
+    // Check if user already exists
+    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    // Create user
+    const userId = crypto.randomUUID();
+    const userStmt = db.prepare(`
+      INSERT INTO users (id, email, password_hash, first_name, last_name) 
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    userStmt.run(userId, email, passwordHash, firstName, lastName);
+    
+    // Assign role
+    const roleId = db.prepare('SELECT id FROM roles WHERE name = ?').get(role)?.id;
+    if (roleId) {
+      const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
+      userRoleStmt.run(userId, roleId);
+    }
+    
+    // Create member for the user
+    const memberId = crypto.randomUUID();
+    const memberColor = '#4ECDC4'; // Default color
+    const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
+    memberStmt.run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+    
+    res.json({ 
+      message: 'User created successfully',
+      user: { id: userId, email, firstName, lastName, role }
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.get('/api/auth/me', authenticateToken, (req, res) => {
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get user roles
+    const roles = db.prepare(`
+      SELECT r.name 
+      FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).all(user.id);
+    
+    const userRoles = roles.map(r => r.name);
+    
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        roles: userRoles
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ error: 'Failed to get user info' });
+  }
+});
+
+// Admin API endpoints
+app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const users = db.prepare(`
+      SELECT 
+        u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
+        GROUP_CONCAT(r.name) as roles
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
+    `).all();
+    
+    const formattedUsers = users.map(user => ({
+      id: user.id,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      isActive: user.is_active,
+      roles: user.roles ? user.roles.split(',') : [],
+      joined: new Date(user.created_at).toLocaleDateString(),
+      createdAt: user.created_at
+    }));
+    
+    res.json(formattedUsers);
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ error: 'Failed to get users' });
+  }
+});
+
+app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { firstName, lastName, email, isActive } = req.body;
+    
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({ error: 'First name, last name, and email are required' });
+    }
+    
+    // Check if email already exists for another user
+    const existingUser = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, userId);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    
+    // Update user
+    const updateStmt = db.prepare(`
+      UPDATE users 
+      SET first_name = ?, last_name = ?, email = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `);
+    updateStmt.run(firstName, lastName, email, isActive ? 1 : 0, userId);
+    
+    // Update team member name if it exists
+    try {
+      const memberUpdateStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
+      memberUpdateStmt.run(`${firstName} ${lastName}`, userId);
+    } catch (error) {
+      console.log('Member update not needed or failed:', error.message);
+    }
+    
+    res.json({ message: 'User updated successfully' });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { action } = req.body; // 'promote' or 'demote'
+    
+    if (!['promote', 'demote'].includes(action)) {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+    
+    // Prevent users from demoting themselves
+    if (action === 'demote' && userId === req.user.id) {
+      return res.status(400).json({ error: 'You cannot demote yourself' });
+    }
+    
+    // Get current role
+    const currentRole = db.prepare(`
+      SELECT r.name FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).get(userId);
+    
+    if (!currentRole) {
+      return res.status(404).json({ error: 'User role not found' });
+    }
+    
+    // Remove current role
+    db.prepare('DELETE FROM user_roles WHERE user_id = ?').run(userId);
+    
+    // Assign new role
+    const newRoleName = action === 'promote' ? 'admin' : 'user';
+    const newRole = db.prepare('SELECT id FROM roles WHERE name = ?').get(newRoleName);
+    
+    if (!newRole) {
+      return res.status(500).json({ error: 'Role not found' });
+    }
+    
+    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(userId, newRole.id);
+    
+    res.json({ message: `User ${action}d successfully` });
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({ error: 'Failed to update user role' });
+  }
+});
+
+app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { email, password, firstName, lastName, role } = req.body;
+    
+    if (!email || !password || !firstName || !lastName || !role) {
+      return res.status(400).json({ error: 'All fields are required' });
+    }
+    
+    // Check if email already exists
+    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    
+    // Generate user ID
+    const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Hash password
+    const passwordHash = bcrypt.hashSync(password, 10);
+    
+    // Create user
+    const userStmt = db.prepare(`
+      INSERT INTO users (id, email, password_hash, first_name, last_name) 
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    userStmt.run(userId, email, passwordHash, firstName, lastName);
+    
+    // Assign role
+    const roleId = db.prepare('SELECT id FROM roles WHERE name = ?').get(role);
+    if (!roleId) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+    
+    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(userId, roleId.id);
+    
+    // Create team member automatically
+    const memberName = `${firstName} ${lastName}`;
+    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F'];
+    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+    
+    const memberStmt = db.prepare(`
+      INSERT INTO members (id, name, color, user_id) 
+      VALUES (?, ?, ?, ?)
+    `);
+    memberStmt.run(userId, memberName, randomColor, userId);
+    
+    // Generate default avatar SVG for new local users
+    const defaultAvatarSvg = generateDefaultAvatar(firstName, lastName, randomColor);
+    const avatarFilename = `default-${userId}.svg`;
+    const avatarPath = path.join(AVATARS_DIR, avatarFilename);
+    
+    try {
+      fs.writeFileSync(avatarPath, defaultAvatarSvg);
+      // Update user with default avatar path
+      const avatarUpdateStmt = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?');
+      avatarUpdateStmt.run(`/avatars/${avatarFilename}`, userId);
+    } catch (error) {
+      console.error('Error creating default avatar:', error);
+    }
+    
+    res.json({ 
+      message: 'User created successfully',
+      user: {
+        id: userId,
+        email,
+        firstName,
+        lastName,
+        role
+      }
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Check if user is trying to delete themselves
+    if (userId === req.user.id) {
+      return res.status(400).json({ error: 'Cannot delete your own account' });
+    }
+    
+    // Delete user (cascade will handle related records)
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
+
+app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const settingsObj = {};
+    settings.forEach(setting => {
+      settingsObj[setting.key] = setting.value;
+    });
+    res.json(settingsObj);
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({ error: 'Failed to get settings' });
+  }
+});
+
+app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { key, value } = req.body;
+    
+    if (!key) {
+      return res.status(400).json({ error: 'Setting key is required' });
+    }
+    
+    const result = db.prepare(`
+      INSERT OR REPLACE INTO settings (key, value, updated_at) 
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+    `).run(key, value);
+    
+    // If this is a Google OAuth setting, reload the OAuth configuration
+    if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET') {
+      // Reload OAuth config (we'll implement this later)
+      console.log(`Google OAuth setting updated: ${key}`);
+    }
+    
+    res.json({ message: 'Setting updated successfully' });
+  } catch (error) {
+    console.error('Update setting error:', error);
+    res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
 
 function wrapQuery(stmt, type) {
   return {
@@ -105,21 +545,56 @@ function wrapQuery(stmt, type) {
 
 // Initialize database tables
 db.exec(`
+  CREATE TABLE IF NOT EXISTS roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    first_name TEXT,
+    last_name TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    avatar_path TEXT,
+    auth_provider TEXT DEFAULT 'local',
+    google_avatar_url TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS user_roles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    role_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
+    UNIQUE(user_id, role_id)
+  );
+
   CREATE TABLE IF NOT EXISTS members (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    color TEXT NOT NULL
+    color TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS boards (
     id TEXT PRIMARY KEY,
-    title TEXT NOT NULL
+    title TEXT NOT NULL,
+    position INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS columns (
     id TEXT PRIMARY KEY,
     boardId TEXT NOT NULL,
     title TEXT NOT NULL,
+    position INTEGER DEFAULT 0,
     FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
   );
 
@@ -160,7 +635,62 @@ db.exec(`
     size INTEGER NOT NULL,
     FOREIGN KEY (commentId) REFERENCES comments(id) ON DELETE CASCADE
   );
+  
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
+
+// Initialize authentication data if no roles exist
+const roleCount = db.prepare('SELECT COUNT(*) as count FROM roles').get();
+if (roleCount.count === 0) {
+  // Insert default roles
+  const roleStmt = db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)');
+  roleStmt.run('admin', 'Full system access and management');
+  roleStmt.run('user', 'Standard user access');
+  
+  // Create default admin user
+  const adminPassword = 'admin';
+  const passwordHash = bcrypt.hashSync(adminPassword, 10);
+  
+  const adminUser = {
+    id: 'admin-user',
+    email: 'admin@example.com',
+    passwordHash: passwordHash,
+    firstName: 'Admin',
+    lastName: 'User'
+  };
+  
+  const userStmt = db.prepare(`
+    INSERT INTO users (id, email, password_hash, first_name, last_name, auth_provider) 
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  userStmt.run(adminUser.id, adminUser.email, adminUser.passwordHash, adminUser.firstName, adminUser.lastName, 'local');
+  
+  // Assign admin role to default user
+  const adminRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('admin').id;
+  const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
+  userRoleStmt.run(adminUser.id, adminRoleId);
+  
+  // Initialize default settings
+  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+  insertSetting.run('GOOGLE_CLIENT_ID', null);
+  insertSetting.run('GOOGLE_CLIENT_SECRET', null);
+  insertSetting.run('SITE_NAME', 'Easy Kanban');
+  insertSetting.run('SITE_URL', 'http://localhost:3000');
+  
+  // Create admin member
+  const adminMember = {
+    id: 'admin-member',
+    name: 'Admin User',
+    color: '#FF6B6B'
+  };
+  
+  const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
+  memberStmt.run(adminMember.id, adminMember.name, adminMember.color, adminUser.id);
+}
 
 // Initialize default data if no boards exist
 const boardCount = db.prepare('SELECT COUNT(*) as count FROM boards').get();
@@ -176,18 +706,41 @@ if (boardCount.count === 0) {
     ]
   };
 
-  const defaultMember = {
-    id: 'default-member',
-    name: 'Demo User',
+  // Create default demo user account (for testing purposes)
+  // This maintains the 1:1 relationship between users and team members
+  const demoUser = {
+    id: 'demo-user',
+    email: 'demo@example.com',
+    password: 'demo123',
+    firstName: 'Demo',
+    lastName: 'User'
+  };
+  
+  // Hash password and create user
+  const demoPasswordHash = bcrypt.hashSync(demoUser.password, 10);
+  const demoUserStmt = db.prepare(`
+    INSERT INTO users (id, email, password_hash, first_name, last_name, auth_provider) 
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  demoUserStmt.run(demoUser.id, demoUser.email, demoPasswordHash, demoUser.firstName, demoUser.lastName, 'local');
+  
+  // Assign user role to demo user
+  const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user');
+  const demoUserRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
+  demoUserRoleStmt.run(demoUser.id, userRoleId.id);
+  
+  // Create team member for demo user
+  const demoMember = {
+    id: demoUser.id, // Same ID as user for 1:1 relationship
+    name: `${demoUser.firstName} ${demoUser.lastName}`,
     color: '#4ECDC4'
   };
 
-  // Create default member
   const memberStmt = wrapQuery(
-    db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'),
+    db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'),
     'INSERT'
   );
-  memberStmt.run(defaultMember.id, defaultMember.name, defaultMember.color);
+  memberStmt.run(demoMember.id, demoMember.name, demoMember.color, demoUser.id);
 
   // Create default board
   const boardStmt = wrapQuery(
@@ -210,12 +763,12 @@ if (boardCount.count === 0) {
     id: 'sample-task',
     title: 'Welcome to Kanban',
     description: 'This is a sample task to help you get started. Feel free to edit or delete it.',
-    memberId: defaultMember.id,
+    memberId: demoUser.id,
     startDate: new Date().toISOString().split('T')[0],
     effort: 1,
     columnId: 'todo',
     priority: 'medium',
-    requesterId: defaultMember.id,
+    requesterId: demoUser.id,
     boardId: defaultBoard.id
   };
 
@@ -246,9 +799,50 @@ if (boardCount.count === 0) {
 // API Endpoints
 app.get('/api/members', (req, res) => {
   try {
-    const stmt = wrapQuery(db.prepare('SELECT * FROM members'), 'SELECT');
-    const members = stmt.all();
-    res.json(members);
+    // First try the enhanced query with avatar information
+    try {
+      const stmt = wrapQuery(
+        db.prepare(`
+          SELECT 
+            m.id, m.name, m.color, m.created_at,
+            u.avatar_path, u.auth_provider, u.google_avatar_url
+          FROM members m
+          LEFT JOIN users u ON m.user_id = u.id
+          ORDER BY m.created_at ASC
+        `), 
+        'SELECT'
+      );
+      const members = stmt.all();
+      
+      // Transform the data to match the expected format
+      const transformedMembers = members.map(member => ({
+        id: member.id,
+        name: member.name,
+        color: member.color,
+        avatarUrl: member.avatar_path,
+        authProvider: member.auth_provider,
+        googleAvatarUrl: member.google_avatar_url
+      }));
+      
+      res.json(transformedMembers);
+    } catch (enhancedError) {
+      // Fallback to basic query if enhanced query fails
+      console.log('Enhanced query failed, falling back to basic query:', enhancedError.message);
+      const basicStmt = wrapQuery(db.prepare('SELECT * FROM members'), 'SELECT');
+      const basicMembers = basicStmt.all();
+      
+      // Transform basic members to include default avatar info
+      const transformedMembers = basicMembers.map(member => ({
+        id: member.id,
+        name: member.name,
+        color: member.color,
+        avatarUrl: null,
+        authProvider: 'local',
+        googleAvatarUrl: null
+      }));
+      
+      res.json(transformedMembers);
+    }
   } catch (error) {
     console.error('Error fetching members:', error);
     res.status(500).json({ error: 'Failed to fetch members' });
@@ -675,12 +1269,41 @@ app.delete('/api/tasks/:id', (req, res) => {
 });
 
 const ATTACHMENTS_DIR = join(__dirname, 'attachments');
-// Ensure attachments directory exists
-try {
-  await mkdir(ATTACHMENTS_DIR, { recursive: true });
-} catch (error) {
-  console.error('Error creating attachments directory:', error);
-}
+const AVATARS_DIR = join(__dirname, 'avatars');
+
+  // Ensure directories exist
+  try {
+    await mkdir(ATTACHMENTS_DIR, { recursive: true });
+    await mkdir(AVATARS_DIR, { recursive: true });
+  } catch (error) {
+    console.error('Error creating directories:', error);
+  }
+
+  // Ensure members table has created_at column (migration)
+  try {
+    db.prepare('ALTER TABLE members ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
+  } catch (error) {
+    // Column already exists, ignore error
+    console.log('Members table already has created_at column or migration not needed');
+  }
+
+  // Clean up orphaned members (members without corresponding users)
+  try {
+    const orphanedMembers = db.prepare(`
+      SELECT m.id, m.name 
+      FROM members m 
+      LEFT JOIN users u ON m.user_id = u.id 
+      WHERE u.id IS NULL
+    `).all();
+    
+    if (orphanedMembers.length > 0) {
+      console.log(`Found ${orphanedMembers.length} orphaned members, removing them:`, orphanedMembers);
+      db.prepare('DELETE FROM members WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users)').run();
+      console.log('Orphaned members cleaned up');
+    }
+  } catch (error) {
+    console.log('Member cleanup not needed or failed:', error.message);
+  }
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -705,6 +1328,9 @@ const upload = multer({
 // Add this to serve static files from the attachments directory
 app.use('/attachments', express.static(ATTACHMENTS_DIR));
 
+// Add this to serve static files from the avatars directory
+app.use('/avatars', express.static(AVATARS_DIR));
+
 // Add file upload endpoint
 app.post('/api/upload', upload.single('file'), (req, res) => {
   try {
@@ -723,6 +1349,69 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
   } catch (error) {
     console.error('Error uploading file:', error);
     res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+// Configure multer for avatar uploads
+const avatarStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, AVATARS_DIR);
+  },
+  filename: (req, file, cb) => {
+    // Create unique filename for avatars
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    const ext = file.originalname.split('.').pop();
+    cb(null, `avatar-${uniqueSuffix}.${ext}`);
+  }
+});
+
+// Function to generate default avatar SVG
+const generateDefaultAvatar = (firstName, lastName, color) => {
+  const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
+  return `
+    <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="50" fill="${color}"/>
+      <text x="50" y="60" font-family="Arial, sans-serif" font-size="32" font-weight="bold" 
+            text-anchor="middle" fill="white">${initials}</text>
+    </svg>
+  `;
+};
+
+const avatarUpload = multer({ 
+  storage: avatarStorage,
+  limits: {
+    fileSize: 2 * 1024 * 1024 // 2MB limit for avatars
+  },
+  fileFilter: (req, file, cb) => {
+    // Only allow image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for avatars'));
+    }
+  }
+});
+
+// Add avatar upload endpoint
+app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No avatar uploaded' });
+    }
+
+    const avatarUrl = `/avatars/${req.file.filename}`;
+    
+    // Update user's avatar_path in database
+    const updateStmt = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?');
+    updateStmt.run(avatarUrl, req.user.id);
+    
+    res.json({
+      message: 'Avatar updated successfully',
+      avatarUrl: avatarUrl
+    });
+  } catch (error) {
+    console.error('Error uploading avatar:', error);
+    res.status(500).json({ error: 'Failed to upload avatar' });
   }
 });
 

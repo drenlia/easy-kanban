@@ -110,12 +110,7 @@ export default function BoardTabs({
     }
   };
 
-  // If no board is selected but boards exist, select the first one
-  React.useEffect(() => {
-    if (!selectedBoard && boards.length > 0) {
-      onSelectBoard(boards[0].id);
-    }
-  }, [selectedBoard, boards, onSelectBoard]);
+
 
   if (boards.length === 0) {
     return (

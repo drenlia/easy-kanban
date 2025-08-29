@@ -9,10 +9,13 @@ import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
-import { Github, HelpCircle } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User } from 'lucide-react';
+import Login from './components/Login';
+import Admin from './components/Admin';
+import Profile from './components/Profile';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
-import { TaskSchema, MemberSchema, BoardSchema, ColumnSchema } from './validation/schemas';
+import { TaskSchema, BoardSchema, ColumnSchema } from './validation/schemas';
 import { z } from 'zod';
 import { generateUUID } from './utils/uuid';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from '@dnd-kit/core';
@@ -36,7 +39,12 @@ const DEFAULT_COLUMNS = [
 export default function App() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(() => {
+    // Get board from URL hash, fallback to null
+    // Note: We'll set a default board after boards are loaded
+    const hash = window.location.hash.replace('#', '');
+    return hash || null;
+  });
   const [columns, setColumns] = useState<Columns>({});
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
@@ -45,7 +53,70 @@ export default function App() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(() => {
+    // Get page from URL hash, fallback to 'kanban'
+    const hash = window.location.hash.replace('#', '');
+    return ['kanban', 'admin'].includes(hash) ? hash : 'kanban';
+  });
+  const [siteSettings, setSiteSettings] = useState({ SITE_NAME: 'Easy Kanban', SITE_URL: 'http://localhost:3000' });
   const { loading, withLoading } = useLoadingState();
+
+  // Authentication handlers
+  const handleLogin = (userData: any, token: string) => {
+    localStorage.setItem('authToken', token);
+    setCurrentUser(userData);
+    setIsAuthenticated(true);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setCurrentPage('kanban'); // Reset to kanban page
+    setMembers([]);
+    setBoards([]);
+    setColumns({});
+    setSelectedBoard(null);
+    window.location.hash = ''; // Clear URL hash
+    setSelectedMember(null);
+  };
+
+  const handleAuthError = () => {
+    // Clear all authentication data and reset state
+    localStorage.removeItem('authToken');
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setCurrentPage('kanban');
+    setMembers([]);
+    setBoards([]);
+    setColumns({});
+    setSelectedBoard(null);
+    window.location.hash = ''; // Clear URL hash
+    setSelectedMember(null);
+  };
+
+  const handleProfileUpdated = async () => {
+    try {
+      // Refresh current user data to get updated avatar
+      const response = await api.getCurrentUser();
+      setCurrentUser(response.user);
+      
+      // Also refresh members to get updated display names
+      const loadedMembers = await api.getMembers();
+      setMembers(loadedMembers);
+    } catch (error) {
+      console.error('Failed to refresh profile data:', error);
+    }
+  };
+
+  // Handle board selection with URL hash persistence
+  const handleBoardSelection = (boardId: string) => {
+    setSelectedBoard(boardId);
+    window.location.hash = boardId;
+  };
 
   // DnD sensors for columns
   const columnSensors = useSensors(
@@ -59,8 +130,84 @@ export default function App() {
     })
   );
 
+  // Check authentication on app load
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      // Verify token and get current user
+      api.getCurrentUser()
+        .then(response => {
+          setCurrentUser(response.user);
+          setIsAuthenticated(true);
+        })
+        .catch(() => {
+          // Clear all authentication data on error
+          localStorage.removeItem('authToken');
+          setIsAuthenticated(false);
+          setCurrentUser(null);
+          // Reset to kanban page to avoid admin page issues
+          setCurrentPage('kanban');
+        });
+    }
+  }, []);
+
+  // Load site settings
+  useEffect(() => {
+    const loadSiteSettings = async () => {
+      try {
+        const settings = await api.getSettings();
+        setSiteSettings(settings);
+      } catch (error) {
+        console.error('Failed to load site settings:', error);
+      }
+    };
+    
+    loadSiteSettings();
+  }, []);
+
+  // Handle authentication state changes
+  useEffect(() => {
+    // If not authenticated, ensure we're not on admin page
+    if (!isAuthenticated && currentPage === 'admin') {
+      setCurrentPage('kanban');
+    }
+  }, [isAuthenticated, currentPage]);
+
+  // Handle URL hash changes for board selection and page selection
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '');
+      
+      // Handle page selection
+      if (['kanban', 'admin'].includes(hash) && hash !== currentPage) {
+        setCurrentPage(hash as 'kanban' | 'admin');
+      }
+      
+      // Handle board selection
+      if (hash && boards.length > 0) {
+        const board = boards.find(b => b.id === hash);
+        if (board && board.id !== selectedBoard) {
+          setSelectedBoard(board.id);
+        }
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [boards, selectedBoard, currentPage]);
+
+  // Ensure a board is selected when boards are available
+  useEffect(() => {
+    if (boards.length > 0 && !selectedBoard && currentPage === 'kanban') {
+      // No board selected and we're on kanban page, select the first board
+      handleBoardSelection(boards[0].id);
+    }
+  }, [boards, selectedBoard, currentPage]);
+
   // Load initial data
   useEffect(() => {
+    if (!isAuthenticated) return;
+    
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
@@ -73,8 +220,15 @@ export default function App() {
           setBoards(loadedBoards);
           
           if (loadedBoards.length > 0) {
-            setSelectedBoard(loadedBoards[0].id);
-            setColumns(loadedBoards[0].columns || {});
+            // If no board is selected from URL hash, select the first one
+            if (!selectedBoard) {
+              handleBoardSelection(loadedBoards[0].id);
+            }
+            // Set columns for the selected board
+            const boardToUse = selectedBoard ? loadedBoards.find(b => b.id === selectedBoard) : loadedBoards[0];
+            if (boardToUse) {
+              setColumns(boardToUse.columns || {});
+            }
           }
 
           if (loadedMembers.length > 0) {
@@ -88,7 +242,7 @@ export default function App() {
     };
 
     loadInitialData();
-  }, []);
+  }, [isAuthenticated]);
 
   // Update columns when selected board changes
   useEffect(() => {
@@ -113,10 +267,19 @@ export default function App() {
       const loadedBoards = await api.getBoards();
       setBoards(loadedBoards);
       
-      if (selectedBoard) {
-        const board = loadedBoards.find(b => b.id === selectedBoard);
-        if (board) {
-          setColumns(board.columns || {});
+      if (loadedBoards.length > 0) {
+        // If no board is selected, select the first one
+        if (!selectedBoard) {
+          handleBoardSelection(loadedBoards[0].id);
+        } else {
+          // Check if the selected board still exists
+          const board = loadedBoards.find(b => b.id === selectedBoard);
+          if (board) {
+            setColumns(board.columns || {});
+          } else {
+            // Selected board no longer exists, select the first one
+            handleBoardSelection(loadedBoards[0].id);
+          }
         }
       }
     } catch (error) {
@@ -133,39 +296,7 @@ export default function App() {
     }
   };
 
-  const handleAddMember = async (member: TeamMember) => {
-    try {
-      // Validate input
-      const validatedMember = MemberSchema.parse(member);
-      
-      await withLoading('members', async () => {
-        const createdMember = await api.createMember(validatedMember);
-        setMembers([...members, createdMember]);
-        if (!selectedMember) setSelectedMember(createdMember.id);
-        await fetchQueryLogs();
-      });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        console.error('Validation error:', error.errors);
-        alert('Validation error: ' + error.errors.map(e => e.message).join(', '));
-      } else {
-        console.error('Failed to add member:', error);
-      }
-    }
-  };
 
-  const handleRemoveMember = async (id: string) => {
-    try {
-      await api.deleteMember(id);
-      setMembers(members.filter(m => m.id !== id));
-      if (selectedMember === id) {
-        setSelectedMember(members.length > 1 ? members[0].id : null);
-      }
-      await fetchQueryLogs();
-    } catch (error) {
-      console.error('Failed to remove member:', error);
-    }
-  };
 
   const handleAddBoard = async () => {
     try {
@@ -260,7 +391,7 @@ export default function App() {
       
       if (selectedBoard === boardId) {
         const firstBoard = newBoards[0];
-        setSelectedBoard(firstBoard.id);
+        handleBoardSelection(firstBoard.id);
         setColumns(firstBoard.columns);
       }
       await fetchQueryLogs();
@@ -593,17 +724,102 @@ export default function App() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Show login page if not authenticated
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       <header className="bg-white shadow-sm border-b border-gray-100">
         <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <a href="https://drenlia.com" target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">
-              Drenlia Inc.
+            <a href={siteSettings.SITE_URL || '#'} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">
+              {siteSettings.SITE_NAME || 'Easy Kanban'}
             </a>
           </div>
           <div className="flex items-center gap-3">
+            {currentUser && (
+              <>
+                <div className="flex items-center gap-2">
+                  {/* User Avatar */}
+                  <div className="relative group">
+                    <button
+                      className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                      onClick={() => setShowProfileModal(true)}
+                      title="Profile Settings"
+                    >
+                      {currentUser?.avatarUrl ? (
+                        <img
+                          src={currentUser.avatarUrl}
+                          alt="Profile"
+                          className="h-8 w-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center">
+                          <span className="text-sm font-medium text-gray-600">
+                            {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                    
+                    {/* Profile Dropdown */}
+                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-md shadow-lg z-50 border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                      <div className="py-1">
+                        <button
+                          onClick={() => setShowProfileModal(true)}
+                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                        >
+                          <User size={16} />
+                          Profile
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                        >
+                          <LogOut size={16} />
+                          Logout
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Navigation */}
+                <div className="flex items-center gap-2 ml-4">
+                  <button
+                    onClick={() => {
+                      setCurrentPage('kanban');
+                      window.location.hash = 'kanban';
+                    }}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      currentPage === 'kanban'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      }`}
+                  >
+                    Kanban
+                  </button>
+                  {currentUser.roles?.includes('admin') && (
+                    <button
+                      onClick={() => {
+                        setCurrentPage('admin');
+                        window.location.hash = 'admin';
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                        currentPage === 'admin'
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      }`}
+                    >
+                      Admin
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
             <button
               onClick={() => setShowHelpModal(true)}
               className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
@@ -625,93 +841,115 @@ export default function App() {
 
       <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''}`}>
         <div className="max-w-[1400px] mx-auto">
-          {loading.general ? (
-            <LoadingSpinner size="large" className="mt-20" />
+          {currentPage === 'admin' ? (
+            <Admin 
+              currentUser={currentUser} 
+              onUsersChanged={async () => {
+                try {
+                  const loadedMembers = await api.getMembers();
+                  setMembers(loadedMembers);
+                } catch (error) {
+                  console.error('Failed to refresh members:', error);
+                }
+              }}
+              onSettingsChanged={async () => {
+                try {
+                  const settings = await api.getSettings();
+                  setSiteSettings(settings);
+                } catch (error) {
+                  console.error('Failed to refresh site settings:', error);
+                }
+              }}
+            />
           ) : (
             <>
-              <TeamMembers
-                members={members}
-                selectedMember={selectedMember}
-                onSelectMember={setSelectedMember}
-                onAdd={handleAddMember}
-                onRemove={handleRemoveMember}
-              />
+              {loading.general ? (
+                <LoadingSpinner size="large" className="mt-20" />
+              ) : (
+                <>
+                  <TeamMembers
+                    members={members}
+                    selectedMember={selectedMember}
+                    onSelectMember={setSelectedMember}
+                  />
 
-              {/* Board Tabs */}
-              <BoardTabs
-                boards={boards}
-                selectedBoard={selectedBoard}
-                onSelectBoard={setSelectedBoard}
-                onAddBoard={handleAddBoard}
-                onEditBoard={handleEditBoard}
-                onRemoveBoard={handleRemoveBoard}
-                onReorderBoards={handleBoardReorder}
-              />
+                  {/* Board Tabs */}
+                  <BoardTabs
+                    boards={boards}
+                    selectedBoard={selectedBoard}
+                    onSelectBoard={handleBoardSelection}
+                    onAddBoard={handleAddBoard}
+                    onEditBoard={handleEditBoard}
+                    onRemoveBoard={handleRemoveBoard}
+                    onReorderBoards={handleBoardReorder}
+                  />
 
-              {selectedBoard && (
-                <div className="relative">
-                  {(loading.tasks || loading.boards || loading.columns) && (
-                    <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
-                      <LoadingSpinner size="medium" />
+                  {selectedBoard && (
+                    <div className="relative">
+                      {(loading.tasks || loading.boards || loading.columns) && (
+                        <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
+                          <LoadingSpinner size="medium" />
+                        </div>
+                      )}
+                      <DndContext
+                        sensors={columnSensors}
+                        collisionDetection={closestCenter}
+                        onDragStart={handleColumnDragStart}
+                        onDragEnd={handleColumnDragEnd}
+                      >
+                        <SortableContext
+                          items={Object.values(columns)
+                            .sort((a, b) => (a.position || 0) - (b.position || 0))
+                            .map(col => col.id)}
+                          strategy={rectSortingStrategy}
+                        >
+                          <div style={gridStyle}>
+                            {Object.values(columns)
+                              .sort((a, b) => (a.position || 0) - (b.position || 0))
+                              .map(column => (
+                                <KanbanColumn
+                                  key={column.id}
+                                  column={column}
+                                  members={members}
+                                  selectedMember={selectedMember}
+                                  draggedTask={draggedTask}
+                                  draggedColumn={draggedColumn}
+                                  onAddTask={handleAddTask}
+                                  onRemoveTask={handleRemoveTask}
+                                  onEditTask={handleEditTask}
+                                  onCopyTask={handleCopyTask}
+                                  onEditColumn={handleEditColumn}
+                                  onRemoveColumn={handleRemoveColumn}
+                                  onAddColumn={handleAddColumn}
+                                  onTaskDragStart={handleTaskDragStart}
+                                  onTaskDragEnd={handleTaskDragEnd}
+                                  onTaskDragOver={handleTaskDragOver}
+                                  onTaskDrop={handleTaskDrop}
+                                  onSelectTask={setSelectedTask}
+                                />
+                              ))}
+                          </div>
+                        </SortableContext>
+                        <DragOverlay>
+                          {draggedColumn ? (
+                            <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-50 scale-95 shadow-2xl transform rotate-2">
+                              <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-lg font-semibold text-gray-700">{draggedColumn.title}</h3>
+                              </div>
+                              <div className="flex-1 min-h-[100px] space-y-3">
+                                {draggedColumn.tasks.map(task => (
+                                  <div key={task.id} className="bg-white p-3 rounded border">
+                                    <div className="text-sm text-gray-600">{task.title}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </DragOverlay>
+                      </DndContext>
                     </div>
                   )}
-                  <DndContext
-                    sensors={columnSensors}
-                    collisionDetection={closestCenter}
-                    onDragStart={handleColumnDragStart}
-                    onDragEnd={handleColumnDragEnd}
-                  >
-                    <SortableContext
-                      items={Object.values(columns)
-                        .sort((a, b) => (a.position || 0) - (b.position || 0))
-                        .map(col => col.id)}
-                      strategy={rectSortingStrategy}
-                    >
-                      <div style={gridStyle}>
-                        {Object.values(columns)
-                          .sort((a, b) => (a.position || 0) - (b.position || 0))
-                          .map(column => (
-                          <KanbanColumn
-                            key={column.id}
-                            column={column}
-                            members={members}
-                            selectedMember={selectedMember}
-                            draggedTask={draggedTask}
-                            draggedColumn={draggedColumn}
-                            onAddTask={handleAddTask}
-                            onRemoveTask={handleRemoveTask}
-                            onEditTask={handleEditTask}
-                            onCopyTask={handleCopyTask}
-                            onEditColumn={handleEditColumn}
-                            onRemoveColumn={handleRemoveColumn}
-                            onAddColumn={handleAddColumn}
-                            onTaskDragStart={handleTaskDragStart}
-                            onTaskDragEnd={handleTaskDragEnd}
-                            onTaskDragOver={handleTaskDragOver}
-                            onTaskDrop={handleTaskDrop}
-                            onSelectTask={setSelectedTask}
-                          />
-                        ))}
-                      </div>
-                    </SortableContext>
-                    <DragOverlay>
-                      {draggedColumn ? (
-                        <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-50 scale-95 shadow-2xl transform rotate-2">
-                          <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold text-gray-700">{draggedColumn.title}</h3>
-                          </div>
-                          <div className="flex-1 min-h-[100px] space-y-3">
-                            {draggedColumn.tasks.map(task => (
-                              <div key={task.id} className="bg-white p-3 rounded border">
-                                <div className="text-sm text-gray-600">{task.title}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-                    </DragOverlay>
-                  </DndContext>
-                </div>
+                </>
               )}
             </>
           )}
@@ -739,6 +977,12 @@ export default function App() {
       <HelpModal
         isOpen={showHelpModal}
         onClose={() => setShowHelpModal(false)}
+      />
+      <Profile 
+        isOpen={showProfileModal} 
+        onClose={() => setShowProfileModal(false)} 
+        currentUser={currentUser}
+        onProfileUpdated={handleProfileUpdated}
       />
     </div>
   );

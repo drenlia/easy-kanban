@@ -1,8 +1,5 @@
 import React from 'react';
-import { Plus, X } from 'lucide-react';
 import { TeamMember } from '../types';
-import * as api from '../api';
-import { generateUUID } from '../utils/uuid';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -31,66 +28,58 @@ interface TeamMembersProps {
   members: TeamMember[];
   selectedMember: string | null;
   onSelectMember: (id: string) => void;
-  onAdd: (member: TeamMember) => void;
-  onRemove: (id: string) => void;
 }
 
 export default function TeamMembers({
   members,
   selectedMember,
-  onSelectMember,
-  onAdd,
-  onRemove
+  onSelectMember
 }: TeamMembersProps) {
-  const [showAddForm, setShowAddForm] = React.useState(false);
-  const [newMemberName, setNewMemberName] = React.useState('');
-  const [isSubmitting, setIsSubmitting] = React.useState(false);
-
-  const handleAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newMemberName.trim() || isSubmitting) return;
-
-    const usedColors = new Set(members.map(m => m.color));
-    const availableColor = PRESET_COLORS.find(c => !usedColors.has(c)) || PRESET_COLORS[0];
-
-    const newMember: TeamMember = {
-      id: generateUUID(),
-      name: newMemberName.trim(),
-      color: availableColor
-    };
-
-    try {
-      setIsSubmitting(true);
-      await onAdd(newMember);
-      setNewMemberName('');
-      setShowAddForm(false);
-    } catch (error) {
-      console.error('Failed to add member:', error);
-      alert('Failed to add member. Please try again.');
-    } finally {
-      setIsSubmitting(false);
+  
+  // Function to get avatar display for a member
+  const getMemberAvatar = (member: TeamMember) => {
+    // Priority: Google avatar > Local avatar > Default initials
+    if (member.googleAvatarUrl) {
+      return (
+        <img 
+          src={member.googleAvatarUrl} 
+          alt={member.name}
+          className="w-6 h-6 rounded-full object-cover"
+        />
+      );
     }
-  };
-
-  const handleRemove = async (id: string) => {
-    try {
-      await onRemove(id);
-    } catch (error) {
-      console.error('Failed to remove member:', error);
-      alert('Failed to remove member. Please try again.');
+    
+    if (member.avatarUrl) {
+      return (
+        <img 
+          src={member.avatarUrl} 
+          alt={member.name}
+          className="w-6 h-6 rounded-full object-cover"
+        />
+      );
     }
+    
+    // Default initials avatar
+    const initials = member.name.split(' ').map(n => n[0]).join('').toUpperCase();
+    return (
+      <div 
+        className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white"
+        style={{ backgroundColor: member.color }}
+      >
+        {initials}
+      </div>
+    );
   };
+  // Members are now managed from the admin page
+  const isAdmin = true; // This will be passed as a prop later if needed
 
   return (
     <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Team Members</h2>
-        <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500 text-white text-xs font-medium rounded-md hover:bg-blue-600 transition-colors"
-        >
-          <Plus size={14} /> Add
-        </button>
+        <div className="text-xs text-gray-500 italic">
+          Members managed from Admin page
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -102,61 +91,17 @@ export default function TeamMembers({
             }`}
             style={{
               backgroundColor: `${member.color}15`,
-              color: member.color,
-              ringColor: member.color
+              color: member.color
             }}
             onClick={() => onSelectMember(member.id)}
           >
+            {getMemberAvatar(member)}
             <span className="text-xs font-medium">{member.name}</span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleRemove(member.id);
-              }}
-              className="p-0.5 hover:bg-white/30 rounded-full transition-colors"
-              disabled={isSubmitting}
-            >
-              <X size={12} />
-            </button>
           </div>
         ))}
       </div>
 
-      {showAddForm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <form onSubmit={handleAdd} className="bg-white p-4 rounded-lg shadow-xl w-80">
-            <h3 className="text-base font-semibold mb-3 text-gray-800">Add Team Member</h3>
-            <input
-              type="text"
-              value={newMemberName}
-              onChange={e => setNewMemberName(e.target.value)}
-              placeholder="Member name"
-              className="w-full px-3 py-2 border rounded-md mb-3 text-sm"
-              autoFocus
-              disabled={isSubmitting}
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="px-3 py-1.5 text-gray-600 hover:bg-gray-100 rounded-md text-sm"
-                disabled={isSubmitting}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className={`px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 flex items-center gap-1.5 text-sm ${
-                  isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Adding...' : 'Add'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+
     </div>
   );
 }
