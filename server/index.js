@@ -13,7 +13,17 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const dbPath = join(__dirname, 'kanban.db');
+// In Docker, use the data volume path; otherwise use local path
+const dbPath = process.env.NODE_ENV === 'development' && process.env.DOCKER_ENV 
+  ? '/app/server/data/kanban.db'
+  : join(__dirname, 'kanban.db');
+
+// Ensure the directory exists
+const dbDir = dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
 if (!fs.existsSync(dbPath)) {
   fs.writeFileSync(dbPath, '');
 }
