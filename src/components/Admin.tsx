@@ -861,24 +861,35 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                               )}
                             </div>
                             
-                            {/* Avatar Upload Controls */}
-                            <div className="flex-1 space-y-2">
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={handleUserAvatarSelect}
-                                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                              />
-                              {editingUserData.avatarUrl && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveUserAvatar(editingUserData.id)}
-                                  className="text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
-                                >
-                                  Remove Avatar
-                                </button>
-                              )}
-                            </div>
+                            {/* Avatar Upload Controls - Only for local users */}
+                            {editingUserData.authProvider === 'local' ? (
+                              <div className="flex-1 space-y-2">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleUserAvatarSelect}
+                                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                />
+                                {editingUserData.avatarUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveUserAvatar(editingUserData.id)}
+                                    className="text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                                  >
+                                    Remove Avatar
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex-1">
+                                <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
+                                  <p className="text-blue-800 font-medium">Google Account</p>
+                                  <p className="text-blue-700 text-xs mt-1">
+                                    Avatar managed by Google account
+                                  </p>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1000,6 +1011,22 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                   />
                   <p className="mt-1 text-sm text-gray-500">
                     Keep this secret secure. Changes are applied immediately.
+                  </p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Google Callback URL
+                  </label>
+                  <input
+                    type="text"
+                    value={editingSettings.GOOGLE_CALLBACK_URL || ''}
+                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CALLBACK_URL: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., https://yourdomain.com/auth/google/callback"
+                  />
+                  <p className="mt-1 text-sm text-gray-500">
+                    This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol.
                   </p>
                 </div>
                 

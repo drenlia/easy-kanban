@@ -97,7 +97,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
         api.put('/users/profile', { displayName: displayName.trim() })
       ];
       
-      if (selectedFile) {
+      // Only handle avatar uploads for local users
+      if (currentUser?.authProvider === 'local' && selectedFile) {
         promises.push(uploadAvatar(selectedFile));
       }
       
@@ -187,8 +188,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 <div className="flex-shrink-0 relative">
                   {getAvatarDisplay()}
                   
-                  {/* Remove button - only show when there's a file preview or current avatar */}
-                  {(previewUrl || currentUser?.avatarUrl) && (
+                  {/* Remove button - only show for local users with file preview or current avatar */}
+                  {currentUser?.authProvider === 'local' && (previewUrl || currentUser?.avatarUrl) && (
                     <button
                       type="button"
                       onClick={handleRemoveFile}
@@ -200,41 +201,52 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   )}
                 </div>
                 
-                {/* Upload Controls */}
-                <div className="flex-1 space-y-3">
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      id="avatar-upload"
-                      disabled={isSubmitting}
-                    />
-                    <label
-                      htmlFor="avatar-upload"
-                      className={`inline-flex items-center px-4 py-2 border border-gray-300 rounded-md text-sm font-medium cursor-pointer transition-colors ${
-                        isSubmitting
-                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-white text-gray-700 hover:bg-gray-50 border-blue-300 hover:border-blue-400'
-                      }`}
-                    >
-                      <Upload size={16} className="mr-2" />
-                      {selectedFile ? 'Change Image' : 'Upload Image'}
-                    </label>
-                  </div>
-                  
-                  {selectedFile && (
-                    <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-                      <p className="font-medium">Selected: {selectedFile.name}</p>
-                      <p className="text-gray-500">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                {/* Upload Controls - Only show for local users */}
+                {currentUser?.authProvider === 'local' ? (
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        id="avatar-upload"
+                        disabled={isSubmitting}
+                      />
+                      <label
+                        htmlFor="avatar-upload"
+                        className={`inline-flex items-center px-4 py-2 border border-gray-300 rounded-md text-sm font-medium cursor-pointer transition-colors ${
+                          isSubmitting
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-white text-gray-700 hover:bg-gray-50 border-blue-300 hover:border-blue-400'
+                        }`}
+                      >
+                        <Upload size={16} className="mr-2" />
+                        {selectedFile ? 'Change Image' : 'Upload Image'}
+                      </label>
                     </div>
-                  )}
-                  
-                  <p className="text-xs text-gray-500">
-                    Supported formats: JPG, PNG, GIF. Max size: 2MB
-                  </p>
-                </div>
+                    
+                    {selectedFile && (
+                      <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                        <p className="font-medium">Selected: {selectedFile.name}</p>
+                        <p className="text-xs text-gray-500">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                      </div>
+                    )}
+                    
+                    <p className="text-xs text-gray-500">
+                      Supported formats: JPG, PNG, GIF. Max size: 2MB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex-1 space-y-3">
+                    <div className="text-sm text-gray-600 bg-blue-50 p-3 rounded-md border border-blue-200">
+                      <p className="font-medium text-blue-800">Google Account</p>
+                      <p className="text-blue-700 text-xs mt-1">
+                        Your profile picture is managed by your Google account and cannot be changed here.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

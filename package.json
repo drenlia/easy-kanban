@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "concurrently \"vite\" \"node server/index.js\"",
     "build": "tsc && vite build",
+    "start": "node server/index.js",
+    "serve": "vite preview --port 3010 --host 0.0.0.0",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "docker:build": "docker build -t easy-kanban .",

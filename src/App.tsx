@@ -60,6 +60,12 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
+  const [isOAuthProcessing, setIsOAuthProcessing] = useState(false);
+  
+  // Debug currentUser changes
+  useEffect(() => {
+    console.log('👤 currentUser changed:', currentUser);
+  }, [currentUser]);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(() => {
     // Get page from URL hash, fallback to 'kanban'
     const hash = window.location.hash.replace('#', '');
@@ -325,6 +331,61 @@ export default function App() {
       }
     }
   }, [boards, currentPage, selectedBoard]);
+
+  // Handle Google OAuth callback with token - MUST run before routing
+  useEffect(() => {
+    // Check for token in URL hash (for OAuth callback)
+    const hash = window.location.hash;
+    if (hash.includes('token=')) {
+      const tokenMatch = hash.match(/token=([^&]+)/);
+      const errorMatch = hash.match(/error=([^&]+)/);
+      const newUserMatch = hash.match(/newUser=([^&]+)/);
+      
+      if (tokenMatch) {
+        const token = tokenMatch[1];
+        const isNewUser = newUserMatch && newUserMatch[1] === 'true';
+        console.log('OAuth token received, processing...', isNewUser ? '(new user)' : '(existing user)');
+        
+        // Store the token
+        localStorage.setItem('authToken', token);
+        
+        // Clear the URL hash and redirect appropriately
+        if (isNewUser) {
+          // New Google users go to default board
+          window.location.hash = '#default-board';
+        } else {
+          // Existing users go to kanban page
+          window.location.hash = '#kanban';
+        }
+        
+        // Force authentication check by triggering a state change
+        // This ensures the auth effect runs with the new token
+        setIsAuthenticated(false);
+        
+        // Fetch current user data immediately after OAuth
+        console.log('🔐 OAuth: Fetching current user data...');
+        api.getCurrentUser()
+          .then(response => {
+            console.log('✅ OAuth: Current user data received:', response.user);
+            setCurrentUser(response.user);
+            setIsAuthenticated(true);
+          })
+          .catch(error => {
+            console.error('❌ OAuth: Failed to get current user:', error);
+            // Fallback: just set authenticated and let the auth effect handle it
+            setIsAuthenticated(true);
+          });
+        
+        return; // Exit early to prevent routing conflicts
+      } else if (errorMatch) {
+        // Handle OAuth errors
+        console.error('OAuth error:', errorMatch[1]);
+        // Clear the URL hash and redirect to login
+        window.location.hash = '#login';
+        return; // Exit early to prevent routing conflicts
+      }
+    }
+  }, []);
 
   // Load initial data
   useEffect(() => {
