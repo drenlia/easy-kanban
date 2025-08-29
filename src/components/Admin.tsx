@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api, { createUser, updateUser } from '../api';
+import { Edit, Trash2, Crown, User as UserIcon, Eye, EyeOff } from 'lucide-react';
 
 interface AdminProps {
   currentUser: any;
@@ -16,6 +17,10 @@ interface User {
   roles: string[];
   joined: string;
   createdAt: string;
+  avatarUrl?: string;
+  authProvider?: string;
+  googleAvatarUrl?: string;
+  memberColor?: string;
 }
 
 interface Settings {
@@ -53,6 +58,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     lastName: '',
     role: 'user'
   });
+  const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
+  const [editingColor, setEditingColor] = useState<string>('#4ECDC4');
+  
+  // Preset colors for easy selection
+  const presetColors = [
+    '#FF3B30', '#007AFF', '#4CD964', '#FF9500', '#5856D6',
+    '#FF2D55', '#00C7BE', '#FFD60A', '#BF5AF2', '#34C759',
+    '#FF6B6B', '#1C7ED6', '#845EF7', '#F76707', '#20C997',
+    '#E599F7', '#40C057', '#F59F00', '#0CA678', '#FA5252'
+  ];
   
   console.log('Admin component state - users:', users, 'loading:', loading, 'error:', error);
 
@@ -128,6 +143,32 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setError('Failed to delete user');
       console.error(err);
     }
+  };
+
+  const handleColorChange = (userId: string, currentColor: string) => {
+    setShowColorPicker(userId);
+    setEditingColor(currentColor);
+  };
+
+  const handleSaveColor = async (userId: string) => {
+    try {
+      await api.put(`/admin/users/${userId}/color`, { color: editingColor });
+      setShowColorPicker(null);
+      await loadData(); // Reload users
+      if (onUsersChanged) {
+        onUsersChanged();
+      }
+      setError(null);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update member color');
+      console.error(err);
+    }
+  };
+
+  const handleCancelColor = () => {
+    setShowColorPicker(null);
+    setEditingColor('#4ECDC4');
+    setError(null);
   };
 
   const handleSaveSettings = async () => {
@@ -322,8 +363,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                   </div>
                   <button
                     onClick={() => setShowAddUserForm(true)}
-                    className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-2"
                   >
+                    <UserIcon size={16} />
                     Add User
                   </button>
                 </div>
@@ -333,10 +375,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avatar</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">AUTH TYPE</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Color</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
@@ -346,19 +390,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                       users.map((user) => (
                       <tr key={user.id}>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center">
-                            <div className="flex-shrink-0 h-10 w-10">
-                              <div className="h-10 w-10 rounded-full bg-purple-100 flex items-center justify-center">
-                                <span className="text-sm font-medium text-purple-800">
-                                  {user.firstName?.[0]}{user.lastName?.[0]}
-                                </span>
+                          <div className="flex-shrink-0 h-10 w-10">
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl}
+                                alt={`${user.firstName} ${user.lastName}`}
+                                className="h-10 w-10 rounded-full object-cover border-2 border-gray-200"
+                              />
+                            ) : (
+                              <div 
+                                className="h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium text-white"
+                                style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                              >
+                                {user.firstName?.[0]}{user.lastName?.[0]}
                               </div>
-                            </div>
-                            <div className="ml-4">
-                              <div className="text-sm font-medium text-gray-900">
-                                {user.firstName} {user.lastName}
-                              </div>
-                            </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {user.firstName} {user.lastName}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -382,6 +433,46 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             {user.authProvider === 'google' ? 'Google' : 'Local'}
                           </span>
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {showColorPicker === user.id ? (
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="color"
+                                value={editingColor}
+                                onChange={(e) => setEditingColor(e.target.value)}
+                                className="w-8 h-8 rounded border border-gray-300"
+                              />
+                              <button
+                                onClick={() => handleSaveColor(user.id)}
+                                className="p-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors"
+                                title="Save color"
+                              >
+                                ✓
+                              </button>
+                              <button
+                                onClick={handleCancelColor}
+                                className="p-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded transition-colors"
+                                title="Cancel"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2">
+                              <div 
+                                className="w-6 h-6 rounded-full border-2 border-gray-200"
+                                style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                              />
+                              <button
+                                onClick={() => handleColorChange(user.id, user.memberColor || '#4ECDC4')}
+                                className="p-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                                title="Change color"
+                              >
+                                <Edit size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {user.joined}
                         </td>
@@ -390,41 +481,43 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                             <button
                               onClick={() => handleRoleChange(user.id, 'demote')}
                               disabled={user.id === currentUser?.id}
-                              className={`${
+                              className={`p-1.5 rounded transition-colors ${
                                 user.id === currentUser?.id
                                   ? 'text-gray-400 cursor-not-allowed'
-                                  : 'text-red-600 hover:text-red-900'
+                                  : 'text-red-600 hover:text-red-900 hover:bg-red-50'
                               }`}
                               title={user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
                             >
-                              Demote
+                              <UserIcon size={16} />
                             </button>
                           ) : (
                             <button
                               onClick={() => handleRoleChange(user.id, 'promote')}
-                              className="text-green-600 hover:text-green-900"
+                              className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-50 rounded transition-colors"
+                              title="Promote to admin"
                             >
-                              Promote
+                              <Crown size={16} />
                             </button>
                           )}
                           <button 
                             onClick={() => handleEditUser(user)}
-                            className="text-gray-600 hover:text-gray-900"
+                            className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                            title="Edit user"
                           >
-                            Edit
+                            <Edit size={16} />
                           </button>
-                                                      <button
-                              onClick={() => handleDeleteUser(user.id)}
-                              disabled={user.id === currentUser?.id}
-                              className={`${
-                                user.id === currentUser?.id
-                                  ? 'text-gray-400 cursor-not-allowed'
-                                  : 'text-red-600 hover:text-red-900'
-                              }`}
-                              title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
-                            >
-                              Delete
-                            </button>
+                          <button
+                            onClick={() => handleDeleteUser(user.id)}
+                            disabled={user.id === currentUser?.id}
+                            className={`p-1.5 rounded transition-colors ${
+                              user.id === currentUser?.id
+                                ? 'text-gray-400 cursor-not-allowed'
+                                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                            }`}
+                            title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
+                          >
+                            <Trash2 size={16} />
+                          </button>
                         </td>
                       </tr>
                       ))

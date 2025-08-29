@@ -10,6 +10,7 @@ interface BoardHeaderProps {
   onAddBoard: () => void;
   onEditBoard: (boardId: string, newName: string) => void;
   onRemoveBoard: (boardId: string) => void;
+  isAdmin?: boolean;
 }
 
 export default function BoardHeader({
@@ -18,11 +19,35 @@ export default function BoardHeader({
   onSelectBoard,
   onAddBoard,
   onEditBoard,
-  onRemoveBoard
+  onRemoveBoard,
+  isAdmin = false
 }: BoardHeaderProps) {
   const [showMenu, setShowMenu] = React.useState(false);
   const [showRenameModal, setShowRenameModal] = React.useState(false);
   const currentBoard = boards.find(b => b.id === selectedBoard);
+
+  // Auto-close menu when clicking outside
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showMenu) {
+        const target = event.target as HTMLElement;
+        // Check if click is outside the menu button and menu content
+        if (!target.closest('.board-menu-container')) {
+          setShowMenu(false);
+        }
+      }
+    };
+
+    // Add event listener when menu is open
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    // Cleanup event listener
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showMenu]);
 
 
 
@@ -30,18 +55,21 @@ export default function BoardHeader({
     return (
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold text-gray-700">No Boards</h2>
-        <button
-          onClick={onAddBoard}
-          className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-        >
-          <Plus size={16} className="text-gray-500" />
-        </button>
+        {isAdmin && (
+          <button
+            onClick={onAddBoard}
+            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            title="Add Board (Admin only)"
+          >
+            <Plus size={16} className="text-gray-500" />
+          </button>
+        )}
       </div>
     );
   }
 
   return (
-    <div className="relative">
+    <div className="relative board-menu-container">
       <div className="flex items-center gap-2">
         <select
           value={selectedBoard || ''}
@@ -59,12 +87,16 @@ export default function BoardHeader({
             </option>
           ))}
         </select>
-        <button
-          onClick={() => setShowMenu(!showMenu)}
-          className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-        >
-          <Settings2 size={16} className="text-gray-500" />
-        </button>
+        {/* Board Management Menu - Admin Only */}
+        {isAdmin && (
+          <button
+            onClick={() => setShowMenu(!showMenu)}
+            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            title="Board management options (Admin only)"
+          >
+            <Settings2 size={16} className="text-gray-500" />
+          </button>
+        )}
       </div>
 
       {showMenu && (

@@ -155,7 +155,7 @@ export default function App() {
   useEffect(() => {
     const loadSiteSettings = async () => {
       try {
-        const settings = await api.getSettings();
+        const settings = await api.getPublicSettings();
         setSiteSettings(settings);
       } catch (error) {
         console.error('Failed to load site settings:', error);
@@ -882,6 +882,7 @@ export default function App() {
                     onEditBoard={handleEditBoard}
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
+                    isAdmin={currentUser?.roles?.includes('admin')}
                   />
 
                   {selectedBoard && (
@@ -891,62 +892,95 @@ export default function App() {
                           <LoadingSpinner size="medium" />
                         </div>
                       )}
-                      <DndContext
-                        sensors={columnSensors}
-                        collisionDetection={closestCenter}
-                        onDragStart={handleColumnDragStart}
-                        onDragEnd={handleColumnDragEnd}
-                      >
-                        <SortableContext
-                          items={Object.values(columns)
-                            .sort((a, b) => (a.position || 0) - (b.position || 0))
-                            .map(col => col.id)}
-                          strategy={rectSortingStrategy}
+                      {/* Column Drag and Drop Context - Admin Only */}
+                      {currentUser?.roles?.includes('admin') ? (
+                        <DndContext
+                          sensors={columnSensors}
+                          collisionDetection={closestCenter}
+                          onDragStart={handleColumnDragStart}
+                          onDragEnd={handleColumnDragEnd}
                         >
-                          <div style={gridStyle}>
-                            {Object.values(columns)
+                          <SortableContext
+                            items={Object.values(columns)
                               .sort((a, b) => (a.position || 0) - (b.position || 0))
-                              .map(column => (
-                                <KanbanColumn
-                                  key={column.id}
-                                  column={column}
-                                  members={members}
-                                  selectedMember={selectedMember}
-                                  draggedTask={draggedTask}
-                                  draggedColumn={draggedColumn}
-                                  onAddTask={handleAddTask}
-                                  onRemoveTask={handleRemoveTask}
-                                  onEditTask={handleEditTask}
-                                  onCopyTask={handleCopyTask}
-                                  onEditColumn={handleEditColumn}
-                                  onRemoveColumn={handleRemoveColumn}
-                                  onAddColumn={handleAddColumn}
-                                  onTaskDragStart={handleTaskDragStart}
-                                  onTaskDragEnd={handleTaskDragEnd}
-                                  onTaskDragOver={handleTaskDragOver}
-                                  onTaskDrop={handleTaskDrop}
-                                  onSelectTask={setSelectedTask}
-                                />
-                              ))}
-                          </div>
-                        </SortableContext>
-                        <DragOverlay>
-                          {draggedColumn ? (
-                            <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-50 scale-95 shadow-2xl transform rotate-2">
-                              <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-lg font-semibold text-gray-700">{draggedColumn.title}</h3>
-                              </div>
-                              <div className="flex-1 min-h-[100px] space-y-3">
-                                {draggedColumn.tasks.map(task => (
-                                  <div key={task.id} className="bg-white p-3 rounded border">
-                                    <div className="text-sm text-gray-600">{task.title}</div>
-                                  </div>
+                              .map(col => col.id)}
+                            strategy={rectSortingStrategy}
+                          >
+                            <div style={gridStyle}>
+                              {Object.values(columns)
+                                .sort((a, b) => (a.position || 0) - (b.position || 0))
+                                .map(column => (
+                                  <KanbanColumn
+                                    key={column.id}
+                                    column={column}
+                                    members={members}
+                                    selectedMember={selectedMember}
+                                    draggedTask={draggedTask}
+                                    draggedColumn={draggedColumn}
+                                    onAddTask={handleAddTask}
+                                    onRemoveTask={handleRemoveTask}
+                                    onEditTask={handleEditTask}
+                                    onCopyTask={handleCopyTask}
+                                    onEditColumn={handleEditColumn}
+                                    onRemoveColumn={handleRemoveColumn}
+                                    onAddColumn={handleAddColumn}
+                                    onTaskDragStart={handleTaskDragStart}
+                                    onTaskDragEnd={handleTaskDragEnd}
+                                    onTaskDragOver={handleTaskDragOver}
+                                    onTaskDrop={handleTaskDrop}
+                                    onSelectTask={setSelectedTask}
+                                    isAdmin={true}
+                                  />
                                 ))}
-                              </div>
                             </div>
-                          ) : null}
-                        </DragOverlay>
-                      </DndContext>
+                          </SortableContext>
+                          <DragOverlay>
+                            {draggedColumn ? (
+                              <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-50 scale-95 shadow-2xl transform rotate-2">
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
+                                </div>
+                                <div className="flex-1 min-h-[100px] space-y-3">
+                                  {draggedColumn.tasks.map(task => (
+                                    <div key={task.id} className="bg-white p-3 rounded border">
+                                      <div className="text-sm text-gray-600">{task.title}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </DragOverlay>
+                        </DndContext>
+                      ) : (
+                        // Regular user view - no column drag and drop
+                        <div style={gridStyle}>
+                          {Object.values(columns)
+                            .sort((a, b) => (a.position || 0) - (b.position || 0))
+                            .map(column => (
+                              <KanbanColumn
+                                key={column.id}
+                                column={column}
+                                members={members}
+                                selectedMember={selectedMember}
+                                draggedTask={draggedTask}
+                                draggedColumn={draggedColumn}
+                                onAddTask={handleAddTask}
+                                onRemoveTask={handleRemoveTask}
+                                onEditTask={handleEditTask}
+                                onCopyTask={handleCopyTask}
+                                onEditColumn={handleEditColumn}
+                                onRemoveColumn={handleRemoveColumn}
+                                onAddColumn={handleAddColumn}
+                                onTaskDragStart={handleTaskDragStart}
+                                onTaskDragEnd={handleTaskDragEnd}
+                                onTaskDragOver={handleTaskDragOver}
+                                onTaskDrop={handleTaskDrop}
+                                onSelectTask={setSelectedTask}
+                                isAdmin={false}
+                              />
+                            ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>

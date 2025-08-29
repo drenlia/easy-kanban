@@ -13,9 +13,10 @@ interface BoardTabsProps {
   onEditBoard: (boardId: string, newName: string) => void;
   onRemoveBoard: (boardId: string) => void;
   onReorderBoards: (boardId: string, newPosition: number) => void;
+  isAdmin?: boolean;
 }
 
-// Sortable Board Tab Component
+// Sortable Board Tab Component (Admin only)
 const SortableBoardTab: React.FC<{
   board: Board;
   isSelected: boolean;
@@ -61,12 +62,12 @@ const SortableBoardTab: React.FC<{
             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
             : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
         } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
-        title="Click to select, double-click to rename"
+        title="Click to select, double-click to rename (Admin only)"
       >
         {board.title}
       </button>
       
-      {/* Delete Button - Only show on hover and if more than 1 board */}
+      {/* Delete Button - Admin Only */}
       {canDelete && (
         <button
           onClick={(e) => {
@@ -74,11 +75,40 @@ const SortableBoardTab: React.FC<{
             onRemove();
           }}
           className="absolute -top-1 -right-1 p-1 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-700 hover:bg-gray-100/50"
-          title="Delete board"
+          title="Delete board (Admin only)"
         >
           <span className="text-xs font-bold">×</span>
         </button>
       )}
+    </div>
+  );
+};
+
+// Regular Board Tab Component (Non-admin users)
+const RegularBoardTab: React.FC<{
+  board: Board;
+  isSelected: boolean;
+  onSelect: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
+  canDelete: boolean;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete }) => {
+  return (
+    <div className="relative group">
+      <button
+        onClick={onSelect}
+        className={`px-4 py-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
+          isSelected
+            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+        }`}
+        title="Click to select board"
+      >
+        {board.title}
+      </button>
+      
+      {/* Delete Button - Admin Only */}
+      {/* Regular users cannot delete boards */}
     </div>
   );
 };
@@ -90,14 +120,17 @@ export default function BoardTabs({
   onAddBoard,
   onEditBoard,
   onRemoveBoard,
-  onReorderBoards
+  onReorderBoards,
+  isAdmin = false
 }: BoardTabsProps) {
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Handle drag end for board reordering
+  // Handle drag end for board reordering (Admin only)
   const handleDragEnd = (event: DragEndEvent) => {
+    if (!isAdmin) return;
+    
     const { active, over } = event;
     
     if (active.id !== over?.id) {
@@ -110,24 +143,34 @@ export default function BoardTabs({
     }
   };
 
-
+  // If no board is selected but boards exist, select the first one
+  React.useEffect(() => {
+    if (!selectedBoard && boards.length > 0) {
+      onSelectBoard(boards[0].id);
+    }
+  }, [selectedBoard, boards, onSelectBoard]);
 
   if (boards.length === 0) {
     return (
       <div className="flex items-center gap-2 p-4">
         <h2 className="text-lg font-semibold text-gray-600">No Boards</h2>
-        <button
-          onClick={onAddBoard}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-          title="Add Board"
-        >
-          <Plus size={18} />
-        </button>
+        {isAdmin && (
+          <button
+            onClick={onAddBoard}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+            title="Add Board (Admin only)"
+          >
+            <Plus size={18} />
+          </button>
+        )}
       </div>
     );
   }
 
   const handleEditClick = (boardId: string) => {
+    // Only admins can edit board titles
+    if (!isAdmin) return;
+    
     const board = boards.find(b => b.id === boardId);
     if (board) {
       setEditingBoardId(boardId);
@@ -151,11 +194,6 @@ export default function BoardTabs({
     }
   };
 
-  const handleTitleCancel = () => {
-    setEditingBoardId(null);
-    setEditingTitle('');
-  };
-
   const handleRemoveClick = (boardId: string) => {
     if (boards.length > 1) {
       onRemoveBoard(boardId);
@@ -166,52 +204,87 @@ export default function BoardTabs({
     <div className="mb-6">
       <div className="flex items-center justify-between">
         {/* Board Tabs */}
-        <DndContext onDragEnd={handleDragEnd}>
-          <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
-            <div className="flex items-center space-x-1">
-              {boards.map(board => (
-                <div key={board.id}>
-                  {editingBoardId === board.id ? (
-                    // Inline editing form
-                    <form onSubmit={handleTitleSubmit} className="px-4 py-3">
-                      <input
-                        type="text"
-                        value={editingTitle}
-                        onChange={(e) => setEditingTitle(e.target.value)}
-                        className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        autoFocus
-                        onBlur={handleTitleSubmit}
-                        disabled={isSubmitting}
+        {isAdmin ? (
+          // Admin view with drag and drop
+          <DndContext onDragEnd={handleDragEnd}>
+            <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
+              <div className="flex items-center space-x-1">
+                {boards.map(board => (
+                  <div key={board.id}>
+                    {editingBoardId === board.id ? (
+                      // Inline editing form
+                      <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                          onBlur={handleTitleSubmit}
+                          disabled={isSubmitting}
+                        />
+                      </form>
+                    ) : (
+                      // Sortable tab button
+                      <SortableBoardTab
+                        board={board}
+                        isSelected={selectedBoard === board.id}
+                        onSelect={() => onSelectBoard(board.id)}
+                        onEdit={() => handleEditClick(board.id)}
+                        onRemove={() => handleRemoveClick(board.id)}
+                        canDelete={boards.length > 1}
                       />
-                    </form>
-                  ) : (
-                    // Sortable tab button
-                    <SortableBoardTab
-                      board={board}
-                      isSelected={selectedBoard === board.id}
-                      onSelect={() => onSelectBoard(board.id)}
-                      onEdit={() => handleEditClick(board.id)}
-                      onRemove={() => handleRemoveClick(board.id)}
-                      canDelete={boards.length > 1}
+                    )}
+                  </div>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          // Regular user view without drag and drop
+          <div className="flex items-center space-x-1">
+            {boards.map(board => (
+              <div key={board.id}>
+                {editingBoardId === board.id ? (
+                  // Inline editing form
+                  <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                    <input
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                      onBlur={handleTitleSubmit}
+                      disabled={isSubmitting}
                     />
-                  )}
-                </div>
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+                  </form>
+                ) : (
+                  // Regular tab button
+                  <RegularBoardTab
+                    board={board}
+                    isSelected={selectedBoard === board.id}
+                    onSelect={() => onSelectBoard(board.id)}
+                    onEdit={() => handleEditClick(board.id)}
+                    onRemove={() => handleRemoveClick(board.id)}
+                    canDelete={boards.length > 1}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-        {/* Add Board Button */}
-        <button
-          onClick={onAddBoard}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-          title="Add New Board"
-        >
-          <Plus size={18} />
-        </button>
+        {/* Add Board Button - Admin Only */}
+        {isAdmin && (
+          <button
+            onClick={onAddBoard}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+            title="Add New Board (Admin only)"
+          >
+            <Plus size={18} />
+          </button>
+        )}
       </div>
-
-
     </div>
   );
 }
