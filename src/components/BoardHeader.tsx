@@ -24,12 +24,7 @@ export default function BoardHeader({
   const [showRenameModal, setShowRenameModal] = React.useState(false);
   const currentBoard = boards.find(b => b.id === selectedBoard);
 
-  // If no board is selected but boards exist, select the first one
-  React.useEffect(() => {
-    if (!selectedBoard && boards.length > 0) {
-      onSelectBoard(boards[0].id);
-    }
-  }, [selectedBoard, boards, onSelectBoard]);
+
 
   if (boards.length === 0) {
     return (
@@ -49,10 +44,15 @@ export default function BoardHeader({
     <div className="relative">
       <div className="flex items-center gap-2">
         <select
-          value={selectedBoard || boards[0]?.id || ''}
+          value={selectedBoard || ''}
           onChange={(e) => onSelectBoard(e.target.value)}
           className="text-base font-semibold bg-transparent border-none focus:ring-0 cursor-pointer pr-6 text-gray-800"
         >
+          {!selectedBoard && (
+            <option value="" disabled>
+              Select a board...
+            </option>
+          )}
           {boards.map(board => (
             <option key={board.id} value={board.id}>
               {board.title}

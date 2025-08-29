@@ -5,6 +5,28 @@ const api = axios.create({
   baseURL: '/api'
 });
 
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle auth errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      localStorage.removeItem('authToken');
+      // Don't redirect - let the component handle the auth error
+      // This prevents the login loop issue
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Members
 export const getMembers = async () => {
   const { data } = await api.get<TeamMember[]>('/members');
@@ -104,6 +126,28 @@ export const deleteComment = async (id: string) => {
   return data;
 };
 
+// Authentication
+export const login = async (email: string, password: string) => {
+  const { data } = await api.post('/auth/login', { email, password });
+  return data;
+};
+
+export const register = async (userData: {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+}) => {
+  const { data } = await api.post('/auth/register', userData);
+  return data;
+};
+
+export const getCurrentUser = async () => {
+  const { data } = await api.get('/auth/me');
+  return data;
+};
+
 // Debug
 export const getQueryLogs = async () => {
   const { data } = await api.get('/debug/logs');
@@ -136,3 +180,68 @@ export const fetchCommentAttachments = async (commentId: string) => {
   }
   return response.json();
 };
+
+// Admin API
+export const getUsers = async () => {
+  const { data } = await api.get('/admin/users');
+  return data;
+};
+
+export const createUser = async (userData: {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  role: string;
+}) => {
+  const { data } = await api.post('/admin/users', userData);
+  return data;
+};
+
+export const updateUser = async (userId: string, userData: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  isActive: boolean;
+}) => {
+  const { data } = await api.put(`/admin/users/${userId}`, userData);
+  return data;
+};
+
+export const updateUserRole = async (userId: string, action: 'promote' | 'demote') => {
+  const { data } = await api.put(`/admin/users/${userId}/role`, { action });
+  return data;
+};
+
+export const deleteUser = async (userId: string) => {
+  const { data } = await api.delete(`/admin/users/${userId}`);
+  return data;
+};
+
+export const getSettings = async () => {
+  const { data } = await api.get('/admin/settings');
+  return data;
+};
+
+export const updateSetting = async (key: string, value: string) => {
+  const { data } = await api.put('/admin/settings', { key, value });
+  return data;
+};
+
+// Avatar management
+export const uploadAvatar = async (file: File) => {
+  const formData = new FormData();
+  formData.append('avatar', file);
+
+  const { data } = await api.post<{
+    message: string;
+    avatarUrl: string;
+  }>('/users/avatar', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return data;
+};
+
+export default api;
