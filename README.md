@@ -1,72 +1,87 @@
-# kanban
+# Easy Kanban
 
-This simple Kanban application allows a team to manage and assign tasks in different stages (To do, In progress, Testing, Completed).
-Stages can be renamed as needed. 
+A modern team collaboration Kanban board application with user management, authentication, and role-based permissions. Built with React/TypeScript frontend and Node.js/Express backend.
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
-## Getting started
+## Key Features
 
-1. Add your team members using the "Add Member" button.
-1. Rename your board or leave it as is "Main Board"
-1. Rename Stages as needed (double-click or click the tripple-dotted menu).
-1. Delete "Demo User"
-1. Create Tasks by *selecting* a user and clicking on "+" in the necessary Stage
-1. Move tasks as they progress in the board.
+- **Multi-board Kanban system** with drag-and-drop functionality
+- **User authentication** with local accounts and Google OAuth support
+- **Role-based access control** (Admin/User permissions)
+- **Team management** with color-coded member assignments
+- **Task management** with priorities, comments, and file attachments
+- **Admin panel** for user management and system configuration
+- **Real-time updates** with optimistic UI responses
+- **File uploads** for task attachments and user avatars
 
-**Features**
-1. Add/remove team members.
-1. Add/remove/rename boards.
-1. Add/remove/rename columns.
-1. Add/remove/copy tasks.
-1. Distinct colors for easy viewing of tasks associations.
-1. Drag and drop tasks between boards.
-1. Quickly transfer a task to another member (click the user icon).
-1. Quick Edit task information (click the pen icon). (see: [screenshot](/screenshots/quick_edit_task.png))
-1. Edit task details for more (click the (i) icon) (see: [screenshot](/screenshots/task_details_view_and_comment_tooltip.png))
-    1. update task information.
-    1. choose a requester (defaults to assigned member).
-    1. add comments (timestamped)
-    1. include attachments (under /server/attachments/) associated to comments.
-1. Backend db using sqlite - data is always saved (under /server/kanban.db).
+## Getting Started
+
+**Default Admin Account:**
+- Email: `admin@example.com`
+- Password: `admin`
+
+1. Log in with the default admin account
+2. Create team members in the Admin panel
+3. Set up your boards and columns
+4. Start creating and managing tasks
+5. Configure Google OAuth (optional) in Admin > SSO settings
+
+## Permissions
+
+| Action | Admin | User |
+|--------|-------|------|
+| View kanban boards | ✓ | ✓ |
+| Create/edit/delete tasks | ✓ | ✓ |
+| Add comments and attachments | ✓ | ✓ |
+| Move tasks between columns | ✓ | ✓ |
+| Create/edit/delete boards | ✓ | ✗ |
+| Reorder boards and columns | ✓ | ✗ |
+| Access Admin panel | ✓ | ✗ |
+| Manage users | ✓ | ✗ |
+| Configure site settings | ✓ | ✗ |
+| Configure Google OAuth | ✓ | ✗ |
+| Configure mail server | ✓ | ✗ |
+| Update own profile | ✓ | ✓ |
 
 ## Requirements
 
 - nodejs v 20.18
 
-## KanbanApp Installation
+## Installation
 
-### On your system
-```
-git clone the project
-cd into the folder
+### Local Development
+```bash
+git clone https://github.com/drenlia/easy-kanban.git
+cd easy-kanban
 npm install
 npm run dev
 ```
 
 ### Docker
-
-```
+```bash
 # Clone the repo
 git clone https://github.com/drenlia/easy-kanban.git
 cd easy-kanban
 
-# Build the Docker image
-./build.sh
-
-# Run in development mode (with hot reloading)
+# Run with docker-compose
 npm run docker:dev
 ```
-*more info here for docker: [DOCKER.md](/DOCKER.md)*
 
-The frontend service will be listening on system IP and port 3010.  The backend listens on port 3222.
+**Access the application:**
+- Frontend: http://localhost:3010
+- Backend API: http://localhost:3222
 
-You can change ports by editing `vite.config.ts` file
+*For more Docker information, see [DOCKER.md](/DOCKER.md)*
 
-## IMPORTANT
+## Security
 
-If you run this application on a network, make sure that you secure access by adding htaccess or other means.
-No security has been implemented, meaning anyone having access to your application will be able to view or update the data!
+The application includes JWT-based authentication and role-based access control. However, for production deployments:
+
+- Change the default admin password immediately
+- Set a strong JWT secret in production
+- Configure HTTPS/SSL
+- Consider additional network security measures
 
 ## Authors and acknowledgment
 Developped with AI assistance (bolt.new and cursor.sh)
@@ -77,7 +92,6 @@ No restrictions.  Use and modify as you please, but please keep this free and le
 ## Project status
 This project was created for to answer a specific need and may be useful for someone else.
 
-Improvements are always welcome.  I'm not a developer!
-
+Improvements are always welcome.
 
 
