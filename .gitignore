@@ -23,6 +23,10 @@ build/
 *.sqlite3
 server/kanban.db
 
+# Database backups
+backups/
+kanban-backup*.db
+
 # File uploads and attachments
 server/attachments/
 server/avatars/
