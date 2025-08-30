@@ -11,6 +11,8 @@ interface ProfileProps {
 }
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated }: ProfileProps) {
+
+  
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);

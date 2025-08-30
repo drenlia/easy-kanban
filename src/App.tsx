@@ -1238,12 +1238,15 @@ export default function App() {
         isOpen={showHelpModal}
         onClose={() => setShowHelpModal(false)}
       />
+
       <Profile 
         isOpen={showProfileModal} 
         onClose={() => setShowProfileModal(false)} 
         currentUser={{
           ...currentUser,
-          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`
+          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`,
+          // Ensure authProvider is explicitly set
+          authProvider: currentUser?.authProvider || 'local'
         }}
         onProfileUpdated={handleProfileUpdated}
       />
