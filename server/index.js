@@ -12,6 +12,8 @@ import path from 'path';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+// import { createServer } from 'http';
+// import { Server as SocketIOServer } from 'socket.io'; // Disabled due to loop issues
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // In Docker, use the data volume path; otherwise use local path
@@ -1338,7 +1340,15 @@ app.post('/api/boards', (req, res) => {
       columnStmt.run(column.id, id, column.title, index);
     });
     
-    res.json({ id, title, columns });
+    const boardWithColumns = { id, title, columns, position: newPosition };
+    
+    // Emit real-time event to all users (boards are visible to everyone)
+    emitToAll('board:created', {
+      board: boardWithColumns,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(boardWithColumns);
   } catch (error) {
     console.error('Error creating board:', error);
     res.status(500).json({ error: 'Failed to create board' });
@@ -1475,6 +1485,95 @@ app.delete('/api/columns/:id', (req, res) => {
   }
 });
 
+// Add task at top endpoint
+app.post('/api/tasks/add-at-top', (req, res) => {
+  const task = req.body;
+  
+  try {
+    // Begin transaction to add task at top and shift others
+    const transaction = db.transaction(() => {
+      // Shift all existing tasks in this column down by 1
+      db.prepare(`
+        UPDATE tasks 
+        SET position = position + 1 
+        WHERE columnId = ?
+      `).run(task.columnId);
+      
+      // Insert new task at position 0
+      db.prepare(`
+        INSERT INTO tasks (
+          id, title, description, memberId, startDate, 
+          effort, columnId, priority, requesterId, boardId, position
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      `).run(
+        task.id,
+        task.title,
+        task.description,
+        task.memberId,
+        task.startDate,
+        task.effort,
+        task.columnId,
+        task.priority,
+        task.requesterId,
+        task.boardId
+      );
+    });
+    
+    transaction();
+    res.json({ ...task, comments: [], position: 0 });
+  } catch (error) {
+    console.error('Error adding task at top:', error);
+    res.status(500).json({ error: 'Failed to add task at top' });
+  }
+});
+
+// Task reordering endpoint
+app.post('/api/tasks/reorder', (req, res) => {
+  const { taskId, newPosition, columnId } = req.body;
+  
+  try {
+    // Get current position of the task being moved
+    const currentTask = db.prepare('SELECT position FROM tasks WHERE id = ? AND columnId = ?').get(taskId, columnId);
+    if (!currentTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const currentPosition = currentTask.position || 0;
+    
+    if (currentPosition === newPosition) {
+      return res.json({ message: 'No change needed' });
+    }
+    
+    // Begin transaction for position updates
+    const transaction = db.transaction(() => {
+      if (currentPosition < newPosition) {
+        // Moving down: shift tasks between current and new position up by 1
+        db.prepare(`
+          UPDATE tasks 
+          SET position = position - 1 
+          WHERE columnId = ? AND position > ? AND position <= ?
+        `).run(columnId, currentPosition, newPosition);
+      } else {
+        // Moving up: shift tasks between new and current position down by 1
+        db.prepare(`
+          UPDATE tasks 
+          SET position = position + 1 
+          WHERE columnId = ? AND position >= ? AND position < ?
+        `).run(columnId, newPosition, currentPosition);
+      }
+      
+      // Update the moved task to its new position
+      db.prepare('UPDATE tasks SET position = ? WHERE id = ?').run(newPosition, taskId);
+    });
+    
+    transaction();
+    res.json({ message: 'Tasks reordered successfully' });
+  } catch (error) {
+    console.error('Error reordering tasks:', error);
+    res.status(500).json({ error: 'Failed to reorder tasks' });
+  }
+});
+
 app.post('/api/columns/reorder', (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   
@@ -1565,8 +1664,8 @@ app.post('/api/tasks', (req, res) => {
       db.prepare(`
         INSERT INTO tasks (
           id, title, description, memberId, startDate, 
-          effort, columnId, priority, requesterId, boardId
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          effort, columnId, priority, requesterId, boardId, position
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `),
       'INSERT'
     );
@@ -1581,10 +1680,16 @@ app.post('/api/tasks', (req, res) => {
       task.columnId,
       task.priority,
       task.requesterId,
-      task.boardId
+      task.boardId,
+      task.position !== undefined ? task.position : 0 // Properly handle position
     );
     
-    res.json({ ...task, comments: [] });
+    const taskWithComments = { ...task, comments: [] };
+    
+    // Real-time events disabled
+    // TODO: Re-implement when Socket.IO is fixed
+    
+    res.json(taskWithComments);
   } catch (error) {
     console.error('Error creating task:', error);
     res.status(500).json({ error: 'Failed to create task' });
@@ -1601,7 +1706,7 @@ app.put('/api/tasks/:id', (req, res) => {
         UPDATE tasks SET 
           title = ?, description = ?, memberId = ?, 
           startDate = ?, effort = ?, columnId = ?, 
-          priority = ?, requesterId = ?, boardId = ?
+          priority = ?, requesterId = ?, boardId = ?, position = ?
         WHERE id = ?
       `),
       'UPDATE'
@@ -1617,8 +1722,12 @@ app.put('/api/tasks/:id', (req, res) => {
       task.priority,
       task.requesterId,
       task.boardId,
+      task.position !== undefined ? task.position : 0, // Properly handle position
       id
     );
+    
+    // Real-time events disabled
+    // TODO: Re-implement when Socket.IO is fixed
     
     res.json(task);
   } catch (error) {
@@ -1631,11 +1740,18 @@ app.delete('/api/tasks/:id', (req, res) => {
   const { id } = req.params;
   
   try {
+    // Get task info before deleting for the real-time event
+    const taskInfo = db.prepare('SELECT boardId, columnId FROM tasks WHERE id = ?').get(id);
+    
     const stmt = wrapQuery(
       db.prepare('DELETE FROM tasks WHERE id = ?'),
       'DELETE'
     );
     stmt.run(id);
+    
+    // Real-time events disabled
+    // TODO: Re-implement when Socket.IO is fixed
+    
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
     console.error('Error deleting task:', error);
@@ -2104,7 +2220,11 @@ app.get('/health', (req, res) => {
 
 
 
+// Socket.IO temporarily removed due to connection loop issues
+// TODO: Implement simpler real-time solution
+
 const PORT = process.env.PORT || 3222;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on port ${PORT}`);
+  console.log(`Real-time collaboration temporarily disabled`);
 });
