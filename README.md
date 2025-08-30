@@ -76,6 +76,69 @@ npm run docker:dev
 
 *For more Docker information, see [DOCKER.md](/DOCKER.md)*
 
+## Database Backup & Restore
+
+### Automated Backup Script
+
+Use the included backup script for easy database management:
+
+```bash
+# Create a timestamped backup with automatic cleanup
+./backup-db.sh
+
+# List all existing backups
+./backup-db.sh --list
+
+# Manual cleanup (keeps last 10 backups)
+./backup-db.sh --cleanup
+
+# Create backup without auto-cleanup
+./backup-db.sh --no-cleanup
+
+# Show help and options
+./backup-db.sh --help
+```
+
+**Features:**
+- Timestamped backups (`kanban-backup-YYYYMMDD_HHMMSS.db`)
+- Automatic cleanup (keeps last 10 backups)
+- Latest backup symlink (`kanban-latest.db`)
+- Colored output and error handling
+- Backup size reporting
+
+### Manual Backup Methods
+
+**From Docker Container:**
+```bash
+# Quick backup
+docker cp easy-kanban:/app/server/data/kanban.db ./kanban-backup.db
+
+# Backup with timestamp
+docker cp easy-kanban:/app/server/data/kanban.db ./kanban-backup-$(date +%Y%m%d_%H%M%S).db
+```
+
+**From Docker Volume:**
+```bash
+# Using volume mount
+docker run --rm -v easy-kanban_kanban-data:/source -v $(pwd):/backup alpine cp /source/kanban.db /backup/kanban-backup.db
+```
+
+### Restore Database
+
+**To Running Container:**
+```bash
+# Stop the application
+docker-compose down
+
+# Replace database
+docker cp ./kanban-backup.db easy-kanban:/app/server/data/kanban.db
+
+# Restart application
+docker-compose up -d
+```
+
+**Important:** Always stop the application before restoring to prevent data corruption.
+
 ## Security
 
 The application includes JWT-based authentication and role-based access control. However, for production deployments:
