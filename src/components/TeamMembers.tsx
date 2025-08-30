@@ -28,12 +28,16 @@ interface TeamMembersProps {
   members: TeamMember[];
   selectedMember: string | null;
   onSelectMember: (id: string) => void;
+  onlineUsers?: Set<string>;
+  boardOnlineUsers?: Set<string>;
 }
 
 export default function TeamMembers({
   members,
   selectedMember,
-  onSelectMember
+  onSelectMember,
+  onlineUsers = new Set(),
+  boardOnlineUsers = new Set()
 }: TeamMembersProps) {
   
   // Function to get avatar display for a member
@@ -91,6 +95,7 @@ export default function TeamMembers({
               color: member.color
             }}
             onClick={() => onSelectMember(member.id)}
+            title={member.name}
           >
             {getMemberAvatar(member)}
             <span className="text-xs font-medium">{member.name}</span>

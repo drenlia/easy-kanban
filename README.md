@@ -9,12 +9,13 @@ A modern team collaboration Kanban board application with user management, authe
 ## Key Features
 
 - **Multi-board Kanban system** with drag-and-drop functionality
+- **Real-time collaboration** - see changes instantly as team members work
 - **User authentication** with local accounts and Google OAuth support
 - **Role-based access control** (Admin/User permissions)
 - **Team management** with color-coded member assignments
 - **Task management** with priorities, comments, and file attachments
+- **User presence indicators** - see who's currently viewing each board
 - **Admin panel** for user management and system configuration
-- **Real-time updates** with optimistic UI responses
 - **File uploads** for task attachments and user avatars
 
 ## Getting Started

@@ -90,6 +90,16 @@ export const reorderColumns = async (columnId: string, newPosition: number, boar
   return data;
 };
 
+export const reorderTasks = async (taskId: string, newPosition: number, columnId: string) => {
+  const { data } = await api.post('/tasks/reorder', { taskId, newPosition, columnId });
+  return data;
+};
+
+export const createTaskAtTop = async (task: Task) => {
+  const { data } = await api.post<Task>('/tasks/add-at-top', task);
+  return data;
+};
+
 // Tasks
 export const createTask = async (task: Task) => {
   const { data } = await api.post<Task>('/tasks', task);
