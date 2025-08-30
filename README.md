@@ -4,6 +4,8 @@ A modern team collaboration Kanban board application with user management, authe
 
 <img src="/screenshots/overview.png" alt="Screenshot of easy-kanban" width="100%">
 
+*[View all screenshots and features →](/screenshots/SCREENSHOTS.md)*
+
 ## Key Features
 
 - **Multi-board Kanban system** with drag-and-drop functionality
