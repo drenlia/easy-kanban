@@ -1384,6 +1384,26 @@ export default function App() {
     return filteredColumns;
   };
 
+  // Get filtered task count for a board (for tab pills)
+  const getFilteredTaskCountForBoard = (board: Board): number => {
+    if (!isSearchActive) return 0; // Don't show count when no filters active
+    
+    let totalCount = 0;
+    Object.values(board.columns || {}).forEach(column => {
+      totalCount += filterTasks(column.tasks).length;
+    });
+    return totalCount;
+  };
+
+  // Check if any filters are active
+  const hasActiveFilters = isSearchActive && (
+    searchFilters.text || 
+    searchFilters.dateFrom || 
+    searchFilters.dateTo || 
+    searchFilters.selectedMembers.length > 0 || 
+    searchFilters.selectedPriorities.length > 0
+  );
+
   // Get debug parameter from URL
   const showDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
 
@@ -1642,6 +1662,8 @@ export default function App() {
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
                     isAdmin={currentUser?.roles?.includes('admin')}
+                    getFilteredTaskCount={getFilteredTaskCountForBoard}
+                    hasActiveFilters={hasActiveFilters}
                   />
 
                   {selectedBoard && (

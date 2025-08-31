@@ -14,6 +14,8 @@ interface BoardTabsProps {
   onRemoveBoard: (boardId: string) => void;
   onReorderBoards: (boardId: string, newPosition: number) => void;
   isAdmin?: boolean;
+  getFilteredTaskCount?: (board: Board) => number;
+  hasActiveFilters?: boolean;
 }
 
 // Sortable Board Tab Component (Admin only)
@@ -27,7 +29,9 @@ const SortableBoardTab: React.FC<{
   showDeleteConfirm: string | null;
   onConfirmDelete: (boardId: string) => void;
   onCancelDelete: () => void;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete }) => {
+  taskCount?: number;
+  showTaskCount?: boolean;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, showTaskCount }) => {
   const {
     attributes,
     listeners,
@@ -60,14 +64,21 @@ const SortableBoardTab: React.FC<{
       <button
         onClick={onSelect}
         onDoubleClick={onEdit}
-        className={`px-4 py-3 pl-6 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
+        className={`px-4 py-3 pl-6 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
           isSelected
             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
             : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
         } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
         title="Click to select, double-click to rename (Admin only)"
       >
-        {board.title}
+        <div className="flex items-center gap-2">
+          <span>{board.title}</span>
+          {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+              {taskCount}
+            </span>
+          )}
+        </div>
       </button>
       
       {/* Delete Button - Admin Only */}
@@ -126,19 +137,28 @@ const RegularBoardTab: React.FC<{
   onEdit: () => void;
   onRemove: () => void;
   canDelete: boolean;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete }) => {
+  taskCount?: number;
+  showTaskCount?: boolean;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, taskCount, showTaskCount }) => {
   return (
     <div className="relative group">
       <button
         onClick={onSelect}
-        className={`px-4 py-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
+        className={`px-4 py-3 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
           isSelected
             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
             : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
         }`}
         title="Click to select board"
       >
-        {board.title}
+        <div className="flex items-center gap-2">
+          <span>{board.title}</span>
+          {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+              {taskCount}
+            </span>
+          )}
+        </div>
       </button>
       
       {/* Delete Button - Admin Only */}
@@ -155,7 +175,9 @@ export default function BoardTabs({
   onEditBoard,
   onRemoveBoard,
   onReorderBoards,
-  isAdmin = false
+  isAdmin = false,
+  getFilteredTaskCount,
+  hasActiveFilters = false
 }: BoardTabsProps) {
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
@@ -316,6 +338,8 @@ export default function BoardTabs({
                         showDeleteConfirm={showDeleteConfirm}
                         onConfirmDelete={confirmDeleteBoard}
                         onCancelDelete={cancelDeleteBoard}
+                        taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
+                        showTaskCount={hasActiveFilters}
                       />
                     )}
                   </div>
@@ -350,6 +374,8 @@ export default function BoardTabs({
                     onEdit={() => handleEditClick(board.id)}
                     onRemove={() => handleRemoveClick(board.id)}
                     canDelete={boards.length > 1}
+                    taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
+                    showTaskCount={hasActiveFilters}
                   />
                 )}
               </div>
