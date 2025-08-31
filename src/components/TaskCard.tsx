@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2, MessageSquare } from 'lucide-react';
+import { Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2 } from 'lucide-react';
 import { Task, TeamMember, Priority } from '../types';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 const PRIORITY_COLORS = {
   low: 'bg-blue-50 text-blue-700',
@@ -20,6 +22,7 @@ interface TaskCardProps {
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
   onSelect: (task: Task) => void;
+  isDragDisabled?: boolean;
 }
 
 const getLatestComment = (comments?: Comment[]) => {
@@ -53,7 +56,8 @@ export default function TaskCard({
   onCopy,
   onDragStart,
   onDragEnd,
-  onSelect
+  onSelect,
+  isDragDisabled = false
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -71,10 +75,41 @@ export default function TaskCard({
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    onDragStart(task);
+  // @dnd-kit sortable hook for vertical reordering
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ 
+    id: task.id,
+    disabled: isDragDisabled,
+    data: {
+      type: 'task',
+      task: task
+    }
+  });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 200ms ease', // Smooth transitions
+    zIndex: isDragging ? 1000 : 'auto', // Bring dragged item to front
   };
+
+  // Track drag state for parent notifications
+  const wasDraggingRef = useRef(false);
+  
+  React.useEffect(() => {
+    if (isDragging && !wasDraggingRef.current) {
+      onDragStart(task);
+      wasDraggingRef.current = true;
+    } else if (!isDragging && wasDraggingRef.current) {
+      onDragEnd();
+      wasDraggingRef.current = false;
+    }
+  }, [isDragging, task, onDragStart, onDragEnd]);
 
   const handleCopy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -259,11 +294,13 @@ export default function TaskCard({
   return (
     <>
       <div
-        className="task-card bg-white p-4 rounded-lg shadow-sm cursor-move relative"
-        style={{ borderLeft: `4px solid ${member.color}` }}
-        draggable="true"
-        onDragStart={handleDragStart}
-        onDragEnd={onDragEnd}
+        ref={setNodeRef}
+        style={{ ...style, borderLeft: `4px solid ${member.color}` }}
+        className={`task-card bg-white p-4 rounded-lg shadow-sm cursor-move relative transition-all duration-200 ${
+          isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
+        }`}
+        {...attributes}
+        {...listeners}
       >
         <div className="flex justify-between items-start mb-2">
           {isEditingTitle ? (

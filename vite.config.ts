@@ -12,6 +12,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: '3010',
+    hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:3222',
@@ -24,6 +25,11 @@ export default defineConfig({
       '/avatars': {
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://0.0.0.0:3222',
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
       },
     },
   },
