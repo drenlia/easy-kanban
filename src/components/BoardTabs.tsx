@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus } from 'lucide-react';
 import { Board } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -24,7 +24,10 @@ const SortableBoardTab: React.FC<{
   onEdit: () => void;
   onRemove: () => void;
   canDelete: boolean;
-}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete }) => {
+  showDeleteConfirm: string | null;
+  onConfirmDelete: (boardId: string) => void;
+  onCancelDelete: () => void;
+}> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete }) => {
   const {
     attributes,
     listeners,
@@ -80,6 +83,37 @@ const SortableBoardTab: React.FC<{
           <span className="text-xs font-bold">×</span>
         </button>
       )}
+      
+      {/* Delete Confirmation Menu */}
+      {canDelete && showDeleteConfirm === board.id && (
+        <div className="delete-confirmation absolute -top-1 -right-1 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-50 min-w-[140px]">
+          <div className="text-sm text-gray-700 mb-2">
+            {(() => {
+              const board = boards.find(b => b.id === showDeleteConfirm);
+              const taskCount = board ? Object.values(board.columns || {}).reduce((total, column) => 
+                total + (column.tasks?.length || 0), 0) : 0;
+              
+              return taskCount > 0 
+                ? `Delete board and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`
+                : 'Delete empty board?';
+            })()}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => onConfirmDelete(board.id)}
+              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Yes
+            </button>
+            <button
+              onClick={onCancelDelete}
+              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -126,6 +160,7 @@ export default function BoardTabs({
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   // Handle drag end for board reordering (Admin only)
   const handleDragEnd = (event: DragEndEvent) => {
@@ -192,9 +227,58 @@ export default function BoardTabs({
 
   const handleRemoveClick = (boardId: string) => {
     if (boards.length > 1) {
-      onRemoveBoard(boardId);
+      // Check if board has any tasks
+      const board = boards.find(b => b.id === boardId);
+      const hasAnyTasks = board && Object.values(board.columns || {}).some(column => 
+        column.tasks && column.tasks.length > 0
+      );
+      
+      if (hasAnyTasks) {
+        // Board has tasks, show confirmation
+        setShowDeleteConfirm(boardId);
+      } else {
+        // Board is empty, delete immediately
+        confirmDeleteBoard(boardId);
+      }
     }
   };
+
+  const confirmDeleteBoard = async (boardId: string) => {
+    try {
+      onRemoveBoard(boardId);
+      setShowDeleteConfirm(null);
+    } catch (error) {
+      console.error('Failed to delete board:', error);
+    }
+  };
+
+  const cancelDeleteBoard = () => {
+    setShowDeleteConfirm(null);
+  };
+
+  // Close confirmation menu when clicking outside
+  useEffect(() => {
+    if (!showDeleteConfirm) return; // Only add listener when confirmation is showing
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      // Don't close if clicking on the delete confirmation menu or its children
+      if (target.closest('.delete-confirmation')) {
+        return;
+      }
+      setShowDeleteConfirm(null);
+    };
+
+    // Use a small delay to avoid interfering with the initial click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 10);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeleteConfirm]);
 
   return (
     <div className="mb-6">
@@ -229,6 +313,9 @@ export default function BoardTabs({
                         onEdit={() => handleEditClick(board.id)}
                         onRemove={() => handleRemoveClick(board.id)}
                         canDelete={boards.length > 1}
+                        showDeleteConfirm={showDeleteConfirm}
+                        onConfirmDelete={confirmDeleteBoard}
+                        onCancelDelete={cancelDeleteBoard}
                       />
                     )}
                   </div>

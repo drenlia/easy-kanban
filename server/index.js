@@ -439,6 +439,31 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
   }
 });
 
+// Get task count for a user (for deletion confirmation)
+app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Count tasks where this user is either the assignee (memberId) or requester (requesterId)
+    // First get the member ID for this user
+    const member = db.prepare('SELECT id FROM members WHERE user_id = ?').get(userId);
+    
+    let taskCount = { count: 0 };
+    if (member) {
+      taskCount = db.prepare(`
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE memberId = ? OR requesterId = ?
+      `).get(member.id, member.id);
+    }
+    
+    res.json({ count: taskCount.count || 0 });
+  } catch (error) {
+    console.error('Get user task count error:', error);
+    res.status(500).json({ error: 'Failed to get task count' });
+  }
+});
+
 app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     const { userId } = req.params;
@@ -1341,12 +1366,6 @@ app.post('/api/boards', (req, res) => {
     });
     
     const boardWithColumns = { id, title, columns, position: newPosition };
-    
-    // Emit real-time event to all users (boards are visible to everyone)
-    emitToAll('board:created', {
-      board: boardWithColumns,
-      timestamp: new Date().toISOString()
-    });
     
     res.json(boardWithColumns);
   } catch (error) {

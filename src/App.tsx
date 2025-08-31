@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
 import TeamMembers from './components/TeamMembers';
+import Tools from './components/Tools';
+import SearchInterface from './components/SearchInterface';
 import KanbanColumn from './components/Column';
 import TaskCard from './components/TaskCard';
 import TaskDetails from './components/TaskDetails';
@@ -16,6 +18,7 @@ import Profile from './components/Profile';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { generateUUID } from './utils/uuid';
+import { loadUserPreferences, saveUserPreferences, updateUserPreference } from './utils/userPreferences';
 import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, pointerWithin } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 
@@ -60,6 +63,12 @@ export default function App() {
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
+  const [boardCreationPause, setBoardCreationPause] = useState(false);
+  // Load user preferences from cookies
+  const [userPrefs, setUserPrefs] = useState(() => loadUserPreferences());
+  const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
+  const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
+  const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -93,8 +102,8 @@ export default function App() {
       return;
     }
     
-    // Don't poll during drag operations, cooldown, or task creation
-    if (draggedTask || draggedColumn || dragCooldown || taskCreationPause) {
+    // Don't poll during drag operations, cooldown, task creation, or board creation
+    if (draggedTask || draggedColumn || dragCooldown || taskCreationPause || boardCreationPause) {
       setIsPolling(false);
       return;
     }
@@ -103,9 +112,29 @@ export default function App() {
     
     const pollForUpdates = async () => {
       try {
-        const loadedBoards = await api.getBoards();
-        const currentBoard = loadedBoards.find(b => b.id === selectedBoard);
+        const [loadedBoards, loadedMembers] = await Promise.all([
+          api.getBoards(),
+          api.getMembers()
+        ]);
         
+        // Update boards list if it changed
+        const currentBoardsString = JSON.stringify(boards);
+        const newBoardsString = JSON.stringify(loadedBoards);
+        
+        if (currentBoardsString !== newBoardsString) {
+          setBoards(loadedBoards);
+        }
+        
+        // Update members list if it changed
+        const currentMembersString = JSON.stringify(members);
+        const newMembersString = JSON.stringify(loadedMembers);
+        
+        if (currentMembersString !== newMembersString) {
+          setMembers(loadedMembers);
+        }
+        
+        // Update columns for the current board if it changed
+        const currentBoard = loadedBoards.find(b => b.id === selectedBoard);
         if (currentBoard) {
           const currentColumnsString = JSON.stringify(columns);
           const newColumnsString = JSON.stringify(currentBoard.columns);
@@ -131,7 +160,7 @@ export default function App() {
       clearInterval(interval);
       setIsPolling(false);
     };
-  }, [isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause]);
+  }, [isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, boards, columns, members]);
 
   // Mock socket object for compatibility with existing UI
   const socket = {
@@ -462,6 +491,9 @@ export default function App() {
 
   // Ensure default board is selected when on kanban page with no specific board
   useEffect(() => {
+    // Don't auto-select during board creation to avoid race conditions
+    if (boardCreationPause) return;
+    
     if (currentPage === 'kanban' && boards.length > 0 && !selectedBoard) {
       // If no board is selected and we're on kanban page, select the first board
       const firstBoard = boards[0];
@@ -471,7 +503,7 @@ export default function App() {
         window.location.hash = `#kanban#${firstBoard.id}`;
       }
     }
-  }, [currentPage, boards, selectedBoard]);
+  }, [currentPage, boards, selectedBoard, boardCreationPause]);
 
   // Handle Google OAuth callback with token - MUST run before routing
   useEffect(() => {
@@ -624,6 +656,9 @@ export default function App() {
 
   const handleAddBoard = async () => {
     try {
+      // Pause polling to prevent race conditions
+      setBoardCreationPause(true);
+      
       const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
@@ -635,12 +670,13 @@ export default function App() {
       const createdBoard = await api.createBoard(newBoard);
 
       // Create default columns for the new board
-      const columnPromises = DEFAULT_COLUMNS.map(async col => {
+      const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
         const column: Column = {
           id: `${col.id}-${boardId}`,
           title: col.title,
           tasks: [],
-          boardId: boardId
+          boardId: boardId,
+          position: index
         };
         return api.createColumn(column);
       });
@@ -650,12 +686,22 @@ export default function App() {
       // Refresh board data to get the complete structure
       await refreshBoardData();
       
-      // Set the new board as selected
+
+      
+      // Set the new board as selected and update URL
       setSelectedBoard(boardId);
+      window.location.hash = boardId;
       
       await fetchQueryLogs();
+      
+      // Resume polling after brief delay
+      setTimeout(() => {
+        setBoardCreationPause(false);
+      }, 1000);
+      
     } catch (error) {
       console.error('Failed to add board:', error);
+      setBoardCreationPause(false); // Resume polling even on error
     }
   };
 
@@ -754,7 +800,7 @@ export default function App() {
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
-    
+
     try {
       await withLoading('tasks', async () => {
         // Let backend handle positioning and shifting
@@ -1086,7 +1132,7 @@ export default function App() {
 
     // Update positions for both columns - use simple sequential indices
     const updatedSourceTasks = sourceTasks.map((task, idx) => ({
-      ...task,
+        ...task,
       position: idx
     }));
     
@@ -1190,7 +1236,7 @@ export default function App() {
     const draggedColumn = Object.values(columns).find(col => col.id === active.id);
     if (draggedColumn) {
       setDraggedColumn(draggedColumn);
-      }
+    }
   };
 
   const handleColumnDragEnd = async (event: DragEndEvent) => {
@@ -1249,6 +1295,93 @@ export default function App() {
 
   const clearQueryLogs = async () => {
     setQueryLogs([]);
+  };
+
+  const handleToggleTaskShrink = () => {
+    const newValue = !isTasksShrunk;
+    setIsTasksShrunk(newValue);
+    updateUserPreference('isTasksShrunk', newValue);
+  };
+
+  const handleToggleSearch = () => {
+    const newValue = !isSearchActive;
+    setIsSearchActive(newValue);
+    updateUserPreference('isSearchActive', newValue);
+  };
+
+  const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
+    setSearchFilters(newFilters);
+    updateUserPreference('searchFilters', newFilters);
+  };
+
+  // Get available priorities from all tasks across all boards
+  const getAvailablePriorities = (): Priority[] => {
+    const prioritySet = new Set<Priority>();
+    Object.values(columns).forEach(column => {
+      column.tasks.forEach(task => {
+        prioritySet.add(task.priority);
+      });
+    });
+    return Array.from(prioritySet);
+  };
+
+  // Filter tasks based on search criteria
+  const filterTasks = (tasks: Task[]): Task[] => {
+    if (!isSearchActive) return tasks;
+
+    return tasks.filter(task => {
+      // Text search (title or description)
+      if (searchFilters.text) {
+        const searchText = searchFilters.text.toLowerCase();
+        const titleMatch = task.title.toLowerCase().includes(searchText);
+        const descriptionMatch = task.description.toLowerCase().includes(searchText);
+        if (!titleMatch && !descriptionMatch) return false;
+      }
+
+      // Date range filter (start date)
+      if (searchFilters.dateFrom || searchFilters.dateTo) {
+        const taskDate = new Date(task.startDate);
+        if (searchFilters.dateFrom) {
+          const fromDate = new Date(searchFilters.dateFrom);
+          if (taskDate < fromDate) return false;
+        }
+        if (searchFilters.dateTo) {
+          const toDate = new Date(searchFilters.dateTo);
+          if (taskDate > toDate) return false;
+        }
+      }
+
+      // Members filter
+      if (searchFilters.selectedMembers.length > 0) {
+        if (!searchFilters.selectedMembers.includes(task.memberId || '') && 
+            !searchFilters.selectedMembers.includes(task.requesterId || '')) {
+          return false;
+        }
+      }
+
+      // Priority filter
+      if (searchFilters.selectedPriorities.length > 0) {
+        if (!searchFilters.selectedPriorities.includes(task.priority)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  };
+
+  // Get filtered columns for display
+  const getFilteredColumns = () => {
+    if (!isSearchActive) return columns;
+
+    const filteredColumns: Columns = {};
+    Object.entries(columns).forEach(([columnId, column]) => {
+      filteredColumns[columnId] = {
+        ...column,
+        tasks: filterTasks(column.tasks)
+      };
+    });
+    return filteredColumns;
   };
 
   // Get debug parameter from URL
@@ -1423,41 +1556,7 @@ export default function App() {
               <RefreshCw size={16} />
             </button>
             
-            {/* Fix positions button (temporary) */}
-            {currentUser?.roles?.includes('admin') && (
-              <button
-                onClick={async () => {
-                                try {
-                    // Fix positions for all columns
-                    const updatePromises: Promise<any>[] = [];
-                    
-                    Object.entries(columns).forEach(([columnId, column]) => {
-                      const sortedTasks = [...column.tasks].sort((a, b) => {
-                        // Sort by current order in UI (creation time as fallback)
-                        return (a.position || 0) - (b.position || 0);
-                      });
-                      
-                      sortedTasks.forEach((task, index) => {
-                        const newPosition = index; // Simple sequential: 0, 1, 2, 3...
-                        if (task.position !== newPosition) {
-                                                updatePromises.push(api.updateTask({ ...task, position: newPosition }));
-                        }
-                      });
-                    });
-                    
-                    await Promise.all(updatePromises);
-                                    await refreshBoardData();
-                  } catch (error) {
-                    console.error('❌ Failed to fix positions:', error);
-                  }
-                }}
-                className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200"
-                title="Fix task positions (admin only)"
-              >
-                Fix Positions
-              </button>
-            )}
-            
+
             <button
               onClick={() => setShowHelpModal(true)}
               className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
@@ -1506,11 +1605,32 @@ export default function App() {
                 <LoadingSpinner size="large" className="mt-20" />
               ) : (
                 <>
+                  {/* Tools and Team Members in a flex container */}
+                  <div className="flex gap-4 mb-4">
+                    <Tools 
+                      isTasksShrunk={isTasksShrunk}
+                      onToggleTaskShrink={handleToggleTaskShrink}
+                      isSearchActive={isSearchActive}
+                      onToggleSearch={handleToggleSearch}
+                    />
+                    <div className="flex-1">
                   <TeamMembers
                     members={members}
                     selectedMember={selectedMember}
                     onSelectMember={setSelectedMember}
                   />
+                    </div>
+                  </div>
+
+                  {/* Search Interface */}
+                  {isSearchActive && (
+                    <SearchInterface
+                      filters={searchFilters}
+                      members={members}
+                      availablePriorities={getAvailablePriorities()}
+                      onFiltersChange={handleSearchFiltersChange}
+                    />
+                  )}
 
                   {/* Board Tabs */}
                   <BoardTabs
@@ -1654,7 +1774,7 @@ export default function App() {
                             strategy={rectSortingStrategy}
                           >
                             <div style={gridStyle}>
-                              {Object.values(columns)
+                              {Object.values(getFilteredColumns())
                                 .sort((a, b) => (a.position || 0) - (b.position || 0))
                                 .map(column => (
                                   <KanbanColumn
@@ -1678,6 +1798,7 @@ export default function App() {
                                     onTaskDrop={handleTaskDrop}
                                     onSelectTask={setSelectedTask}
                                     isAdmin={true}
+                                    isTasksShrunk={isTasksShrunk}
                                   />
                                 ))}
                             </div>
@@ -1686,7 +1807,7 @@ export default function App() {
                           /* Regular user view */
                           <>
                         <div style={gridStyle}>
-                          {Object.values(columns)
+                          {Object.values(getFilteredColumns())
                             .sort((a, b) => (a.position || 0) - (b.position || 0))
                             .map(column => (
                               <KanbanColumn
@@ -1710,6 +1831,7 @@ export default function App() {
                                 onTaskDrop={handleTaskDrop}
                                 onSelectTask={setSelectedTask}
                                 isAdmin={false}
+                                isTasksShrunk={isTasksShrunk}
                               />
                             ))}
                         </div>
@@ -1746,6 +1868,7 @@ export default function App() {
                                 onDragEnd={() => {}}
                                 onSelect={() => {}}
                                 isDragDisabled={true}
+                                isTasksShrunk={isTasksShrunk}
                               />
                             </div>
                           ) : null}

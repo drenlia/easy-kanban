@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser } from '../api';
+import api, { createUser, updateUser, getUserTaskCount } from '../api';
 import { Edit, Trash2, Crown, User as UserIcon, Eye, EyeOff } from 'lucide-react';
 
 interface AdminProps {
@@ -67,6 +67,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     displayName: '',
     isActive: true,
     avatarUrl: '',
+    googleAvatarUrl: '',
     memberColor: '#4ECDC4',
     selectedFile: null as File | null,
     authProvider: ''
@@ -84,6 +85,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [userTaskCounts, setUserTaskCounts] = useState<{ [userId: string]: number }>({});
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   
   // Preset colors for easy selection
@@ -176,8 +178,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       return;
     }
 
-    // Show confirmation menu
-    setShowDeleteConfirm(userId);
+    try {
+      // Fetch task count for this user
+      const taskCountData = await getUserTaskCount(userId);
+      setUserTaskCounts(prev => ({ ...prev, [userId]: taskCountData.count }));
+      setShowDeleteConfirm(userId);
+    } catch (error) {
+      console.error('Failed to get task count:', error);
+      // Still show confirmation even if task count fails
+      setUserTaskCounts(prev => ({ ...prev, [userId]: 0 }));
+      setShowDeleteConfirm(userId);
+    }
   };
 
   const confirmDeleteUser = async (userId: string) => {
@@ -360,6 +371,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       displayName: user.displayName || `${user.firstName} ${user.lastName}`,
       isActive: user.isActive,
       avatarUrl: user.avatarUrl || '',
+      googleAvatarUrl: user.googleAvatarUrl || '',
       memberColor: user.memberColor || '#4ECDC4',
       selectedFile: null,
       authProvider: user.authProvider || ''
@@ -415,6 +427,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       displayName: '',
       isActive: true,
       avatarUrl: '',
+      googleAvatarUrl: '',
       memberColor: '#4ECDC4',
       selectedFile: null,
       authProvider: ''
@@ -619,9 +632,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                       <tr key={user.id}>
                         <td className="px-6 py-4 whitespace-nowrap w-16">
                           <div className="flex-shrink-0 h-10 w-10">
-                            {user.avatarUrl ? (
+                            {(user.googleAvatarUrl || user.avatarUrl) ? (
                               <img
-                                src={user.avatarUrl}
+                                src={user.googleAvatarUrl || user.avatarUrl}
                                 alt={`${user.firstName} ${user.lastName}`}
                                 className="h-10 w-10 rounded-full object-cover border-2 border-gray-200"
                               />
@@ -667,25 +680,30 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                         <td className="px-6 py-4 whitespace-nowrap w-20">
                           {showColorPicker === user.id ? (
                             <div className="relative">
-                              <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-lg border border-gray-200">
-                                <input
-                                  type="color"
-                                  value={editingColor}
-                                  onChange={(e) => setEditingColor(e.target.value)}
-                                  className="w-8 h-8 rounded border border-gray-300 cursor-pointer"
-                                />
-                                <div className="flex flex-col space-y-1">
+                              <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 min-w-[120px]">
+                                {/* Color picker */}
+                                <div className="flex justify-center mb-3">
+                                  <input
+                                    type="color"
+                                    value={editingColor}
+                                    onChange={(e) => setEditingColor(e.target.value)}
+                                    className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
+                                  />
+                                </div>
+                                
+                                {/* Buttons positioned below, outside the picker area */}
+                                <div className="flex space-x-2 justify-center">
                                   <button
                                     onClick={() => handleSaveColor(user.id)}
-                                    className="px-2 py-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors font-medium"
+                                    className="px-3 py-1 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors font-medium"
                                   >
-                                    Apply
+                                    ✓
                                   </button>
                                   <button
                                     onClick={handleCancelColor}
-                                    className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded transition-colors"
+                                    className="px-3 py-1 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 rounded transition-colors"
                                   >
-                                    Cancel
+                                    ✕
                                   </button>
                                 </div>
                               </div>
@@ -755,8 +773,29 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                               
                               {/* Delete Confirmation Menu */}
                               {showDeleteConfirm === user.id && (
-                                <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-10 min-w-[120px]">
-                                  <div className="text-sm text-gray-700 mb-2">Are you sure?</div>
+                                <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-10 min-w-[180px]">
+                                  <div className="text-sm text-gray-700 mb-2">
+                                    {userTaskCounts[user.id] > 0 ? (
+                                      <>
+                                        <div className="font-medium mb-1">Delete user?</div>
+                                        <div className="text-xs text-gray-700">
+                                          <span className="text-red-600 font-medium">
+                                            {userTaskCounts[user.id]} task{userTaskCounts[user.id] !== 1 ? 's' : ''}
+                                          </span>{' '}
+                                          will be removed for{' '}
+                                          <span className="font-medium">{user.email}</span>
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <div className="font-medium mb-1">Delete user?</div>
+                                        <div className="text-xs text-gray-600">
+                                          No tasks will be affected for{' '}
+                                          <span className="font-medium">{user.email}</span>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
                                   <div className="flex space-x-2">
                                     <button
                                       onClick={() => confirmDeleteUser(user.id)}
@@ -942,9 +981,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                           <div className="flex items-center space-x-3">
                             {/* Current Avatar Display */}
                             <div className="flex-shrink-0">
-                              {editingUserData.avatarUrl ? (
+                              {(editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
                                 <img
-                                  src={editingUserData.avatarUrl}
+                                  src={editingUserData.googleAvatarUrl || editingUserData.avatarUrl}
                                   alt="User avatar"
                                   className="w-12 h-12 rounded-full border-2 border-gray-200"
                                 />

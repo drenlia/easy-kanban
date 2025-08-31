@@ -29,6 +29,7 @@ interface KanbanColumnProps {
   onSelectTask: (task: Task | null) => void;
   onTaskDrop: (columnId: string, index: number) => void;
   isAdmin?: boolean;
+  isTasksShrunk?: boolean;
 }
 
 export default function KanbanColumn({
@@ -50,7 +51,8 @@ export default function KanbanColumn({
   onTaskDragOver,
   onSelectTask,
   onTaskDrop,
-  isAdmin = false
+  isAdmin = false,
+  isTasksShrunk = false
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -191,6 +193,7 @@ export default function KanbanColumn({
             onDragEnd={onTaskDragEnd}
             onSelect={onSelectTask}
             isDragDisabled={false}
+            isTasksShrunk={isTasksShrunk}
           />
         </div>
       );
