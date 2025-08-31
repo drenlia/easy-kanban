@@ -23,6 +23,7 @@ interface TaskCardProps {
   onDragEnd: () => void;
   onSelect: (task: Task) => void;
   isDragDisabled?: boolean;
+  isTasksShrunk?: boolean;
 }
 
 const getLatestComment = (comments?: Comment[]) => {
@@ -57,7 +58,8 @@ export default function TaskCard({
   onDragStart,
   onDragEnd,
   onSelect,
-  isDragDisabled = false
+  isDragDisabled = false,
+  isTasksShrunk = false
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -75,6 +77,9 @@ export default function TaskCard({
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Check if any editing is active to disable drag
+  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect;
+
   // @dnd-kit sortable hook for vertical reordering
   const {
     attributes,
@@ -85,7 +90,7 @@ export default function TaskCard({
     isDragging,
   } = useSortable({ 
     id: task.id,
-    disabled: isDragDisabled,
+    disabled: isDragDisabled || isAnyEditingActive,
     data: {
       type: 'task',
       task: task
@@ -403,12 +408,15 @@ export default function TaskCard({
             </div>
           </div>
         ) : (
-          <div 
+                    <div
             className="text-sm text-gray-600 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
             onDoubleClick={() => setIsEditingDescription(true)}
-            title="Double-click to edit description"
+            title={isTasksShrunk && task.description.length > 60 ? task.description : "Double-click to edit description"}
           >
-            {task.description}
+            {isTasksShrunk && task.description.length > 60 
+              ? `${task.description.substring(0, 60)}...` 
+              : task.description
+            }
           </div>
         )}
         

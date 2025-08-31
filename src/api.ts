@@ -228,6 +228,11 @@ export const deleteUser = async (userId: string) => {
   return data;
 };
 
+export const getUserTaskCount = async (userId: string) => {
+  const { data } = await api.get(`/admin/users/${userId}/task-count`);
+  return data;
+};
+
 export const updateMemberColor = async (userId: string, color: string) => {
   const { data } = await api.put(`/admin/users/${userId}/color`, { color });
   return data;
