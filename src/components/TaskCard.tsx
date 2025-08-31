@@ -325,109 +325,115 @@ export default function TaskCard({
         {...attributes}
         {...listeners}
       >
-        {/* Title and Action Buttons Row */}
+        {/* Title, Tags, and Action Buttons Row */}
         <div className="flex justify-between items-start mb-2">
-          {isEditingTitle ? (
-            <input
-              type="text"
-              value={editedTitle}
-              onChange={(e) => setEditedTitle(e.target.value)}
-              onBlur={handleTitleSave}
-              onKeyDown={handleTitleKeyDown}
-              className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 flex-1 mr-2 text-sm"
-              autoFocus
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <h3 
-              className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded flex-1 mr-2 text-sm"
-              onDoubleClick={handleTitleDoubleClick}
-              title="Double-click to edit"
-            >
-              {task.title}
-            </h3>
-          )}
-          <div className="flex gap-1">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowMemberSelect(!showMemberSelect);
-              }}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Change Assignee"
-            >
-              <UserCircle2 size={16} className="text-gray-500" />
-            </button>
-            <button
-              onClick={handleCopy}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Copy Task"
-            >
-              <Copy size={16} className="text-gray-500" />
-            </button>
-            <button
-              onClick={() => setShowQuickEdit(true)}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Quick Edit"
-            >
-              <Edit2 size={16} className="text-gray-500" />
-            </button>
-            <button
-              onClick={() => onSelect(task)}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="View Details"
-            >
-              <Info size={16} className="text-gray-500" />
-            </button>
-            <button
-              onClick={() => onRemove(task.id)}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Delete Task"
-            >
-              <X size={16} className="text-gray-500" />
-            </button>
+          <div className="flex-1 mr-2">
+            {isEditingTitle ? (
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={handleTitleKeyDown}
+                className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <h3 
+                className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded text-sm"
+                onDoubleClick={handleTitleDoubleClick}
+                title="Double-click to edit"
+              >
+                {task.title}
+              </h3>
+            )}
+          </div>
+          
+          <div className="flex flex-col items-end">
+            {/* Action Buttons */}
+            <div className="flex gap-1">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMemberSelect(!showMemberSelect);
+                }}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Change Assignee"
+              >
+                <UserCircle2 size={16} className="text-gray-500" />
+              </button>
+              <button
+                onClick={handleCopy}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Copy Task"
+              >
+                <Copy size={16} className="text-gray-500" />
+              </button>
+              <button
+                onClick={() => setShowQuickEdit(true)}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Quick Edit"
+              >
+                <Edit2 size={16} className="text-gray-500" />
+              </button>
+              <button
+                onClick={() => onSelect(task)}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="View Details"
+              >
+                <Info size={16} className="text-gray-500" />
+              </button>
+              <button
+                onClick={() => onRemove(task.id)}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Delete Task"
+              >
+                <X size={16} className="text-gray-500" />
+              </button>
+            </div>
+            
+            {/* Tags Section - Right underneath action buttons */}
+            {task.tags && task.tags.length > 0 && (
+              <div 
+                className="flex justify-end mt-0.5 relative"
+                onMouseEnter={() => setShowAllTags(true)}
+                onMouseLeave={() => setShowAllTags(false)}
+              >
+                <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
+                  showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
+                }`}>
+                  {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="px-1.5 py-0.5 rounded-full text-xs font-medium"
+                      style={(() => {
+                        if (!tag.color) {
+                          return { backgroundColor: '#6b7280', color: 'white' };
+                        }
+                        // Check if color is white or very light
+                        const hex = tag.color.replace('#', '');
+                        if (hex.toLowerCase() === 'ffffff' || hex.toLowerCase() === 'fff') {
+                          return { backgroundColor: tag.color, color: '#374151', border: '1px solid #d1d5db' };
+                        }
+                        // Use solid color background with white text
+                        return { backgroundColor: tag.color, color: 'white' };
+                      })()}
+                      title={tag.description || tag.tag}
+                    >
+                      {tag.tag}
+                    </span>
+                  ))}
+                  {!showAllTags && task.tags.length > 3 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
+                      +{task.tags.length - 3}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
-
-        {/* Tags Section - Right-aligned under action buttons */}
-        {task.tags && task.tags.length > 0 && (
-          <div 
-            className="flex justify-end mb-2 relative"
-            onMouseEnter={() => setShowAllTags(true)}
-            onMouseLeave={() => setShowAllTags(false)}
-          >
-            <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
-              showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
-            }`}>
-              {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
-                <span
-                  key={tag.id}
-                  className="px-1.5 py-0.5 rounded-full text-xs font-medium"
-                  style={(() => {
-                    if (!tag.color) {
-                      return { backgroundColor: '#6b7280', color: 'white' };
-                    }
-                    // Check if color is white or very light
-                    const hex = tag.color.replace('#', '');
-                    if (hex.toLowerCase() === 'ffffff' || hex.toLowerCase() === 'fff') {
-                      return { backgroundColor: tag.color, color: '#374151', border: '1px solid #d1d5db' };
-                    }
-                    // Use solid color background with white text
-                    return { backgroundColor: tag.color, color: 'white' };
-                  })()}
-                  title={tag.description || tag.tag}
-                >
-                  {tag.tag}
-                </span>
-              ))}
-              {!showAllTags && task.tags.length > 3 && (
-                <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
-                  +{task.tags.length - 3}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Description Section */}
         {isEditingDescription ? (
