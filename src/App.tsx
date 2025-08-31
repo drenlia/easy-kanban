@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
 import TeamMembers from './components/TeamMembers';
 import KanbanColumn from './components/Column';
@@ -8,21 +8,15 @@ import BoardTabs from './components/BoardTabs';
 import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
-import ErrorBoundary from './components/ErrorBoundary';
 import LoadingSpinner from './components/LoadingSpinner';
-import UserPresence from './components/UserPresence';
 import { Github, HelpCircle, LogOut, User, RefreshCw } from 'lucide-react';
 import Login from './components/Login';
 import Admin from './components/Admin';
 import Profile from './components/Profile';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
-import { usePolling } from './hooks/usePolling';
-// import { useSocket } from './hooks/useSocket'; // Replaced with polling
-import { TaskSchema, BoardSchema, ColumnSchema } from './validation/schemas';
-import { z } from 'zod';
 import { generateUUID } from './utils/uuid';
-import { DndContext, closestCenter, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, getFirstCollision, pointerWithin, rectIntersection } from '@dnd-kit/core';
+import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, pointerWithin } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 
 interface QueryLog {
@@ -769,13 +763,13 @@ export default function App() {
         
         // Refresh to get clean state from backend
         await refreshBoardData();
-        console.log('✅ Board refreshed with backend positioning');
+
       });
       
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
-        console.log('▶️ Polling resumed after task creation');
+
       }, 1000);
       
     } catch (error) {
@@ -841,12 +835,6 @@ export default function App() {
       position: newPosition
     };
 
-    console.log('🎯 Task copy positioning:', {
-      originalTask: task.title,
-      originalPosition,
-      newPosition,
-      columnId: task.columnId
-    });
 
     // Optimistic update - insert copy right after original
     setColumns(prev => {
@@ -865,14 +853,12 @@ export default function App() {
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
-    console.log('🛑 Polling paused for task copy');
 
     try {
       await withLoading('tasks', async () => {
         // Create task with specific position
         await api.createTask(newTask);
-        console.log('✅ Backend added copied task at position:', newPosition);
-        
+            
         // Now fix all positions to be sequential
         const allColumnTasks = [...columnTasks, newTask]
           .sort((a, b) => (a.position || 0) - (b.position || 0));
@@ -886,17 +872,16 @@ export default function App() {
         }).filter(p => p);
         
         await Promise.all(updatePromises);
-        console.log('✅ All task positions normalized');
-        
+            
         // Refresh to get clean state from backend
         await refreshBoardData();
-        console.log('✅ Board refreshed with backend positioning');
+
       });
       
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
-        console.log('▶️ Polling resumed after task copy');
+
       }, 1000);
       
       await fetchQueryLogs();
@@ -910,7 +895,6 @@ export default function App() {
   const handleTaskDragStart = (task: Task) => {
     setDraggedTask(task);
     // Pause polling during drag to prevent state conflicts
-    console.log('🎯 Pausing polling during task drag');
   };
 
   // Old handleTaskDragEnd removed - replaced with unified version below
@@ -921,7 +905,6 @@ export default function App() {
 
   // Legacy wrapper for old HTML5 drag (still used by some components)
   const handleTaskDrop = async (columnId: string, index: number) => {
-    console.log('🎯 Legacy handleTaskDrop called - this should not happen with @dnd-kit');
   };
 
   // Unified task drag handler for both vertical and horizontal moves
@@ -929,26 +912,15 @@ export default function App() {
     // Set cooldown and clear dragged task state
     setDraggedTask(null);
     setDragCooldown(true);
-    console.log('🎯 Starting 5-second cooldown after task drag');
     
     setTimeout(() => {
       setDragCooldown(false);
-      console.log('🎯 Drag cooldown ended - polling can resume');
-    }, 5000); // Increased to 5 seconds to ensure DB updates complete
+      }, 5000); // Increased to 5 seconds to ensure DB updates complete
     const { active, over } = event;
     
-    console.log('🎯 Unified task drag end:', {
-      activeId: active.id,
-      overId: over?.id,
-      overData: over?.data?.current,
-      overDataType: over?.data?.current?.type,
-      isBottomDrop: (over?.id as string)?.endsWith('-bottom'),
-      currentDragPreview: dragPreview
-    });
     
     if (!over) {
-      console.log('🎯 No drop target');
-      return;
+        return;
     }
 
     // Find the dragged task
@@ -966,8 +938,7 @@ export default function App() {
     });
 
     if (!draggedTask || !sourceColumnId) {
-      console.log('🎯 Dragged task not found');
-      return;
+        return;
     }
 
     // Determine target column and position
@@ -989,23 +960,11 @@ export default function App() {
             const targetTaskIndex = targetColumnTasks.findIndex(t => t.id === over.id);
             targetIndex = targetTaskIndex; // Insert at the target task's index position
             
-            console.log('🎯 Cross-column drop on task:', {
-              sourceColumn: sourceColumnId,
-              targetColumn: colId,
-              targetTaskTitle: targetTask.title,
-              targetTaskPosition: targetTask.position,
-              calculatedIndex: targetIndex,
-              targetColumnTaskCount: targetColumnTasks.length
-            });
-          } else {
+                  } else {
             // Same column reordering - use the target task's actual position
             targetIndex = targetTask.position || 0;
             
-            console.log('🎯 Same-column reorder on task:', {
-              targetTaskTitle: targetTask.title,
-              targetPosition: targetIndex
-            });
-          }
+                  }
         }
       });
     } else if (over.data?.current?.type === 'column') {
@@ -1014,29 +973,17 @@ export default function App() {
       const columnTasks = columns[targetColumnId]?.tasks || [];
       targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
       
-      console.log('🎯 Dropping on column:', {
-        targetColumnId,
-        columnTasks: columnTasks.length,
-        targetIndex
-      });
-    } else {
+      } else {
       // Fallback: try using over.id as column ID
       targetColumnId = over.id as string;
       const columnTasks = columns[targetColumnId]?.tasks || [];
       targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
       
-      console.log('🎯 Fallback drop detection:', {
-        targetColumnId,
-        columnTasks: columnTasks.length,
-        targetIndex,
-        overData: over.data?.current
-      });
-    }
+      }
 
     // Validate we found valid targets
     if (!targetColumnId || targetIndex === undefined) {
-      console.log('🎯 Invalid drop target - no valid column or index found');
-      return;
+        return;
     }
 
     // For cross-column moves, use the drag preview position if available
@@ -1056,37 +1003,17 @@ export default function App() {
       if (previewColumnId === currentTargetId) {
         targetColumnId = previewColumnId;  // Use the clean column ID
         targetIndex = dragPreview.insertIndex;
-        console.log('🎯 Using drag preview position for cross-column move:', {
-          originalTargetColumn: targetColumnId,
-          previewTargetColumn: dragPreview.targetColumnId,
-          previewInsertIndex: dragPreview.insertIndex,
-          overridingTargetIndex: targetIndex,
-          cleanedColumnId: previewColumnId
-        });
-      }
+          }
     }
 
-    console.log('🎯 Drop details:', {
-      sourceColumn: sourceColumnId,
-      targetColumn: targetColumnId,
-      targetIndex,
-      isSameColumn: sourceColumnId === targetColumnId,
-      draggedTaskTitle: draggedTask ? draggedTask.title : 'unknown',
-      draggedTaskCurrentPosition: draggedTask ? draggedTask.position : 'unknown',
-      overType: over.data?.current?.type,
-      overId: over.id,
-      usedDragPreview: sourceColumnId !== targetColumnId && dragPreview?.targetColumnId === targetColumnId
-    });
 
     // Handle the move
     if (sourceColumnId === targetColumnId) {
       // Same column - reorder
-      console.log('🎯 SAME COLUMN REORDER - calling handleSameColumnReorder');
-      handleSameColumnReorder(draggedTask, sourceColumnId, targetIndex);
+        handleSameColumnReorder(draggedTask, sourceColumnId, targetIndex);
     } else {
       // Different column - move
-      console.log('🎯 CROSS COLUMN MOVE - calling handleCrossColumnMove with targetIndex:', targetIndex);
-      handleCrossColumnMove(draggedTask, sourceColumnId, targetColumnId, targetIndex);
+        handleCrossColumnMove(draggedTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
@@ -1097,21 +1024,11 @@ export default function App() {
     
     const currentIndex = columnTasks.findIndex(t => t.id === task.id);
     
-    console.log('🎯 Task reorder - backend logic:', {
-      taskId: task.id,
-      taskTitle: task.title,
-      currentIndex,
-      newIndex,
-      currentPosition: task.position,
-      targetPosition: newIndex,
-      columnId,
-      allTaskPositions: columnTasks.map(t => ({ title: t.title, position: t.position }))
-    });
+
 
     // Check if reorder is actually needed
     if (currentIndex === newIndex) {
-      console.log('🎯 No reorder needed - same position');
-      return;
+        return;
     }
 
     // Optimistic update - reorder in UI immediately
@@ -1131,14 +1048,12 @@ export default function App() {
     try {
       // Send the target position (not array index) to backend
       await api.reorderTasks(task.id, newIndex, columnId);
-      console.log('✅ Backend handled task reordering to position:', newIndex);
-      
+        
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
-        console.log('🎯 Drag cooldown ended');
-      }, 2000);
+          }, 2000);
       
       // Refresh to get clean state from backend
       await refreshBoardData();
@@ -1158,16 +1073,7 @@ export default function App() {
     // Sort target column tasks by position for proper insertion
     const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
     
-    console.log('🎯 Cross column move - BEFORE:', { 
-      sourceColumnId, 
-      targetColumnId, 
-      targetIndex,
-      taskTitle: task.title,
-      taskCurrentPosition: task.position,
-      targetColumnTasks: sortedTargetTasks.map(t => ({ title: t.title, position: t.position })),
-      willInsertAtIndex: targetIndex,
-      willShiftTasksAfterIndex: targetIndex
-    });
+
 
     // Remove from source
     const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
@@ -1176,17 +1082,7 @@ export default function App() {
     const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
     sortedTargetTasks.splice(targetIndex, 0, updatedTask);
 
-    console.log('🎯 After splice insertion:', {
-      targetIndex,
-      insertedTaskTitle: updatedTask.title,
-      insertedTaskPosition: updatedTask.position,
-      tasksAfterSplice: sortedTargetTasks.map((t, i) => ({ 
-        index: i, 
-        title: t.title, 
-        oldPosition: t.position,
-        willBePosition: i 
-      }))
-    });
+
 
     // Update positions for both columns - use simple sequential indices
     const updatedSourceTasks = sourceTasks.map((task, idx) => ({
@@ -1199,10 +1095,7 @@ export default function App() {
       position: idx
     }));
     
-    console.log('🎯 Cross column move - AFTER position mapping:', {
-      beforeMapping: sortedTargetTasks.map((t, i) => ({ index: i, title: t.title, oldPosition: t.position })),
-      afterMapping: updatedTargetTasks.map(t => ({ title: t.title, position: t.position }))
-    });
+
 
     // Update UI optimistically
     setColumns(prev => ({
@@ -1226,33 +1119,19 @@ export default function App() {
       }
       
       // Step 1: Update the moved task to new column and position
-      console.log('🎯 Updating moved task:', {
-        taskId: finalMovedTask.id,
-        title: finalMovedTask.title,
-        fromColumn: sourceColumnId,
-        toColumn: targetColumnId,
-        newPosition: finalMovedTask.position,
-        originalTargetIndex: targetIndex,
-        shouldBePosition: targetIndex,
-        actualPosition: finalMovedTask.position
-      });
-      await api.updateTask(finalMovedTask);
-      console.log('✅ Step 1: Moved task updated with new column and position');
-      
+        await api.updateTask(finalMovedTask);
+        
       // Step 2: Update all source column tasks (sequential positions)
       for (const task of updatedSourceTasks) {
         await api.updateTask(task);
       }
-      console.log('✅ Step 2: Source column positions updated');
-      
+        
       // Step 3: Update all target column tasks (except the moved one)
       for (const task of updatedTargetTasks.filter(t => t.id !== updatedTask.id)) {
         await api.updateTask(task);
       }
-      console.log('✅ Step 3: Target column positions updated');
-      
-      console.log('✅ Cross column move completed successfully');
-      
+        
+        
       // Refresh to ensure consistency
       await refreshBoardData();
     } catch (error) {
@@ -1311,8 +1190,7 @@ export default function App() {
     const draggedColumn = Object.values(columns).find(col => col.id === active.id);
     if (draggedColumn) {
       setDraggedColumn(draggedColumn);
-      console.log('🎯 Pausing polling during column drag');
-    }
+      }
   };
 
   const handleColumnDragEnd = async (event: DragEndEvent) => {
@@ -1320,7 +1198,6 @@ export default function App() {
     
     setActiveColumnId(null);
     setDraggedColumn(null);
-    console.log('🎯 Resuming polling after column drag');
     
     if (!over || active.id === over.id || !selectedBoard) return;
     
@@ -1533,8 +1410,7 @@ export default function App() {
             {/* Manual refresh button */}
             <button
               onClick={async () => {
-                console.log('🔄 Manual refresh triggered');
-                try {
+                            try {
                   await refreshBoardData();
                   setLastPollTime(new Date());
                 } catch (error) {
@@ -1551,8 +1427,7 @@ export default function App() {
             {currentUser?.roles?.includes('admin') && (
               <button
                 onClick={async () => {
-                  console.log('🔧 Fixing task positions...');
-                  try {
+                                try {
                     // Fix positions for all columns
                     const updatePromises: Promise<any>[] = [];
                     
@@ -1565,15 +1440,13 @@ export default function App() {
                       sortedTasks.forEach((task, index) => {
                         const newPosition = index; // Simple sequential: 0, 1, 2, 3...
                         if (task.position !== newPosition) {
-                          console.log(`🔧 Fixing ${task.title}: ${task.position} → ${newPosition}`);
-                          updatePromises.push(api.updateTask({ ...task, position: newPosition }));
+                                                updatePromises.push(api.updateTask({ ...task, position: newPosition }));
                         }
                       });
                     });
                     
                     await Promise.all(updatePromises);
-                    console.log('✅ All task positions fixed!');
-                    await refreshBoardData();
+                                    await refreshBoardData();
                   } catch (error) {
                     console.error('❌ Failed to fix positions:', error);
                   }
@@ -1718,13 +1591,7 @@ export default function App() {
                                   // For now, always insert before the target task
                                   insertIndex = targetTaskIndex;
                                   
-                                  console.log('🎯 Drag over task:', {
-                                    targetTaskTitle: targetTask.title,
-                                    targetTaskIndex,
-                                    insertIndex,
-                                    isLastTask: targetTaskIndex === sortedTasks.length - 1
-                                  });
-                                }
+                                                              }
                               }
                             });
                           } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom') {
@@ -1733,21 +1600,8 @@ export default function App() {
                             if (sourceColumnId !== targetColumnId) {
                               const columnTasks = columns[targetColumnId]?.tasks || [];
                               insertIndex = columnTasks.length;
-                              console.log('🎯 PRIMARY column/column-bottom detection:', {
-                                targetColumnId,
-                                columnTaskCount: columnTasks.length,
-                                insertIndex,
-                                dropType: over.data.current.type,
-                                sourceColumn: sourceColumnId,
-                                isDifferentColumn: sourceColumnId !== targetColumnId
-                              });
-                            } else {
-                              console.log('🎯 PRIMARY detection skipped - same column:', {
-                                dropType: over.data.current.type,
-                                columnId: over.data.current.columnId,
-                                sourceColumn: sourceColumnId
-                              });
-                            }
+                                                      } else {
+                                                      }
                           } else {
                             // Fallback: check if we're over a column by ID or bottom area
                             const overId = over.id as string;
@@ -1756,35 +1610,14 @@ export default function App() {
                             // Handle bottom drop zone IDs (e.g., "column-id-bottom")
                             if (overId.endsWith('-bottom')) {
                               possibleColumnId = overId.replace('-bottom', '');
-                              console.log('🎯 Bottom drop zone detected in fallback:', {
-                                originalOverId: overId,
-                                extractedColumnId: possibleColumnId,
-                                hasOverData: !!over.data?.current,
-                                overDataType: over.data?.current?.type
-                              });
-                            }
+                                                      }
                             
                             if (columns[possibleColumnId] && sourceColumnId !== possibleColumnId) {
                               targetColumnId = possibleColumnId;  // Use the EXTRACTED column ID, not the original
                               const columnTasks = columns[possibleColumnId]?.tasks || [];
                               insertIndex = columnTasks.length;
-                              console.log('🎯 Fallback detection SUCCESS:', {
-                                originalOverId: overId,
-                                extractedColumnId: possibleColumnId,
-                                targetColumnId,
-                                columnTaskCount: columnTasks.length,
-                                insertIndex
-                              });
-                            } else {
-                              console.log('🎯 Fallback detection FAILED:', {
-                                originalOverId: overId,
-                                extractedColumnId: possibleColumnId,
-                                columnExists: !!columns[possibleColumnId],
-                                isDifferentColumn: sourceColumnId !== possibleColumnId,
-                                sourceColumnId,
-                                availableColumns: Object.keys(columns)
-                              });
-                            }
+                                                      } else {
+                                                      }
                           }
                           
                           // Update drag preview state for cross-column moves only

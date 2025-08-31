@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2, MessageSquare } from 'lucide-react';
+import { Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2 } from 'lucide-react';
 import { Task, TeamMember, Priority } from '../types';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
@@ -103,11 +103,9 @@ export default function TaskCard({
   
   React.useEffect(() => {
     if (isDragging && !wasDraggingRef.current) {
-      console.log('🎯 Task drag started:', task.title);
       onDragStart(task);
       wasDraggingRef.current = true;
     } else if (!isDragging && wasDraggingRef.current) {
-      console.log('🎯 Task drag ended:', task.title);
       onDragEnd();
       wasDraggingRef.current = false;
     }
