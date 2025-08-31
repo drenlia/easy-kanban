@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
+import { TeamMember, Task, Column, Columns, Priority, Board, PriorityOption } from './types';
 import TeamMembers from './components/TeamMembers';
 import Tools from './components/Tools';
 import SearchInterface from './components/SearchInterface';
@@ -19,6 +19,7 @@ import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { generateUUID } from './utils/uuid';
 import { loadUserPreferences, saveUserPreferences, updateUserPreference } from './utils/userPreferences';
+import { getAllPriorities } from './api';
 import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, pointerWithin } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 
@@ -69,6 +70,7 @@ export default function App() {
   const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
+  const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -559,15 +561,17 @@ export default function App() {
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-          const [loadedMembers, loadedBoards] = await Promise.all([
-            api.getMembers(),
-            api.getBoards()
-          ]);
+                  const [loadedMembers, loadedBoards, loadedPriorities] = await Promise.all([
+          api.getMembers(),
+          api.getBoards(),
+          getAllPriorities()
+        ]);
           
 
           
           setMembers(loadedMembers);
           setBoards(loadedBoards);
+          setAvailablePriorities(loadedPriorities || []);
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -1053,6 +1057,8 @@ export default function App() {
     }
 
 
+
+
     // Handle the move
     if (sourceColumnId === targetColumnId) {
       // Same column - reorder
@@ -1120,9 +1126,13 @@ export default function App() {
     const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
     
 
+    
+
 
     // Remove from source
     const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
+    
+
     
     // Insert into target at the specified index position
     const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
@@ -1131,7 +1141,9 @@ export default function App() {
 
 
     // Update positions for both columns - use simple sequential indices
-    const updatedSourceTasks = sourceTasks.map((task, idx) => ({
+    // First sort the source tasks by their current position, then assign new sequential positions
+    const sortedSourceTasks = [...sourceTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+    const updatedSourceTasks = sortedSourceTasks.map((task, idx) => ({
         ...task,
       position: idx
     }));
@@ -1140,6 +1152,8 @@ export default function App() {
       ...task,
       position: idx
     }));
+
+
     
 
 
@@ -1314,16 +1328,7 @@ export default function App() {
     updateUserPreference('searchFilters', newFilters);
   };
 
-  // Get available priorities from all tasks across all boards
-  const getAvailablePriorities = (): Priority[] => {
-    const prioritySet = new Set<Priority>();
-    Object.values(columns).forEach(column => {
-      column.tasks.forEach(task => {
-        prioritySet.add(task.priority);
-      });
-    });
-    return Array.from(prioritySet);
-  };
+
 
   // Filter tasks based on search criteria
   const filterTasks = (tasks: Task[]): Task[] => {
@@ -1647,7 +1652,7 @@ export default function App() {
                     <SearchInterface
                       filters={searchFilters}
                       members={members}
-                      availablePriorities={getAvailablePriorities()}
+                      availablePriorities={availablePriorities}
                       onFiltersChange={handleSearchFiltersChange}
                     />
                   )}
@@ -1821,6 +1826,7 @@ export default function App() {
                                     onSelectTask={setSelectedTask}
                                     isAdmin={true}
                                     isTasksShrunk={isTasksShrunk}
+                                    availablePriorities={availablePriorities}
                                   />
                                 ))}
                             </div>
@@ -1854,6 +1860,7 @@ export default function App() {
                                 onSelectTask={setSelectedTask}
                                 isAdmin={false}
                                 isTasksShrunk={isTasksShrunk}
+                                availablePriorities={availablePriorities}
                               />
                             ))}
                         </div>
@@ -1891,6 +1898,7 @@ export default function App() {
                                 onSelect={() => {}}
                                 isDragDisabled={true}
                                 isTasksShrunk={isTasksShrunk}
+                                availablePriorities={availablePriorities}
                               />
                             </div>
                           ) : null}

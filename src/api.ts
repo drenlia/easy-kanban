@@ -253,6 +253,109 @@ export const updateSetting = async (key: string, value: string) => {
   return data;
 };
 
+// Tags (public endpoint for all users)
+export const getAllTags = async () => {
+  const { data } = await api.get('/tags');
+  return data;
+};
+
+// Tags management (admin only)
+export const getTags = async () => {
+  const { data } = await api.get('/admin/tags');
+  return data;
+};
+
+export const createTag = async (tag: { tag: string; description?: string; color?: string }) => {
+  const { data } = await api.post('/admin/tags', tag);
+  return data;
+};
+
+export const updateTag = async (tagId: number, tag: { tag: string; description?: string; color?: string }) => {
+  const { data } = await api.put(`/admin/tags/${tagId}`, tag);
+  return data;
+};
+
+export const deleteTag = async (tagId: number) => {
+  const { data } = await api.delete(`/admin/tags/${tagId}`);
+  return data;
+};
+
+export const getTagUsage = async (tagId: number) => {
+  const { data } = await api.get(`/admin/tags/${tagId}/usage`);
+  return data;
+};
+
+// Task-Tag associations
+export const getTaskTags = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/tags`);
+  return data;
+};
+
+export const addTagToTask = async (taskId: string, tagId: number) => {
+  const { data } = await api.post(`/tasks/${taskId}/tags/${tagId}`);
+  return data;
+};
+
+export const removeTagFromTask = async (taskId: string, tagId: number) => {
+  const { data } = await api.delete(`/tasks/${taskId}/tags/${tagId}`);
+  return data;
+};
+
+// Priorities management
+export const getAllPriorities = async () => {
+  const { data } = await api.get('/priorities');
+  return data;
+};
+
+export const getPriorities = async () => {
+  const { data } = await api.get('/admin/priorities');
+  return data;
+};
+
+export const createPriority = async (priority: { priority: string; color: string }) => {
+  const { data } = await api.post('/admin/priorities', priority);
+  return data;
+};
+
+export const updatePriority = async (priorityId: number, priority: { priority: string; color: string }) => {
+  const { data } = await api.put(`/admin/priorities/${priorityId}`, priority);
+  return data;
+};
+
+export const deletePriority = async (priorityId: number) => {
+  const { data } = await api.delete(`/admin/priorities/${priorityId}`);
+  return data;
+};
+
+export const reorderPriorities = async (priorities: any[]) => {
+  const { data } = await api.put('/admin/priorities/reorder', { priorities });
+  return data;
+};
+
+// Views (saved filters) management
+export const getViews = async () => {
+  const { data } = await api.get('/views');
+  return data;
+};
+
+export const createView = async (view: {
+  filterName: string;
+  shared: boolean;
+  textFilter?: string;
+  dateFromFilter?: string;
+  dateToFilter?: string;
+  memberFilters?: string[];
+  priorityFilters?: string[];
+}) => {
+  const { data } = await api.post('/views', view);
+  return data;
+};
+
+export const deleteView = async (viewId: number) => {
+  const { data } = await api.delete(`/views/${viewId}`);
+  return data;
+};
+
 // Avatar management
 export const uploadAvatar = async (file: File) => {
   const formData = new FormData();

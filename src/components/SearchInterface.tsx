@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Calendar, X, ChevronDown, Check } from 'lucide-react';
-import { TeamMember, Priority } from '../types';
+import { TeamMember, Priority, PriorityOption } from '../types';
 
 interface SearchFilters {
   text: string;
@@ -13,7 +13,7 @@ interface SearchFilters {
 interface SearchInterfaceProps {
   filters: SearchFilters;
   members: TeamMember[];
-  availablePriorities: Priority[];
+  availablePriorities: PriorityOption[];
   onFiltersChange: (filters: SearchFilters) => void;
 }
 
@@ -166,18 +166,22 @@ export default function SearchInterface({
             
             {showPriorityDropdown && (
               <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[150px] max-h-60 overflow-y-auto">
-                {availablePriorities.map(priority => (
+                {availablePriorities.map(priorityOption => (
                   <div
-                    key={priority}
-                    onClick={() => togglePriority(priority)}
+                    key={priorityOption.id}
+                    onClick={() => togglePriority(priorityOption.priority)}
                     className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
                   >
                     <div className="w-4 h-4 flex items-center justify-center">
-                      {filters.selectedPriorities.includes(priority) && (
+                      {filters.selectedPriorities.includes(priorityOption.priority) && (
                         <Check size={12} className="text-blue-600" />
                       )}
                     </div>
-                    <span className="text-gray-700 capitalize">{priority}</span>
+                    <div 
+                      className="w-4 h-4 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: priorityOption.color }}
+                    />
+                    <span className="text-gray-700">{priorityOption.priority}</span>
                   </div>
                 ))}
               </div>

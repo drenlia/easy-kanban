@@ -39,7 +39,12 @@ interface TaskCardProps {
   availablePriorities?: PriorityOption[];
 }
 
-
+const getLatestComment = (comments?: Comment[]) => {
+  if (!comments || comments.length === 0) return null;
+  return comments.sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
+};
 
 export default function TaskCard({
   task,
@@ -73,7 +78,6 @@ export default function TaskCard({
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const wasDraggingRef = useRef(false);
 
   // Check if any editing is active to disable drag
   const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect;
@@ -88,19 +92,12 @@ export default function TaskCard({
     isDragging,
   } = useSortable({ 
     id: task.id,
-    disabled: isDragDisabled || isAnyEditingActive,
-    data: {
-      type: 'task',
-      task: task,
-      columnId: task.columnId,
-      position: task.position
-    }
+    disabled: isDragDisabled || isAnyEditingActive
   });
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition: transition || 'transform 200ms ease',
-    zIndex: isDragging ? 1000 : 'auto',
+    transition,
   };
 
   const formatDate = (dateStr: string) => {
@@ -112,31 +109,6 @@ export default function TaskCard({
     if (!dateStr) return '';
     return formatToYYYYMMDDHHmmss(dateStr);
   };
-
-  // Track drag state for parent notifications
-  useEffect(() => {
-    if (isDragging && !wasDraggingRef.current) {
-      onDragStart(task);
-      wasDraggingRef.current = true;
-    } else if (!isDragging && wasDraggingRef.current) {
-      onDragEnd();
-      wasDraggingRef.current = false;
-    }
-  }, [isDragging, task, onDragStart, onDragEnd]);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showMemberSelect) {
-        setShowMemberSelect(false);
-      }
-      if (showPrioritySelect) {
-        setShowPrioritySelect(false);
-      }
-    };
-
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [showMemberSelect, showPrioritySelect]);
 
   const handleCopy = () => {
     onCopy(task);
@@ -198,7 +170,7 @@ export default function TaskCard({
 
   const handleDueDateSave = () => {
     if (editedDueDate !== (task.dueDate || '')) {
-      onEdit({ ...task, dueDate: editedDueDate || undefined });
+      onEdit({ ...task, dueDate: editedDueDate || null });
     }
     setIsEditingDueDate(false);
   };
@@ -515,7 +487,7 @@ export default function TaskCard({
                         className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer font-bold"
                         title="Click to change due date"
                       >
-                        {formatDate(task.dueDate || '')}
+                        {formatDate(task.dueDate)}
                       </div>
                     )}
                   </>

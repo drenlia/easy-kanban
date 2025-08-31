@@ -568,6 +568,405 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   }
 });
 
+// Public tags endpoint (for all authenticated users)
+app.get('/api/tags', authenticateToken, (req, res) => {
+  try {
+    const tags = db.prepare('SELECT * FROM tags ORDER BY tag ASC').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Get tags error:', error);
+    res.status(500).json({ error: 'Failed to get tags' });
+  }
+});
+
+// Tags management endpoints (admin only)
+app.get('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const tags = db.prepare('SELECT * FROM tags ORDER BY tag ASC').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Get tags error:', error);
+    res.status(500).json({ error: 'Failed to get tags' });
+  }
+});
+
+app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { tag, description, color } = req.body;
+    
+    if (!tag || !tag.trim()) {
+      return res.status(400).json({ error: 'Tag name is required' });
+    }
+    
+    const stmt = db.prepare('INSERT INTO tags (tag, description, color) VALUES (?, ?, ?)');
+    const result = stmt.run(tag.trim(), description || null, color || null);
+    
+    const newTag = db.prepare('SELECT * FROM tags WHERE id = ?').get(result.lastInsertRowid);
+    res.json(newTag);
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(400).json({ error: 'Tag already exists' });
+    } else {
+      console.error('Create tag error:', error);
+      res.status(500).json({ error: 'Failed to create tag' });
+    }
+  }
+});
+
+app.put('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { tagId } = req.params;
+    const { tag, description, color } = req.body;
+    
+    if (!tag || !tag.trim()) {
+      return res.status(400).json({ error: 'Tag name is required' });
+    }
+    
+    const stmt = db.prepare('UPDATE tags SET tag = ?, description = ?, color = ? WHERE id = ?');
+    const result = stmt.run(tag.trim(), description || null, color || null, tagId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Tag not found' });
+    }
+    
+    const updatedTag = db.prepare('SELECT * FROM tags WHERE id = ?').get(tagId);
+    res.json(updatedTag);
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(400).json({ error: 'Tag already exists' });
+    } else {
+      console.error('Update tag error:', error);
+      res.status(500).json({ error: 'Failed to update tag' });
+    }
+  }
+});
+
+// Get tag usage count (for deletion confirmation)
+app.get('/api/admin/tags/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { tagId } = req.params;
+    
+    const usage = db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?').get(tagId);
+    res.json({ count: usage.count || 0 });
+  } catch (error) {
+    console.error('Get tag usage error:', error);
+    res.status(500).json({ error: 'Failed to get tag usage' });
+  }
+});
+
+app.delete('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { tagId } = req.params;
+    
+    // Use transaction to ensure both operations succeed or fail together
+    const transaction = db.transaction(() => {
+      // First remove all task associations
+      db.prepare('DELETE FROM task_tags WHERE tagId = ?').run(tagId);
+      
+      // Then delete the tag
+      const result = db.prepare('DELETE FROM tags WHERE id = ?').run(tagId);
+      
+      if (result.changes === 0) {
+        throw new Error('Tag not found');
+      }
+    });
+    
+    transaction();
+    res.json({ message: 'Tag and all associations deleted successfully' });
+  } catch (error) {
+    if (error.message === 'Tag not found') {
+      res.status(404).json({ error: 'Tag not found' });
+    } else {
+      console.error('Delete tag error:', error);
+      res.status(500).json({ error: 'Failed to delete tag' });
+    }
+  }
+});
+
+// Priorities management endpoints
+app.get('/api/priorities', authenticateToken, (req, res) => {
+  try {
+    const priorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    res.json(priorities);
+  } catch (error) {
+    console.error('Get priorities error:', error);
+    res.status(500).json({ error: 'Failed to get priorities' });
+  }
+});
+
+app.get('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const priorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    res.json(priorities);
+  } catch (error) {
+    console.error('Get priorities error:', error);
+    res.status(500).json({ error: 'Failed to get priorities' });
+  }
+});
+
+app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priority, color } = req.body;
+    
+    if (!priority || !priority.trim()) {
+      return res.status(400).json({ error: 'Priority name is required' });
+    }
+    
+    if (!color || !color.trim()) {
+      return res.status(400).json({ error: 'Priority color is required' });
+    }
+    
+    // Get the next position
+    const maxPosition = db.prepare('SELECT MAX(position) as maxPos FROM priorities').get();
+    const nextPosition = (maxPosition.maxPos || -1) + 1;
+    
+    const stmt = db.prepare('INSERT INTO priorities (priority, color, position) VALUES (?, ?, ?)');
+    const result = stmt.run(priority.trim().toLowerCase(), color.trim(), nextPosition);
+    
+    const newPriority = db.prepare('SELECT * FROM priorities WHERE id = ?').get(result.lastInsertRowid);
+    res.json(newPriority);
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(400).json({ error: 'Priority already exists' });
+    } else {
+      console.error('Create priority error:', error);
+      res.status(500).json({ error: 'Failed to create priority' });
+    }
+  }
+});
+
+// Reorder priorities (must come before :priorityId route)
+app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorities } = req.body;
+    
+    if (!Array.isArray(priorities)) {
+      return res.status(400).json({ error: 'Priorities array is required' });
+    }
+    
+    // Update positions in a transaction
+    const updatePosition = db.prepare('UPDATE priorities SET position = ? WHERE id = ?');
+    const transaction = db.transaction((priorityUpdates) => {
+      for (const update of priorityUpdates) {
+        updatePosition.run(update.position, update.id);
+      }
+    });
+    
+    transaction(priorities.map((priority, index) => ({
+      id: priority.id,
+      position: index
+    })));
+    
+    // Return updated priorities
+    const updatedPriorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    res.json(updatedPriorities);
+  } catch (error) {
+    console.error('Reorder priorities error:', error);
+    res.status(500).json({ error: 'Failed to reorder priorities' });
+  }
+});
+
+app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorityId } = req.params;
+    const { priority, color } = req.body;
+    
+    if (!priority || !priority.trim()) {
+      return res.status(400).json({ error: 'Priority name is required' });
+    }
+    
+    if (!color || !color.trim()) {
+      return res.status(400).json({ error: 'Priority color is required' });
+    }
+    
+    const stmt = db.prepare('UPDATE priorities SET priority = ?, color = ? WHERE id = ?');
+    const result = stmt.run(priority.trim().toLowerCase(), color.trim(), priorityId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+    
+    const updatedPriority = db.prepare('SELECT * FROM priorities WHERE id = ?').get(priorityId);
+    res.json(updatedPriority);
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      res.status(400).json({ error: 'Priority already exists' });
+    } else {
+      console.error('Update priority error:', error);
+      res.status(500).json({ error: 'Failed to update priority' });
+    }
+  }
+});
+
+app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorityId } = req.params;
+    
+    // Check if priority is being used
+    const usage = db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = (SELECT priority FROM priorities WHERE id = ?)').get(priorityId);
+    if (usage.count > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete priority. It is currently used by ${usage.count} task${usage.count !== 1 ? 's' : ''}.` 
+      });
+    }
+    
+    const stmt = db.prepare('DELETE FROM priorities WHERE id = ?');
+    const result = stmt.run(priorityId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+    
+    res.json({ message: 'Priority deleted successfully' });
+  } catch (error) {
+    console.error('Delete priority error:', error);
+    res.status(500).json({ error: 'Failed to delete priority' });
+  }
+});
+
+// Task-Tag association endpoints
+app.get('/api/tasks/:taskId/tags', authenticateToken, (req, res) => {
+  try {
+    const { taskId } = req.params;
+    
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN task_tags tt ON t.id = tt.tagId
+      WHERE tt.taskId = ?
+      ORDER BY t.tag ASC
+    `).all(taskId);
+    
+    res.json(tags);
+  } catch (error) {
+    console.error('Get task tags error:', error);
+    res.status(500).json({ error: 'Failed to get task tags' });
+  }
+});
+
+app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
+  try {
+    const { taskId, tagId } = req.params;
+    
+    // Check if association already exists
+    const existing = db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?').get(taskId, tagId);
+    if (existing) {
+      return res.status(400).json({ error: 'Tag already associated with this task' });
+    }
+    
+    const stmt = db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)');
+    stmt.run(taskId, tagId);
+    
+    res.json({ message: 'Tag associated with task successfully' });
+  } catch (error) {
+    console.error('Associate tag error:', error);
+    res.status(500).json({ error: 'Failed to associate tag with task' });
+  }
+});
+
+app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
+  try {
+    const { taskId, tagId } = req.params;
+    
+    const stmt = db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?');
+    const result = stmt.run(taskId, tagId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Tag association not found' });
+    }
+    
+    res.json({ message: 'Tag removed from task successfully' });
+  } catch (error) {
+    console.error('Remove tag association error:', error);
+    res.status(500).json({ error: 'Failed to remove tag from task' });
+  }
+});
+
+// Views (saved filters) endpoints
+app.get('/api/views', authenticateToken, (req, res) => {
+  try {
+    // Get user's private views and all shared views
+    const views = db.prepare(`
+      SELECT v.*, u.first_name || ' ' || u.last_name as ownerName
+      FROM views v
+      JOIN users u ON v.userId = u.id
+      WHERE v.userId = ? OR v.shared = 1
+      ORDER BY v.shared DESC, v.created_at DESC
+    `).all(req.user.id);
+    
+    // Parse JSON fields
+    const parsedViews = views.map(view => ({
+      ...view,
+      memberFilters: JSON.parse(view.memberFilters || '[]'),
+      priorityFilters: JSON.parse(view.priorityFilters || '[]')
+    }));
+    
+    res.json(parsedViews);
+  } catch (error) {
+    console.error('Get views error:', error);
+    res.status(500).json({ error: 'Failed to get views' });
+  }
+});
+
+app.post('/api/views', authenticateToken, (req, res) => {
+  try {
+    const { filterName, shared, textFilter, dateFromFilter, dateToFilter, memberFilters, priorityFilters } = req.body;
+    
+    if (!filterName || !filterName.trim()) {
+      return res.status(400).json({ error: 'Filter name is required' });
+    }
+    
+    const stmt = db.prepare(`
+      INSERT INTO views (filterName, userId, shared, textFilter, dateFromFilter, dateToFilter, memberFilters, priorityFilters)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    const result = stmt.run(
+      filterName.trim(),
+      req.user.id,
+      shared || false,
+      textFilter || null,
+      dateFromFilter || null,
+      dateToFilter || null,
+      JSON.stringify(memberFilters || []),
+      JSON.stringify(priorityFilters || [])
+    );
+    
+    const newView = db.prepare('SELECT * FROM views WHERE id = ?').get(result.lastInsertRowid);
+    res.json(newView);
+  } catch (error) {
+    console.error('Create view error:', error);
+    res.status(500).json({ error: 'Failed to create view' });
+  }
+});
+
+app.delete('/api/views/:viewId', authenticateToken, (req, res) => {
+  try {
+    const { viewId } = req.params;
+    
+    // Only allow deletion of own views or if admin
+    const view = db.prepare('SELECT userId FROM views WHERE id = ?').get(viewId);
+    if (!view) {
+      return res.status(404).json({ error: 'View not found' });
+    }
+    
+    if (view.userId !== req.user.id && !req.user.roles.includes('admin')) {
+      return res.status(403).json({ error: 'You can only delete your own views' });
+    }
+    
+    const stmt = db.prepare('DELETE FROM views WHERE id = ?');
+    const result = stmt.run(viewId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'View not found' });
+    }
+    
+    res.json({ message: 'View deleted successfully' });
+  } catch (error) {
+    console.error('Delete view error:', error);
+    res.status(500).json({ error: 'Failed to delete view' });
+  }
+});
+
 // Test email configuration endpoint
 app.post('/api/admin/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
@@ -994,6 +1393,7 @@ db.exec(`
     description TEXT,
     memberId TEXT NOT NULL,
     startDate TEXT NOT NULL,
+    dueDate TEXT,
     effort INTEGER NOT NULL,
     columnId TEXT NOT NULL,
     priority TEXT NOT NULL,
@@ -1029,6 +1429,65 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tag TEXT NOT NULL UNIQUE,
+    description TEXT,
+    color TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS priorities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    priority TEXT NOT NULL UNIQUE,
+    color TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filterName TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    shared BOOLEAN DEFAULT 0,
+    textFilter TEXT,
+    dateFromFilter TEXT,
+    dateToFilter TEXT,
+    memberFilters TEXT, -- JSON array of member IDs
+    priorityFilters TEXT, -- JSON array of priorities
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS task_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    taskId TEXT NOT NULL,
+    tagId INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE,
+    UNIQUE(taskId, tagId)
+  );
+
+  CREATE TABLE IF NOT EXISTS activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId TEXT NOT NULL,
+    action TEXT NOT NULL,
+    taskId TEXT,
+    columnId TEXT,
+    boardId TEXT,
+    tagId INTEGER,
+    viewId INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE SET NULL,
+    FOREIGN KEY (columnId) REFERENCES columns(id) ON DELETE SET NULL,
+    FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE SET NULL,
+    FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE SET NULL,
+    FOREIGN KEY (viewId) REFERENCES views(id) ON DELETE SET NULL
   );
 `);
 
@@ -1090,6 +1549,24 @@ if (roleCount.count === 0) {
   
   const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
   memberStmt.run(adminMember.id, adminMember.name, adminMember.color, adminUser.id);
+}
+
+// Initialize default priorities if none exist
+const priorityCount = db.prepare('SELECT COUNT(*) as count FROM priorities').get();
+if (priorityCount.count === 0) {
+  const defaultPriorities = [
+    { priority: 'low', color: '#4CD964', position: 0 },      // Green
+    { priority: 'medium', color: '#FF9500', position: 1 },   // Orange  
+    { priority: 'high', color: '#FF3B30', position: 2 },     // Red
+    { priority: 'critical', color: '#FF2D55', position: 3 }  // Dark Red
+  ];
+  
+  const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position) VALUES (?, ?, ?)');
+  defaultPriorities.forEach(p => {
+    priorityStmt.run(p.priority, p.color, p.position);
+  });
+  
+  console.log('Default priorities initialized');
 }
 
 // Initialize default data if no boards exist
@@ -1298,15 +1775,25 @@ app.get('/api/boards', (req, res) => {
       db.prepare(`
         SELECT t.*, 
           json_group_array(
-            json_object(
+            DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
               'id', c.id,
               'text', c.text,
               'authorId', c.authorId,
               'createdAt', c.createdAt
-            )
-          ) as comments
+            ) ELSE NULL END
+          ) as comments,
+          json_group_array(
+            DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+              'id', tag.id,
+              'tag', tag.tag,
+              'description', tag.description,
+              'color', tag.color
+            ) ELSE NULL END
+          ) as tags
         FROM tasks t
         LEFT JOIN comments c ON c.taskId = t.id
+        LEFT JOIN task_tags tt ON tt.taskId = t.id
+        LEFT JOIN tags tag ON tag.id = tt.tagId
         WHERE t.boardId = ?
         GROUP BY t.id
       `),
@@ -1317,7 +1804,8 @@ app.get('/api/boards', (req, res) => {
       const columns = columnsStmt.all(board.id);
       const tasks = tasksStmt.all(board.id).map(task => ({
         ...task,
-        comments: task.comments === '[null]' ? [] : JSON.parse(task.comments)
+        comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
+        tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean)
       }));
       
       // Create columns object with tasks
@@ -1644,16 +2132,26 @@ app.get('/api/tasks', (req, res) => {
     const tasks = db.prepare(`
       SELECT t.*,
         json_group_array(
-          CASE WHEN c.id IS NOT NULL THEN json_object(
+          DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
             'id', c.id,
             'text', c.text,
             'authorId', c.authorId,
             'createdAt', c.createdAt,
             'taskId', t.id
           ) ELSE NULL END
-        ) as comments
+        ) as comments,
+        json_group_array(
+          DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+            'id', tag.id,
+            'tag', tag.tag,
+            'description', tag.description,
+            'color', tag.color
+          ) ELSE NULL END
+        ) as tags
       FROM tasks t
       LEFT JOIN comments c ON t.id = c.taskId
+      LEFT JOIN task_tags tt ON tt.taskId = t.id
+      LEFT JOIN tags tag ON tag.id = tt.tagId
       GROUP BY t.id
     `).all();
 
@@ -1665,7 +2163,8 @@ app.get('/api/tasks', (req, res) => {
           ...comment,
           attachments: JSON.parse(comment.attachments || '[]')
             .filter(Boolean)
-        }))
+        })),
+      tags: JSON.parse(task.tags).filter(Boolean)
     }));
 
     res.json(processedTasks);
@@ -1725,7 +2224,7 @@ app.put('/api/tasks/:id', (req, res) => {
         UPDATE tasks SET 
           title = ?, description = ?, memberId = ?, 
           startDate = ?, effort = ?, columnId = ?, 
-          priority = ?, requesterId = ?, boardId = ?, position = ?
+          priority = ?, requesterId = ?, boardId = ?, position = ?, dueDate = ?
         WHERE id = ?
       `),
       'UPDATE'
@@ -1742,6 +2241,7 @@ app.put('/api/tasks/:id', (req, res) => {
       task.requesterId,
       task.boardId,
       task.position !== undefined ? task.position : 0, // Properly handle position
+      task.dueDate || null,
       id
     );
     
@@ -1795,6 +2295,24 @@ const AVATARS_DIR = join(__dirname, 'avatars');
   } catch (error) {
     // Column already exists, ignore error
     console.log('Members table already has created_at column or migration not needed');
+  }
+
+  // Add dueDate column to tasks table (migration)
+  try {
+    db.prepare('ALTER TABLE tasks ADD COLUMN dueDate TEXT').run();
+    console.log('Added dueDate column to tasks table');
+  } catch (error) {
+    // Column already exists, ignore error
+    console.log('Tasks table already has dueDate column or migration not needed');
+  }
+
+  // Add position column to priorities table (migration)
+  try {
+    db.prepare('ALTER TABLE priorities ADD COLUMN position INTEGER NOT NULL DEFAULT 0').run();
+    console.log('Added position column to priorities table');
+  } catch (error) {
+    // Column already exists, ignore error
+    console.log('Priorities table already has position column or migration not needed');
   }
 
   // Clean up orphaned members (members without corresponding users)
