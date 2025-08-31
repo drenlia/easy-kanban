@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser, getUserTaskCount } from '../api';
-import { Edit, Trash2, Crown, User as UserIcon, Eye, EyeOff } from 'lucide-react';
+import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities } from '../api';
+import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface AdminProps {
   currentUser: any;
@@ -45,7 +49,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to 'users'
     const hash = window.location.hash.replace('#', '');
-    return ['users', 'site-settings', 'sso', 'mail-server'].includes(hash) ? hash : 'users';
+    return ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].includes(hash) ? hash : 'users';
   });
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
@@ -86,7 +90,49 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [userTaskCounts, setUserTaskCounts] = useState<{ [userId: string]: number }>({});
+  const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState<number | null>(null);
+  const [tagUsageCounts, setTagUsageCounts] = useState<{ [tagId: number]: number }>({});
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
+  const [tags, setTags] = useState<any[]>([]);
+  const [showAddTagForm, setShowAddTagForm] = useState(false);
+  const [showEditTagForm, setShowEditTagForm] = useState(false);
+  const [editingTag, setEditingTag] = useState<any>(null);
+  const [newTag, setNewTag] = useState({ tag: '', description: '', color: '#4ECDC4' });
+  const [priorities, setPriorities] = useState<any[]>([]);
+  const [showAddPriorityForm, setShowAddPriorityForm] = useState(false);
+  const [showEditPriorityForm, setShowEditPriorityForm] = useState(false);
+  const [editingPriority, setEditingPriority] = useState<any>(null);
+  const [newPriority, setNewPriority] = useState({ priority: '', color: '#4CD964' });
+  
+  // DnD sensors for priority reordering
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  // Handle priority reordering
+  const handlePriorityDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      const oldIndex = priorities.findIndex((priority) => priority.id === active.id);
+      const newIndex = priorities.findIndex((priority) => priority.id === over.id);
+
+      const reorderedPriorities = arrayMove(priorities, oldIndex, newIndex);
+      setPriorities(reorderedPriorities);
+
+      try {
+        await reorderPriorities(reorderedPriorities);
+        setSuccessMessage('Priorities reordered successfully');
+      } catch (error: any) {
+        // Revert on error
+        setPriorities(priorities);
+        setError(error.response?.data?.error || 'Failed to reorder priorities');
+      }
+    }
+  };
   
   // Preset colors for easy selection
   const presetColors = [
@@ -95,8 +141,112 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     '#FF6B6B', '#1C7ED6', '#845EF7', '#F76707', '#20C997',
     '#E599F7', '#40C057', '#F59F00', '#0CA678', '#FA5252'
   ];
-  
 
+  // Sortable Priority Row Component
+  const SortablePriorityRow = ({ priority }: { priority: any }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: priority.id });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+      <tr ref={setNodeRef} style={style} className={isDragging ? 'z-50' : ''}>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <div className="flex items-center gap-2">
+            <div 
+              {...attributes}
+              {...listeners}
+              className="cursor-grab hover:cursor-grabbing p-1 rounded hover:bg-gray-100 text-gray-400 text-xs"
+              title="Drag to reorder"
+            >
+              ⋮⋮
+            </div>
+            <div 
+              className="w-4 h-4 rounded-full border border-gray-300"
+              style={{ backgroundColor: priority.color }}
+            />
+            <span className="text-sm font-medium text-gray-900">{priority.priority}</span>
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          <div 
+            className="px-2 py-1 rounded-full text-xs font-medium inline-block"
+            style={(() => {
+              if (!priority.color) {
+                return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
+              }
+              try {
+                // Convert hex to RGB for rgba - safer approach
+                const hex = priority.color.replace('#', '');
+                if (hex.length !== 6) {
+                  return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
+                }
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                
+                // Validate RGB values
+                if (isNaN(r) || isNaN(g) || isNaN(b)) {
+                  return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
+                }
+                
+                return {
+                  backgroundColor: `rgba(${r}, ${g}, ${b}, 0.1)`,
+                  color: priority.color,
+                  border: `1px solid rgba(${r}, ${g}, ${b}, 0.2)`
+                };
+              } catch (error) {
+                // Fallback to gray if any error occurs
+                return { backgroundColor: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db' };
+              }
+            })()}
+          >
+            {priority.priority}
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => {
+                setEditingPriority(priority);
+                setShowEditPriorityForm(true);
+              }}
+              className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+              title="Edit priority"
+            >
+              <Edit size={16} />
+            </button>
+            <button
+              onClick={async () => {
+                try {
+                  await deletePriority(priority.id);
+                  const updatedPriorities = await getPriorities();
+                  setPriorities(updatedPriorities);
+                  setSuccessMessage('Priority deleted successfully');
+                } catch (error: any) {
+                  setError(error.response?.data?.error || 'Failed to delete priority');
+                }
+              }}
+              className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
+              title="Delete priority"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </td>
+      </tr>
+    );
+  };
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
@@ -112,7 +262,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const hashParts = fullHash.split('#');
       const tabHash = hashParts[hashParts.length - 1]; // Get the last part
       
-      if (['users', 'site-settings', 'sso', 'mail-server'].includes(tabHash) && tabHash !== activeTab) {
+      if (['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
         // Clear messages when switching tabs
         setSuccessMessage(null);
@@ -139,14 +289,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersResponse, settingsResponse] = await Promise.all([
+      const [usersResponse, settingsResponse, tagsResponse, prioritiesResponse] = await Promise.all([
         api.get('/admin/users'),
-        api.get('/admin/settings')
+        api.get('/admin/settings'),
+        getTags(),
+        getPriorities()
       ]);
       
       setUsers(usersResponse.data || []);
       setSettings(settingsResponse.data || {});
       setEditingSettings(settingsResponse.data || {});
+      setTags(tagsResponse || []);
+      setPriorities(prioritiesResponse || []);
       
       // Check if default admin account still exists
       const defaultAdminExists = usersResponse.data?.some((user: any) => 
@@ -209,17 +363,50 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     setShowDeleteConfirm(null);
   };
 
+  const handleDeleteTag = async (tagId: number) => {
+    try {
+      // Fetch usage count for this tag
+      const usageData = await getTagUsage(tagId);
+      setTagUsageCounts(prev => ({ ...prev, [tagId]: usageData.count }));
+      setShowDeleteTagConfirm(tagId);
+    } catch (error) {
+      console.error('Failed to get tag usage:', error);
+      // Still show confirmation even if usage count fails
+      setTagUsageCounts(prev => ({ ...prev, [tagId]: 0 }));
+      setShowDeleteTagConfirm(tagId);
+    }
+  };
+
+  const confirmDeleteTag = async (tagId: number) => {
+    try {
+      await deleteTag(tagId);
+      const updatedTags = await getTags();
+      setTags(updatedTags);
+      setShowDeleteTagConfirm(null);
+      setSuccessMessage('Tag and all associations deleted successfully');
+    } catch (error: any) {
+      setError(error.response?.data?.error || 'Failed to delete tag');
+    }
+  };
+
+  const cancelDeleteTag = () => {
+    setShowDeleteTagConfirm(null);
+  };
+
   // Close confirmation menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (showDeleteConfirm && !(event.target as Element).closest('.delete-confirmation')) {
         setShowDeleteConfirm(null);
       }
+      if (showDeleteTagConfirm && !(event.target as Element).closest('.delete-confirmation')) {
+        setShowDeleteTagConfirm(null);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showDeleteConfirm]);
+  }, [showDeleteConfirm, showDeleteTagConfirm]);
 
   const handleColorChange = (userId: string, currentColor: string) => {
     setShowColorPicker(userId);
@@ -568,7 +755,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -582,6 +769,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'site-settings' && 'Site Settings'}
                 {tab === 'sso' && 'Single Sign-On'}
                 {tab === 'mail-server' && 'Mail Server'}
+                {tab === 'tags' && 'Tags'}
+                {tab === 'priorities' && 'Priorities'}
               </button>
             ))}
           </nav>
@@ -1522,9 +1711,576 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               </div>
             </div>
           )}
+
+          {/* Tags Tab */}
+          {activeTab === 'tags' && (
+            <div className="p-6">
+              <div className="mb-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Tags Management</h2>
+                    <p className="text-gray-600">
+                      Create and manage tags for organizing tasks. Tags can have custom colors and descriptions.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddTagForm(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    Add Tag
+                  </button>
+                </div>
+              </div>
+
+              {/* Tags Table */}
+              <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Tag</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Color</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {Array.isArray(tags) && tags.length > 0 ? (
+                      tags.map((tag) => (
+                        <tr key={tag.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-4 h-4 rounded-full border border-gray-300"
+                                style={{ backgroundColor: tag.color || '#4ECDC4' }}
+                              />
+                              <span className="text-sm font-medium text-gray-900">{tag.tag}</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm text-gray-600">{tag.description || '-'}</span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div 
+                              className="w-6 h-6 rounded-full border-2 border-gray-200"
+                              style={{ backgroundColor: tag.color || '#4ECDC4' }}
+                            />
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => {
+                                  setEditingTag(tag);
+                                  setShowEditTagForm(true);
+                                }}
+                                className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+                                title="Edit tag"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              <div className="relative">
+                                <button
+                                  onClick={() => handleDeleteTag(tag.id)}
+                                  className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
+                                  title="Delete tag"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                                
+                                {/* Delete Tag Confirmation Menu */}
+                                {showDeleteTagConfirm === tag.id && (
+                                  <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-50 min-w-[200px]">
+                                    <div className="text-sm text-gray-700 mb-2">
+                                      {tagUsageCounts[tag.id] > 0 ? (
+                                        <>
+                                          <div className="font-medium mb-1">Delete tag?</div>
+                                          <div className="text-xs text-gray-700">
+                                            <span className="text-red-600 font-medium">
+                                              {tagUsageCounts[tag.id]} task{tagUsageCounts[tag.id] !== 1 ? 's' : ''}
+                                            </span>{' '}
+                                            will lose this tag:{' '}
+                                            <span className="font-medium">{tag.tag}</span>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <div className="font-medium mb-1">Delete tag?</div>
+                                          <div className="text-xs text-gray-600">
+                                            No tasks will be affected for{' '}
+                                            <span className="font-medium">{tag.tag}</span>
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="flex space-x-2">
+                                      <button
+                                        onClick={() => confirmDeleteTag(tag.id)}
+                                        className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                      >
+                                        Yes
+                                      </button>
+                                      <button
+                                        onClick={cancelDeleteTag}
+                                        className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+                                      >
+                                        No
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                          {loading ? 'Loading tags...' : 'No tags found'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Priorities Tab */}
+          {activeTab === 'priorities' && (
+            <div className="p-6">
+              <div className="mb-6">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Priorities Management</h2>
+                    <p className="text-gray-600">
+                      Create and manage priority levels for tasks. Each priority has a custom color for visual identification.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddPriorityForm(true)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  >
+                    Add Priority
+                  </button>
+                </div>
+              </div>
+
+              {/* Priorities Table with Drag and Drop */}
+              <div className="bg-white shadow overflow-hidden sm:rounded-md">
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handlePriorityDragEnd}
+                >
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                                              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Priority</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
+                      </tr>
+                    </thead>
+                    <SortableContext
+                      items={priorities.map(p => p.id)}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {Array.isArray(priorities) && priorities.length > 0 ? (
+                          priorities.map((priority) => (
+                            <SortablePriorityRow key={priority.id} priority={priority} />
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={3} className="px-6 py-4 text-center text-gray-500">
+                              {loading ? 'Loading priorities...' : 'No priorities found'}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </SortableContext>
+                  </table>
+                </DndContext>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
+      {/* Add Tag Modal */}
+      {showAddTagForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Add New Tag</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  setIsSubmitting(true);
+                  await createTag(newTag);
+                  const updatedTags = await getTags();
+                  setTags(updatedTags);
+                  setShowAddTagForm(false);
+                  setNewTag({ tag: '', description: '', color: '#4ECDC4' });
+                  setSuccessMessage('Tag created successfully');
+                } catch (error: any) {
+                  setError(error.response?.data?.error || 'Failed to create tag');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tag Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newTag.tag}
+                      onChange={(e) => setNewTag(prev => ({ ...prev, tag: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter tag name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea
+                      value={newTag.description}
+                      onChange={(e) => setNewTag(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Optional description"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={newTag.color}
+                        onChange={(e) => setNewTag(prev => ({ ...prev, color: e.target.value }))}
+                        className="w-12 h-12 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {presetColors.slice(0, 8).map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setNewTag(prev => ({ ...prev, color }))}
+                            className="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Creating...' : 'Create Tag'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddTagForm(false);
+                      setNewTag({ tag: '', description: '', color: '#4ECDC4' });
+                      setError(null);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Tag Modal */}
+      {showEditTagForm && editingTag && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Edit Tag</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  setIsSubmitting(true);
+                  await updateTag(editingTag.id, {
+                    tag: editingTag.tag,
+                    description: editingTag.description,
+                    color: editingTag.color
+                  });
+                  const updatedTags = await getTags();
+                  setTags(updatedTags);
+                  setShowEditTagForm(false);
+                  setEditingTag(null);
+                  setSuccessMessage('Tag updated successfully');
+                } catch (error: any) {
+                  setError(error.response?.data?.error || 'Failed to update tag');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tag Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingTag.tag}
+                      onChange={(e) => setEditingTag(prev => ({ ...prev, tag: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter tag name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea
+                      value={editingTag.description || ''}
+                      onChange={(e) => setEditingTag(prev => ({ ...prev, description: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Optional description"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={editingTag.color || '#4ECDC4'}
+                        onChange={(e) => setEditingTag(prev => ({ ...prev, color: e.target.value }))}
+                        className="w-12 h-12 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {presetColors.slice(0, 8).map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setEditingTag(prev => ({ ...prev, color }))}
+                            className="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditTagForm(false);
+                      setEditingTag(null);
+                      setError(null);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Priority Modal */}
+      {showAddPriorityForm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Add New Priority</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  setIsSubmitting(true);
+                  await createPriority(newPriority);
+                  const updatedPriorities = await getPriorities();
+                  setPriorities(updatedPriorities);
+                  setShowAddPriorityForm(false);
+                  setNewPriority({ priority: '', color: '#4CD964' });
+                  setSuccessMessage('Priority created successfully');
+                } catch (error: any) {
+                  setError(error.response?.data?.error || 'Failed to create priority');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={newPriority.priority}
+                      onChange={(e) => setNewPriority(prev => ({ ...prev, priority: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter priority name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Color *</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        required
+                        value={newPriority.color}
+                        onChange={(e) => setNewPriority(prev => ({ ...prev, color: e.target.value }))}
+                        className="w-12 h-12 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {presetColors.slice(0, 8).map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setNewPriority(prev => ({ ...prev, color }))}
+                            className="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Creating...' : 'Create Priority'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddPriorityForm(false);
+                      setNewPriority({ priority: '', color: '#4CD964' });
+                      setError(null);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Priority Modal */}
+      {showEditPriorityForm && editingPriority && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Edit Priority</h3>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                try {
+                  setIsSubmitting(true);
+                  await updatePriority(editingPriority.id, {
+                    priority: editingPriority.priority,
+                    color: editingPriority.color
+                  });
+                  const updatedPriorities = await getPriorities();
+                  setPriorities(updatedPriorities);
+                  setShowEditPriorityForm(false);
+                  setEditingPriority(null);
+                  setSuccessMessage('Priority updated successfully');
+                } catch (error: any) {
+                  setError(error.response?.data?.error || 'Failed to update priority');
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editingPriority.priority}
+                      onChange={(e) => setEditingPriority(prev => ({ ...prev, priority: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter priority name"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Color *</label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        required
+                        value={editingPriority.color}
+                        onChange={(e) => setEditingPriority(prev => ({ ...prev, color: e.target.value }))}
+                        className="w-12 h-12 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        {presetColors.slice(0, 8).map(color => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setEditingPriority(prev => ({ ...prev, color }))}
+                            className="w-6 h-6 rounded-full border-2 border-gray-200 hover:scale-110 transition-transform"
+                            style={{ backgroundColor: color }}
+                            title={color}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex space-x-3 mt-6">
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEditPriorityForm(false);
+                      setEditingPriority(null);
+                      setError(null);
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Test Email Success Modal */}
       {showTestEmailModal && testEmailResult && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">

@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Plus, MoreVertical } from 'lucide-react';
-import { Column, Task, TeamMember } from '../types';
+import { Column, Task, TeamMember, PriorityOption } from '../types';
 import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -30,6 +30,7 @@ interface KanbanColumnProps {
   onTaskDrop: (columnId: string, index: number) => void;
   isAdmin?: boolean;
   isTasksShrunk?: boolean;
+  availablePriorities?: PriorityOption[];
 }
 
 export default function KanbanColumn({
@@ -52,7 +53,8 @@ export default function KanbanColumn({
   onSelectTask,
   onTaskDrop,
   isAdmin = false,
-  isTasksShrunk = false
+  isTasksShrunk = false,
+  availablePriorities = []
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -194,6 +196,7 @@ export default function KanbanColumn({
             onSelect={onSelectTask}
             isDragDisabled={false}
             isTasksShrunk={isTasksShrunk}
+            availablePriorities={availablePriorities}
           />
         </div>
       );

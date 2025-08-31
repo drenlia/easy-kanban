@@ -8,7 +8,15 @@ export interface TeamMember {
   googleAvatarUrl?: string;
 }
 
-export type Priority = 'low' | 'medium' | 'high';
+export type Priority = string; // Now dynamic from database
+
+export interface PriorityOption {
+  id: number;
+  priority: string;
+  color: string;
+  position: number;
+  created_at: string;
+}
 
 export interface Attachment {
   id: string;
@@ -35,11 +43,21 @@ export interface Task {
   memberId?: string;
   requesterId?: string;
   startDate: string;
+  dueDate?: string;
   effort: number;
   priority: Priority;
   comments: Comment[];
   position?: number;
   boardId?: string;
+  tags?: Tag[];
+}
+
+export interface Tag {
+  id: number;
+  tag: string;
+  description?: string;
+  color?: string;
+  created_at: string;
 }
 
 export interface Column {
