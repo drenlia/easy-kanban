@@ -10,6 +10,7 @@ interface Priority {
   priority: string;
   color: string;
   order: number;
+  initial?: boolean;
 }
 
 interface AdminPrioritiesTabProps {
@@ -19,6 +20,7 @@ interface AdminPrioritiesTabProps {
   onUpdatePriority: (priorityId: string, updates: { priority: string; color: string }) => Promise<void>;
   onDeletePriority: (priorityId: string) => Promise<void>;
   onReorderPriorities: (reorderedPriorities: Priority[]) => Promise<void>;
+  onSetDefaultPriority: (priorityId: string) => Promise<void>;
   successMessage: string | null;
   error: string | null;
 }
@@ -27,11 +29,13 @@ interface AdminPrioritiesTabProps {
 const SortablePriorityRow = ({ 
   priority, 
   onEdit, 
-  onDelete 
+  onDelete,
+  onSetDefault
 }: { 
   priority: Priority; 
   onEdit: (priority: Priority) => void;
   onDelete: (priorityId: string) => Promise<void>;
+  onSetDefault: (priorityId: string) => Promise<void>;
 }) => {
   const {
     attributes,
@@ -103,6 +107,16 @@ const SortablePriorityRow = ({
           {priority.priority}
         </div>
       </td>
+      <td className="px-6 py-4 whitespace-nowrap text-center">
+        <input
+          type="radio"
+          name="defaultPriority"
+          checked={!!priority.initial}
+          onChange={() => onSetDefault(priority.id)}
+          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+          title={priority.initial ? 'This is the default priority' : 'Set as default priority'}
+        />
+      </td>
       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
         <div className="flex items-center space-x-2">
           <button
@@ -132,6 +146,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
   onUpdatePriority,
   onDeletePriority,
   onReorderPriorities,
+  onSetDefaultPriority,
   successMessage,
   error,
 }) => {
@@ -261,6 +276,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Priority</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Default</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
                 </tr>
               </thead>
@@ -276,11 +292,12 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                         priority={priority}
                         onEdit={handleEditClick}
                         onDelete={onDeletePriority}
+                        onSetDefault={onSetDefaultPriority}
                       />
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={3} className="px-6 py-4 text-center text-gray-500">
+                      <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
                         {loading ? 'Loading priorities...' : 'No priorities found'}
                       </td>
                     </tr>

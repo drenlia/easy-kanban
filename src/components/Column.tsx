@@ -17,6 +17,7 @@ interface KanbanColumnProps {
     insertIndex: number;
   } | null;
   onAddTask: (columnId: string) => void;
+  columnWarnings?: {[columnId: string]: string};
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
@@ -41,6 +42,7 @@ export default function KanbanColumn({
   draggedColumn,
   dragPreview,
   onAddTask,
+  columnWarnings,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -236,6 +238,13 @@ export default function KanbanColumn({
       }`}
       {...(isAdmin ? { ...attributes, ...listeners } : {})}
     >
+      {/* Column Warning Message */}
+      {columnWarnings && columnWarnings[column.id] && (
+        <div className="mb-3 bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded-md text-sm font-medium">
+          ⚠️ {columnWarnings[column.id]}
+        </div>
+      )}
+      
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2 flex-1">
           {isEditing ? (

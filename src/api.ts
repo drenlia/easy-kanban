@@ -333,6 +333,11 @@ export const reorderPriorities = async (priorities: any[]) => {
   return data;
 };
 
+export const setDefaultPriority = async (priorityId: number) => {
+  const { data } = await api.put(`/admin/priorities/${priorityId}/set-default`);
+  return data;
+};
+
 // Views (saved filters) management
 export const getViews = async () => {
   const { data } = await api.get('/views');

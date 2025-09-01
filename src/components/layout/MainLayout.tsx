@@ -61,6 +61,7 @@ interface MainLayoutProps {
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
   onAddTask: (columnId: string) => Promise<void>;
+  columnWarnings: {[columnId: string]: string};
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;

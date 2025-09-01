@@ -112,7 +112,21 @@ export const hasActiveFilters = (searchFilters: SearchFilters, isSearchActive: b
     searchFilters.text || 
     searchFilters.dateFrom || 
     searchFilters.dateTo || 
+    searchFilters.dueDateFrom || 
+    searchFilters.dueDateTo || 
     searchFilters.selectedMembers.length > 0 || 
-    searchFilters.selectedPriorities.length > 0
+    searchFilters.selectedPriorities.length > 0 || 
+    searchFilters.selectedTags.length > 0
   );
+};
+
+/**
+ * Check if a single task would be filtered out by current filters
+ */
+export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters, isSearchActive: boolean): boolean => {
+  if (!isSearchActive) return false;
+  
+  // Use the existing filterTasks function with a single task array
+  const filtered = filterTasks([task], searchFilters, isSearchActive);
+  return filtered.length === 0; // If filtered array is empty, task was filtered out
 };

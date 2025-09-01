@@ -60,6 +60,7 @@ interface KanbanPageProps {
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
   onAddTask: (columnId: string) => Promise<void>;
+  columnWarnings: {[columnId: string]: string};
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
@@ -106,6 +107,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onDragOver,
   onDragEnd,
   onAddTask,
+  columnWarnings,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -201,6 +203,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                         draggedColumn={draggedColumn}
                         dragPreview={dragPreview}
                         onAddTask={onAddTask}
+                        columnWarnings={columnWarnings}
                         onRemoveTask={onRemoveTask}
                         onEditTask={onEditTask}
                         onCopyTask={onCopyTask}
@@ -234,6 +237,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       draggedColumn={draggedColumn}
                       dragPreview={dragPreview}
                       onAddTask={onAddTask}
+                      columnWarnings={columnWarnings}
                       onRemoveTask={onRemoveTask}
                       onEditTask={onEditTask}
                       onCopyTask={onCopyTask}
