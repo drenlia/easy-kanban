@@ -96,8 +96,11 @@ export interface SearchFilters {
   text: string;
   dateFrom: string;
   dateTo: string;
+  dueDateFrom: string;
+  dueDateTo: string;
   selectedMembers: string[];
   selectedPriorities: string[];
+  selectedTags: string[];
 }
 
 export interface UserPreferences {

@@ -28,6 +28,20 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
       }
     }
 
+    // Due date range filter
+    if (searchFilters.dueDateFrom || searchFilters.dueDateTo) {
+      if (!task.endDate) return false; // No due date set
+      const taskDueDate = new Date(task.endDate);
+      if (searchFilters.dueDateFrom) {
+        const fromDate = new Date(searchFilters.dueDateFrom);
+        if (taskDueDate < fromDate) return false;
+      }
+      if (searchFilters.dueDateTo) {
+        const toDate = new Date(searchFilters.dueDateTo);
+        if (taskDueDate > toDate) return false;
+      }
+    }
+
     // Members filter
     if (searchFilters.selectedMembers.length > 0) {
       if (!searchFilters.selectedMembers.includes(task.memberId || '') && 
@@ -39,6 +53,20 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
     // Priority filter
     if (searchFilters.selectedPriorities.length > 0) {
       if (!searchFilters.selectedPriorities.includes(task.priority)) {
+        return false;
+      }
+    }
+
+    // Tags filter
+    if (searchFilters.selectedTags.length > 0) {
+      if (!task.tags || task.tags.length === 0) {
+        return false; // Task has no tags but filter requires tags
+      }
+      const taskTagIds = task.tags.map(tag => tag.id.toString());
+      const hasMatchingTag = searchFilters.selectedTags.some(selectedTagId => 
+        taskTagIds.includes(selectedTagId)
+      );
+      if (!hasMatchingTag) {
         return false;
       }
     }
