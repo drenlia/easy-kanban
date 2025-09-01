@@ -16,10 +16,7 @@ interface UseAuthReturn {
   handleLogout: () => void;
   handleProfileUpdated: () => Promise<void>;
   refreshSiteSettings: () => Promise<void>;
-  
-  // Callbacks for data clearing
-  onDataClear: () => void;
-  onAdminRefresh: () => void;
+  setSiteSettings: (settings: SiteSettings) => void;
 }
 
 interface UseAuthCallbacks {
@@ -216,9 +213,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     handleLogout,
     handleProfileUpdated,
     refreshSiteSettings,
-    
-    // Callbacks
-    onDataClear: callbacks.onDataClear,
-    onAdminRefresh: callbacks.onAdminRefresh,
+    setSiteSettings,
   };
 };

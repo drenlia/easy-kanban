@@ -20,6 +20,36 @@ interface AdminTagsTabProps {
   tagUsageCounts: { [tagId: number]: number };
 }
 
+// Helper function to determine text color based on background color
+const getTextColor = (backgroundColor: string): string => {
+  if (!backgroundColor) return '#ffffff';
+  
+  // Handle white and very light colors
+  const normalizedColor = backgroundColor.toLowerCase();
+  if (normalizedColor === '#ffffff' || normalizedColor === '#fff' || normalizedColor === 'white') {
+    return '#374151'; // gray-700 for good contrast on white
+  }
+  
+  // For hex colors, calculate luminance to determine if we need light or dark text
+  if (backgroundColor.startsWith('#')) {
+    const hex = backgroundColor.replace('#', '');
+    if (hex.length === 6) {
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      
+      // Calculate relative luminance
+      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      
+      // Use dark text for light backgrounds, white text for dark backgrounds
+      return luminance > 0.6 ? '#374151' : '#ffffff';
+    }
+  }
+  
+  // Default to white text
+  return '#ffffff';
+};
+
 const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
   tags,
   loading,
@@ -96,7 +126,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Tag</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Color</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
               </tr>
             </thead>
@@ -117,10 +147,20 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                       <span className="text-sm text-gray-600">{tag.description || '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div 
-                        className="w-6 h-6 rounded-full border-2 border-gray-200"
-                        style={{ backgroundColor: tag.color || '#4ECDC4' }}
-                      />
+                      <div
+                        className="px-2 py-1 rounded-full text-xs font-bold inline-block border"
+                        style={(() => {
+                          const bgColor = tag.color || '#4ECDC4';
+                          const textColor = getTextColor(bgColor);
+                          return {
+                            backgroundColor: bgColor,
+                            color: textColor,
+                            borderColor: textColor === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
+                          };
+                        })()}
+                      >
+                        {tag.tag}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex items-center space-x-2">

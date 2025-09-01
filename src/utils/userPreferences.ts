@@ -7,8 +7,11 @@ export interface UserPreferences {
     text: string;
     dateFrom: string;
     dateTo: string;
+    dueDateFrom: string;
+    dueDateTo: string;
     selectedMembers: string[];
     selectedPriorities: Priority[];
+    selectedTags: string[];
   };
 }
 
@@ -23,8 +26,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     text: '',
     dateFrom: '',
     dateTo: '',
+    dueDateFrom: '',
+    dueDateTo: '',
     selectedMembers: [],
-    selectedPriorities: []
+    selectedPriorities: [],
+    selectedTags: []
   }
 };
 

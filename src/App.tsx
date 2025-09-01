@@ -84,6 +84,7 @@ export default function App() {
     handleLogout,
     handleProfileUpdated,
     refreshSiteSettings,
+    setSiteSettings,
   } = useAuth({
     onDataClear: () => {
     setMembers([]);
@@ -114,9 +115,11 @@ export default function App() {
     currentBoards: boards,
     currentMembers: members,
     currentColumns: columns,
+    currentSiteSettings: siteSettings,
     onBoardsUpdate: setBoards,
     onMembersUpdate: setMembers,
     onColumnsUpdate: setColumns,
+    onSiteSettingsUpdate: setSiteSettings,
   });
 
 

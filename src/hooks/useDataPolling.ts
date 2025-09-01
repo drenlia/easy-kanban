@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Board, TeamMember, Columns } from '../types';
+import { Board, TeamMember, Columns, SiteSettings } from '../types';
 import { POLLING_INTERVAL } from '../constants';
 import * as api from '../api';
 
@@ -9,9 +9,11 @@ interface UseDataPollingProps {
   currentBoards: Board[];
   currentMembers: TeamMember[];
   currentColumns: Columns;
+  currentSiteSettings: SiteSettings;
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
   onColumnsUpdate: (columns: Columns) => void;
+  onSiteSettingsUpdate: (settings: SiteSettings) => void;
 }
 
 interface UseDataPollingReturn {
@@ -25,9 +27,11 @@ export const useDataPolling = ({
   currentBoards,
   currentMembers,
   currentColumns,
+  currentSiteSettings,
   onBoardsUpdate,
   onMembersUpdate,
   onColumnsUpdate,
+  onSiteSettingsUpdate,
 }: UseDataPollingProps): UseDataPollingReturn => {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -42,9 +46,10 @@ export const useDataPolling = ({
 
     const pollForUpdates = async () => {
       try {
-        const [loadedBoards, loadedMembers] = await Promise.all([
+        const [loadedBoards, loadedMembers, loadedSiteSettings] = await Promise.all([
           api.getBoards(),
-          api.getMembers()
+          api.getMembers(),
+          api.getPublicSettings()
         ]);
 
         // Update boards list if it changed
@@ -61,6 +66,14 @@ export const useDataPolling = ({
 
         if (currentMembersString !== newMembersString) {
           onMembersUpdate(loadedMembers);
+        }
+
+        // Update site settings if they changed
+        const currentSiteSettingsString = JSON.stringify(currentSiteSettings);
+        const newSiteSettingsString = JSON.stringify(loadedSiteSettings);
+
+        if (currentSiteSettingsString !== newSiteSettingsString) {
+          onSiteSettingsUpdate(loadedSiteSettings);
         }
 
         // Update columns for the current board if it changed
@@ -98,9 +111,11 @@ export const useDataPolling = ({
     currentBoards,
     currentMembers,
     currentColumns,
+    currentSiteSettings,
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,
+    onSiteSettingsUpdate,
   ]);
 
   return {
