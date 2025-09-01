@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities } from '../api';
+import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
+import AdminSSOTab from './admin/AdminSSOTab';
+import AdminTagsTab from './admin/AdminTagsTab';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -94,10 +97,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [tagUsageCounts, setTagUsageCounts] = useState<{ [tagId: number]: number }>({});
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   const [tags, setTags] = useState<any[]>([]);
-  const [showAddTagForm, setShowAddTagForm] = useState(false);
-  const [showEditTagForm, setShowEditTagForm] = useState(false);
-  const [editingTag, setEditingTag] = useState<any>(null);
-  const [newTag, setNewTag] = useState({ tag: '', description: '', color: '#4ECDC4' });
   const [priorities, setPriorities] = useState<any[]>([]);
   const [showAddPriorityForm, setShowAddPriorityForm] = useState(false);
   const [showEditPriorityForm, setShowEditPriorityForm] = useState(false);
@@ -391,6 +390,20 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const cancelDeleteTag = () => {
     setShowDeleteTagConfirm(null);
+  };
+
+  const handleAddTag = async (tagData: { tag: string; description: string; color: string }) => {
+    await createTag(tagData);
+    const updatedTags = await getTags();
+    setTags(updatedTags);
+    setSuccessMessage('Tag created successfully');
+  };
+
+  const handleUpdateTag = async (tagId: number, updates: { tag: string; description: string; color: string }) => {
+    await updateTag(tagId, updates);
+    const updatedTags = await getTags();
+    setTags(updatedTags);
+    setSuccessMessage('Tag updated successfully');
   };
 
   // Close confirmation menu when clicking outside
@@ -1243,224 +1256,27 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
           {/* Site Settings Tab */}
           {activeTab === 'site-settings' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Site Settings</h2>
-                <p className="text-gray-600">
-                  Configure basic site information that appears throughout the application.
-                </p>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Site Name
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.SITE_NAME || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, SITE_NAME: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter site name"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Site URL
-                  </label>
-                  <input
-                    type="url"
-                    value={editingSettings.SITE_URL || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, SITE_URL: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="https://example.com"
-                  />
-                </div>
-                
-                {/* Success and Error Messages for Site Settings */}
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-red-800">{error}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Save Changes
-                  </button>
-                  <button
-                    onClick={handleCancelSettings}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
+            <AdminSiteSettingsTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
 
           {/* Single Sign-On Tab */}
           {activeTab === 'sso' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Single Sign-On Configuration</h2>
-                <p className="text-gray-600">
-                  Configure Google OAuth authentication. Changes are applied immediately without requiring a restart.
-                </p>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Client ID
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.GOOGLE_CLIENT_ID || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CLIENT_ID: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter Google OAuth Client ID"
-                  />
-                                      <p className="mt-1 text-sm text-gray-500">
-                      Found in your Google Cloud Console under APIs & Services &gt; Credentials
-                    </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Client Secret
-                  </label>
-                  <input
-                    type="password"
-                    value={editingSettings.GOOGLE_CLIENT_SECRET || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CLIENT_SECRET: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter Google OAuth Client Secret"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    Keep this secret secure. Changes are applied immediately.
-                  </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Callback URL
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.GOOGLE_CALLBACK_URL || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CALLBACK_URL: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., https://yourdomain.com/auth/google/callback"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol.
-                  </p>
-                </div>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-blue-800">Hot Reload Enabled</h3>
-                      <div className="mt-2 text-sm text-blue-700">
-                        <p>
-                          Google OAuth settings are automatically reloaded when you save changes. 
-                          No application restart is required.
-                        </p>
-                        <p className="mt-1">
-                          <strong>Tip:</strong> Use the "Reload OAuth Config" button if you need to force a reload.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Success and Error Messages for SSO */}
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-red-800">{error}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Save Configuration
-                  </button>
-                  <button
-                    onClick={handleReloadOAuth}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                  >
-                    🔄 Reload OAuth Config
-                  </button>
-                  <button
-                    onClick={handleCancelSettings}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
+            <AdminSSOTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              onReloadOAuth={handleReloadOAuth}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
 
           {/* Mail Server Tab */}
@@ -1714,135 +1530,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
           {/* Tags Tab */}
           {activeTab === 'tags' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Tags Management</h2>
-                    <p className="text-gray-600">
-                      Create and manage tags for organizing tasks. Tags can have custom colors and descriptions.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowAddTagForm(true)}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Add Tag
-                  </button>
-                </div>
-              </div>
-
-              {/* Tags Table */}
-              <div className="bg-white shadow overflow-hidden sm:rounded-md">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Tag</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Color</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {Array.isArray(tags) && tags.length > 0 ? (
-                      tags.map((tag) => (
-                        <tr key={tag.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-4 h-4 rounded-full border border-gray-300"
-                                style={{ backgroundColor: tag.color || '#4ECDC4' }}
-                              />
-                              <span className="text-sm font-medium text-gray-900">{tag.tag}</span>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-600">{tag.description || '-'}</span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div 
-                              className="w-6 h-6 rounded-full border-2 border-gray-200"
-                              style={{ backgroundColor: tag.color || '#4ECDC4' }}
-                            />
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => {
-                                  setEditingTag(tag);
-                                  setShowEditTagForm(true);
-                                }}
-                                className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
-                                title="Edit tag"
-                              >
-                                <Edit size={16} />
-                              </button>
-                              <div className="relative">
-                                <button
-                                  onClick={() => handleDeleteTag(tag.id)}
-                                  className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
-                                  title="Delete tag"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                                
-                                {/* Delete Tag Confirmation Menu */}
-                                {showDeleteTagConfirm === tag.id && (
-                                  <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-50 min-w-[200px]">
-                                    <div className="text-sm text-gray-700 mb-2">
-                                      {tagUsageCounts[tag.id] > 0 ? (
-                                        <>
-                                          <div className="font-medium mb-1">Delete tag?</div>
-                                          <div className="text-xs text-gray-700">
-                                            <span className="text-red-600 font-medium">
-                                              {tagUsageCounts[tag.id]} task{tagUsageCounts[tag.id] !== 1 ? 's' : ''}
-                                            </span>{' '}
-                                            will lose this tag:{' '}
-                                            <span className="font-medium">{tag.tag}</span>
-                                          </div>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <div className="font-medium mb-1">Delete tag?</div>
-                                          <div className="text-xs text-gray-600">
-                                            No tasks will be affected for{' '}
-                                            <span className="font-medium">{tag.tag}</span>
-                                          </div>
-                                        </>
-                                      )}
-                                    </div>
-                                    <div className="flex space-x-2">
-                                      <button
-                                        onClick={() => confirmDeleteTag(tag.id)}
-                                        className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                                      >
-                                        Yes
-                                      </button>
-                                      <button
-                                        onClick={cancelDeleteTag}
-                                        className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
-                                      >
-                                        No
-                                      </button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                          {loading ? 'Loading tags...' : 'No tags found'}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <AdminTagsTab
+              tags={tags}
+              loading={loading}
+              onAddTag={handleAddTag}
+              onUpdateTag={handleUpdateTag}
+              onDeleteTag={handleDeleteTag}
+              onConfirmDeleteTag={confirmDeleteTag}
+              onCancelDeleteTag={cancelDeleteTag}
+              showDeleteTagConfirm={showDeleteTagConfirm}
+              tagUsageCounts={tagUsageCounts}
+            />
           )}
 
           {/* Priorities Tab */}
