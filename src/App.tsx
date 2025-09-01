@@ -12,22 +12,15 @@ import {
   SiteSettings, 
   CurrentUser 
 } from './types';
-import TeamMembers from './components/TeamMembers';
-import Tools from './components/Tools';
-import SearchInterface from './components/SearchInterface';
-import KanbanColumn from './components/Column';
-import TaskCard from './components/TaskCard';
 import TaskDetails from './components/TaskDetails';
-import BoardTabs from './components/BoardTabs';
 import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
-import LoadingSpinner from './components/LoadingSpinner';
 
 import Login from './components/Login';
-import Admin from './components/Admin';
 import Profile from './components/Profile';
 import Header from './components/layout/Header';
+import MainLayout from './components/layout/MainLayout';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -54,8 +47,8 @@ import {
   hasActiveFilters 
 } from './utils/taskUtils';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
-import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
 
 
@@ -1315,317 +1308,174 @@ export default function App() {
         onHelpClick={() => setShowHelpModal(true)}
       />
 
-      <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''}`}>
-        <div className="max-w-[1400px] mx-auto">
-          {currentPage === 'admin' ? (
-            <Admin 
-              key={adminRefreshKey}
-              currentUser={currentUser} 
-              onUsersChanged={async () => {
-                try {
-                  const loadedMembers = await api.getMembers();
-                  setMembers(loadedMembers);
-                } catch (error) {
-                  console.error('Failed to refresh members:', error);
+      <MainLayout
+        currentPage={currentPage}
+        currentUser={currentUser}
+        selectedTask={selectedTask}
+        adminRefreshKey={adminRefreshKey}
+        onUsersChanged={async () => {
+          try {
+            const loadedMembers = await api.getMembers();
+            setMembers(loadedMembers);
+          } catch (error) {
+            console.error('Failed to refresh members:', error);
+          }
+        }}
+        onSettingsChanged={async () => {
+          try {
+            const settings = await api.getSettings();
+            setSiteSettings(settings);
+          } catch (error) {
+            console.error('Failed to refresh site settings:', error);
+          }
+        }}
+        loading={loading}
+        members={members}
+        boards={boards}
+        selectedBoard={selectedBoard}
+        columns={columns}
+        selectedMember={selectedMember}
+        draggedTask={draggedTask}
+        draggedColumn={draggedColumn}
+        dragPreview={dragPreview}
+        availablePriorities={availablePriorities}
+        isTasksShrunk={isTasksShrunk}
+        isSearchActive={isSearchActive}
+        searchFilters={searchFilters}
+        filteredColumns={filteredColumns}
+        activeFilters={activeFilters}
+        gridStyle={gridStyle}
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+
+        onSelectMember={setSelectedMember}
+        onToggleTaskShrink={handleToggleTaskShrink}
+        onToggleSearch={handleToggleSearch}
+        onSearchFiltersChange={handleSearchFiltersChange}
+        onSelectBoard={handleBoardSelection}
+        onAddBoard={handleAddBoard}
+        onEditBoard={handleEditBoard}
+        onRemoveBoard={handleRemoveBoard}
+        onReorderBoards={handleBoardReorder}
+        getTaskCountForBoard={getTaskCountForBoard}
+        onDragStart={(event) => {
+          // Clear any previous drag preview
+          setDragPreview(null);
+          
+          // Determine if dragging a column or task
+          const draggedItem = Object.values(columns).find(col => col.id === event.active.id);
+          if (draggedItem) {
+            // Column drag
+            handleColumnDragStart(event);
+          } else {
+            // Task drag - find the task
+            Object.values(columns).forEach(column => {
+              const task = column.tasks.find(t => t.id === event.active.id);
+              if (task) {
+                handleTaskDragStart(task);
+              }
+            });
+          }
+        }}
+        onDragOver={(event) => {
+          const { active, over } = event;
+          
+          if (!over || !draggedTask) return;
+          
+          // Only show preview for task drags
+          const draggedTaskId = active.id as string;
+          
+          // Find source column
+          let sourceColumnId: string | null = null;
+          Object.entries(columns).forEach(([colId, column]) => {
+            if (column.tasks.find(t => t.id === draggedTaskId)) {
+              sourceColumnId = colId;
+            }
+          });
+          
+          if (!sourceColumnId) return;
+          
+          let targetColumnId: string | undefined;
+          let insertIndex: number | undefined;
+          
+          // Determine target column and insertion index
+          if (over.data?.current?.type === 'task') {
+            // Hovering over another task
+            Object.entries(columns).forEach(([colId, column]) => {
+              const targetTask = column.tasks.find(t => t.id === over.id);
+              if (targetTask) {
+                targetColumnId = colId;
+                if (sourceColumnId !== colId) {
+                  // Cross-column: calculate insertion index
+                  const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+                  const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
+                  
+                  // If it's the last task in the column, offer both "before" and "after" options
+                  // For now, always insert before the target task
+                  insertIndex = targetTaskIndex;
                 }
-              }}
-              onSettingsChanged={async () => {
-                try {
-                  const settings = await api.getSettings();
-                  setSiteSettings(settings);
-                } catch (error) {
-                  console.error('Failed to refresh site settings:', error);
-                }
-              }}
-            />
-          ) : (
-            <>
-              {loading.general ? (
-                <LoadingSpinner size="large" className="mt-20" />
-              ) : (
-                <>
-                  {/* Tools and Team Members in a flex container */}
-                  <div className="flex gap-4 mb-4">
-                    <Tools 
-                      isTasksShrunk={isTasksShrunk}
-                      onToggleTaskShrink={handleToggleTaskShrink}
-                      isSearchActive={isSearchActive}
-                      onToggleSearch={handleToggleSearch}
-                    />
-                    <div className="flex-1">
-                  <TeamMembers
-                    members={members}
-                    selectedMember={selectedMember}
-                    onSelectMember={setSelectedMember}
-                  />
-                    </div>
-                  </div>
-
-                  {/* Search Interface */}
-                  {isSearchActive && (
-                    <SearchInterface
-                      filters={searchFilters}
-                      members={members}
-                      availablePriorities={availablePriorities}
-                      onFiltersChange={handleSearchFiltersChange}
-                    />
-                  )}
-
-                  {/* Board Tabs */}
-                  <BoardTabs
-                    boards={boards}
-                    selectedBoard={selectedBoard}
-                    onSelectBoard={handleBoardSelection}
-                    onAddBoard={handleAddBoard}
-                    onEditBoard={handleEditBoard}
-                    onRemoveBoard={handleRemoveBoard}
-                    onReorderBoards={handleBoardReorder}
-                    isAdmin={currentUser?.roles?.includes('admin')}
-                    getFilteredTaskCount={getTaskCountForBoard}
-                    hasActiveFilters={activeFilters}
-                  />
-
-                  {selectedBoard && (
-                    <div className="relative">
-                      {(loading.tasks || loading.boards || loading.columns) && (
-                        <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
-                          <LoadingSpinner size="medium" />
-                        </div>
-                      )}
-                      {/* Unified Drag and Drop Context */}
-                        <DndContext
-                        sensors={sensors}
-                        collisionDetection={collisionDetection}
-                        onDragStart={(event) => {
-                          // Clear any previous drag preview
-                          setDragPreview(null);
-                          
-                          // Determine if dragging a column or task
-                          const draggedItem = Object.values(columns).find(col => col.id === event.active.id);
-                          if (draggedItem) {
-                            // Column drag
-                            handleColumnDragStart(event);
-                          } else {
-                            // Task drag - find the task
-                            Object.values(columns).forEach(column => {
-                              const task = column.tasks.find(t => t.id === event.active.id);
-                              if (task) {
-                                handleTaskDragStart(task);
-                              }
-                            });
-                          }
-                        }}
-                        onDragOver={(event) => {
-                          const { active, over } = event;
-                          
-                          if (!over || !draggedTask) return;
-                          
-                          // Only show preview for task drags
-                          const draggedTaskId = active.id as string;
-                          
-                          // Find source column
-                          let sourceColumnId: string | null = null;
-                          Object.entries(columns).forEach(([colId, column]) => {
-                            if (column.tasks.find(t => t.id === draggedTaskId)) {
-                              sourceColumnId = colId;
-                            }
-                          });
-                          
-                          if (!sourceColumnId) return;
-                          
-                          let targetColumnId: string | undefined;
-                          let insertIndex: number | undefined;
-                          
-                          // Determine target column and insertion index
-                          if (over.data?.current?.type === 'task') {
-                            // Hovering over another task
-                            Object.entries(columns).forEach(([colId, column]) => {
-                              const targetTask = column.tasks.find(t => t.id === over.id);
-                              if (targetTask) {
-                                targetColumnId = colId;
-                                if (sourceColumnId !== colId) {
-                                  // Cross-column: calculate insertion index
-                                  const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-                                  const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
-                                  
-                                  // If it's the last task in the column, offer both "before" and "after" options
-                                  // For now, always insert before the target task
-                                  insertIndex = targetTaskIndex;
-                                  
-                                                              }
-                              }
-                            });
-                          } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom') {
-                            // Hovering over column area (empty space) or bottom drop zone - drop at end
-                            targetColumnId = over.data.current.columnId as string;
-                            if (sourceColumnId !== targetColumnId) {
-                              const columnTasks = columns[targetColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      } else {
-                                                      }
-                          } else {
-                            // Fallback: check if we're over a column by ID or bottom area
-                            const overId = over.id as string;
-                            let possibleColumnId = overId;
-                            
-                            // Handle bottom drop zone IDs (e.g., "column-id-bottom")
-                            if (overId.endsWith('-bottom')) {
-                              possibleColumnId = overId.replace('-bottom', '');
-                                                      }
-                            
-                            if (columns[possibleColumnId] && sourceColumnId !== possibleColumnId) {
-                              targetColumnId = possibleColumnId;  // Use the EXTRACTED column ID, not the original
-                              const columnTasks = columns[possibleColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      } else {
-                                                      }
-                          }
-                          
-                          // Update drag preview state for cross-column moves only
-                          if (targetColumnId && sourceColumnId !== targetColumnId && insertIndex !== undefined) {
-                            setDragPreview({
-                              targetColumnId,
-                              insertIndex
-                            });
-                          } else {
-                            setDragPreview(null);
-                          }
-                        }}
-                        onDragEnd={(event) => {
-                          // Clear drag preview
-                          setDragPreview(null);
-                          
-                          // Determine if it was a column or task drag
-                          const draggedColumn = Object.values(columns).find(col => col.id === event.active.id);
-                          if (draggedColumn && currentUser?.roles?.includes('admin')) {
-                            // Column drag (admin only)
-                            handleColumnDragEnd(event);
-                          } else {
-                            // Task drag
-                            handleUnifiedTaskDragEnd(event);
-                          }
-                        }}
-                      >
-                        {/* Admin view with column drag and drop */}
-                        {currentUser?.roles?.includes('admin') ? (
-                          <SortableContext
-                            items={Object.values(columns)
-                              .sort((a, b) => (a.position || 0) - (b.position || 0))
-                              .map(col => col.id)}
-                            strategy={rectSortingStrategy}
-                          >
-                            <div style={gridStyle}>
-                              {Object.values(filteredColumns)
-                                .sort((a, b) => (a.position || 0) - (b.position || 0))
-                                .map(column => (
-                                  <KanbanColumn
-                                    key={column.id}
-                                    column={column}
-                                    members={members}
-                                    selectedMember={selectedMember}
-                                    draggedTask={draggedTask}
-                                    draggedColumn={draggedColumn}
-                                    dragPreview={dragPreview}
-                                    onAddTask={handleAddTask}
-                                    onRemoveTask={handleRemoveTask}
-                                    onEditTask={handleEditTask}
-                                    onCopyTask={handleCopyTask}
-                                    onEditColumn={handleEditColumn}
-                                    onRemoveColumn={handleRemoveColumn}
-                                    onAddColumn={handleAddColumn}
-                                    onTaskDragStart={handleTaskDragStart}
-                                    onTaskDragEnd={() => {}}
-                                    onTaskDragOver={handleTaskDragOver}
-                                    onTaskDrop={handleTaskDrop}
-                                    onSelectTask={setSelectedTask}
-                                    isAdmin={true}
-                                    isTasksShrunk={isTasksShrunk}
-                                    availablePriorities={availablePriorities}
-                                  />
-                                ))}
-                            </div>
-                          </SortableContext>
-                        ) : (
-                          /* Regular user view */
-                          <>
-                        <div style={gridStyle}>
-                          {Object.values(filteredColumns)
-                            .sort((a, b) => (a.position || 0) - (b.position || 0))
-                            .map(column => (
-                              <KanbanColumn
-                                key={column.id}
-                                column={column}
-                                members={members}
-                                selectedMember={selectedMember}
-                                draggedTask={draggedTask}
-                                draggedColumn={draggedColumn}
-                                dragPreview={dragPreview}
-                                onAddTask={handleAddTask}
-                                onRemoveTask={handleRemoveTask}
-                                onEditTask={handleEditTask}
-                                onCopyTask={handleCopyTask}
-                                onEditColumn={handleEditColumn}
-                                onRemoveColumn={handleRemoveColumn}
-                                onAddColumn={handleAddColumn}
-                                onTaskDragStart={handleTaskDragStart}
-                                    onTaskDragEnd={() => {}}
-                                onTaskDragOver={handleTaskDragOver}
-                                onTaskDrop={handleTaskDrop}
-                                onSelectTask={setSelectedTask}
-                                isAdmin={false}
-                                isTasksShrunk={isTasksShrunk}
-                                availablePriorities={availablePriorities}
-                              />
-                            ))}
-                        </div>
-                          </>
-                        )}
-                        
-                        <DragOverlay 
-                          dropAnimation={null}
-                        >
-                          {draggedColumn ? (
-                            <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-90 scale-105 shadow-2xl transform rotate-3 ring-2 ring-blue-400">
-                              <div className="flex items-center justify-between mb-4">
-                                <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
-                              </div>
-                              <div className="flex-1 min-h-[100px] space-y-2">
-                                {draggedColumn.tasks.map(task => (
-                                  <div key={task.id} className="bg-white p-3 rounded border shadow-sm">
-                                    <div className="text-sm text-gray-600">{task.title}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : draggedTask ? (
-                            /* Render exact replica of the original TaskCard */
-                            <div style={{ transform: 'rotate(3deg) scale(1.05)', opacity: 0.95 }}>
-                              <TaskCard
-                                task={draggedTask}
-                                member={members.find(m => m.id === draggedTask.memberId)!}
-                                members={members}
-                                onRemove={() => {}}
-                                onEdit={() => {}}
-                                onCopy={() => {}}
-                                onDragStart={() => {}}
-                                onDragEnd={() => {}}
-                                onSelect={() => {}}
-                                isDragDisabled={true}
-                                isTasksShrunk={isTasksShrunk}
-                                availablePriorities={availablePriorities}
-                              />
-                            </div>
-                          ) : null}
-                        </DragOverlay>
-                      </DndContext>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+              }
+            });
+          } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom') {
+            // Hovering over column area (empty space) or bottom drop zone - drop at end
+            targetColumnId = over.data.current.columnId as string;
+            if (sourceColumnId !== targetColumnId) {
+              const columnTasks = columns[targetColumnId]?.tasks || [];
+              insertIndex = columnTasks.length;
+            }
+          } else {
+            // Fallback: check if we're over a column by ID or bottom area
+            const overId = over.id as string;
+            let possibleColumnId = overId;
+            
+            // Handle bottom drop zone IDs (e.g., "column-id-bottom")
+            if (overId.endsWith('-bottom')) {
+              possibleColumnId = overId.replace('-bottom', '');
+            }
+            
+            if (columns[possibleColumnId] && sourceColumnId !== possibleColumnId) {
+              targetColumnId = possibleColumnId;  // Use the EXTRACTED column ID, not the original
+              const columnTasks = columns[possibleColumnId]?.tasks || [];
+              insertIndex = columnTasks.length;
+            }
+          }
+          
+          // Update drag preview state for cross-column moves only
+          if (targetColumnId && sourceColumnId !== targetColumnId && insertIndex !== undefined) {
+            setDragPreview({
+              targetColumnId,
+              insertIndex
+            });
+          } else {
+            setDragPreview(null);
+          }
+        }}
+        onDragEnd={(event) => {
+          // Clear drag preview
+          setDragPreview(null);
+          
+          // Determine if it was a column or task drag
+          const draggedColumn = Object.values(columns).find(col => col.id === event.active.id);
+          if (draggedColumn && currentUser?.roles?.includes('admin')) {
+            // Column drag (admin only)
+            handleColumnDragEnd(event);
+          } else {
+            // Task drag
+            handleUnifiedTaskDragEnd(event);
+          }
+        }}
+        onAddTask={handleAddTask}
+        onRemoveTask={handleRemoveTask}
+        onEditTask={handleEditTask}
+        onCopyTask={handleCopyTask}
+        onEditColumn={handleEditColumn}
+        onRemoveColumn={handleRemoveColumn}
+        onAddColumn={handleAddColumn}
+        onTaskDragStart={handleTaskDragStart}
+        onTaskDragOver={handleTaskDragOver}
+        onTaskDrop={handleTaskDrop}
+        onSelectTask={setSelectedTask}
+      />
 
       {selectedTask && (
         <div className="fixed top-0 right-0 h-full">
