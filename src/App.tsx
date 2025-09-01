@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { TeamMember, Task, Column, Columns, Priority, Board, PriorityOption } from './types';
+import { 
+  TeamMember, 
+  Task, 
+  Column, 
+  Columns, 
+  Priority, 
+  Board, 
+  PriorityOption, 
+  QueryLog, 
+  DragPreview, 
+  SiteSettings, 
+  CurrentUser 
+} from './types';
 import TeamMembers from './components/TeamMembers';
 import Tools from './components/Tools';
 import SearchInterface from './components/SearchInterface';
@@ -17,56 +29,52 @@ import Admin from './components/Admin';
 import Profile from './components/Profile';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
+import { useDebug } from './hooks/useDebug';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, saveUserPreferences, updateUserPreference } from './utils/userPreferences';
+import { loadUserPreferences, updateUserPreference } from './utils/userPreferences';
 import { getAllPriorities } from './api';
-import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, pointerWithin } from '@dnd-kit/core';
+import { 
+  DEFAULT_COLUMNS, 
+  DEFAULT_SITE_SETTINGS, 
+  POLLING_INTERVAL, 
+  DRAG_COOLDOWN_DURATION, 
+  TASK_CREATION_PAUSE_DURATION, 
+  BOARD_CREATION_PAUSE_DURATION,
+  DND_ACTIVATION_DISTANCE 
+} from './constants';
+import { 
+  getInitialSelectedBoard, 
+  getInitialPage 
+} from './utils/routingUtils';
+import { 
+  getFilteredColumns, 
+  getFilteredTaskCountForBoard, 
+  hasActiveFilters 
+} from './utils/taskUtils';
+import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 
-interface QueryLog {
-  id: string;
-  type: 'INSERT' | 'UPDATE' | 'DELETE' | 'ERROR';
-  query: string;
-  timestamp: string;
-  error?: string;
-}
 
-const DEFAULT_COLUMNS = [
-  { id: 'todo', title: 'To Do' },
-  { id: 'progress', title: 'In Progress' },
-  { id: 'testing', title: 'Testing' },
-  { id: 'completed', title: 'Completed' }
-];
 
 export default function App() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(() => {
-    // Get board from URL hash, but only if it's not a page identifier or admin tab
-    const hash = window.location.hash.replace('#', '');
-    // Don't treat as board ID if it's a page identifier or admin tab
-    const pageIdentifiers = ['kanban', 'admin'];
-    const adminTabs = ['users', 'site-settings', 'sso'];
-    const isPageOrTab = pageIdentifiers.includes(hash) || adminTabs.includes(hash);
-    
-    return hash && !isPageOrTab ? hash : null;
-  });
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(getInitialSelectedBoard);
   const [columns, setColumns] = useState<Columns>({});
   const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
-  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
-  const [dragPreview, setDragPreview] = useState<{
-    targetColumnId: string;
-    insertIndex: number;
-  } | null>(null);
+
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
   const [boardCreationPause, setBoardCreationPause] = useState(false);
   // Load user preferences from cookies
-  const [userPrefs, setUserPrefs] = useState(() => loadUserPreferences());
+  const [userPrefs] = useState(() => loadUserPreferences());
   const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
@@ -74,20 +82,20 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isOAuthProcessing, setIsOAuthProcessing] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+
   
 
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(() => {
-    // Get page from URL hash, fallback to 'kanban'
-    const hash = window.location.hash.replace('#', '');
-    return (['kanban', 'admin'] as const).includes(hash as 'kanban' | 'admin') ? (hash as 'kanban' | 'admin') : 'kanban';
-  });
-  const [siteSettings, setSiteSettings] = useState({ SITE_NAME: 'Easy Kanban', SITE_URL: 'http://localhost:3000' });
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [intendedDestination, setIntendedDestination] = useState<string | null>(null);
   const { loading, withLoading } = useLoadingState();
+  
+  // Custom hooks
+  const showDebug = useDebug();
+  useKeyboardShortcuts(() => setShowHelpModal(true));
   
   // Online users tracking removed (using polling instead of Socket.IO)
 
@@ -156,7 +164,7 @@ export default function App() {
     pollForUpdates();
     
     // Set up interval
-    const interval = setInterval(pollForUpdates, 3000); // 3 seconds
+    const interval = setInterval(pollForUpdates, POLLING_INTERVAL);
     
     return () => {
       clearInterval(interval);
@@ -164,15 +172,7 @@ export default function App() {
     };
   }, [isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, boards, columns, members]);
 
-  // Mock socket object for compatibility with existing UI
-  const socket = {
-    isConnected: isPolling,
-    joinBoard: () => {},
-    leaveBoard: () => {},
-    on: () => {},
-    off: () => {},
-    emit: () => {}
-  };
+  // Mock socket object for compatibility with existing UI (removed unused variable)
 
   // Authentication handlers
   const handleLogin = (userData: any, token: string) => {
@@ -200,19 +200,7 @@ export default function App() {
     setSelectedMember(null);
   };
 
-  const handleAuthError = () => {
-    // Clear all authentication data and reset state
-    localStorage.removeItem('authToken');
-    setCurrentUser(null);
-    setIsAuthenticated(false);
-    setCurrentPage('kanban');
-    setMembers([]);
-    setBoards([]);
-    setColumns({});
-    setSelectedBoard(null);
-    window.location.hash = ''; // Clear URL hash
-    setSelectedMember(null);
-  };
+
 
   const handleProfileUpdated = async () => {
     try {
@@ -241,56 +229,14 @@ export default function App() {
     window.location.hash = boardId;
   };
 
-  // Custom collision detection that prioritizes empty columns over tasks
-  const customCollisionDetection = (args: any) => {
-    // If we're dragging a column, use normal collision detection but filter for columns only
-    if (draggedColumn) {
-      const defaultCollisions = closestCorners(args);
-      
-      // Filter to only include column collisions (not tasks)
-      const columnCollisions = defaultCollisions.filter((collision: any) => {
-        const id = collision.id;
-        // Check if this ID corresponds to a column (not a task)
-        return Object.values(columns).some(col => col.id === id);
-      });
-      
-
-      
-      return columnCollisions.length > 0 ? columnCollisions : defaultCollisions;
-    }
-    
-    // If we're dragging a task, check for empty column prioritization
-    if (draggedTask) {
-      // Get all possible collisions
-      const defaultCollisions = closestCorners(args);
-      const pointerCollisions = pointerWithin(args);
-      
-      // Check if any pointer collisions are empty columns from different source
-      const emptyColumnCollisions = pointerCollisions.filter((collision: any) => {
-        const columnId = collision.id;
-        const column = Object.values(columns).find(col => col.id === columnId);
-        // Only prioritize if it's an empty column AND from a different source column
-        return column && column.tasks.length === 0 && draggedTask.columnId !== columnId;
-      });
-      
-      // If we found empty column collisions, prioritize them
-      if (emptyColumnCollisions.length > 0) {
-        return emptyColumnCollisions;
-      }
-      
-      // Otherwise use default collisions for task moves
-      return defaultCollisions;
-    }
-    
-    // Fallback to normal collision detection
-    return closestCorners(args);
-  };
+  // Use the extracted collision detection function
+  const collisionDetection = (args: any) => customCollisionDetection(args, draggedColumn, draggedTask, columns);
 
   // DnD sensors for both columns and tasks - optimized for smooth UX
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 3, // Back to 3px for responsive drag start
+        distance: DND_ACTIVATION_DISTANCE,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -514,11 +460,9 @@ export default function App() {
     if (hash.includes('token=')) {
       const tokenMatch = hash.match(/token=([^&]+)/);
       const errorMatch = hash.match(/error=([^&]+)/);
-      const newUserMatch = hash.match(/newUser=([^&]+)/);
       
       if (tokenMatch) {
         const token = tokenMatch[1];
-        const isNewUser = newUserMatch && newUserMatch[1] === 'true';
 
         
         // Store the token
@@ -538,10 +482,10 @@ export default function App() {
             setCurrentUser(response.user);
             setIsAuthenticated(true);
           })
-          .catch(error => {
-            // Fallback: just set authenticated and let the auth effect handle it
-            setIsAuthenticated(true);
-          });
+                  .catch(() => {
+          // Fallback: just set authenticated and let the auth effect handle it
+          setIsAuthenticated(true);
+        });
         
         return; // Exit early to prevent routing conflicts
       } else if (errorMatch) {
@@ -671,7 +615,7 @@ export default function App() {
       };
 
       // Create the board first
-      const createdBoard = await api.createBoard(newBoard);
+      await api.createBoard(newBoard);
 
       // Create default columns for the new board
       const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
@@ -701,7 +645,7 @@ export default function App() {
       // Resume polling after brief delay
       setTimeout(() => {
         setBoardCreationPause(false);
-      }, 1000);
+      }, BOARD_CREATION_PAUSE_DURATION);
       
     } catch (error) {
       console.error('Failed to add board:', error);
@@ -820,7 +764,7 @@ export default function App() {
       setTimeout(() => {
         setTaskCreationPause(false);
 
-      }, 1000);
+      }, TASK_CREATION_PAUSE_DURATION);
       
     } catch (error) {
       console.error('Failed to create task at top:', error);
@@ -932,7 +876,7 @@ export default function App() {
       setTimeout(() => {
         setTaskCreationPause(false);
 
-      }, 1000);
+      }, TASK_CREATION_PAUSE_DURATION);
       
       await fetchQueryLogs();
     } catch (error) {
@@ -949,12 +893,12 @@ export default function App() {
 
   // Old handleTaskDragEnd removed - replaced with unified version below
 
-  const handleTaskDragOver = (e: React.DragEvent, columnId: string, index: number) => {
+  const handleTaskDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
 
   // Legacy wrapper for old HTML5 drag (still used by some components)
-  const handleTaskDrop = async (columnId: string, index: number) => {
+  const handleTaskDrop = async () => {
   };
 
   // Unified task drag handler for both vertical and horizontal moves
@@ -963,9 +907,9 @@ export default function App() {
     setDraggedTask(null);
     setDragCooldown(true);
     
-    setTimeout(() => {
-      setDragCooldown(false);
-      }, 5000); // Increased to 5 seconds to ensure DB updates complete
+          setTimeout(() => {
+        setDragCooldown(false);
+        }, DRAG_COOLDOWN_DURATION);
     const { active, over } = event;
     
     
@@ -1105,7 +1049,7 @@ export default function App() {
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
-          }, 2000);
+          }, DRAG_COOLDOWN_DURATION);
       
       // Refresh to get clean state from backend
       await refreshBoardData();
@@ -1236,7 +1180,7 @@ export default function App() {
     };
 
     try {
-      const createdColumn = await api.createColumn(newColumn);
+      await api.createColumn(newColumn);
       await refreshBoardData(); // Refresh to ensure consistent state
       await fetchQueryLogs();
     } catch (error) {
@@ -1246,7 +1190,6 @@ export default function App() {
 
   const handleColumnDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    setActiveColumnId(active.id as string);
     const draggedColumn = Object.values(columns).find(col => col.id === active.id);
     if (draggedColumn) {
       setDraggedColumn(draggedColumn);
@@ -1256,7 +1199,6 @@ export default function App() {
   const handleColumnDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     
-    setActiveColumnId(null);
     setDraggedColumn(null);
     
     if (!over || active.id === over.id || !selectedBoard) return;
@@ -1298,14 +1240,7 @@ export default function App() {
 
   // Calculate grid columns based on number of columns
   const columnCount = Object.keys(columns).length;
-  const gridCols = columnCount <= 4 ? 4 : Math.min(6, columnCount);
-  const gridStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: `repeat(${gridCols}, minmax(300px, 1fr))`,
-    gap: '1.5rem',
-    width: '100%',
-    overflowX: 'auto'
-  };
+  const gridStyle = calculateGridStyle(columnCount);
 
   const clearQueryLogs = async () => {
     setQueryLogs([]);
@@ -1330,100 +1265,12 @@ export default function App() {
 
 
 
-  // Filter tasks based on search criteria
-  const filterTasks = (tasks: Task[]): Task[] => {
-    if (!isSearchActive) return tasks;
+  // Use extracted task filtering utilities
+  const filteredColumns = getFilteredColumns(columns, searchFilters, isSearchActive);
+  const activeFilters = hasActiveFilters(searchFilters, isSearchActive);
+  const getTaskCountForBoard = (board: Board) => getFilteredTaskCountForBoard(board, searchFilters, isSearchActive);
 
-    return tasks.filter(task => {
-      // Text search (title or description)
-      if (searchFilters.text) {
-        const searchText = searchFilters.text.toLowerCase();
-        const titleMatch = task.title.toLowerCase().includes(searchText);
-        const descriptionMatch = task.description.toLowerCase().includes(searchText);
-        if (!titleMatch && !descriptionMatch) return false;
-      }
 
-      // Date range filter (start date)
-      if (searchFilters.dateFrom || searchFilters.dateTo) {
-        const taskDate = new Date(task.startDate);
-        if (searchFilters.dateFrom) {
-          const fromDate = new Date(searchFilters.dateFrom);
-          if (taskDate < fromDate) return false;
-        }
-        if (searchFilters.dateTo) {
-          const toDate = new Date(searchFilters.dateTo);
-          if (taskDate > toDate) return false;
-        }
-      }
-
-      // Members filter
-      if (searchFilters.selectedMembers.length > 0) {
-        if (!searchFilters.selectedMembers.includes(task.memberId || '') && 
-            !searchFilters.selectedMembers.includes(task.requesterId || '')) {
-          return false;
-        }
-      }
-
-      // Priority filter
-      if (searchFilters.selectedPriorities.length > 0) {
-        if (!searchFilters.selectedPriorities.includes(task.priority)) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  };
-
-  // Get filtered columns for display
-  const getFilteredColumns = () => {
-    if (!isSearchActive) return columns;
-
-    const filteredColumns: Columns = {};
-    Object.entries(columns).forEach(([columnId, column]) => {
-      filteredColumns[columnId] = {
-        ...column,
-        tasks: filterTasks(column.tasks)
-      };
-    });
-    return filteredColumns;
-  };
-
-  // Get filtered task count for a board (for tab pills)
-  const getFilteredTaskCountForBoard = (board: Board): number => {
-    if (!isSearchActive) return 0; // Don't show count when no filters active
-    
-    let totalCount = 0;
-    Object.values(board.columns || {}).forEach(column => {
-      totalCount += filterTasks(column.tasks).length;
-    });
-    return totalCount;
-  };
-
-  // Check if any filters are active
-  const hasActiveFilters = isSearchActive && (
-    searchFilters.text || 
-    searchFilters.dateFrom || 
-    searchFilters.dateTo || 
-    searchFilters.selectedMembers.length > 0 || 
-    searchFilters.selectedPriorities.length > 0
-  );
-
-  // Get debug parameter from URL
-  const showDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
-
-  // Keyboard shortcut for help (F1)
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'F1') {
-        event.preventDefault();
-        setShowHelpModal(true);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Show login page if not authenticated
   if (!isAuthenticated) {
@@ -1667,8 +1514,8 @@ export default function App() {
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
                     isAdmin={currentUser?.roles?.includes('admin')}
-                    getFilteredTaskCount={getFilteredTaskCountForBoard}
-                    hasActiveFilters={hasActiveFilters}
+                    getFilteredTaskCount={getTaskCountForBoard}
+                    hasActiveFilters={activeFilters}
                   />
 
                   {selectedBoard && (
@@ -1681,7 +1528,7 @@ export default function App() {
                       {/* Unified Drag and Drop Context */}
                         <DndContext
                         sensors={sensors}
-                        collisionDetection={customCollisionDetection}
+                        collisionDetection={collisionDetection}
                         onDragStart={(event) => {
                           // Clear any previous drag preview
                           setDragPreview(null);
@@ -1801,7 +1648,7 @@ export default function App() {
                             strategy={rectSortingStrategy}
                           >
                             <div style={gridStyle}>
-                              {Object.values(getFilteredColumns())
+                              {Object.values(filteredColumns)
                                 .sort((a, b) => (a.position || 0) - (b.position || 0))
                                 .map(column => (
                                   <KanbanColumn
@@ -1835,7 +1682,7 @@ export default function App() {
                           /* Regular user view */
                           <>
                         <div style={gridStyle}>
-                          {Object.values(getFilteredColumns())
+                          {Object.values(filteredColumns)
                             .sort((a, b) => (a.position || 0) - (b.position || 0))
                             .map(column => (
                               <KanbanColumn
