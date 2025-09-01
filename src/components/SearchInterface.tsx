@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Calendar, X, ChevronDown, Check, ChevronUp } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, ChevronDown, Check, ChevronUp } from 'lucide-react';
 import { TeamMember, Priority, PriorityOption, Tag } from '../types';
 import { getAllTags } from '../api';
+import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 
 interface SearchFilters {
   text: string;
@@ -30,7 +31,10 @@ export default function SearchInterface({
   const [showMembersDropdown, setShowMembersDropdown] = useState(false);
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const prefs = loadUserPreferences();
+    return !prefs.isAdvancedSearchExpanded;
+  });
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const membersDropdownRef = useRef<HTMLDivElement>(null);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
@@ -68,6 +72,13 @@ export default function SearchInterface({
 
   const updateFilter = (key: keyof SearchFilters, value: any) => {
     onFiltersChange({ ...filters, [key]: value });
+  };
+
+  const handleToggleCollapse = () => {
+    const newIsCollapsed = !isCollapsed;
+    setIsCollapsed(newIsCollapsed);
+    // Save the expanded state to user preferences
+    updateUserPreference('isAdvancedSearchExpanded', !newIsCollapsed);
   };
 
   const toggleMember = (memberId: string) => {
@@ -125,12 +136,54 @@ export default function SearchInterface({
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
       {/* Header with Collapse Toggle */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider">SEARCH & FILTER</h3>
+        <div className="flex items-center gap-3">
+          <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider">SEARCH & FILTER</h3>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search tasks..."
+              value={filters.text}
+              onChange={(e) => updateFilter('text', e.target.value)}
+              className="w-[280px] px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+            />
+            {filters.text && (
+              <button
+                onClick={() => updateFilter('text', '')}
+                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                title="Clear search"
+              >
+                <X size={10} className="text-gray-400 hover:text-gray-600" />
+              </button>
+            )}
+          </div>
+          
+          {/* Clear All Filters Button */}
+          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedMembers.length > 0 || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
+            <button
+              onClick={() => onFiltersChange({
+                text: '',
+                dateFrom: '',
+                dateTo: '',
+                dueDateFrom: '',
+                dueDateTo: '',
+                selectedMembers: [],
+                selectedPriorities: [],
+                selectedTags: []
+              })}
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
+              title="Clear all filters"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+        
         <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={handleToggleCollapse}
           className="p-1 hover:bg-gray-100 rounded transition-colors"
-          title={isCollapsed ? 'Expand search panel' : 'Collapse search panel'}
+          title={isCollapsed ? 'Expand advanced search' : 'Collapse to basic search'}
         >
           {isCollapsed ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronUp size={14} className="text-gray-500" />}
         </button>
@@ -138,76 +191,56 @@ export default function SearchInterface({
 
       {!isCollapsed && (
         <div className="space-y-3">
-          {/* Row 1: Search, Start Dates, User */}
-          <div className="flex items-center gap-4">
-            {/* Search */}
-            <div className="relative w-[160px]">
-              <input
-                type="text"
-                placeholder="Search tasks..."
-                value={filters.text}
-                onChange={(e) => updateFilter('text', e.target.value)}
-                className="w-full px-3 py-2 pr-8 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              {filters.text && (
-                <button
-                  onClick={() => updateFilter('text', '')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear search"
-                >
-                  <X size={14} className="text-gray-400 hover:text-gray-600" />
-                </button>
-              )}
-            </div>
-
-            {/* Start Dates - Aligned */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 w-[65px]">start from:</label>
+          {/* Row 1: Start Dates, User, Clear Button */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <label className="text-xs font-medium text-gray-700 absolute left-[60px] top-1/2 -translate-y-1/2">start from:</label>
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => updateFilter('dateFrom', e.target.value)}
-                className="w-[140px] px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[128px]"
               />
+              {filters.dateFrom && (
+                <button
+                  onClick={() => updateFilter('dateFrom', '')}
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Clear start from date"
+                >
+                  <X size={8} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 w-[50px]">start to:</label>
+            <div className="relative">
+              <label className="text-xs font-medium text-gray-700 absolute left-[5px] top-1/2 -translate-y-1/2">start to:</label>
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => updateFilter('dateTo', e.target.value)}
-                className="w-[140px] px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[60px]"
               />
+              {filters.dateTo && (
+                <button
+                  onClick={() => updateFilter('dateTo', '')}
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Clear start to date"
+                >
+                  <X size={8} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
             </div>
+
+            <div></div> {/* Empty spacer */}
 
             {/* User Dropdown */}
             <div className="relative" ref={membersDropdownRef}>
               <button
                 onClick={() => setShowMembersDropdown(!showMembersDropdown)}
-                className="bg-white border border-gray-300 rounded px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[100px] flex items-center justify-between relative"
+                className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
               >
-                <span className="text-gray-700">
-                  {filters.selectedMembers.length === 0 
-                    ? 'user...' 
-                    : `${filters.selectedMembers.length}`
-                  }
-                </span>
-                <div className="flex items-center gap-1">
-                  {filters.selectedMembers.length > 0 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateFilter('selectedMembers', []);
-                      }}
-                      className="p-0.5 hover:bg-gray-200 rounded-full transition-colors"
-                      title="Clear user selection"
-                    >
-                      <X size={10} className="text-gray-500" />
-                    </button>
-                  )}
-                  <ChevronDown size={14} className="text-gray-400" />
-                </div>
+                <span className="text-gray-700 text-xs">user</span>
+                <ChevronDown size={12} className="text-gray-400" />
               </button>
               
               {showMembersDropdown && (
@@ -234,137 +267,97 @@ export default function SearchInterface({
               )}
             </div>
 
-            {/* Clear Button */}
-            <div className="ml-auto">
-              {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedMembers.length > 0 || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
-                <button
-                  onClick={() => onFiltersChange({
-                    text: '',
-                    dateFrom: '',
-                    dateTo: '',
-                    dueDateFrom: '',
-                    dueDateTo: '',
-                    selectedMembers: [],
-                    selectedPriorities: [],
-                    selectedTags: []
-                  })}
-                  className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
-                  title="Clear all filters"
-                >
-                  <X size={16} />
-                </button>
+            {/* User Pills */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {filters.selectedMembers.map(memberId => {
+                const member = members.find(m => m.id === memberId);
+                if (!member) return null;
+                return (
+                  <div key={memberId} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                    <div 
+                      className="w-4 h-4 rounded-full flex-shrink-0 border border-blue-300"
+                      style={{ backgroundColor: member.color }}
+                      title={member.name}
+                    />
+                    <span className="font-medium">{member.name}</span>
+                    <button
+                      onClick={() => toggleMember(memberId)}
+                      className="p-0.5 hover:bg-blue-200 rounded-full transition-colors"
+                      title="Remove user"
+                    >
+                      <X size={10} className="text-blue-600" />
+                    </button>
+                  </div>
+                );
+              })}
+              
+              {/* Clear All Users Pill - only when multiple selections */}
+              {filters.selectedMembers.length > 1 && (
+                <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
+                  <button
+                    onClick={() => updateFilter('selectedMembers', [])}
+                    className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
+                    title="Clear all users"
+                  >
+                    <X size={10} className="text-red-600" />
+                  </button>
+                </div>
               )}
             </div>
+
+
           </div>
 
-          {/* Row 2: Tags, Due Dates, Priority */}
-          <div className="flex items-center gap-4">
-            {/* Tags */}
-            <div className="relative w-[160px]" ref={tagsDropdownRef}>
-              <button
-                onClick={() => setShowTagsDropdown(!showTagsDropdown)}
-                className="w-full bg-white border border-gray-300 rounded px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
-              >
-                <span className="text-gray-700">
-                  {filters.selectedTags.length === 0 
-                    ? 'tag...' 
-                    : `${filters.selectedTags.length}`
-                  }
-                </span>
-                <div className="flex items-center gap-1">
-                  {filters.selectedTags.length > 0 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateFilter('selectedTags', []);
-                      }}
-                      className="p-0.5 hover:bg-gray-200 rounded-full transition-colors"
-                      title="Clear tag selection"
-                    >
-                      <X size={10} className="text-gray-500" />
-                    </button>
-                  )}
-                  <ChevronDown size={14} className="text-gray-400" />
-                </div>
-              </button>
-              
-              {showTagsDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
-                  {availableTags.map(tag => (
-                    <div
-                      key={tag.id}
-                      onClick={() => toggleTag(tag.id.toString())}
-                      className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
-                    >
-                      <div className="w-4 h-4 flex items-center justify-center">
-                        {filters.selectedTags.includes(tag.id.toString()) && (
-                          <Check size={12} className="text-blue-600" />
-                        )}
-                      </div>
-                      <div
-                        className="px-2 py-1 rounded-full text-xs font-bold inline-block border"
-                        style={{
-                          backgroundColor: tag.color || '#4ECDC4',
-                          color: getTextColor(tag.color || '#4ECDC4'),
-                          borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
-                        }}
-                      >
-                        {tag.tag}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Due Dates - Aligned */}
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 w-[65px]">due from:</label>
+          {/* Row 2: Due Dates, Priority, Tags */}
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <label className="text-xs font-medium text-gray-700 absolute left-[64px] top-1/2 -translate-y-1/2">due from:</label>
               <input
                 type="date"
                 value={filters.dueDateFrom}
                 onChange={(e) => updateFilter('dueDateFrom', e.target.value)}
-                className="w-[140px] px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[128px]"
               />
+              {filters.dueDateFrom && (
+                <button
+                  onClick={() => updateFilter('dueDateFrom', '')}
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Clear due from date"
+                >
+                  <X size={8} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700 w-[50px]">due to:</label>
+            <div className="relative">
+              <label className="text-xs font-medium text-gray-700 absolute left-[10px] top-1/2 -translate-y-1/2">due to:</label>
               <input
                 type="date"
                 value={filters.dueDateTo}
                 onChange={(e) => updateFilter('dueDateTo', e.target.value)}
-                className="w-[140px] px-2 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[60px]"
               />
+              {filters.dueDateTo && (
+                <button
+                  onClick={() => updateFilter('dueDateTo', '')}
+                  className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Clear due to date"
+                >
+                  <X size={8} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
             </div>
+
+            <div></div> {/* Empty spacer */}
 
             {/* Priority Dropdown */}
             <div className="relative" ref={priorityDropdownRef}>
               <button
                 onClick={() => setShowPriorityDropdown(!showPriorityDropdown)}
-                className="bg-white border border-gray-300 rounded px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[100px] flex items-center justify-between"
+                className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
               >
-                <span className="text-gray-700">
-                  {filters.selectedPriorities.length === 0 
-                    ? 'priority...' 
-                    : `${filters.selectedPriorities.length}`
-                  }
-                </span>
-                <div className="flex items-center gap-1">
-                  {filters.selectedPriorities.length > 0 && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        updateFilter('selectedPriorities', []);
-                      }}
-                      className="p-0.5 hover:bg-gray-200 rounded-full transition-colors"
-                      title="Clear priority selection"
-                    >
-                      <X size={10} className="text-gray-500" />
-                    </button>
-                  )}
-                  <ChevronDown size={14} className="text-gray-400" />
-                </div>
+                <span className="text-gray-700 text-xs">priority</span>
+                <ChevronDown size={12} className="text-gray-400" />
               </button>
               
               {showPriorityDropdown && (
@@ -387,6 +380,122 @@ export default function SearchInterface({
                       <span className="text-gray-700">{priorityOption.priority}</span>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Pills Container for Row 2 */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Priority Pills */}
+              {filters.selectedPriorities.map(priorityName => {
+                const priority = availablePriorities.find(p => p.priority === priorityName);
+                if (!priority) return null;
+                return (
+                  <div key={priorityName} className="flex items-center gap-1 bg-gray-100 text-gray-800 px-2 py-1 rounded-full text-xs border border-gray-300">
+                    <div 
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: priority.color }}
+                    />
+                    <span className="font-medium">{priority.priority}</span>
+                    <button
+                      onClick={() => togglePriority(priorityName)}
+                      className="p-0.5 hover:bg-gray-200 rounded-full transition-colors"
+                      title="Remove priority"
+                    >
+                      <X size={10} className="text-gray-600" />
+                    </button>
+                  </div>
+                );
+              })}
+              
+              {/* Clear All Priorities Pill - only when multiple selections */}
+              {filters.selectedPriorities.length > 1 && (
+                <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
+                  <button
+                    onClick={() => updateFilter('selectedPriorities', [])}
+                    className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
+                    title="Clear all priorities"
+                  >
+                    <X size={10} className="text-red-600" />
+                  </button>
+                </div>
+              )}
+
+              {/* Tags Dropdown */}
+              <div className="relative" ref={tagsDropdownRef}>
+                <button
+                  onClick={() => setShowTagsDropdown(!showTagsDropdown)}
+                  className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
+                >
+                  <span className="text-gray-700 text-xs">tag</span>
+                  <ChevronDown size={12} className="text-gray-400" />
+                </button>
+                
+                {showTagsDropdown && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
+                    {availableTags.map(tag => (
+                      <div
+                        key={tag.id}
+                        onClick={() => toggleTag(tag.id.toString())}
+                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
+                      >
+                        <div className="w-4 h-4 flex items-center justify-center">
+                          {filters.selectedTags.includes(tag.id.toString()) && (
+                            <Check size={12} className="text-blue-600" />
+                          )}
+                        </div>
+                        <div
+                          className="px-2 py-1 rounded-full text-xs font-bold inline-block border"
+                          style={{
+                            backgroundColor: tag.color || '#4ECDC4',
+                            color: getTextColor(tag.color || '#4ECDC4'),
+                            borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
+                          }}
+                        >
+                          {tag.tag}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Tag Pills */}
+              {filters.selectedTags.map(tagId => {
+                const tag = availableTags.find(t => t.id.toString() === tagId);
+                if (!tag) return null;
+                return (
+                  <div 
+                    key={tagId} 
+                    className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border"
+                    style={{
+                      backgroundColor: tag.color || '#4ECDC4',
+                      color: getTextColor(tag.color || '#4ECDC4'),
+                      borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
+                    }}
+                  >
+                    <span>{tag.tag}</span>
+                    <button
+                      onClick={() => toggleTag(tagId)}
+                      className="p-0.5 hover:bg-black hover:bg-opacity-10 rounded-full transition-colors"
+                      title="Remove tag"
+                    >
+                      <X size={10} style={{ color: getTextColor(tag.color || '#4ECDC4') }} />
+                    </button>
+                  </div>
+                );
+              })}
+              
+              {/* Clear All Tags Pill - only when multiple selections */}
+              {filters.selectedTags.length > 1 && (
+                <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
+                  <button
+                    onClick={() => updateFilter('selectedTags', [])}
+                    className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
+                    title="Clear all tags"
+                  >
+                    <X size={10} className="text-red-600" />
+                  </button>
                 </div>
               )}
             </div>
