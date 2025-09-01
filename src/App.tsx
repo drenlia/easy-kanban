@@ -4,7 +4,6 @@ import {
   Task, 
   Column, 
   Columns, 
-  Priority, 
   Board, 
   PriorityOption, 
   QueryLog, 
@@ -40,7 +39,8 @@ import {
 import { 
   getFilteredColumns, 
   getFilteredTaskCountForBoard, 
-  hasActiveFilters 
+  hasActiveFilters,
+  wouldTaskBeFilteredOut 
 } from './utils/taskUtils';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
@@ -73,6 +73,25 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
+  const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+
+  // Helper function to get default priority name
+  const getDefaultPriorityName = (): string => {
+    // Find priority with initial = true (or 1 from SQLite)
+    const defaultPriority = availablePriorities.find(p => !!p.initial);
+    if (defaultPriority) {
+      return defaultPriority.priority;
+    }
+    
+    // Fallback to lowest ID (first priority created) if no default set
+    const lowestId = availablePriorities.sort((a, b) => a.id - b.id)[0];
+    if (lowestId) {
+      return lowestId.priority;
+    }
+    
+    // Ultimate fallback
+    return 'medium';
+  };
 
   // Authentication hook
   const {
@@ -533,7 +552,6 @@ export default function App() {
 
   const handleAddTask = async (columnId: string) => {
     if (!selectedMember || !selectedBoard) return;
-
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
@@ -543,7 +561,7 @@ export default function App() {
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
-      priority: 'medium' as Priority,
+      priority: getDefaultPriorityName(), // Use frontend default priority
       requesterId: selectedMember,
       boardId: selectedBoard,
       comments: []
@@ -566,12 +584,26 @@ export default function App() {
       await withLoading('tasks', async () => {
         // Let backend handle positioning and shifting
         await api.createTaskAtTop(newTask);
-
         
         // Refresh to get clean state from backend
         await refreshBoardData();
-
       });
+      
+      // Check if the new task would be filtered out and show warning
+      if (wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive)) {
+        setColumnWarnings(prev => ({
+          ...prev,
+          [columnId]: 'Task created but hidden by active filters'
+        }));
+        
+        // Clear warning after 2 seconds
+        setTimeout(() => {
+          setColumnWarnings(prev => {
+            const { [columnId]: removed, ...rest } = prev;
+            return rest;
+          });
+        }, 2000);
+      }
       
       // Resume polling after brief delay
       setTimeout(() => {
@@ -1257,6 +1289,7 @@ export default function App() {
                           }
                         }}
                                     onAddTask={handleAddTask}
+                                    columnWarnings={columnWarnings}
                                     onRemoveTask={handleRemoveTask}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}

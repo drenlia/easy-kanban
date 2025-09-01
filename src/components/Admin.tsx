@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities } from '../api';
+import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
 import AdminTagsTab from './admin/AdminTagsTab';
@@ -259,6 +259,21 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const currentPriorities = await getPriorities();
       setPriorities(currentPriorities);
       setError(error.response?.data?.error || 'Failed to reorder priorities');
+    }
+  };
+
+  const handleSetDefaultPriority = async (priorityId: string) => {
+    try {
+      await setDefaultPriority(Number(priorityId));
+      const updatedPriorities = await getPriorities();
+      setPriorities(updatedPriorities);
+      setSuccessMessage('Default priority updated successfully');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error: any) {
+      console.error('Failed to set default priority:', error);
+      setError(error?.response?.data?.error || 'Failed to set default priority');
     }
   };
 
@@ -623,6 +638,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onUpdatePriority={handleUpdatePriority}
               onDeletePriority={handleDeletePriority}
               onReorderPriorities={handleReorderPriorities}
+              onSetDefaultPriority={handleSetDefaultPriority}
               successMessage={successMessage}
               error={error}
             />

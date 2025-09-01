@@ -824,6 +824,50 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
   }
 });
 
+// Helper function to get default priority
+function getDefaultPriority() {
+  // First try to get priority with initial = 1
+  let defaultPriority = db.prepare('SELECT priority FROM priorities WHERE initial = 1 LIMIT 1').get();
+  
+  if (!defaultPriority) {
+    // Fallback to lowest ID (first priority created) if no initial priority set
+    defaultPriority = db.prepare('SELECT priority FROM priorities ORDER BY id ASC LIMIT 1').get();
+  }
+  
+  return defaultPriority ? defaultPriority.priority : 'low'; // Ultimate fallback
+}
+
+// Set default priority endpoint
+app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorityId } = req.params;
+    
+    // Check if priority exists
+    const priority = db.prepare('SELECT * FROM priorities WHERE id = ?').get(priorityId);
+    if (!priority) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+    
+    // Start transaction to ensure only one priority can be default
+    const transaction = db.transaction(() => {
+      // First, set all priorities to non-default
+      db.prepare('UPDATE priorities SET initial = 0').run();
+      
+      // Then set the specified priority as default
+      db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?').run(priorityId);
+    });
+    
+    transaction();
+    
+    // Return updated priority
+    const updatedPriority = db.prepare('SELECT * FROM priorities WHERE id = ?').get(priorityId);
+    res.json(updatedPriority);
+  } catch (error) {
+    console.error('Set default priority error:', error);
+    res.status(500).json({ error: 'Failed to set default priority' });
+  }
+});
+
 // Task-Tag association endpoints
 app.get('/api/tasks/:taskId/tags', authenticateToken, (req, res) => {
   try {
@@ -1444,7 +1488,8 @@ db.exec(`
     priority TEXT NOT NULL UNIQUE,
     color TEXT NOT NULL,
     position INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    initial BOOLEAN DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS views (
@@ -1555,15 +1600,15 @@ if (roleCount.count === 0) {
 const priorityCount = db.prepare('SELECT COUNT(*) as count FROM priorities').get();
 if (priorityCount.count === 0) {
   const defaultPriorities = [
-    { priority: 'low', color: '#4CD964', position: 0 },      // Green
-    { priority: 'medium', color: '#FF9500', position: 1 },   // Orange  
-    { priority: 'high', color: '#FF3B30', position: 2 },     // Red
-    { priority: 'critical', color: '#FF2D55', position: 3 }  // Dark Red
+    { priority: 'low', color: '#4CD964', position: 0, initial: 0 },      // Green
+    { priority: 'normal', color: '#007AFF', position: 1, initial: 1 },   // Blue - DEFAULT
+    { priority: 'medium', color: '#FF9500', position: 2, initial: 0 },   // Orange  
+    { priority: 'high', color: '#FF3B30', position: 3, initial: 0 }      // Red
   ];
   
-  const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position) VALUES (?, ?, ?)');
+  const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position, initial) VALUES (?, ?, ?, ?)');
   defaultPriorities.forEach(p => {
-    priorityStmt.run(p.priority, p.color, p.position);
+    priorityStmt.run(p.priority, p.color, p.position, p.initial);
   });
   
   console.log('Default priorities initialized');

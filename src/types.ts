@@ -16,6 +16,7 @@ export interface PriorityOption {
   color: string;
   position: number;
   created_at: string;
+  initial?: boolean | number; // SQLite returns 0/1, but could be boolean
 }
 
 export interface Attachment {
