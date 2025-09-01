@@ -3,6 +3,7 @@ import { Priority } from '../types';
 export interface UserPreferences {
   isTasksShrunk: boolean;
   isSearchActive: boolean;
+  isAdvancedSearchExpanded: boolean;
   searchFilters: {
     text: string;
     dateFrom: string;
@@ -22,6 +23,7 @@ const COOKIE_EXPIRY_DAYS = 365;
 export const DEFAULT_PREFERENCES: UserPreferences = {
   isTasksShrunk: false, // Default to expand
   isSearchActive: false, // Default to no search active
+  isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   searchFilters: {
     text: '',
     dateFrom: '',

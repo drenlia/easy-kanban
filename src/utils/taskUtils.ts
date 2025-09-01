@@ -30,8 +30,8 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
 
     // Due date range filter
     if (searchFilters.dueDateFrom || searchFilters.dueDateTo) {
-      if (!task.endDate) return false; // No due date set
-      const taskDueDate = new Date(task.endDate);
+      if (!task.dueDate) return false; // No due date set
+      const taskDueDate = new Date(task.dueDate);
       if (searchFilters.dueDateFrom) {
         const fromDate = new Date(searchFilters.dueDateFrom);
         if (taskDueDate < fromDate) return false;
