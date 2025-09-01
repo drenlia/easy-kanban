@@ -202,6 +202,7 @@ export const createUser = async (userData: {
   password: string;
   firstName: string;
   lastName: string;
+  displayName?: string;
   role: string;
 }) => {
   const { data } = await api.post('/admin/users', userData);
