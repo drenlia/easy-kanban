@@ -78,3 +78,47 @@ export interface Board {
   columns: Columns;
   position?: number;
 }
+
+export interface QueryLog {
+  id: string;
+  type: 'INSERT' | 'UPDATE' | 'DELETE' | 'ERROR';
+  query: string;
+  timestamp: string;
+  error?: string;
+}
+
+export interface DragPreview {
+  targetColumnId: string;
+  insertIndex: number;
+}
+
+export interface SearchFilters {
+  text: string;
+  dateFrom: string;
+  dateTo: string;
+  selectedMembers: string[];
+  selectedPriorities: string[];
+}
+
+export interface UserPreferences {
+  isTasksShrunk: boolean;
+  isSearchActive: boolean;
+  searchFilters: SearchFilters;
+}
+
+export interface SiteSettings {
+  SITE_NAME: string;
+  SITE_URL: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  roles: string[];
+  avatarUrl?: string;
+  authProvider?: 'local' | 'google';
+  googleAvatarUrl?: string;
+  displayName?: string;
+}
