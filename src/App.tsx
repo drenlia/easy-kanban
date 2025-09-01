@@ -12,15 +12,13 @@ import {
   SiteSettings, 
   CurrentUser 
 } from './types';
-import TaskDetails from './components/TaskDetails';
-import HelpModal from './components/HelpModal';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 
 import Login from './components/Login';
-import Profile from './components/Profile';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
+import ModalManager from './components/layout/ModalManager';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -1477,16 +1475,18 @@ export default function App() {
         onSelectTask={setSelectedTask}
       />
 
-      {selectedTask && (
-        <div className="fixed top-0 right-0 h-full">
-          <TaskDetails
-            task={selectedTask}
-            members={members}
-            onClose={() => setSelectedTask(null)}
-            onUpdate={handleEditTask}
-          />
-        </div>
-      )}
+      <ModalManager
+        selectedTask={selectedTask}
+        members={members}
+        onTaskClose={() => setSelectedTask(null)}
+        onTaskUpdate={handleEditTask}
+        showHelpModal={showHelpModal}
+        onHelpClose={() => setShowHelpModal(false)}
+        showProfileModal={showProfileModal}
+        currentUser={currentUser}
+        onProfileClose={() => setShowProfileModal(false)}
+        onProfileUpdated={handleProfileUpdated}
+      />
 
       {showDebug && (
         <DebugPanel
@@ -1494,23 +1494,6 @@ export default function App() {
           onClear={clearQueryLogs}
         />
       )}
-
-      <HelpModal
-        isOpen={showHelpModal}
-        onClose={() => setShowHelpModal(false)}
-      />
-
-      <Profile 
-        isOpen={showProfileModal} 
-        onClose={() => setShowProfileModal(false)} 
-        currentUser={{
-          ...currentUser,
-          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`,
-          // Ensure authProvider is explicitly set
-          authProvider: currentUser?.authProvider || 'local'
-        }}
-        onProfileUpdated={handleProfileUpdated}
-      />
     </div>
   );
 }
