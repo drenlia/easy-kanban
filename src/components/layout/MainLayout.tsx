@@ -72,6 +72,8 @@ interface MainLayoutProps {
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null) => void;
+  isAnyCommentTooltipOpen?: boolean;
+  onCommentTooltipChange?: (isOpen: boolean) => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({

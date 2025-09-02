@@ -74,6 +74,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+  const [isAnyCommentTooltipOpen, setIsAnyCommentTooltipOpen] = useState(false);
 
   // Helper function to get default priority name
   const getDefaultPriorityName = (): string => {
@@ -135,10 +136,12 @@ export default function App() {
     currentMembers: members,
     currentColumns: columns,
     currentSiteSettings: siteSettings,
+    currentPriorities: availablePriorities,
     onBoardsUpdate: setBoards,
     onMembersUpdate: setMembers,
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
+    onPrioritiesUpdate: setAvailablePriorities,
   });
 
 
@@ -1091,6 +1094,10 @@ export default function App() {
     setQueryLogs([]);
   };
 
+  const handleCommentTooltipChange = (isOpen: boolean) => {
+    setIsAnyCommentTooltipOpen(isOpen);
+  };
+
   const handleToggleTaskShrink = () => {
     const newValue = !isTasksShrunk;
     setIsTasksShrunk(newValue);
@@ -1300,6 +1307,8 @@ export default function App() {
                                     onTaskDragOver={handleTaskDragOver}
                                     onTaskDrop={handleTaskDrop}
                                     onSelectTask={setSelectedTask}
+                                    isAnyCommentTooltipOpen={isAnyCommentTooltipOpen}
+                                    onCommentTooltipChange={handleCommentTooltipChange}
       />
 
       <ModalManager

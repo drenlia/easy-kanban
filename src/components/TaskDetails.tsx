@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption } from '../types';
+import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
 import { X, Paperclip, ChevronDown, Check } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import CommentEditor from './CommentEditor';
@@ -10,12 +10,13 @@ import { generateUUID } from '../utils/uuid';
 interface TaskDetailsProps {
   task: Task;
   members: TeamMember[];
+  currentUser: CurrentUser | null;
   onClose: () => void;
   onUpdate: (updatedTask: Task) => void;
   onAddComment?: (comment: Comment & { taskId: string }) => Promise<void>;
 }
 
-export default function TaskDetails({ task, members, onClose, onUpdate, onAddComment }: TaskDetailsProps) {
+export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, onAddComment }: TaskDetailsProps) {
   const [width, setWidth] = useState(480);
   const [isResizing, setIsResizing] = useState(false);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
@@ -254,11 +255,14 @@ export default function TaskDetails({ task, members, onClose, onUpdate, onAddCom
         })
       );
 
+      // Find the member corresponding to the current user
+      const currentUserMember = members.find(m => m.user_id === currentUser?.id);
+      
       // Create new comment with attachments
       const newComment = {
         id: generateUUID(),
         text: content,
-        authorId: editedTask.memberId || members[0].id,
+        authorId: currentUserMember?.id || editedTask.memberId || members[0].id,
         createdAt: getLocalISOString(new Date()),
         taskId: editedTask.id,
         attachments: uploadedAttachments

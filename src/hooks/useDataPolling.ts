@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Board, TeamMember, Columns, SiteSettings } from '../types';
+import { Board, TeamMember, Columns, SiteSettings, PriorityOption } from '../types';
 import { POLLING_INTERVAL } from '../constants';
 import * as api from '../api';
+import { getAllPriorities } from '../api';
 
 interface UseDataPollingProps {
   enabled: boolean;
@@ -10,10 +11,12 @@ interface UseDataPollingProps {
   currentMembers: TeamMember[];
   currentColumns: Columns;
   currentSiteSettings: SiteSettings;
+  currentPriorities: PriorityOption[];
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
   onColumnsUpdate: (columns: Columns) => void;
   onSiteSettingsUpdate: (settings: SiteSettings) => void;
+  onPrioritiesUpdate: (priorities: PriorityOption[]) => void;
 }
 
 interface UseDataPollingReturn {
@@ -28,10 +31,12 @@ export const useDataPolling = ({
   currentMembers,
   currentColumns,
   currentSiteSettings,
+  currentPriorities,
   onBoardsUpdate,
   onMembersUpdate,
   onColumnsUpdate,
   onSiteSettingsUpdate,
+  onPrioritiesUpdate,
 }: UseDataPollingProps): UseDataPollingReturn => {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -46,10 +51,11 @@ export const useDataPolling = ({
 
     const pollForUpdates = async () => {
       try {
-        const [loadedBoards, loadedMembers, loadedSiteSettings] = await Promise.all([
+        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities] = await Promise.all([
           api.getBoards(),
           api.getMembers(),
-          api.getPublicSettings()
+          api.getPublicSettings(),
+          getAllPriorities()
         ]);
 
         // Update boards list if it changed
@@ -74,6 +80,14 @@ export const useDataPolling = ({
 
         if (currentSiteSettingsString !== newSiteSettingsString) {
           onSiteSettingsUpdate(loadedSiteSettings);
+        }
+
+        // Update priorities if they changed
+        const currentPrioritiesString = JSON.stringify(currentPriorities);
+        const newPrioritiesString = JSON.stringify(loadedPriorities);
+
+        if (currentPrioritiesString !== newPrioritiesString) {
+          onPrioritiesUpdate(loadedPriorities || []);
         }
 
         // Update columns for the current board if it changed

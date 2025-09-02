@@ -30,6 +30,8 @@ interface KanbanColumnProps {
   onSelectTask: (task: Task | null) => void;
   onTaskDrop: (columnId: string, index: number) => void;
   isAdmin?: boolean;
+  isAnyCommentTooltipOpen?: boolean;
+  onCommentTooltipChange?: (isOpen: boolean) => void;
   isTasksShrunk?: boolean;
   availablePriorities?: PriorityOption[];
 }
@@ -55,6 +57,8 @@ export default function KanbanColumn({
   onSelectTask,
   onTaskDrop,
   isAdmin = false,
+  isAnyCommentTooltipOpen = false,
+  onCommentTooltipChange,
   isTasksShrunk = false,
   availablePriorities = []
 }: KanbanColumnProps) {
@@ -63,6 +67,7 @@ export default function KanbanColumn({
   const [showMenu, setShowMenu] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [isCommentTooltipOpen, setIsCommentTooltipOpen] = useState(false);
 
   // Auto-close menu when clicking outside
   React.useEffect(() => {
@@ -97,7 +102,7 @@ export default function KanbanColumn({
     isDragging,
   } = useSortable({ 
     id: column.id, 
-    disabled: !isAdmin || isEditing  // Disable drag when editing THIS column
+    disabled: !isAdmin || isEditing || isCommentTooltipOpen || isAnyCommentTooltipOpen  // Disable drag when editing THIS column or any comment tooltip is open
   });
 
   // Use droppable hook for task drops - only for cross-column moves
@@ -155,6 +160,14 @@ export default function KanbanColumn({
     setIsSubmitting(false);
   };
 
+  const handleCommentTooltipChange = (isOpen: boolean) => {
+    setIsCommentTooltipOpen(isOpen);
+    // Also notify parent to disable other columns
+    if (onCommentTooltipChange) {
+      onCommentTooltipChange(isOpen);
+    }
+  };
+
   const renderTaskList = React.useCallback(() => {
     const isTargetColumn = dragPreview?.targetColumnId === column.id;
     const insertIndex = dragPreview?.insertIndex ?? -1;
@@ -197,6 +210,7 @@ export default function KanbanColumn({
             onDragEnd={onTaskDragEnd}
             onSelect={onSelectTask}
             isDragDisabled={false}
+            onCommentTooltipChange={handleCommentTooltipChange}
             isTasksShrunk={isTasksShrunk}
             availablePriorities={availablePriorities}
           />
