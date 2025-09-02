@@ -35,6 +35,7 @@ interface TaskCardProps {
   onDragEnd: () => void;
   onSelect: (task: Task) => void;
   isDragDisabled?: boolean;
+  onCommentTooltipChange?: (isOpen: boolean) => void;
   isTasksShrunk?: boolean;
   availablePriorities?: PriorityOption[];
 }
@@ -52,6 +53,7 @@ export default function TaskCard({
   onDragEnd,
   onSelect,
   isDragDisabled = false,
+  onCommentTooltipChange,
   isTasksShrunk = false,
   availablePriorities = []
 }: TaskCardProps) {
@@ -76,7 +78,7 @@ export default function TaskCard({
   const wasDraggingRef = useRef(false);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect;
+  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip;
 
   // @dnd-kit sortable hook for vertical reordering
   const {
@@ -137,6 +139,13 @@ export default function TaskCard({
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showMemberSelect, showPrioritySelect]);
+
+  // Notify parent when comment tooltip state changes
+  useEffect(() => {
+    if (onCommentTooltipChange) {
+      onCommentTooltipChange(showCommentTooltip);
+    }
+  }, [showCommentTooltip, onCommentTooltipChange]);
 
   const handleCopy = () => {
     onCopy(task);
@@ -312,7 +321,14 @@ export default function TaskCard({
   }, [isDragging, task, onDragStart, onDragEnd]);
 
   const validComments = (task.comments || [])
-    .filter(comment => comment && comment.text && comment.text.trim() !== '');
+    .filter(comment => 
+      comment && 
+      comment.id && 
+      comment.text && 
+      comment.text.trim() !== '' && 
+      comment.authorId && 
+      comment.createdAt
+    );
 
   return (
     <>
@@ -443,13 +459,13 @@ export default function TaskCard({
               onChange={(e) => setEditedDescription(e.target.value)}
               onBlur={handleDescriptionSave}
               onKeyDown={handleDescriptionKeyDown}
-              className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-none"
+              className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
               rows={3}
               onClick={(e) => e.stopPropagation()}
               placeholder="Enter task description..."
             />
             <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-              <span>Press Enter to save, Escape to cancel</span>
+              <span>Press Enter to save, Shift+Enter for new line, Escape to cancel</span>
             </div>
           </div>
         ) : (
@@ -565,6 +581,11 @@ export default function TaskCard({
                 className="flex items-center gap-0.5 relative"
                 onMouseEnter={handleCommentTooltipShow}
                 onMouseLeave={handleCommentTooltipHide}
+                onMouseDown={(e) => {
+                  if (showCommentTooltip) {
+                    e.stopPropagation();
+                  }
+                }}
               >
                 <button
                   onClick={() => onSelect(task)}
@@ -583,17 +604,65 @@ export default function TaskCard({
                 {/* Comment Tooltip */}
                 {showCommentTooltip && (
                   <div 
-                    className="absolute bottom-full left-0 mb-2 w-80 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-20 max-h-64 overflow-y-auto"
+                    className="absolute bottom-full left-0 mb-2 w-80 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-50 max-h-64 overflow-y-auto"
                     onMouseEnter={handleCommentTooltipShow}
                     onMouseLeave={handleCommentTooltipHide}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ pointerEvents: 'auto' }}
                   >
-                    <div className="text-gray-300 font-medium mb-2 border-b border-gray-600 pb-1">
-                      Comments ({validComments.length})
+                    <div className="flex items-center justify-between mb-2 border-b border-gray-600 pb-1">
+                      <span className="text-gray-300 font-medium">
+                        Comments ({validComments.length})
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelect(task);
+                        }}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                      >
+                        Open
+                      </button>
                     </div>
                     {validComments
                       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                       .map((comment, index) => {
                         const author = members.find(m => m.id === comment.authorId);
+                        
+                        // Function to convert URLs to clickable links
+                        const renderTextWithLinks = (text: string) => {
+                          const urlRegex = /(https?:\/\/[^\s]+)/g;
+                          const parts = text.split(urlRegex);
+                          
+                          return (
+                            <>
+                              {parts.map((part, idx) => {
+                                if (urlRegex.test(part)) {
+                                  return (
+                                    <a
+                                      key={idx}
+                                      href={part}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-400 hover:text-blue-300 underline break-all cursor-pointer"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        window.open(part, '_blank', 'noopener,noreferrer');
+                                      }}
+                                      onMouseDown={(e) => e.stopPropagation()}
+                                    >
+                                      {part}
+                                    </a>
+                                  );
+                                }
+                                return part;
+                              })}
+                            </>
+                          );
+                        };
+
                         return (
                           <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
                             <div className="flex items-center gap-2 mb-1">
@@ -606,9 +675,9 @@ export default function TaskCard({
                                 {formatDateTime(comment.createdAt)}
                               </span>
                             </div>
-                            <p className="text-gray-300 text-xs leading-relaxed">
-                              {comment.text.replace(/<[^>]*>/g, '')}
-                            </p>
+                            <div className="text-gray-300 text-xs leading-relaxed select-text">
+                              {renderTextWithLinks(comment.text.replace(/<[^>]*>/g, ''))}
+                            </div>
                           </div>
                         );
                       })}

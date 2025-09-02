@@ -71,6 +71,8 @@ interface KanbanPageProps {
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null) => void;
+  isAnyCommentTooltipOpen?: boolean;
+  onCommentTooltipChange?: (isOpen: boolean) => void;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -118,6 +120,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onTaskDragOver,
   onTaskDrop,
   onSelectTask,
+  isAnyCommentTooltipOpen,
+  onCommentTooltipChange,
 }) => {
   if (loading.general) {
     return <LoadingSpinner size="large" className="mt-20" />;
@@ -216,6 +220,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                         onTaskDrop={onTaskDrop}
                         onSelectTask={onSelectTask}
                         isAdmin={true}
+                        isAnyCommentTooltipOpen={isAnyCommentTooltipOpen}
+                        onCommentTooltipChange={onCommentTooltipChange}
                         isTasksShrunk={isTasksShrunk}
                         availablePriorities={availablePriorities}
                       />
@@ -250,6 +256,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTaskDrop={onTaskDrop}
                       onSelectTask={onSelectTask}
                       isAdmin={false}
+                      isAnyCommentTooltipOpen={isAnyCommentTooltipOpen}
+                      onCommentTooltipChange={onCommentTooltipChange}
                       isTasksShrunk={isTasksShrunk}
                       availablePriorities={availablePriorities}
                     />
@@ -287,6 +295,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                     onDragEnd={() => {}}
                     onSelect={() => {}}
                     isDragDisabled={true}
+                    onCommentTooltipChange={() => {}}
                     isTasksShrunk={isTasksShrunk}
                     availablePriorities={availablePriorities}
                   />

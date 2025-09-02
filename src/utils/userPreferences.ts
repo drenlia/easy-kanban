@@ -67,7 +67,9 @@ export const loadUserPreferences = (): UserPreferences => {
         ...loadedPrefs,
         searchFilters: {
           ...DEFAULT_PREFERENCES.searchFilters,
-          ...loadedPrefs.searchFilters
+          ...loadedPrefs.searchFilters,
+          // Ensure text is never null
+          text: loadedPrefs.searchFilters?.text || ''
         }
       };
     }

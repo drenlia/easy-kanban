@@ -42,6 +42,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
           <TaskDetails
             task={selectedTask}
             members={members}
+            currentUser={currentUser}
             onClose={onTaskClose}
             onUpdate={onTaskUpdate}
           />
