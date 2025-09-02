@@ -30,8 +30,6 @@ interface KanbanColumnProps {
   onSelectTask: (task: Task | null) => void;
   onTaskDrop: (columnId: string, index: number) => void;
   isAdmin?: boolean;
-  isAnyCommentTooltipOpen?: boolean;
-  onCommentTooltipChange?: (isOpen: boolean) => void;
   isTasksShrunk?: boolean;
   availablePriorities?: PriorityOption[];
 }
@@ -57,8 +55,6 @@ export default function KanbanColumn({
   onSelectTask,
   onTaskDrop,
   isAdmin = false,
-  isAnyCommentTooltipOpen = false,
-  onCommentTooltipChange,
   isTasksShrunk = false,
   availablePriorities = []
 }: KanbanColumnProps) {
@@ -67,7 +63,6 @@ export default function KanbanColumn({
   const [showMenu, setShowMenu] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
-  const [isCommentTooltipOpen, setIsCommentTooltipOpen] = useState(false);
 
   // Auto-close menu when clicking outside
   React.useEffect(() => {
@@ -102,7 +97,7 @@ export default function KanbanColumn({
     isDragging,
   } = useSortable({ 
     id: column.id, 
-    disabled: !isAdmin || isEditing || isCommentTooltipOpen || isAnyCommentTooltipOpen  // Disable drag when editing THIS column or any comment tooltip is open
+    disabled: !isAdmin || isEditing  // Disable drag when editing THIS column
   });
 
   // Use droppable hook for task drops - only for cross-column moves
@@ -160,13 +155,7 @@ export default function KanbanColumn({
     setIsSubmitting(false);
   };
 
-  const handleCommentTooltipChange = (isOpen: boolean) => {
-    setIsCommentTooltipOpen(isOpen);
-    // Also notify parent to disable other columns
-    if (onCommentTooltipChange) {
-      onCommentTooltipChange(isOpen);
-    }
-  };
+
 
   const renderTaskList = React.useCallback(() => {
     const isTargetColumn = dragPreview?.targetColumnId === column.id;
@@ -210,7 +199,6 @@ export default function KanbanColumn({
             onDragEnd={onTaskDragEnd}
             onSelect={onSelectTask}
             isDragDisabled={false}
-            onCommentTooltipChange={handleCommentTooltipChange}
             isTasksShrunk={isTasksShrunk}
             availablePriorities={availablePriorities}
           />
@@ -245,7 +233,7 @@ export default function KanbanColumn({
     <div 
       ref={combinedRef}
       style={style}
-      className={`bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
+      className={`sortable-item bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
         isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''
       } ${
         isOver && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 border-2 border-blue-400' : 'hover:bg-gray-100 border border-transparent'
