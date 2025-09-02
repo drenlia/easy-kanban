@@ -85,7 +85,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
 }) => {
   return (
     <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''}`}>
-      <div className="max-w-[1400px] mx-auto">
+      <div className="w-4/5 mx-auto">
         {currentPage === 'admin' ? (
           <Admin 
             key={adminRefreshKey}

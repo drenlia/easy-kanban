@@ -99,15 +99,10 @@ const SortableBoardTab: React.FC<{
       {canDelete && showDeleteConfirm === board.id && (
         <div className="delete-confirmation absolute -top-1 -right-1 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-50 min-w-[140px]">
           <div className="text-sm text-gray-700 mb-2">
-            {(() => {
-              const board = boards.find(b => b.id === showDeleteConfirm);
-              const taskCount = board ? Object.values(board.columns || {}).reduce((total, column) => 
-                total + (column.tasks?.length || 0), 0) : 0;
-              
-              return taskCount > 0 
-                ? `Delete board and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`
-                : 'Delete empty board?';
-            })()}
+            {(taskCount || 0) > 0 
+              ? `Delete board and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`
+              : 'Delete empty board?'
+            }
           </div>
           <div className="flex space-x-2">
             <button
