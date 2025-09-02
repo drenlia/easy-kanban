@@ -35,7 +35,6 @@ interface TaskCardProps {
   onDragEnd: () => void;
   onSelect: (task: Task) => void;
   isDragDisabled?: boolean;
-  onCommentTooltipChange?: (isOpen: boolean) => void;
   isTasksShrunk?: boolean;
   availablePriorities?: PriorityOption[];
 }
@@ -53,13 +52,13 @@ export default function TaskCard({
   onDragEnd,
   onSelect,
   isDragDisabled = false,
-  onCommentTooltipChange,
   isTasksShrunk = false,
   availablePriorities = []
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<'above' | 'below'>('above');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
   const [isEditingDate, setIsEditingDate] = useState(false);
@@ -75,6 +74,8 @@ export default function TaskCard({
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentContainerRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
 
   // Check if any editing is active to disable drag
@@ -140,12 +141,17 @@ export default function TaskCard({
     return () => document.removeEventListener('click', handleClickOutside);
   }, [showMemberSelect, showPrioritySelect]);
 
-  // Notify parent when comment tooltip state changes
+  // Cleanup timeouts on unmount
   useEffect(() => {
-    if (onCommentTooltipChange) {
-      onCommentTooltipChange(showCommentTooltip);
-    }
-  }, [showCommentTooltip, onCommentTooltipChange]);
+    return () => {
+      if (commentTooltipTimeoutRef.current) {
+        clearTimeout(commentTooltipTimeoutRef.current);
+      }
+      if (commentTooltipShowTimeoutRef.current) {
+        clearTimeout(commentTooltipShowTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = () => {
     onCopy(task);
@@ -277,16 +283,38 @@ export default function TaskCard({
   };
 
   const handleCommentTooltipShow = () => {
+    // Clear any pending hide timeout
     if (commentTooltipTimeoutRef.current) {
       clearTimeout(commentTooltipTimeoutRef.current);
+      commentTooltipTimeoutRef.current = null;
     }
-    setShowCommentTooltip(true);
+    
+    // Clear any existing show timeout
+    if (commentTooltipShowTimeoutRef.current) {
+      clearTimeout(commentTooltipShowTimeoutRef.current);
+    }
+    
+    // Wait 1 second before showing tooltip
+    commentTooltipShowTimeoutRef.current = setTimeout(() => {
+      // Calculate best position for tooltip
+      const position = calculateTooltipPosition();
+      setTooltipPosition(position);
+      setShowCommentTooltip(true);
+      commentTooltipShowTimeoutRef.current = null;
+    }, 1000);
   };
 
   const handleCommentTooltipHide = () => {
+    // Cancel any pending show timeout when leaving
+    if (commentTooltipShowTimeoutRef.current) {
+      clearTimeout(commentTooltipShowTimeoutRef.current);
+      commentTooltipShowTimeoutRef.current = null;
+    }
+    
+    // Only hide after a delay to allow mouse movement into tooltip
     commentTooltipTimeoutRef.current = setTimeout(() => {
       setShowCommentTooltip(false);
-    }, 100);
+    }, 500); // Generous delay
   };
 
   const calculateDropdownPosition = () => {
@@ -296,6 +324,19 @@ export default function TaskCard({
       return spaceBelow < 150 ? 'above' : 'below';
     }
     return 'below';
+  };
+
+  const calculateTooltipPosition = () => {
+    if (commentContainerRef.current) {
+      const rect = commentContainerRef.current.getBoundingClientRect();
+      const spaceAbove = rect.top;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const tooltipHeight = 256; // max-h-64 = 256px
+      
+      // Prefer above, but use below if not enough space above
+      return spaceAbove >= tooltipHeight ? 'above' : spaceBelow >= tooltipHeight ? 'below' : 'above';
+    }
+    return 'above';
   };
 
   useEffect(() => {
@@ -335,7 +376,9 @@ export default function TaskCard({
       <div
         ref={setNodeRef}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
-        className={`task-card bg-white p-4 rounded-lg shadow-sm cursor-move relative transition-all duration-200 ${
+        className={`task-card sortable-item bg-white p-4 rounded-lg shadow-sm ${
+          isAnyEditingActive ? 'cursor-default' : 'cursor-move'
+        } relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         }`}
         {...attributes}
@@ -578,19 +621,14 @@ export default function TaskCard({
             {/* Comments - squeezed close to effort */}
             {validComments.length > 0 && (
               <div 
-                className="flex items-center gap-0.5 relative"
+                ref={commentContainerRef}
+                className="relative"
                 onMouseEnter={handleCommentTooltipShow}
                 onMouseLeave={handleCommentTooltipHide}
-                onMouseDown={(e) => {
-                  if (showCommentTooltip) {
-                    e.stopPropagation();
-                  }
-                }}
               >
-                <button
-                  onClick={() => onSelect(task)}
-                  className="flex items-center gap-0.5 hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
-                  title="Click to view comments and details"
+                <div
+                  className="flex items-center gap-0.5 rounded px-1 py-1"
+                  title="Hover to view comments"
                 >
                   <MessageCircle 
                     size={12} 
@@ -599,67 +637,70 @@ export default function TaskCard({
                   <span className="text-blue-600 font-medium text-xs">
                     {validComments.length}
                   </span>
-                </button>
+                </div>
               
-                {/* Comment Tooltip */}
+                {/* JavaScript-controlled Comment Tooltip */}
                 {showCommentTooltip && (
-                  <div 
-                    className="absolute bottom-full left-0 mb-2 w-80 bg-gray-800 text-white text-xs rounded-md p-3 shadow-lg z-50 max-h-64 overflow-y-auto"
-                    onMouseEnter={handleCommentTooltipShow}
-                    onMouseLeave={handleCommentTooltipHide}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onTouchStart={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{ pointerEvents: 'auto' }}
-                  >
-                    <div className="flex items-center justify-between mb-2 border-b border-gray-600 pb-1">
-                      <span className="text-gray-300 font-medium">
-                        Comments ({validComments.length})
-                      </span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelect(task);
-                        }}
-                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                      >
-                        Open
-                      </button>
-                    </div>
+                  <>
+                    {/* Invisible bridge to fill gap */}
+                    <div 
+                      className={`absolute left-0 w-full h-2 z-40 ${
+                        tooltipPosition === 'above' ? 'bottom-0' : 'top-0'
+                      }`}
+                      onMouseEnter={handleCommentTooltipShow}
+                      onMouseLeave={handleCommentTooltipHide}
+                    />
+                    <div 
+                      className={`comment-tooltip absolute left-0 w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-50 max-h-64 flex flex-col ${
+                        tooltipPosition === 'above' 
+                          ? 'bottom-full mb-1' 
+                          : 'top-full mt-1'
+                      }`}
+                      onMouseEnter={handleCommentTooltipShow}
+                      onMouseLeave={handleCommentTooltipHide}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Scrollable comments area */}
+                      <div className="p-3 overflow-y-auto flex-1">
                     {validComments
                       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                       .map((comment, index) => {
                         const author = members.find(m => m.id === comment.authorId);
                         
-                        // Function to convert URLs to clickable links
-                        const renderTextWithLinks = (text: string) => {
-                          const urlRegex = /(https?:\/\/[^\s]+)/g;
-                          const parts = text.split(urlRegex);
+                        // Function to render HTML content with safe link handling
+                        const renderCommentHTML = (htmlText: string) => {
+                          // Create a temporary div to parse the HTML
+                          const tempDiv = document.createElement('div');
+                          tempDiv.innerHTML = htmlText;
+                          
+                          // Find all links and update their attributes for safety
+                          const links = tempDiv.querySelectorAll('a');
+                          links.forEach(link => {
+                            link.setAttribute('target', '_blank');
+                            link.setAttribute('rel', 'noopener noreferrer');
+                            link.style.color = '#60a5fa'; // text-blue-400
+                            link.style.textDecoration = 'underline';
+                            link.style.wordBreak = 'break-all';
+                            link.style.cursor = 'pointer';
+                            
+                            // Add click handler
+                            link.addEventListener('click', (e) => {
+                              e.stopPropagation();
+                              window.open(link.href, '_blank', 'noopener,noreferrer');
+                            });
+                            
+                            link.addEventListener('mousedown', (e) => {
+                              e.stopPropagation();
+                            });
+                          });
                           
                           return (
-                            <>
-                              {parts.map((part, idx) => {
-                                if (urlRegex.test(part)) {
-                                  return (
-                                    <a
-                                      key={idx}
-                                      href={part}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-blue-400 hover:text-blue-300 underline break-all cursor-pointer"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        window.open(part, '_blank', 'noopener,noreferrer');
-                                      }}
-                                      onMouseDown={(e) => e.stopPropagation()}
-                                    >
-                                      {part}
-                                    </a>
-                                  );
-                                }
-                                return part;
-                              })}
-                            </>
+                            <span 
+                              dangerouslySetInnerHTML={{ __html: tempDiv.innerHTML }}
+                              className="select-text"
+                            />
                           );
                         };
 
@@ -676,13 +717,37 @@ export default function TaskCard({
                               </span>
                             </div>
                             <div className="text-gray-300 text-xs leading-relaxed select-text">
-                              {renderTextWithLinks(comment.text.replace(/<[^>]*>/g, ''))}
+                              {renderCommentHTML(comment.text)}
                             </div>
                           </div>
                         );
-                      })}
-                    <div className="absolute -bottom-1 left-2 w-2 h-2 bg-gray-800 transform rotate-45" />
-                  </div>
+                        })}
+                      </div>
+                      
+                      {/* Sticky footer */}
+                      <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
+                        <span className="text-gray-300 font-medium">
+                          Comments ({validComments.length})
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(task);
+                          }}
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                        >
+                          Open
+                        </button>
+                      </div>
+                      
+                      {/* Tooltip arrow */}
+                      <div className={`absolute left-2 w-2 h-2 bg-gray-800 transform rotate-45 ${
+                        tooltipPosition === 'above' 
+                          ? '-bottom-1' 
+                          : '-top-1'
+                      }`} />
+                    </div>
+                  </>
                 )}
               </div>
             )}
