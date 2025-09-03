@@ -27,6 +27,48 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
   const [showCollaboratorsDropdown, setShowCollaboratorsDropdown] = useState(false);
   const watchersDropdownRef = useRef<HTMLDivElement>(null);
   const collaboratorsDropdownRef = useRef<HTMLDivElement>(null);
+  const watchersButtonRef = useRef<HTMLButtonElement>(null);
+  const collaboratorsButtonRef = useRef<HTMLButtonElement>(null);
+  const tagsButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // State for dropdown positioning
+  const [watchersDropdownPosition, setWatchersDropdownPosition] = useState<'above' | 'below'>('below');
+  const [collaboratorsDropdownPosition, setCollaboratorsDropdownPosition] = useState<'above' | 'below'>('below');
+  const [tagsDropdownPosition, setTagsDropdownPosition] = useState<'above' | 'below'>('below');
+
+  // Helper function to calculate optimal dropdown position
+  const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
+    if (!buttonRef.current) return 'below';
+    
+    const buttonRect = buttonRef.current.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    
+    // Space available above and below the button
+    const spaceAbove = buttonRect.top;
+    const spaceBelow = viewportHeight - buttonRect.bottom;
+    
+    // Dropdown height estimate (max-h-48 = 192px + padding)
+    const dropdownHeight = 200;
+    
+    // Debug logging
+    console.log('Dropdown position calc:', {
+      spaceAbove,
+      spaceBelow,
+      dropdownHeight,
+      buttonTop: buttonRect.top,
+      buttonBottom: buttonRect.bottom,
+      viewportHeight
+    });
+    
+    // Prefer going up if there's enough space (more aggressive preference for upward)
+    if (spaceAbove >= dropdownHeight) {
+      console.log('Going above - enough space');
+      return 'above';
+    }
+    
+    console.log('Going below - not enough space above');
+    return 'below';
+  };
 
   // Load available tags, task tags, watchers, and collaborators on mount
   useEffect(() => {
@@ -127,6 +169,33 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     }
   };
 
+  // Handler for opening watchers dropdown with position calculation
+  const handleWatchersDropdownToggle = () => {
+    if (!showWatchersDropdown) {
+      const position = calculateDropdownPosition(watchersButtonRef);
+      setWatchersDropdownPosition(position);
+    }
+    setShowWatchersDropdown(!showWatchersDropdown);
+  };
+
+  // Handler for opening collaborators dropdown with position calculation
+  const handleCollaboratorsDropdownToggle = () => {
+    if (!showCollaboratorsDropdown) {
+      const position = calculateDropdownPosition(collaboratorsButtonRef);
+      setCollaboratorsDropdownPosition(position);
+    }
+    setShowCollaboratorsDropdown(!showCollaboratorsDropdown);
+  };
+
+  // Handler for opening tags dropdown with position calculation
+  const handleTagsDropdownToggle = () => {
+    if (!showTagsDropdown) {
+      const position = calculateDropdownPosition(tagsButtonRef);
+      setTagsDropdownPosition(position);
+    }
+    setShowTagsDropdown(!showTagsDropdown);
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Include current tags in the saved task
@@ -203,8 +272,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             </label>
             <div className="relative" ref={watchersDropdownRef}>
               <button
+                ref={watchersButtonRef}
                 type="button"
-                onClick={() => setShowWatchersDropdown(!showWatchersDropdown)}
+                onClick={handleWatchersDropdownToggle}
                 className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
               >
                 <span className="text-gray-700">
@@ -214,7 +284,11 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showWatchersDropdown && (
-                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                  watchersDropdownPosition === 'above' 
+                    ? 'bottom-full mb-1' 
+                    : 'top-full mt-1'
+                }`}>
                   {members.map(member => {
                     const isWatching = taskWatchers.some(w => w.id === member.id);
                     return (
@@ -269,8 +343,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             </label>
             <div className="relative" ref={collaboratorsDropdownRef}>
               <button
+                ref={collaboratorsButtonRef}
                 type="button"
-                onClick={() => setShowCollaboratorsDropdown(!showCollaboratorsDropdown)}
+                onClick={handleCollaboratorsDropdownToggle}
                 className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
               >
                 <span className="text-gray-700">
@@ -280,7 +355,11 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showCollaboratorsDropdown && (
-                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                  collaboratorsDropdownPosition === 'above' 
+                    ? 'bottom-full mb-1' 
+                    : 'top-full mt-1'
+                }`}>
                   {members.map(member => {
                     const isCollaborating = taskCollaborators.some(c => c.id === member.id);
                     return (
@@ -383,8 +462,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
             <div className="relative" ref={tagsDropdownRef}>
               <button
+                ref={tagsButtonRef}
                 type="button"
-                onClick={() => setShowTagsDropdown(!showTagsDropdown)}
+                onClick={handleTagsDropdownToggle}
                 className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
               >
                 <span className="text-gray-700">
@@ -397,7 +477,11 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showTagsDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto">
+                <div className={`absolute left-0 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                  tagsDropdownPosition === 'above' 
+                    ? 'bottom-full mb-1' 
+                    : 'top-full mt-1'
+                }`}>
                   {isLoadingTags ? (
                     <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
                   ) : availableTags.length === 0 ? (

@@ -5,6 +5,11 @@ export interface UserPreferences {
   isSearchActive: boolean;
   isAdvancedSearchExpanded: boolean;
   selectedTaskId: string | null;
+  selectedMembers: string[];
+  includeAssignees: boolean;
+  includeWatchers: boolean;
+  includeCollaborators: boolean;
+  includeRequesters: boolean;
   taskDetailsWidth: number;
   searchFilters: {
     text: string;
@@ -27,6 +32,11 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   isSearchActive: false, // Default to no search active
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   selectedTaskId: null, // Default to no task selected
+  selectedMembers: [], // Default to no members selected
+  includeAssignees: true, // Default to include assignees (maintains current behavior)
+  includeWatchers: false, // Default to not include watchers
+  includeCollaborators: false, // Default to not include collaborators
+  includeRequesters: false, // Default to not include requesters
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   searchFilters: {
     text: '',

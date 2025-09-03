@@ -31,7 +31,7 @@ interface MainLayoutProps {
   boards: Board[];
   selectedBoard: string | null;
   columns: Columns;
-  selectedMember: string | null;
+  selectedMembers: string[];
   draggedTask: Task | null;
   draggedColumn: any;
   dragPreview: any;
@@ -47,7 +47,17 @@ interface MainLayoutProps {
 
   
   // Event handlers
-  onSelectMember: (memberId: string | null) => void;
+  onSelectMember: (memberId: string) => void;
+  onClearMemberSelections: () => void;
+  onSelectAllMembers: () => void;
+  includeAssignees: boolean;
+  includeWatchers: boolean;
+  includeCollaborators: boolean;
+  includeRequesters: boolean;
+  onToggleAssignees: (include: boolean) => void;
+  onToggleWatchers: (include: boolean) => void;
+  onToggleCollaborators: (include: boolean) => void;
+  onToggleRequesters: (include: boolean) => void;
   onToggleTaskShrink: () => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
@@ -96,6 +106,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
         ) : (
           <KanbanPage
             currentUser={currentUser}
+            selectedTask={selectedTask}
             {...kanbanProps}
           />
         )}

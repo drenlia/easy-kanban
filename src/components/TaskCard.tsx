@@ -5,7 +5,6 @@ import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { getTaskWatchers, getTaskCollaborators } from '../api';
 
 // Helper function to get priority colors from hex
 const getPriorityColors = (hexColor: string) => {
@@ -38,6 +37,7 @@ interface TaskCardProps {
   isDragDisabled?: boolean;
   isTasksShrunk?: boolean;
   availablePriorities?: PriorityOption[];
+  selectedTask?: Task | null;
 }
 
 
@@ -54,7 +54,8 @@ export default function TaskCard({
   onSelect,
   isDragDisabled = false,
   isTasksShrunk = false,
-  availablePriorities = []
+  availablePriorities = [],
+  selectedTask = null
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -130,6 +131,9 @@ export default function TaskCard({
     return dueDate < today;
   };
 
+  // Check if this task is currently selected (TaskDetails panel is open for this task)
+  const isSelected = selectedTask?.id === task.id;
+
   // Track drag state for parent notifications
   useEffect(() => {
     if (isDragging && !wasDraggingRef.current) {
@@ -142,7 +146,7 @@ export default function TaskCard({
   }, [isDragging, task, onDragStart, onDragEnd]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (_event: MouseEvent) => {
       if (showMemberSelect) {
         setShowMemberSelect(false);
       }
@@ -167,25 +171,11 @@ export default function TaskCard({
     };
   }, []);
 
-  // Load watchers and collaborators count
+  // Update watchers and collaborators count from task data
   useEffect(() => {
-    const loadWatchersAndCollaborators = async () => {
-      try {
-        const [watchers, collaborators] = await Promise.all([
-          getTaskWatchers(task.id),
-          getTaskCollaborators(task.id)
-        ]);
-        setWatchersCount(watchers?.length || 0);
-        setCollaboratorsCount(collaborators?.length || 0);
-      } catch (error) {
-        console.error('Failed to load watchers/collaborators:', error);
-        setWatchersCount(0);
-        setCollaboratorsCount(0);
-      }
-    };
-
-    loadWatchersAndCollaborators();
-  }, [task.id]);
+    setWatchersCount(task.watchers?.length || 0);
+    setCollaboratorsCount(task.collaborators?.length || 0);
+  }, [task.watchers, task.collaborators]);
 
   const handleCopy = () => {
     onCopy(task);
@@ -374,7 +364,7 @@ export default function TaskCard({
   };
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const handleClickOutside = (_event: MouseEvent) => {
       if (showMemberSelect) {
         setShowMemberSelect(false);
       }
@@ -411,7 +401,7 @@ export default function TaskCard({
         ref={setNodeRef}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
         className={`task-card sortable-item ${
-          isOverdue() ? 'bg-red-50' : 'bg-white'
+          isSelected ? 'bg-gray-100' : isOverdue() ? 'bg-red-50' : 'bg-white'
         } p-4 rounded-lg shadow-sm ${
           isAnyEditingActive ? 'cursor-default' : 'cursor-move'
         } relative transition-all duration-200 ${

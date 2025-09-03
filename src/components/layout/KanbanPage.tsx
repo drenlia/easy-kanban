@@ -20,6 +20,7 @@ import LoadingSpinner from '../LoadingSpinner';
 
 interface KanbanPageProps {
   currentUser: CurrentUser | null;
+  selectedTask: Task | null;
   loading: {
     general: boolean;
     tasks: boolean;
@@ -30,7 +31,7 @@ interface KanbanPageProps {
   boards: Board[];
   selectedBoard: string | null;
   columns: Columns;
-  selectedMember: string | null;
+  selectedMembers: string[];
   draggedTask: Task | null;
   draggedColumn: any;
   dragPreview: any;
@@ -46,7 +47,17 @@ interface KanbanPageProps {
 
   
   // Event handlers
-  onSelectMember: (memberId: string | null) => void;
+  onSelectMember: (memberId: string) => void;
+  onClearMemberSelections: () => void;
+  onSelectAllMembers: () => void;
+  includeAssignees: boolean;
+  includeWatchers: boolean;
+  includeCollaborators: boolean;
+  includeRequesters: boolean;
+  onToggleAssignees: (include: boolean) => void;
+  onToggleWatchers: (include: boolean) => void;
+  onToggleCollaborators: (include: boolean) => void;
+  onToggleRequesters: (include: boolean) => void;
   onToggleTaskShrink: () => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
@@ -75,12 +86,13 @@ interface KanbanPageProps {
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
   currentUser,
+  selectedTask,
   loading,
   members,
   boards,
   selectedBoard,
   columns,
-  selectedMember,
+  selectedMembers,
   draggedTask,
   draggedColumn,
   dragPreview,
@@ -94,6 +106,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   sensors,
   collisionDetection,
   onSelectMember,
+  onClearMemberSelections,
+  onSelectAllMembers,
+  includeAssignees,
+  includeWatchers,
+  includeCollaborators,
+  includeRequesters,
+  onToggleAssignees,
+  onToggleWatchers,
+  onToggleCollaborators,
+  onToggleRequesters,
   onToggleTaskShrink,
   onToggleSearch,
   onSearchFiltersChange,
@@ -136,8 +158,19 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         <div className="flex-1">
           <TeamMembers
             members={members}
-            selectedMember={selectedMember}
+            selectedMembers={selectedMembers}
             onSelectMember={onSelectMember}
+            onClearSelections={onClearMemberSelections}
+            onSelectAll={onSelectAllMembers}
+            includeAssignees={includeAssignees}
+            includeWatchers={includeWatchers}
+            includeCollaborators={includeCollaborators}
+            includeRequesters={includeRequesters}
+            onToggleAssignees={onToggleAssignees}
+            onToggleWatchers={onToggleWatchers}
+            onToggleCollaborators={onToggleCollaborators}
+            onToggleRequesters={onToggleRequesters}
+            currentUserId={currentUser?.id}
           />
         </div>
       </div>
@@ -146,7 +179,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       {isSearchActive && (
         <SearchInterface
           filters={searchFilters}
-          members={members}
           availablePriorities={availablePriorities}
           onFiltersChange={onSearchFiltersChange}
         />
@@ -198,7 +230,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                         key={column.id}
                         column={column}
                         members={members}
-                        selectedMember={selectedMember}
+                        selectedMembers={selectedMembers}
+                        selectedTask={selectedTask}
                         draggedTask={draggedTask}
                         draggedColumn={draggedColumn}
                         dragPreview={dragPreview}
@@ -232,7 +265,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       key={column.id}
                       column={column}
                       members={members}
-                      selectedMember={selectedMember}
+                      selectedMembers={selectedMembers}
+                      selectedTask={selectedTask}
                       draggedTask={draggedTask}
                       draggedColumn={draggedColumn}
                       dragPreview={dragPreview}

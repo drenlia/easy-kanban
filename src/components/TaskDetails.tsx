@@ -64,14 +64,54 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   
   // Watchers and Collaborators state
-  const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>([]);
-  const [taskCollaborators, setTaskCollaborators] = useState<TeamMember[]>([]);
+  const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
+  const [taskCollaborators, setTaskCollaborators] = useState<TeamMember[]>(task.collaborators || []);
   const [showWatchersDropdown, setShowWatchersDropdown] = useState(false);
   const [showCollaboratorsDropdown, setShowCollaboratorsDropdown] = useState(false);
+  const [watchersDropdownPosition, setWatchersDropdownPosition] = useState<'above' | 'below'>('below');
+  const [collaboratorsDropdownPosition, setCollaboratorsDropdownPosition] = useState<'above' | 'below'>('below');
+  const [tagsDropdownPosition, setTagsDropdownPosition] = useState<'above' | 'below'>('below');
   const watchersDropdownRef = useRef<HTMLDivElement>(null);
   const collaboratorsDropdownRef = useRef<HTMLDivElement>(null);
+  const watchersButtonRef = useRef<HTMLButtonElement>(null);
+  const collaboratorsButtonRef = useRef<HTMLButtonElement>(null);
+  const tagsButtonRef = useRef<HTMLButtonElement>(null);
   const previousTaskIdRef = useRef<string | null>(null);
   const previousTaskRef = useRef<Task | null>(null);
+
+  // Helper function to calculate optimal dropdown position
+  const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
+    if (!buttonRef.current) return 'below';
+    
+    const buttonRect = buttonRef.current.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    
+    // Space available above and below the button
+    const spaceAbove = buttonRect.top;
+    const spaceBelow = viewportHeight - buttonRect.bottom;
+    
+    // Dropdown height estimate (max-h-48 = 192px + padding)
+    const dropdownHeight = 200;
+    
+    // Debug logging
+    console.log('TaskDetails dropdown position calc:', {
+      spaceAbove,
+      spaceBelow,
+      dropdownHeight,
+      buttonTop: buttonRect.top,
+      buttonBottom: buttonRect.bottom,
+      viewportHeight
+    });
+    
+    // Prefer going up if there's enough space (more aggressive preference for upward)
+    if (spaceAbove >= dropdownHeight) {
+      console.log('TaskDetails: Going above - enough space');
+      return 'above';
+    }
+    
+    console.log('TaskDetails: Going below - not enough space above');
+    return 'below';
+  };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -267,23 +307,22 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     handleTaskSwitch();
   }, [task]);
 
-  // Load available tags, task tags, priorities, watchers, and collaborators
+  // Load available tags, task tags, and priorities (watchers/collaborators come from task prop)
   useEffect(() => {
     const loadTaskData = async () => {
       try {
         setIsLoadingTags(true);
-        const [allTags, currentTaskTags, allPriorities, currentWatchers, currentCollaborators] = await Promise.all([
+        const [allTags, currentTaskTags, allPriorities] = await Promise.all([
           getAllTags(),
           getTaskTags(task.id),
-          getAllPriorities(),
-          getTaskWatchers(task.id),
-          getTaskCollaborators(task.id)
+          getAllPriorities()
         ]);
         setAvailableTags(allTags || []);
         setTaskTags(currentTaskTags || []);
         setAvailablePriorities(allPriorities || []);
-        setTaskWatchers(currentWatchers || []);
-        setTaskCollaborators(currentCollaborators || []);
+        // Update watchers and collaborators from task prop
+        setTaskWatchers(task.watchers || []);
+        setTaskCollaborators(task.collaborators || []);
       } catch (error) {
         console.error('Failed to load task data:', error);
       } finally {
@@ -292,7 +331,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     };
     
     loadTaskData();
-  }, [task.id]);
+  }, [task.id, task.watchers, task.collaborators]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -364,6 +403,33 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     } catch (error) {
       console.error('Failed to toggle collaborator:', error);
     }
+  };
+
+  // Handler for opening watchers dropdown with position calculation
+  const handleWatchersDropdownToggle = () => {
+    if (!showWatchersDropdown) {
+      const position = calculateDropdownPosition(watchersButtonRef);
+      setWatchersDropdownPosition(position);
+    }
+    setShowWatchersDropdown(!showWatchersDropdown);
+  };
+
+  // Handler for opening collaborators dropdown with position calculation
+  const handleCollaboratorsDropdownToggle = () => {
+    if (!showCollaboratorsDropdown) {
+      const position = calculateDropdownPosition(collaboratorsButtonRef);
+      setCollaboratorsDropdownPosition(position);
+    }
+    setShowCollaboratorsDropdown(!showCollaboratorsDropdown);
+  };
+
+  // Handler for opening tags dropdown with position calculation
+  const handleTagsDropdownToggle = () => {
+    if (!showTagsDropdown) {
+      const position = calculateDropdownPosition(tagsButtonRef);
+      setTagsDropdownPosition(position);
+    }
+    setShowTagsDropdown(!showTagsDropdown);
   };
 
   const handleAddComment = async (content: string, attachments: File[]) => {
@@ -580,15 +646,15 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       </div>
 
       <div className="flex-1 overflow-y-auto pl-2">
-        <div className="sticky top-0 bg-white border-b border-gray-200 p-6">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <div className="text-sm text-gray-500 mb-1">Task #{editedTask.id}</div>
+        <div className="bg-white border-b border-gray-200 p-6">
+          <div className="flex justify-between items-center mb-4">
+            <div className="w-full">
+              {/* <div className="text-sm text-gray-500 mb-1">Task #{editedTask.id}</div> */}
               <input
                 type="text"
                 value={editedTask.title}
                 onChange={e => handleTextUpdate('title', e.target.value)}
-                className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0"
+                className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 p-3 rounded"
                 disabled={isSubmitting}
               />
             </div>
@@ -605,7 +671,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
@@ -666,8 +732,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </label>
                 <div className="relative" ref={watchersDropdownRef}>
                   <button
+                    ref={watchersButtonRef}
                     type="button"
-                    onClick={() => setShowWatchersDropdown(!showWatchersDropdown)}
+                    onClick={handleWatchersDropdownToggle}
                     className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
                     disabled={isSubmitting}
                   >
@@ -678,7 +745,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   </button>
                   
                   {showWatchersDropdown && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                      watchersDropdownPosition === 'above' 
+                        ? 'bottom-full mb-1' 
+                        : 'top-full mt-1'
+                    }`}>
                       {members.map(member => {
                         const isWatching = taskWatchers.some(w => w.id === member.id);
                         return (
@@ -733,8 +804,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </label>
                 <div className="relative" ref={collaboratorsDropdownRef}>
                   <button
+                    ref={collaboratorsButtonRef}
                     type="button"
-                    onClick={() => setShowCollaboratorsDropdown(!showCollaboratorsDropdown)}
+                    onClick={handleCollaboratorsDropdownToggle}
                     className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
                     disabled={isSubmitting}
                   >
@@ -745,7 +817,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   </button>
                   
                   {showCollaboratorsDropdown && (
-                    <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                      collaboratorsDropdownPosition === 'above' 
+                        ? 'bottom-full mb-1' 
+                        : 'top-full mt-1'
+                    }`}>
                       {members.map(member => {
                         const isCollaborating = taskCollaborators.some(c => c.id === member.id);
                         return (
@@ -834,24 +910,24 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   disabled={isSubmitting}
                 />
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Priority
-              </label>
-              <select
-                value={editedTask.priority}
-                onChange={e => handleUpdate({ priority: e.target.value as Priority })}
-                className="w-full px-3 py-2 border rounded-md"
-                disabled={isSubmitting}
-              >
-                {availablePriorities.map(priority => (
-                  <option key={priority.id} value={priority.priority}>
-                    {priority.priority}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Priority
+                </label>
+                <select
+                  value={editedTask.priority}
+                  onChange={e => handleUpdate({ priority: e.target.value as Priority })}
+                  className="w-full px-3 py-2 border rounded-md"
+                  disabled={isSubmitting}
+                >
+                  {availablePriorities.map(priority => (
+                    <option key={priority.id} value={priority.priority}>
+                      {priority.priority}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Tags Selection */}
@@ -859,8 +935,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
               <div className="relative" ref={tagsDropdownRef}>
                 <button
+                  ref={tagsButtonRef}
                   type="button"
-                  onClick={() => setShowTagsDropdown(!showTagsDropdown)}
+                  onClick={handleTagsDropdownToggle}
                   className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
                 >
                   <span className="text-gray-700">
@@ -873,7 +950,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto">
+                  <div className={`absolute left-0 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                    tagsDropdownPosition === 'above' 
+                      ? 'bottom-full mb-1' 
+                      : 'top-full mt-1'
+                  }`}>
                     {isLoadingTags ? (
                       <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
                     ) : availableTags.length === 0 ? (
@@ -940,10 +1021,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         </div>
 
         <div className="p-6 border-t border-gray-200">
-          <h3 className="text-lg font-semibold mb-4">
+          <h3 className="text-lg font-semibold mb-3">
             Comments ({sortedComments.length})
           </h3>
-          <div className="mb-6">
+          <div className="mb-4">
             <CommentEditor 
               onSubmit={handleAddComment}
             />
