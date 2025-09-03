@@ -8,9 +8,11 @@ interface ProfileProps {
   onClose: () => void;
   currentUser: any;
   onProfileUpdated: () => void;
+  isProfileBeingEdited: boolean;
+  onProfileEditingChange: (isEditing: boolean) => void;
 }
 
-export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated }: ProfileProps) {
+export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange }: ProfileProps) {
 
   
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
@@ -18,17 +20,40 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Track original values to detect changes
+  const [originalDisplayName, setOriginalDisplayName] = useState(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
+  const [originalAvatarUrl, setOriginalAvatarUrl] = useState(currentUser?.avatarUrl || currentUser?.googleAvatarUrl || '');
 
-  // Reset form when modal opens
+  // Reset form when modal opens (but not when currentUser changes during editing)
   useEffect(() => {
-    if (isOpen) {
-      setDisplayName(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
+    if (isOpen && !isProfileBeingEdited) {
+      const initialDisplayName = currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '';
+      const initialAvatarUrl = currentUser?.avatarUrl || currentUser?.googleAvatarUrl || '';
+      
+      setDisplayName(initialDisplayName);
+      setOriginalDisplayName(initialDisplayName);
+      setOriginalAvatarUrl(initialAvatarUrl);
       setSelectedFile(null);
       setPreviewUrl(null);
       setError(null);
       setIsSubmitting(false);
+      onProfileEditingChange(false); // Reset editing state when modal opens
     }
-  }, [isOpen, currentUser]);
+  }, [isOpen, onProfileEditingChange]); // Removed currentUser dependency to prevent resets during editing
+
+  // Monitor for changes to display name or avatar to set editing state
+  useEffect(() => {
+    if (isOpen) {
+      const hasDisplayNameChanged = displayName.trim() !== originalDisplayName.trim();
+      const hasAvatarChanged = selectedFile !== null;
+      const isCurrentlyEditing = hasDisplayNameChanged || hasAvatarChanged;
+      
+      if (isCurrentlyEditing !== isProfileBeingEdited) {
+        onProfileEditingChange(isCurrentlyEditing);
+      }
+    }
+  }, [displayName, selectedFile, originalDisplayName, isOpen, isProfileBeingEdited, onProfileEditingChange]);
 
   // Handle file selection with live preview
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -110,6 +135,9 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       // Call the callback to refresh user data
       onProfileUpdated();
       
+      // Clear editing state after successful save
+      onProfileEditingChange(false);
+      
       // Close modal immediately
       onClose();
       
@@ -126,6 +154,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
+      // Clear editing state when modal is manually closed
+      onProfileEditingChange(false);
       onClose();
     }
   };

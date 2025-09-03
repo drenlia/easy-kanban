@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ChevronDown, Check } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
-import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities } from '../api';
+import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 
 interface QuickEditModalProps {
@@ -19,35 +19,53 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+  
+  // Watchers and Collaborators state
+  const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>([]);
+  const [taskCollaborators, setTaskCollaborators] = useState<TeamMember[]>([]);
+  const [showWatchersDropdown, setShowWatchersDropdown] = useState(false);
+  const [showCollaboratorsDropdown, setShowCollaboratorsDropdown] = useState(false);
+  const watchersDropdownRef = useRef<HTMLDivElement>(null);
+  const collaboratorsDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load available tags and task tags on mount
+  // Load available tags, task tags, watchers, and collaborators on mount
   useEffect(() => {
-    const loadTagData = async () => {
+    const loadTaskData = async () => {
       try {
         setIsLoadingTags(true);
-        const [allTags, currentTaskTags, allPriorities] = await Promise.all([
+        const [allTags, currentTaskTags, allPriorities, currentWatchers, currentCollaborators] = await Promise.all([
           getAllTags(),
           getTaskTags(task.id),
-          getAllPriorities()
+          getAllPriorities(),
+          getTaskWatchers(task.id),
+          getTaskCollaborators(task.id)
         ]);
         setAvailableTags(allTags || []);
         setTaskTags(currentTaskTags || []);
         setAvailablePriorities(allPriorities || []);
+        setTaskWatchers(currentWatchers || []);
+        setTaskCollaborators(currentCollaborators || []);
       } catch (error) {
-        console.error('Failed to load tag data:', error);
+        console.error('Failed to load task data:', error);
       } finally {
         setIsLoadingTags(false);
       }
     };
     
-    loadTagData();
+    loadTaskData();
   }, [task.id]);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (tagsDropdownRef.current && !tagsDropdownRef.current.contains(event.target as Node)) {
         setShowTagsDropdown(false);
+      }
+      if (watchersDropdownRef.current && !watchersDropdownRef.current.contains(event.target as Node)) {
+        setShowWatchersDropdown(false);
+      }
+      if (collaboratorsDropdownRef.current && !collaboratorsDropdownRef.current.contains(event.target as Node)) {
+        setShowCollaboratorsDropdown(false);
       }
     };
 
@@ -70,6 +88,42 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
       }
     } catch (error) {
       console.error('Failed to toggle tag:', error);
+    }
+  };
+
+  const toggleWatcher = async (member: TeamMember) => {
+    try {
+      const isWatching = taskWatchers.some(w => w.id === member.id);
+      
+      if (isWatching) {
+        // Remove watcher
+        await removeWatcherFromTask(task.id, member.id);
+        setTaskWatchers(prev => prev.filter(w => w.id !== member.id));
+      } else {
+        // Add watcher
+        await addWatcherToTask(task.id, member.id);
+        setTaskWatchers(prev => [...prev, member]);
+      }
+    } catch (error) {
+      console.error('Failed to toggle watcher:', error);
+    }
+  };
+
+  const toggleCollaborator = async (member: TeamMember) => {
+    try {
+      const isCollaborating = taskCollaborators.some(c => c.id === member.id);
+      
+      if (isCollaborating) {
+        // Remove collaborator
+        await removeCollaboratorFromTask(task.id, member.id);
+        setTaskCollaborators(prev => prev.filter(c => c.id !== member.id));
+      } else {
+        // Add collaborator
+        await addCollaboratorToTask(task.id, member.id);
+        setTaskCollaborators(prev => [...prev, member]);
+      }
+    } catch (error) {
+      console.error('Failed to toggle collaborator:', error);
     }
   };
 
@@ -140,6 +194,138 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Watchers Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Watchers
+            </label>
+            <div className="relative" ref={watchersDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowWatchersDropdown(!showWatchersDropdown)}
+                className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+              >
+                <span className="text-gray-700">
+                  {taskWatchers.length === 0 ? 'Select watchers...' : `${taskWatchers.length} watcher${taskWatchers.length !== 1 ? 's' : ''} selected`}
+                </span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              
+              {showWatchersDropdown && (
+                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  {members.map(member => {
+                    const isWatching = taskWatchers.some(w => w.id === member.id);
+                    return (
+                      <div
+                        key={member.id}
+                        onClick={() => toggleWatcher(member)}
+                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
+                      >
+                        <span>{member.name}</span>
+                        {isWatching && <Check className="w-4 h-4 text-green-500" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            
+            {/* Selected Watchers Display */}
+            {taskWatchers.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {taskWatchers.map(member => (
+                  <span
+                    key={member.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 border border-blue-300 text-blue-700 hover:opacity-80 transition-opacity"
+                  >
+                    <div 
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: member.color }}
+                    />
+                    {member.name}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleWatcher(member);
+                      }}
+                      className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                      title="Remove watcher"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Collaborators Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Collaborators
+            </label>
+            <div className="relative" ref={collaboratorsDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowCollaboratorsDropdown(!showCollaboratorsDropdown)}
+                className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+              >
+                <span className="text-gray-700">
+                  {taskCollaborators.length === 0 ? 'Select collaborators...' : `${taskCollaborators.length} collaborator${taskCollaborators.length !== 1 ? 's' : ''} selected`}
+                </span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+              
+              {showCollaboratorsDropdown && (
+                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  {members.map(member => {
+                    const isCollaborating = taskCollaborators.some(c => c.id === member.id);
+                    return (
+                      <div
+                        key={member.id}
+                        onClick={() => toggleCollaborator(member)}
+                        className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
+                      >
+                        <span>{member.name}</span>
+                        {isCollaborating && <Check className="w-4 h-4 text-green-500" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            
+            {/* Selected Collaborators Display */}
+            {taskCollaborators.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {taskCollaborators.map(member => (
+                  <span
+                    key={member.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-100 border border-green-300 text-green-700 hover:opacity-80 transition-opacity"
+                  >
+                    <div 
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: member.color }}
+                    />
+                    {member.name}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleCollaborator(member);
+                      }}
+                      className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                      title="Remove collaborator"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           <div>
@@ -246,7 +432,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 {taskTags.map(tag => (
                   <span
                     key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border hover:opacity-80 transition-opacity"
                     style={{ 
                       backgroundColor: `${tag.color || '#4ECDC4'}20`,
                       borderColor: tag.color || '#4ECDC4',
@@ -258,6 +444,17 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                       style={{ backgroundColor: tag.color || '#4ECDC4' }}
                     />
                     {tag.tag}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        toggleTag(tag);
+                      }}
+                      className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                      title="Remove tag"
+                    >
+                      ×
+                    </button>
                   </span>
                 ))}
               </div>

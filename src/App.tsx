@@ -38,6 +38,7 @@ import {
 } from './utils/routingUtils';
 import { 
   getFilteredColumns, 
+  getFilteredColumnsAsync,
   getFilteredTaskCountForBoard, 
   hasActiveFilters,
   wouldTaskBeFilteredOut 
@@ -59,6 +60,12 @@ export default function App() {
 
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  // Enhanced setSelectedTask that also updates user preferences
+  const handleSelectTask = (task: Task | null) => {
+    setSelectedTask(task);
+    updateUserPreference('selectedTaskId', task?.id || null);
+  };
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
@@ -68,9 +75,12 @@ export default function App() {
   const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
+  const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  const [isFilteringAsync, setIsFilteringAsync] = useState(false);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
@@ -137,11 +147,29 @@ export default function App() {
     currentSiteSettings: siteSettings,
     currentPriorities: availablePriorities,
     onBoardsUpdate: setBoards,
-    onMembersUpdate: setMembers,
+    onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
   });
+
+  // Restore selected task from preferences when tasks are loaded
+  useEffect(() => {
+    // Load fresh preferences to get the most up-to-date selectedTaskId
+    const freshPrefs = loadUserPreferences();
+    const savedTaskId = freshPrefs.selectedTaskId;
+    
+    if (savedTaskId && !selectedTask && Object.keys(columns).length > 0) {
+      // Find the task in all columns
+      for (const column of Object.values(columns)) {
+        const foundTask = column.tasks.find(task => task.id === savedTaskId);
+        if (foundTask) {
+          setSelectedTask(foundTask);
+          break;
+        }
+      }
+    }
+  }, [columns, selectedTask]);
 
 
   // Mock socket object for compatibility with existing UI (removed unused variable)
@@ -649,6 +677,11 @@ export default function App() {
 
   const handleRemoveTask = async (taskId: string) => {
     try {
+      // If the task being deleted is currently open in TaskDetails, close it first
+      if (selectedTask && selectedTask.id === taskId) {
+        handleSelectTask(null);
+      }
+      
       await api.deleteTask(taskId);
       await refreshBoardData(); // Refresh to ensure consistent state
       await fetchQueryLogs();
@@ -1112,10 +1145,43 @@ export default function App() {
     updateUserPreference('searchFilters', newFilters);
   };
 
+  // Enhanced async filtering effect
+  useEffect(() => {
+    const performFiltering = async () => {
+      if (!isSearchActive) {
+        setFilteredColumns(columns);
+        setIsFilteringAsync(false);
+        return;
+      }
 
+      // Check if we need enhanced search (watchers/collaborators)
+      const needsEnhancedSearch = searchFilters.text && searchFilters.text.trim().length > 0;
+      
+      if (needsEnhancedSearch) {
+        setIsFilteringAsync(true);
+        try {
+          const enhanced = await getFilteredColumnsAsync(columns, searchFilters, isSearchActive, members);
+          setFilteredColumns(enhanced);
+        } catch (error) {
+          console.error('Enhanced search failed, falling back to basic search:', error);
+          // Fallback to basic search
+          const basic = getFilteredColumns(columns, searchFilters, isSearchActive, members);
+          setFilteredColumns(basic);
+        } finally {
+          setIsFilteringAsync(false);
+        }
+      } else {
+        // Use basic filtering for non-text searches
+        const basic = getFilteredColumns(columns, searchFilters, isSearchActive, members);
+        setFilteredColumns(basic);
+        setIsFilteringAsync(false);
+      }
+    };
 
-  // Use extracted task filtering utilities
-  const filteredColumns = getFilteredColumns(columns, searchFilters, isSearchActive);
+    performFiltering();
+  }, [columns, searchFilters, isSearchActive, members]);
+
+  // Use filtered columns state
   const activeFilters = hasActiveFilters(searchFilters, isSearchActive);
   const getTaskCountForBoard = (board: Board) => getFilteredTaskCountForBoard(board, searchFilters, isSearchActive);
 
@@ -1150,10 +1216,12 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
               onUsersChanged={async () => {
                 try {
+                  console.log('🔄 Refreshing members data after admin user update...');
                   const loadedMembers = await api.getMembers();
                   setMembers(loadedMembers);
+                  console.log('✅ Members refreshed:', loadedMembers.length, 'members loaded');
                 } catch (error) {
-                  console.error('Failed to refresh members:', error);
+                  console.error('❌ Failed to refresh members:', error);
                 }
               }}
               onSettingsChanged={refreshSiteSettings}
@@ -1303,20 +1371,25 @@ export default function App() {
                                     onTaskDragStart={handleTaskDragStart}
                                     onTaskDragOver={handleTaskDragOver}
                                     onTaskDrop={handleTaskDrop}
-                                    onSelectTask={setSelectedTask}
+                                    onSelectTask={handleSelectTask}
       />
 
       <ModalManager
         selectedTask={selectedTask}
                                 members={members}
-        onTaskClose={() => setSelectedTask(null)}
+        onTaskClose={() => handleSelectTask(null)}
         onTaskUpdate={handleEditTask}
         showHelpModal={showHelpModal}
         onHelpClose={() => setShowHelpModal(false)}
         showProfileModal={showProfileModal}
         currentUser={currentUser}
-        onProfileClose={() => setShowProfileModal(false)}
+        onProfileClose={() => {
+          setShowProfileModal(false);
+          setIsProfileBeingEdited(false); // Reset editing state when modal closes
+        }}
         onProfileUpdated={handleProfileUpdated}
+        isProfileBeingEdited={isProfileBeingEdited}
+        onProfileEditingChange={setIsProfileBeingEdited}
       />
 
       {showDebug && (

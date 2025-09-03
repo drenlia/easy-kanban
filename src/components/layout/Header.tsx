@@ -38,7 +38,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="bg-white shadow-sm border-b border-gray-100">
+    <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
       <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <a 
@@ -143,15 +143,15 @@ const Header: React.FC<HeaderProps> = ({
             }`}
             title={
               isPolling 
-                ? 'Auto-refresh active (3s interval)'
-                : 'Auto-refresh paused'
+                ? 'refresh active (3s interval)'
+                : 'refresh paused'
             }
           >
             <div className={`w-2 h-2 rounded-full ${
               isPolling ? 'bg-blue-500' : 'bg-gray-400'
             }`} />
             <span className="hidden sm:inline">
-              {isPolling ? 'Auto-refresh' : 'Manual'}
+              {isPolling ? 'refresh' : 'Manual'}
             </span>
             {lastPollTime && (
               <span className="text-xs opacity-60 hidden md:inline">

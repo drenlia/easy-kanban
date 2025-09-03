@@ -214,8 +214,16 @@ export const updateUser = async (userId: string, userData: {
   lastName: string;
   email: string;
   isActive: boolean;
+  displayName?: string; // Optional since it's handled separately
 }) => {
-  const { data } = await api.put(`/admin/users/${userId}`, userData);
+  // Only send fields that the backend endpoint expects
+  const { firstName, lastName, email, isActive } = userData;
+  const { data } = await api.put(`/admin/users/${userId}`, { 
+    firstName, 
+    lastName, 
+    email, 
+    isActive 
+  });
   return data;
 };
 
@@ -299,6 +307,38 @@ export const addTagToTask = async (taskId: string, tagId: number) => {
 
 export const removeTagFromTask = async (taskId: string, tagId: number) => {
   const { data } = await api.delete(`/tasks/${taskId}/tags/${tagId}`);
+  return data;
+};
+
+// Task-Watchers associations
+export const getTaskWatchers = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/watchers`);
+  return data;
+};
+
+export const addWatcherToTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.post(`/tasks/${taskId}/watchers/${memberId}`);
+  return data;
+};
+
+export const removeWatcherFromTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.delete(`/tasks/${taskId}/watchers/${memberId}`);
+  return data;
+};
+
+// Task-Collaborators associations
+export const getTaskCollaborators = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/collaborators`);
+  return data;
+};
+
+export const addCollaboratorToTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.post(`/tasks/${taskId}/collaborators/${memberId}`);
+  return data;
+};
+
+export const removeCollaboratorFromTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.delete(`/tasks/${taskId}/collaborators/${memberId}`);
   return data;
 };
 

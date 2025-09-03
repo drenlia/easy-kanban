@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, X, Edit2, Info, MessageCircle, Copy, UserCircle2, Calendar } from 'lucide-react';
+import { Clock, X, Edit2, FileText, MessageCircle, Copy, Calendar, Eye, UserPlus } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption } from '../types';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { getTaskWatchers, getTaskCollaborators } from '../api';
 
 // Helper function to get priority colors from hex
 const getPriorityColors = (hexColor: string) => {
@@ -72,6 +73,8 @@ export default function TaskCard({
   const [editedDescription, setEditedDescription] = useState(task.description);
   const [showAllTags, setShowAllTags] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
+  const [watchersCount, setWatchersCount] = useState(0);
+  const [collaboratorsCount, setCollaboratorsCount] = useState(0);
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -116,6 +119,17 @@ export default function TaskCard({
     return formatToYYYYMMDDHHmmss(dateStr);
   };
 
+  // Check if task is overdue (due date is before today)
+  const isOverdue = () => {
+    if (!task.dueDate) return false;
+    const today = new Date();
+    const dueDate = new Date(task.dueDate);
+    // Set time to beginning of day for fair comparison
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
   // Track drag state for parent notifications
   useEffect(() => {
     if (isDragging && !wasDraggingRef.current) {
@@ -152,6 +166,26 @@ export default function TaskCard({
       }
     };
   }, []);
+
+  // Load watchers and collaborators count
+  useEffect(() => {
+    const loadWatchersAndCollaborators = async () => {
+      try {
+        const [watchers, collaborators] = await Promise.all([
+          getTaskWatchers(task.id),
+          getTaskCollaborators(task.id)
+        ]);
+        setWatchersCount(watchers?.length || 0);
+        setCollaboratorsCount(collaborators?.length || 0);
+      } catch (error) {
+        console.error('Failed to load watchers/collaborators:', error);
+        setWatchersCount(0);
+        setCollaboratorsCount(0);
+      }
+    };
+
+    loadWatchersAndCollaborators();
+  }, [task.id]);
 
   const handleCopy = () => {
     onCopy(task);
@@ -376,7 +410,9 @@ export default function TaskCard({
       <div
         ref={setNodeRef}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
-        className={`task-card sortable-item bg-white p-4 rounded-lg shadow-sm ${
+        className={`task-card sortable-item ${
+          isOverdue() ? 'bg-red-50' : 'bg-white'
+        } p-4 rounded-lg shadow-sm ${
           isAnyEditingActive ? 'cursor-default' : 'cursor-move'
         } relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
@@ -384,123 +420,140 @@ export default function TaskCard({
         {...attributes}
         {...listeners}
       >
-        {/* Title, Tags, and Action Buttons Row */}
-        <div className="flex justify-between items-start mb-2">
-          <div className="flex-1 mr-2">
-            {isEditingTitle ? (
-              <input
-                type="text"
-                value={editedTitle}
-                onChange={(e) => setEditedTitle(e.target.value)}
-                onBlur={handleTitleSave}
-                onKeyDown={handleTitleKeyDown}
-                className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
-                autoFocus
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <h3 
-                className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded text-sm"
-                onDoubleClick={handleTitleDoubleClick}
-                title="Double-click to edit"
-              >
-                {task.title}
-              </h3>
-            )}
-          </div>
+        {/* Overlay Toolbar - Positioned at top edge */}
+        <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
+          {/* Delete Button - Left Corner */}
+          <button
+            onClick={() => onRemove(task.id)}
+            className="absolute top-1 left-2 p-1 hover:bg-red-100 rounded-full transition-colors"
+            title="Delete Task"
+          >
+            <X size={14} className="text-red-500" />
+          </button>
           
-          <div className="flex flex-col items-end">
-            {/* Action Buttons */}
+          {/* Centered Action Buttons - Absolutely centered */}
+          <div className="flex justify-center">
             <div className="flex gap-1">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMemberSelect(!showMemberSelect);
-                }}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Change Assignee"
-              >
-                <UserCircle2 size={16} className="text-gray-500" />
-              </button>
               <button
                 onClick={handleCopy}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                 title="Copy Task"
               >
-                <Copy size={16} className="text-gray-500" />
+                <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
               </button>
               <button
                 onClick={() => setShowQuickEdit(true)}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                 title="Quick Edit"
               >
-                <Edit2 size={16} className="text-gray-500" />
+                <Edit2 size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
               </button>
               <button
                 onClick={() => onSelect(task)}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                 title="View Details"
               >
-                <Info size={16} className="text-gray-500" />
-              </button>
-              <button
-                onClick={() => onRemove(task.id)}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Delete Task"
-              >
-                <X size={16} className="text-gray-500" />
+                <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
               </button>
             </div>
-            
-            {/* Tags Section - Right underneath action buttons */}
-            {task.tags && task.tags.length > 0 && (
-              <div 
-                className="flex justify-end mt-0.5 relative"
-                onMouseEnter={() => setShowAllTags(true)}
-                onMouseLeave={() => setShowAllTags(false)}
-              >
-                <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
-                  showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
-                }`}>
-                  {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
-                    <span
-                      key={tag.id}
-                      className="px-1.5 py-0.5 rounded-full text-xs font-medium"
-                      style={(() => {
-                        if (!tag.color) {
-                          return { backgroundColor: '#6b7280', color: 'white' };
-                        }
-                        // Check if color is white or very light
-                        const hex = tag.color.replace('#', '');
-                        if (hex.toLowerCase() === 'ffffff' || hex.toLowerCase() === 'fff') {
-                          return { backgroundColor: tag.color, color: '#374151', border: '1px solid #d1d5db' };
-                        }
-                        // Use solid color background with white text
-                        return { backgroundColor: tag.color, color: 'white' };
-                      })()}
-                      title={tag.description || tag.tag}
-                    >
-                      {tag.tag}
-                    </span>
-                  ))}
-                  {!showAllTags && task.tags.length > 3 && (
-                    <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
-                      +{task.tags.length - 3}
-                    </span>
-                  )}
-                </div>
+          </div>
+
+          {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
+          <div className="absolute top-1 right-12 flex gap-1">
+            {watchersCount > 0 && (
+              <div className="flex items-center" title={`${watchersCount} watcher${watchersCount > 1 ? 's' : ''}`}>
+                <Eye size={12} className="text-blue-500" />
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{watchersCount}</span>
+              </div>
+            )}
+            {collaboratorsCount > 0 && (
+              <div className="flex items-center" title={`${collaboratorsCount} collaborator${collaboratorsCount > 1 ? 's' : ''}`}>
+                <UserPlus size={12} className="text-blue-500" />
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{collaboratorsCount}</span>
               </div>
             )}
           </div>
         </div>
 
+        {/* Avatar Overlay - Top Right */}
+        <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMemberSelect(!showMemberSelect);
+              }}
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm"
+              title="Change Assignee"
+            >
+              {member.avatarUrl || member.googleAvatarUrl ? (
+                <img
+                  src={member.avatarUrl || member.googleAvatarUrl}
+                  alt={member.name}
+                  className="w-8 h-8 rounded-full object-cover border-2 border-white"
+                />
+              ) : (
+                <div 
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white border-2 border-white"
+                  style={{ backgroundColor: member.color }}
+                >
+                  {member.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </button>
+            
+            {/* Member Selection Dropdown */}
+            {showMemberSelect && (
+              <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-[100] border border-gray-200">
+                {members.map(m => (
+                  <button
+                    key={m.id}
+                    onClick={() => handleMemberChange(m.id)}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
+                  >
+                    <div 
+                      className="w-4 h-4 rounded-full" 
+                      style={{ backgroundColor: m.color }}
+                    />
+                    <span>{m.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Title Row - Full Width */}
+        <div className="mb-2 mt-1">
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              onBlur={handleTitleCancel}
+              onKeyDown={handleTitleKeyDown}
+              className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
+              autoFocus
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <h3 
+              className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded text-sm pr-12"
+              onDoubleClick={handleTitleDoubleClick}
+              title="Double-click to edit"
+            >
+              {task.title}
+            </h3>
+          )}
+        </div>
+
         {/* Description Section */}
         {isEditingDescription ? (
-          <div className="mb-3">
+          <div className="-mt-2 mb-3">
             <textarea
               value={editedDescription}
               onChange={(e) => setEditedDescription(e.target.value)}
-              onBlur={handleDescriptionSave}
+              onBlur={handleDescriptionCancel}
               onKeyDown={handleDescriptionKeyDown}
               className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
               rows={3}
@@ -513,7 +566,7 @@ export default function TaskCard({
           </div>
         ) : (
           <div
-            className="text-sm text-gray-600 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
+            className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
             onDoubleClick={() => setIsEditingDescription(true)}
             title={isTasksShrunk && task.description.length > 60 ? task.description : "Double-click to edit description"}
           >
@@ -521,6 +574,46 @@ export default function TaskCard({
               ? `${task.description.substring(0, 60)}...` 
               : task.description
             }
+          </div>
+        )}
+
+        {/* Tags Section - Right Aligned */}
+        {task.tags && task.tags.length > 0 && (
+          <div 
+            className="flex justify-end mb-2 relative"
+            onMouseEnter={() => setShowAllTags(true)}
+            onMouseLeave={() => setShowAllTags(false)}
+          >
+            <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
+              showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
+            }`}>
+              {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
+                <span
+                  key={tag.id}
+                  className="px-1.5 py-0.5 rounded-full text-xs font-medium"
+                  style={(() => {
+                    if (!tag.color) {
+                      return { backgroundColor: '#6b7280', color: 'white' };
+                    }
+                    // Check if color is white or very light
+                    const hex = tag.color.replace('#', '');
+                    if (hex.toLowerCase() === 'ffffff' || hex.toLowerCase() === 'fff') {
+                      return { backgroundColor: tag.color, color: '#374151', border: '1px solid #d1d5db' };
+                    }
+                    // Use solid color background with white text
+                    return { backgroundColor: tag.color, color: 'white' };
+                  })()}
+                  title={tag.description || tag.tag}
+                >
+                  {tag.tag}
+                </span>
+              ))}
+              {!showAllTags && task.tags.length > 3 && (
+                <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
+                  +{task.tags.length - 3}
+                </span>
+              )}
+            </div>
           </div>
         )}
         
@@ -540,7 +633,7 @@ export default function TaskCard({
                     onChange={(e) => setEditedDate(e.target.value)}
                     onBlur={handleDateSave}
                     onKeyDown={handleDateKeyDown}
-                    className="text-xs bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-24 font-mono"
+                    className="text-[10px] bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-[100px] font-mono"
                     autoFocus
                     onClick={(e) => e.stopPropagation()}
                   />
@@ -567,7 +660,7 @@ export default function TaskCard({
                         onChange={(e) => setEditedDueDate(e.target.value)}
                         onBlur={handleDueDateSave}
                         onKeyDown={handleDueDateKeyDown}
-                        className="text-xs bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-24 block font-mono"
+                        className="text-[10px] bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-[100px] block font-mono"
                         autoFocus
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -651,7 +744,7 @@ export default function TaskCard({
                       onMouseLeave={handleCommentTooltipHide}
                     />
                     <div 
-                      className={`comment-tooltip absolute left-0 w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-50 max-h-64 flex flex-col ${
+                      className={`comment-tooltip absolute left-0 w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[100] max-h-64 flex flex-col ${
                         tooltipPosition === 'above' 
                           ? 'bottom-full mb-1' 
                           : 'top-full mt-1'
@@ -776,7 +869,7 @@ export default function TaskCard({
 
             {showPrioritySelect && (
               <div 
-                className={`absolute left-0 w-24 bg-white rounded-md shadow-lg z-50 border border-gray-200 ${
+                className={`absolute left-0 w-24 bg-white rounded-md shadow-lg z-[100] border border-gray-200 ${
                   dropdownPosition === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'
                 }`}
               >
@@ -804,23 +897,7 @@ export default function TaskCard({
         </div>
       </div>
 
-      {showMemberSelect && (
-        <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
-          {members.map(m => (
-            <button
-              key={m.id}
-              onClick={() => handleMemberChange(m.id)}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
-            >
-              <div 
-                className="w-4 h-4 rounded-full" 
-                style={{ backgroundColor: m.color }}
-              />
-              <span>{m.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
+
 
       {showQuickEdit && (
         <QuickEditModal

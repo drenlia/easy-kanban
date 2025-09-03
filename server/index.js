@@ -405,6 +405,13 @@ app.put('/api/users/profile', authenticateToken, (req, res) => {
 // Admin endpoints
 app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
+    // Prevent browser caching of admin user data
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    
     const users = wrapQuery(db.prepare(`
       SELECT u.*, GROUP_CONCAT(r.name) as roles, m.name as member_name, m.color as member_color
       FROM users u
@@ -420,6 +427,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       email: user.email,
       firstName: user.first_name,
       lastName: user.last_name,
+      displayName: user.member_name || `${user.first_name} ${user.last_name}`,
       roles: user.roles ? user.roles.split(',') : [],
       isActive: !!user.is_active,
       createdAt: user.created_at,
@@ -429,6 +437,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       memberColor: user.member_color
     }));
 
+    console.log('👥 Admin users endpoint called, returning', transformedUsers.length, 'users');
     res.json(transformedUsers);
   } catch (error) {
     console.error('Error fetching admin users:', error);
@@ -436,7 +445,39 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
   }
 });
 
-// Update user details
+// Admin member name update endpoint (MUST come before /:userId route)
+app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { displayName } = req.body;
+    
+    if (!displayName || displayName.trim().length === 0) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+    
+    console.log('🏷️ Updating member name for user:', userId, 'to:', displayName.trim());
+    
+    // Update the member's name in the members table
+    const updateMemberStmt = wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
+    const result = updateMemberStmt.run(displayName.trim(), userId);
+    
+    if (result.changes === 0) {
+      console.log('❌ No member found for user:', userId);
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    
+    console.log('✅ Member name updated successfully');
+    res.json({ 
+      message: 'Member name updated successfully',
+      displayName: displayName.trim()
+    });
+  } catch (error) {
+    console.error('Member name update error:', error);
+    res.status(500).json({ error: 'Failed to update member name' });
+  }
+});
+
+// Update user details (MUST come after more specific routes)
 app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
   const { userId } = req.params;
   const { email, firstName, lastName, isActive } = req.body;
@@ -458,9 +499,8 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (
       WHERE id = ?
     `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
 
-    // Update team member name if it exists
-    const displayName = `${firstName} ${lastName}`;
-    wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE').run(displayName, userId);
+    // Note: Member name is updated separately via /api/admin/users/:userId/member-name
+    // This allows for custom display names that differ from firstName + lastName
 
     res.json({ message: 'User updated successfully' });
   } catch (error) {
@@ -681,33 +721,7 @@ app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['a
   }
 });
 
-// Admin member name update endpoint
-app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { displayName } = req.body;
-    
-    if (!displayName || displayName.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required' });
-    }
-    
-    // Update the member's name in the members table
-    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    const result = updateMemberStmt.run(displayName.trim(), userId);
-    
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'Member not found' });
-    }
-    
-    res.json({ 
-      message: 'Member name updated successfully',
-      displayName: displayName.trim()
-    });
-  } catch (error) {
-    console.error('Member name update error:', error);
-    res.status(500).json({ error: 'Failed to update member name' });
-  }
-});
+
 
 // Admin tags endpoints
 app.get('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
@@ -1082,6 +1096,116 @@ app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error removing tag from task:', error);
     res.status(500).json({ error: 'Failed to remove tag from task' });
+  }
+});
+
+// Task-Watchers association endpoints
+app.get('/api/tasks/:taskId/watchers', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const watchers = wrapQuery(db.prepare(`
+      SELECT m.* FROM members m
+      JOIN watchers w ON m.id = w.memberId
+      WHERE w.taskId = ?
+      ORDER BY m.name ASC
+    `), 'SELECT').all(taskId);
+    
+    res.json(watchers);
+  } catch (error) {
+    console.error('Error fetching task watchers:', error);
+    res.status(500).json({ error: 'Failed to fetch task watchers' });
+  }
+});
+
+app.post('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    // Check if association already exists
+    const existing = wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    
+    if (existing) {
+      return res.status(409).json({ error: 'Member is already watching this task' });
+    }
+    
+    wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    res.json({ message: 'Watcher added to task successfully' });
+  } catch (error) {
+    console.error('Error adding watcher to task:', error);
+    res.status(500).json({ error: 'Failed to add watcher to task' });
+  }
+});
+
+app.delete('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    const result = wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Watcher association not found' });
+    }
+    
+    res.json({ message: 'Watcher removed from task successfully' });
+  } catch (error) {
+    console.error('Error removing watcher from task:', error);
+    res.status(500).json({ error: 'Failed to remove watcher from task' });
+  }
+});
+
+// Task-Collaborators association endpoints
+app.get('/api/tasks/:taskId/collaborators', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const collaborators = wrapQuery(db.prepare(`
+      SELECT m.* FROM members m
+      JOIN collaborators c ON m.id = c.memberId
+      WHERE c.taskId = ?
+      ORDER BY m.name ASC
+    `), 'SELECT').all(taskId);
+    
+    res.json(collaborators);
+  } catch (error) {
+    console.error('Error fetching task collaborators:', error);
+    res.status(500).json({ error: 'Failed to fetch task collaborators' });
+  }
+});
+
+app.post('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    // Check if association already exists
+    const existing = wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    
+    if (existing) {
+      return res.status(409).json({ error: 'Member is already collaborating on this task' });
+    }
+    
+    wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    res.json({ message: 'Collaborator added to task successfully' });
+  } catch (error) {
+    console.error('Error adding collaborator to task:', error);
+    res.status(500).json({ error: 'Failed to add collaborator to task' });
+  }
+});
+
+app.delete('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    const result = wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Collaborator association not found' });
+    }
+    
+    res.json({ message: 'Collaborator removed from task successfully' });
+  } catch (error) {
+    console.error('Error removing collaborator from task:', error);
+    res.status(500).json({ error: 'Failed to remove collaborator from task' });
   }
 });
 
