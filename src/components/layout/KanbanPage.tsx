@@ -72,6 +72,7 @@ interface KanbanPageProps {
   onDragEnd: (event: any) => void;
   onAddTask: (columnId: string) => Promise<void>;
   columnWarnings: {[columnId: string]: string};
+  onDismissColumnWarning: (columnId: string) => void;
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
@@ -130,6 +131,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onDragEnd,
   onAddTask,
   columnWarnings,
+  onDismissColumnWarning,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -223,47 +225,13 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 strategy={rectSortingStrategy}
               >
                 <div style={gridStyle}>
-                  {Object.values(filteredColumns)
+                  {Object.values(columns)
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
-                      <KanbanColumn
-                        key={column.id}
-                        column={column}
-                        members={members}
-                        selectedMembers={selectedMembers}
-                        selectedTask={selectedTask}
-                        draggedTask={draggedTask}
-                        draggedColumn={draggedColumn}
-                        dragPreview={dragPreview}
-                        onAddTask={onAddTask}
-                        columnWarnings={columnWarnings}
-                        onRemoveTask={onRemoveTask}
-                        onEditTask={onEditTask}
-                        onCopyTask={onCopyTask}
-                        onEditColumn={onEditColumn}
-                        onRemoveColumn={onRemoveColumn}
-                        onAddColumn={onAddColumn}
-                        onTaskDragStart={onTaskDragStart}
-                        onTaskDragEnd={() => {}}
-                        onTaskDragOver={onTaskDragOver}
-                        onTaskDrop={onTaskDrop}
-                        onSelectTask={onSelectTask}
-                        isAdmin={true}
-                        isTasksShrunk={isTasksShrunk}
-                        availablePriorities={availablePriorities}
-                      />
-                    ))}
-                </div>
-              </SortableContext>
-            ) : (
-              /* Regular user view */
-              <div style={gridStyle}>
-                {Object.values(filteredColumns)
-                  .sort((a, b) => (a.position || 0) - (b.position || 0))
-                  .map(column => (
-                    <KanbanColumn
+                                          <KanbanColumn
                       key={column.id}
                       column={column}
+                      filteredTasks={filteredColumns[column.id]?.tasks || []}
                       members={members}
                       selectedMembers={selectedMembers}
                       selectedTask={selectedTask}
@@ -272,6 +240,44 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       dragPreview={dragPreview}
                       onAddTask={onAddTask}
                       columnWarnings={columnWarnings}
+                      onDismissColumnWarning={onDismissColumnWarning}
+                      onRemoveTask={onRemoveTask}
+                      onEditTask={onEditTask}
+                      onCopyTask={onCopyTask}
+                      onEditColumn={onEditColumn}
+                      onRemoveColumn={onRemoveColumn}
+                      onAddColumn={onAddColumn}
+                      onTaskDragStart={onTaskDragStart}
+                      onTaskDragEnd={() => {}}
+                      onTaskDragOver={onTaskDragOver}
+                      onTaskDrop={onTaskDrop}
+                      onSelectTask={onSelectTask}
+                      isAdmin={true}
+                      isTasksShrunk={isTasksShrunk}
+                      availablePriorities={availablePriorities}
+                    />
+                    ))}
+                </div>
+              </SortableContext>
+            ) : (
+              /* Regular user view */
+              <div style={gridStyle}>
+                {Object.values(columns)
+                  .sort((a, b) => (a.position || 0) - (b.position || 0))
+                  .map(column => (
+                    <KanbanColumn
+                      key={column.id}
+                      column={column}
+                      filteredTasks={filteredColumns[column.id]?.tasks || []}
+                      members={members}
+                      selectedMembers={selectedMembers}
+                      selectedTask={selectedTask}
+                      draggedTask={draggedTask}
+                      draggedColumn={draggedColumn}
+                      dragPreview={dragPreview}
+                      onAddTask={onAddTask}
+                      columnWarnings={columnWarnings}
+                      onDismissColumnWarning={onDismissColumnWarning}
                       onRemoveTask={onRemoveTask}
                       onEditTask={onEditTask}
                       onCopyTask={onCopyTask}

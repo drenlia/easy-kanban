@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Plus, MoreVertical } from 'lucide-react';
+import { Plus, MoreVertical, X } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption } from '../types';
 import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -8,6 +8,7 @@ import { useDroppable } from '@dnd-kit/core';
 
 interface KanbanColumnProps {
   column: Column;
+  filteredTasks: Task[];
   members: TeamMember[];
   selectedMembers: string[];
   selectedTask: Task | null;
@@ -19,6 +20,7 @@ interface KanbanColumnProps {
   } | null;
   onAddTask: (columnId: string) => void;
   columnWarnings?: {[columnId: string]: string};
+  onDismissColumnWarning?: (columnId: string) => void;
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
@@ -37,6 +39,7 @@ interface KanbanColumnProps {
 
 export default function KanbanColumn({
   column,
+  filteredTasks,
   members,
   selectedMembers,
   selectedTask,
@@ -45,6 +48,7 @@ export default function KanbanColumn({
   dragPreview,
   onAddTask,
   columnWarnings,
+  onDismissColumnWarning,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -129,12 +133,7 @@ export default function KanbanColumn({
     transition,
   };
 
-  // Filter and sort tasks by column
-  const columnTasks = React.useMemo(() => {
-    return [...column.tasks]
-      .filter(task => task.columnId === column.id)
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-  }, [column.tasks, column.id]);
+  // Note: Now using filteredTasks prop instead of calculating here
 
   const handleTitleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,7 +164,10 @@ export default function KanbanColumn({
     
     const taskElements: React.ReactNode[] = [];
     
-    columnTasks.forEach((task, index) => {
+    // Always render all tasks in correct order for proper drop zone positioning
+    const tasksToRender = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+    
+    tasksToRender.forEach((task, index) => {
       const member = members.find(m => m.id === task.memberId);
       if (!member) return;
 
@@ -181,13 +183,17 @@ export default function KanbanColumn({
         );
       }
 
-      // Add the actual task (hide if it's being dragged)
+      // Add the actual task (hide if being dragged or filtered out)
       const isBeingDragged = draggedTask?.id === task.id;
+      const isFilteredOut = !filteredTasks.some(t => t.id === task.id);
+      
       taskElements.push(
         <div
           key={task.id}
           className={`transition-all duration-200 ${
             isBeingDragged ? 'opacity-50 scale-95' : ''
+          } ${
+            isFilteredOut ? 'h-0 overflow-hidden opacity-0 pointer-events-none !my-0' : '' // Hide filtered tasks with zero height and spacing
           }`}
         >
           <TaskCard
@@ -210,7 +216,7 @@ export default function KanbanColumn({
     });
     
     // Add placeholder at the end only when specifically dropping at end
-    if (isTargetColumn && insertIndex === columnTasks.length) {
+    if (isTargetColumn && insertIndex === tasksToRender.length) {
       taskElements.push(
         <div
           key="placeholder-end"
@@ -222,7 +228,7 @@ export default function KanbanColumn({
     }
     
     return taskElements;
-  }, [columnTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, dragPreview, draggedTask, column.id]);
+  }, [filteredTasks, column.tasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, dragPreview, draggedTask, column.id]);
 
   const isBeingDraggedOver = draggedColumn && draggedColumn.id !== column.id;
   
@@ -245,8 +251,20 @@ export default function KanbanColumn({
     >
       {/* Column Warning Message */}
       {columnWarnings && columnWarnings[column.id] && (
-        <div className="mb-3 bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded-md text-sm font-medium">
-          ⚠️ {columnWarnings[column.id]}
+        <div className="mb-3 bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
+          <div className="flex items-start gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span>{columnWarnings[column.id]}</span>
+          </div>
+          {onDismissColumnWarning && (
+            <button
+              onClick={() => onDismissColumnWarning(column.id)}
+              className="ml-2 text-yellow-600 hover:text-yellow-800 transition-colors flex-shrink-0"
+              title="Dismiss warning"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
       )}
       
@@ -340,7 +358,7 @@ export default function KanbanColumn({
       </div>
 
       <div className="flex-1 min-h-[100px]">
-        {columnTasks.length === 0 ? (
+        {filteredTasks.length === 0 ? (
           /* Empty column - no SortableContext to avoid interference */
           <div className="space-y-2 min-h-[100px] pb-4">
             <div className={`h-full w-full min-h-[100px] flex items-center justify-center transition-all duration-200 ${
@@ -348,7 +366,7 @@ export default function KanbanColumn({
                 ? `border-2 border-dashed rounded-lg ${
                     isOver ? 'bg-blue-100 border-blue-400' : 'bg-blue-50 border-blue-300'
                   }` 
-                : ''
+                : 'border border-dashed border-gray-200 rounded-lg bg-gray-25'
             }`}>
                               {draggedTask && draggedTask.columnId !== column.id ? (
                   <div className={`font-medium transition-colors ${
@@ -356,13 +374,20 @@ export default function KanbanColumn({
                   }`}>
                     {isOver ? 'Drop task here' : 'Drop zone'}
                   </div>
-                ) : null}
+                ) : (
+                  <div className="text-gray-400 text-sm font-medium">
+                    Drop tasks here
+                  </div>
+                )}
             </div>
           </div>
         ) : (
           /* Column with tasks - use SortableContext */
           <SortableContext
-            items={columnTasks.map(task => task.id)}
+            items={[...column.tasks]
+              .sort((a, b) => (a.position || 0) - (b.position || 0))
+              .map(task => task.id) // Always use ALL tasks for complete drop zone coverage
+            }
             strategy={verticalListSortingStrategy}
           >
             <div className="space-y-2 min-h-[100px] pb-4">

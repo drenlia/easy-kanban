@@ -585,20 +585,26 @@ export default function App() {
   };
 
   const handleAddTask = async (columnId: string) => {
-    if (selectedMembers.length === 0 || !selectedBoard) return;
-    // Use the first selected member for new task creation
-    const primaryMember = selectedMembers[0];
+    if (!selectedBoard || !currentUser) return;
+    
+    // Always assign new tasks to the logged-in user, not the filtered selection
+    const currentUserMember = members.find(m => m.user_id === currentUser.id);
+    if (!currentUserMember) {
+      console.error('Current user not found in members list');
+      return;
+    }
+    
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: 'Task description',
-      memberId: primaryMember,
+      memberId: currentUserMember.id,
       startDate: new Date().toISOString().split('T')[0],
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
       priority: getDefaultPriorityName(), // Use frontend default priority
-      requesterId: primaryMember,
+      requesterId: currentUserMember.id,
       boardId: selectedBoard,
       comments: []
     };
@@ -629,16 +635,8 @@ export default function App() {
       if (wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive)) {
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: 'Task created but hidden by active filters'
+          [columnId]: 'Task created but hidden by active filters. Tip: Hide search filters to see all tasks.'
         }));
-        
-        // Clear warning after 2 seconds
-        setTimeout(() => {
-          setColumnWarnings(prev => {
-            const { [columnId]: removed, ...rest } = prev;
-            return rest;
-          });
-        }, 2000);
       }
       
       // Resume polling after brief delay
@@ -1183,6 +1181,14 @@ export default function App() {
   };
 
   // Handle selecting all members
+  // Handle dismissing column warnings
+  const handleDismissColumnWarning = (columnId: string) => {
+    setColumnWarnings(prev => {
+      const { [columnId]: removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
   const handleSelectAllMembers = () => {
     const allMemberIds = members.map(m => m.id);
     setSelectedMembers(allMemberIds);
@@ -1591,6 +1597,7 @@ export default function App() {
                         }}
                                     onAddTask={handleAddTask}
                                     columnWarnings={columnWarnings}
+                                    onDismissColumnWarning={handleDismissColumnWarning}
                                     onRemoveTask={handleRemoveTask}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
