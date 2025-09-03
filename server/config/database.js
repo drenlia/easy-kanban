@@ -386,6 +386,76 @@ const initializeDefaultData = (db) => {
     // Column already exists, ignore error
   }
 
+  // Add missing created_at and updated_at columns (migration)
+  // SQLite doesn't support DEFAULT CURRENT_TIMESTAMP in ALTER TABLE, so we add columns then update
+  const alterQueries = [
+    // Add created_at to tables that don't have it
+    'ALTER TABLE boards ADD COLUMN created_at DATETIME',
+    'ALTER TABLE boards ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE columns ADD COLUMN created_at DATETIME',
+    'ALTER TABLE columns ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE tasks ADD COLUMN created_at DATETIME',
+    'ALTER TABLE tasks ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE attachments ADD COLUMN created_at DATETIME',
+    'ALTER TABLE attachments ADD COLUMN updated_at DATETIME',
+    
+    // Add updated_at to existing tables
+    'ALTER TABLE roles ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE users ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE user_roles ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE members ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE comments ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE tags ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE priorities ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE views ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE task_tags ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE watchers ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE collaborators ADD COLUMN updated_at DATETIME',
+    'ALTER TABLE activity ADD COLUMN created_at DATETIME',
+    'ALTER TABLE activity ADD COLUMN updated_at DATETIME'
+  ];
+
+  alterQueries.forEach(query => {
+    try {
+      db.prepare(query).run();
+    } catch (error) {
+      // Column already exists, ignore error
+    }
+  });
+
+  // Update NULL timestamp values to current timestamp
+  const updateQueries = [
+    'UPDATE boards SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
+    'UPDATE boards SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE columns SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
+    'UPDATE columns SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE tasks SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
+    'UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE attachments SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
+    'UPDATE attachments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE roles SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE user_roles SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE members SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE comments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE tags SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE priorities SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE views SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE task_tags SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE watchers SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE collaborators SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
+    'UPDATE activity SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
+    'UPDATE activity SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL'
+  ];
+
+  updateQueries.forEach(query => {
+    try {
+      db.prepare(query).run();
+    } catch (error) {
+      // Ignore errors (table might not exist or column might not be added yet)
+    }
+  });
+
   // Clean up orphaned members (members without corresponding users)
   try {
     const orphanedMembers = db.prepare(`

@@ -1,9 +1,11 @@
 import { Priority } from '../types';
 
 export type TaskViewMode = 'compact' | 'shrink' | 'expand';
+export type ViewMode = 'kanban' | 'list' | 'gantt';
 
 export interface UserPreferences {
   taskViewMode: TaskViewMode;
+  viewMode: ViewMode;
   isSearchActive: boolean;
   isAdvancedSearchExpanded: boolean;
   selectedTaskId: string | null;
@@ -31,6 +33,7 @@ const COOKIE_EXPIRY_DAYS = 365;
 // Default preferences
 export const DEFAULT_PREFERENCES: UserPreferences = {
   taskViewMode: 'expand', // Default to expand
+  viewMode: 'kanban', // Default to kanban view
   isSearchActive: false, // Default to no search active
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   selectedTaskId: null, // Default to no task selected

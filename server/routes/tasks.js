@@ -20,12 +20,13 @@ router.post('/', (req, res) => {
   const task = req.body;
   try {
     const { db } = req.app.locals;
+    const now = new Date().toISOString();
     wrapQuery(db.prepare(`
-      INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
       task.id, task.title, task.description, task.memberId, task.requesterId,
-      task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0
+      task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
     );
     res.json(task);
   } catch (error) {
@@ -39,14 +40,15 @@ router.post('/add-at-top', (req, res) => {
   const task = req.body;
   try {
     const { db } = req.app.locals;
+    const now = new Date().toISOString();
     db.transaction(() => {
       wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
       wrapQuery(db.prepare(`
-        INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `), 'INSERT').run(
         task.id, task.title, task.description, task.memberId, task.requesterId,
-        task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId
+        task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
       );
     })();
     res.json(task);
@@ -62,12 +64,13 @@ router.put('/:id', (req, res) => {
   const task = req.body;
   try {
     const { db } = req.app.locals;
+    const now = new Date().toISOString();
     wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
-      dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ? WHERE id = ?
+      dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ?, updated_at = ? WHERE id = ?
     `), 'UPDATE').run(
       task.title, task.description, task.memberId, task.requesterId, task.startDate,
-      task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, id
+      task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, id
     );
     res.json(task);
   } catch (error) {

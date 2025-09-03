@@ -55,6 +55,7 @@ export const calculateGridStyle = (columnCount: number): React.CSSProperties => 
     display: 'grid',
     gridTemplateColumns: `repeat(${gridCols}, minmax(300px, 1fr))`,
     gap: '1.5rem',
-    minWidth: 'max-content'
+    width: '100%',
+    minWidth: `${gridCols * 324}px` // Ensure minimum width for scrolling when needed
   };
 };
