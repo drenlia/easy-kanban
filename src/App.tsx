@@ -23,7 +23,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, updateUserPreference } from './utils/userPreferences';
+import { loadUserPreferences, updateUserPreference, TaskViewMode } from './utils/userPreferences';
 import { getAllPriorities, getTaskWatchers, getTaskCollaborators } from './api';
 import { 
   DEFAULT_COLUMNS, 
@@ -75,7 +75,7 @@ export default function App() {
   const [includeWatchers, setIncludeWatchers] = useState(userPrefs.includeWatchers);
   const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
-  const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
+  const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
@@ -1132,10 +1132,14 @@ export default function App() {
 
 
 
-  const handleToggleTaskShrink = () => {
-    const newValue = !isTasksShrunk;
-    setIsTasksShrunk(newValue);
-    updateUserPreference('isTasksShrunk', newValue);
+  const handleToggleTaskViewMode = () => {
+    const modes: TaskViewMode[] = ['compact', 'shrink', 'expand'];
+    const currentIndex = modes.indexOf(taskViewMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    const newMode = modes[nextIndex];
+    
+    setTaskViewMode(newMode);
+    updateUserPreference('taskViewMode', newMode);
   };
 
   const handleToggleSearch = () => {
@@ -1460,7 +1464,7 @@ export default function App() {
         draggedColumn={draggedColumn}
         dragPreview={dragPreview}
                       availablePriorities={availablePriorities}
-        isTasksShrunk={isTasksShrunk}
+        taskViewMode={taskViewMode}
         isSearchActive={isSearchActive}
         searchFilters={searchFilters}
         filteredColumns={filteredColumns}
@@ -1480,7 +1484,7 @@ export default function App() {
         onToggleWatchers={handleToggleWatchers}
         onToggleCollaborators={handleToggleCollaborators}
         onToggleRequesters={handleToggleRequesters}
-        onToggleTaskShrink={handleToggleTaskShrink}
+        onToggleTaskViewMode={handleToggleTaskViewMode}
         onToggleSearch={handleToggleSearch}
         onSearchFiltersChange={handleSearchFiltersChange}
                     onSelectBoard={handleBoardSelection}

@@ -9,6 +9,7 @@ import {
   Columns, 
   PriorityOption 
 } from '../../types';
+import { TaskViewMode } from '../../utils/userPreferences';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import SearchInterface from '../SearchInterface';
@@ -36,7 +37,7 @@ interface KanbanPageProps {
   draggedColumn: any;
   dragPreview: any;
   availablePriorities: PriorityOption[];
-  isTasksShrunk: boolean;
+  taskViewMode: TaskViewMode;
   isSearchActive: boolean;
   searchFilters: any;
   filteredColumns: Columns;
@@ -58,7 +59,7 @@ interface KanbanPageProps {
   onToggleWatchers: (include: boolean) => void;
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
-  onToggleTaskShrink: () => void;
+  onToggleTaskViewMode: () => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
   onSelectBoard: (boardId: string) => void;
@@ -98,7 +99,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   draggedColumn,
   dragPreview,
   availablePriorities,
-  isTasksShrunk,
+  taskViewMode,
   isSearchActive,
   searchFilters,
   filteredColumns,
@@ -117,7 +118,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleWatchers,
   onToggleCollaborators,
   onToggleRequesters,
-  onToggleTaskShrink,
+  onToggleTaskViewMode,
   onToggleSearch,
   onSearchFiltersChange,
   onSelectBoard,
@@ -152,8 +153,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       {/* Tools and Team Members in a flex container */}
       <div className="flex gap-4 mb-4">
         <Tools 
-          isTasksShrunk={isTasksShrunk}
-          onToggleTaskShrink={onToggleTaskShrink}
+          taskViewMode={taskViewMode}
+          onToggleTaskViewMode={onToggleTaskViewMode}
           isSearchActive={isSearchActive}
           onToggleSearch={onToggleSearch}
         />
@@ -253,7 +254,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTaskDrop={onTaskDrop}
                       onSelectTask={onSelectTask}
                       isAdmin={true}
-                      isTasksShrunk={isTasksShrunk}
+                      taskViewMode={taskViewMode}
                       availablePriorities={availablePriorities}
                     />
                     ))}
@@ -290,7 +291,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTaskDrop={onTaskDrop}
                       onSelectTask={onSelectTask}
                       isAdmin={false}
-                      isTasksShrunk={isTasksShrunk}
+                      taskViewMode={taskViewMode}
                       availablePriorities={availablePriorities}
                     />
                   ))}
@@ -327,7 +328,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                     onDragEnd={() => {}}
                     onSelect={() => {}}
                     isDragDisabled={true}
-                    isTasksShrunk={isTasksShrunk}
+                    taskViewMode={taskViewMode}
                     availablePriorities={availablePriorities}
                   />
                 </div>

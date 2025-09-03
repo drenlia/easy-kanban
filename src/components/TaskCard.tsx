@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Clock, X, Edit2, FileText, MessageCircle, Copy, Calendar, Eye, UserPlus } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption } from '../types';
+import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { useSortable } from '@dnd-kit/sortable';
@@ -35,7 +36,7 @@ interface TaskCardProps {
   onDragEnd: () => void;
   onSelect: (task: Task) => void;
   isDragDisabled?: boolean;
-  isTasksShrunk?: boolean;
+  taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
   selectedTask?: Task | null;
 }
@@ -53,7 +54,7 @@ export default function TaskCard({
   onDragEnd,
   onSelect,
   isDragDisabled = false,
-  isTasksShrunk = false,
+  taskViewMode = 'expand',
   availablePriorities = [],
   selectedTask = null
 }: TaskCardProps) {
@@ -538,33 +539,37 @@ export default function TaskCard({
         </div>
 
         {/* Description Section */}
-        {isEditingDescription ? (
-          <div className="-mt-2 mb-3">
-            <textarea
-              value={editedDescription}
-              onChange={(e) => setEditedDescription(e.target.value)}
-              onBlur={handleDescriptionCancel}
-              onKeyDown={handleDescriptionKeyDown}
-              className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
-              rows={3}
-              onClick={(e) => e.stopPropagation()}
-              placeholder="Enter task description..."
-            />
-            <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-              <span>Press Enter to save, Shift+Enter for new line, Escape to cancel</span>
-            </div>
-          </div>
-        ) : (
-          <div
-            className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
-            onDoubleClick={() => setIsEditingDescription(true)}
-            title={isTasksShrunk && task.description.length > 60 ? task.description : "Double-click to edit description"}
-          >
-            {isTasksShrunk && task.description.length > 60 
-              ? `${task.description.substring(0, 60)}...` 
-              : task.description
-            }
-          </div>
+        {taskViewMode !== 'compact' && (
+          <>
+            {isEditingDescription ? (
+              <div className="-mt-2 mb-3">
+                <textarea
+                  value={editedDescription}
+                  onChange={(e) => setEditedDescription(e.target.value)}
+                  onBlur={handleDescriptionCancel}
+                  onKeyDown={handleDescriptionKeyDown}
+                  className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
+                  rows={3}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="Enter task description..."
+                />
+                <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                  <span>Press Enter to save, Shift+Enter for new line, Escape to cancel</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
+                onDoubleClick={() => setIsEditingDescription(true)}
+                title={taskViewMode === 'shrink' && task.description.length > 60 ? task.description : "Double-click to edit description"}
+              >
+                {taskViewMode === 'shrink' && task.description.length > 60 
+                  ? `${task.description.substring(0, 60)}...` 
+                  : task.description
+                }
+              </div>
+            )}
+          </>
         )}
 
         {/* Tags Section - Right Aligned */}

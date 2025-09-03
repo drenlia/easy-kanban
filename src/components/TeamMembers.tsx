@@ -190,6 +190,13 @@ export default function TeamMembers({
         </div>
       </div>
 
+      {/* Warning when no checkboxes are selected */}
+      {!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters && (
+        <div className="mb-2 text-xs text-red-400 bg-red-50 px-2 py-1 rounded border border-red-200">
+          ⚠️ No filter options selected. Select at least one option above to display tasks.
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
         {members.map(member => {
           const isSelected = selectedMembers.includes(member.id);

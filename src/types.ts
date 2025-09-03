@@ -106,11 +106,6 @@ export interface SearchFilters {
   selectedTags: string[];
 }
 
-export interface UserPreferences {
-  isTasksShrunk: boolean;
-  isSearchActive: boolean;
-  searchFilters: SearchFilters;
-}
 
 export interface SiteSettings {
   SITE_NAME: string;
