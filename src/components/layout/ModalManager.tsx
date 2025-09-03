@@ -20,6 +20,8 @@ interface ModalManagerProps {
   currentUser: CurrentUser | null;
   onProfileClose: () => void;
   onProfileUpdated: () => Promise<void>;
+  isProfileBeingEdited: boolean;
+  onProfileEditingChange: (isEditing: boolean) => void;
 }
 
 const ModalManager: React.FC<ModalManagerProps> = ({
@@ -33,20 +35,20 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   currentUser,
   onProfileClose,
   onProfileUpdated,
+  isProfileBeingEdited,
+  onProfileEditingChange,
 }) => {
   return (
     <>
       {/* Task Details Modal */}
       {selectedTask && (
-        <div className="fixed top-0 right-0 h-full">
-          <TaskDetails
-            task={selectedTask}
-            members={members}
-            currentUser={currentUser}
-            onClose={onTaskClose}
-            onUpdate={onTaskUpdate}
-          />
-        </div>
+        <TaskDetails
+          task={selectedTask}
+          members={members}
+          currentUser={currentUser}
+          onClose={onTaskClose}
+          onUpdate={onTaskUpdate}
+        />
       )}
 
       {/* Help Modal */}
@@ -61,11 +63,16 @@ const ModalManager: React.FC<ModalManagerProps> = ({
         onClose={onProfileClose} 
         currentUser={currentUser ? {
           ...currentUser,
-          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`,
+          // Only update displayName from members if not currently being edited
+          displayName: isProfileBeingEdited 
+            ? currentUser.displayName // Keep current displayName while editing
+            : members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`,
           // Ensure authProvider is explicitly set
           authProvider: currentUser?.authProvider || 'local'
         } : null}
         onProfileUpdated={onProfileUpdated}
+        isProfileBeingEdited={isProfileBeingEdited}
+        onProfileEditingChange={onProfileEditingChange}
       />
     </>
   );

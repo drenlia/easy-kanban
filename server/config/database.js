@@ -185,6 +185,26 @@ const createTables = (db) => {
       UNIQUE(taskId, tagId)
     );
 
+    CREATE TABLE IF NOT EXISTS watchers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taskId TEXT NOT NULL,
+      memberId TEXT NOT NULL,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (memberId) REFERENCES members(id) ON DELETE CASCADE,
+      UNIQUE(taskId, memberId)
+    );
+
+    CREATE TABLE IF NOT EXISTS collaborators (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      taskId TEXT NOT NULL,
+      memberId TEXT NOT NULL,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (memberId) REFERENCES members(id) ON DELETE CASCADE,
+      UNIQUE(taskId, memberId)
+    );
+
     CREATE TABLE IF NOT EXISTS activity (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId TEXT NOT NULL,
@@ -195,6 +215,12 @@ const createTables = (db) => {
       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    -- Create indexes for better query performance
+    CREATE INDEX IF NOT EXISTS idx_watchers_taskId ON watchers(taskId);
+    CREATE INDEX IF NOT EXISTS idx_watchers_memberId ON watchers(memberId);
+    CREATE INDEX IF NOT EXISTS idx_collaborators_taskId ON collaborators(taskId);
+    CREATE INDEX IF NOT EXISTS idx_collaborators_memberId ON collaborators(memberId);
   `);
 };
 

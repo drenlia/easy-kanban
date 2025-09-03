@@ -4,6 +4,8 @@ export interface UserPreferences {
   isTasksShrunk: boolean;
   isSearchActive: boolean;
   isAdvancedSearchExpanded: boolean;
+  selectedTaskId: string | null;
+  taskDetailsWidth: number;
   searchFilters: {
     text: string;
     dateFrom: string;
@@ -24,6 +26,8 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   isTasksShrunk: false, // Default to expand
   isSearchActive: false, // Default to no search active
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
+  selectedTaskId: null, // Default to no task selected
+  taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   searchFilters: {
     text: '',
     dateFrom: '',

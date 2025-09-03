@@ -3,29 +3,58 @@ import { wrapQuery } from '../utils/queryLogger.js';
 
 const router = express.Router();
 
-// Get all boards with columns and tasks
+// Get all boards with columns and tasks (including tags)
 router.get('/', (req, res) => {
   try {
     const { db } = req.app.locals;
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
     const columnsStmt = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
-    const tasksStmt = wrapQuery(db.prepare('SELECT * FROM tasks WHERE columnId = ? ORDER BY position ASC'), 'SELECT');
-    const commentsStmt = wrapQuery(db.prepare('SELECT * FROM comments WHERE taskId = ? ORDER BY createdAt ASC'), 'SELECT');
+    
+    // Updated query to include tags - matches index_old.js working version
+    const tasksStmt = wrapQuery(
+      db.prepare(`
+        SELECT t.*, 
+          json_group_array(
+            DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
+              'id', c.id,
+              'text', c.text,
+              'authorId', c.authorId,
+              'createdAt', c.createdAt
+            ) ELSE NULL END
+          ) as comments,
+          json_group_array(
+            DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+              'id', tag.id,
+              'tag', tag.tag,
+              'description', tag.description,
+              'color', tag.color
+            ) ELSE NULL END
+          ) as tags
+        FROM tasks t
+        LEFT JOIN comments c ON c.taskId = t.id
+        LEFT JOIN task_tags tt ON tt.taskId = t.id
+        LEFT JOIN tags tag ON tag.id = tt.tagId
+        WHERE t.columnId = ?
+        GROUP BY t.id
+        ORDER BY t.position ASC
+      `),
+      'SELECT'
+    );
 
     const boardsWithData = boards.map(board => {
       const columns = columnsStmt.all(board.id);
       const columnsObj = {};
       
       columns.forEach(column => {
-        const tasks = tasksStmt.all(column.id);
-        const tasksWithComments = tasks.map(task => ({
+        const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
-          comments: commentsStmt.all(task.id)
+          comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
+          tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean)
         }));
         
         columnsObj[column.id] = {
           ...column,
-          tasks: tasksWithComments
+          tasks: tasks
         };
       });
       
@@ -35,6 +64,7 @@ router.get('/', (req, res) => {
       };
     });
 
+    console.log('📋 Boards endpoint called, returning', boardsWithData.length, 'boards with tags included');
     res.json(boardsWithData);
   } catch (error) {
     console.error('Error fetching boards:', error);

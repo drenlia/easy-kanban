@@ -6,6 +6,13 @@ const router = express.Router();
 // Get all members
 router.get('/', (req, res) => {
   try {
+    // Prevent browser caching of member data
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    
     const { db } = req.app.locals;
     const stmt = wrapQuery(db.prepare(`
       SELECT 
@@ -27,6 +34,7 @@ router.get('/', (req, res) => {
       googleAvatarUrl: member.google_avatar_url
     }));
     
+    console.log('📊 Members endpoint called, returning', transformedMembers.length, 'members');
     res.json(transformedMembers);
   } catch (error) {
     console.error('Error fetching members:', error);

@@ -375,27 +375,39 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   };
 
   const handleSaveUser = async (userData: any) => {
+    console.log('👤 Admin saving user:', userData.id, 'displayName:', userData.displayName);
+    
     // Update user basic info
+    console.log('📝 Updating user basic info...');
     await updateUser(userData.id, userData);
+    console.log('✅ User basic info updated');
     
     // Update display name in members table
     if (userData.displayName) {
+      console.log('🏷️ Updating member display name to:', userData.displayName.trim());
       await api.put(`/admin/users/${userData.id}/member-name`, { 
         displayName: userData.displayName.trim() 
       });
+      console.log('✅ Member display name updated');
     }
     
     // Upload avatar if selected
     if (userData.selectedFile) {
+      console.log('📷 Uploading avatar...');
       const formData = new FormData();
       formData.append('avatar', userData.selectedFile);
       await api.post(`/admin/users/${userData.id}/avatar`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
+      console.log('✅ Avatar uploaded');
     }
     
+    console.log('🔄 Reloading admin data...');
     await loadData(); // Reload users
+    console.log('✅ Admin data reloaded');
+    
     if (onUsersChanged) {
+      console.log('🔄 Triggering main app members refresh...');
       onUsersChanged();
     }
     setError(null);

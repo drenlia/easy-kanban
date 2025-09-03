@@ -143,7 +143,7 @@ export default function SearchInterface({
           <div className="relative">
             <input
               type="text"
-              placeholder="Search tasks..."
+              placeholder="Search title, description, comments, requester, watchers, collaborators..."
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}
               className="w-[280px] px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
