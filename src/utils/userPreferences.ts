@@ -1,7 +1,9 @@
 import { Priority } from '../types';
 
+export type TaskViewMode = 'compact' | 'shrink' | 'expand';
+
 export interface UserPreferences {
-  isTasksShrunk: boolean;
+  taskViewMode: TaskViewMode;
   isSearchActive: boolean;
   isAdvancedSearchExpanded: boolean;
   selectedTaskId: string | null;
@@ -28,7 +30,7 @@ const COOKIE_EXPIRY_DAYS = 365;
 
 // Default preferences
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  isTasksShrunk: false, // Default to expand
+  taskViewMode: 'expand', // Default to expand
   isSearchActive: false, // Default to no search active
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   selectedTaskId: null, // Default to no task selected

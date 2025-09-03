@@ -235,7 +235,7 @@ export default function SearchInterface({
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 min-w-[180px] max-h-60 overflow-y-auto">
                     {availableTags.map(tag => (
                       <div
                         key={tag.id}
@@ -347,7 +347,7 @@ export default function SearchInterface({
               </button>
               
               {showPriorityDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[150px] max-h-60 overflow-y-auto">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 min-w-[150px] max-h-60 overflow-y-auto">
                   {availablePriorities.map(priorityOption => (
                     <div
                       key={priorityOption.id}

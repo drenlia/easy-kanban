@@ -1,16 +1,17 @@
 import React from 'react';
-import { Minimize2, Maximize2, Search } from 'lucide-react';
+import { Minimize2, Maximize2, Search, Minus } from 'lucide-react';
+import { TaskViewMode } from '../utils/userPreferences';
 
 interface ToolsProps {
-  isTasksShrunk: boolean;
-  onToggleTaskShrink: () => void;
+  taskViewMode: TaskViewMode;
+  onToggleTaskViewMode: () => void;
   isSearchActive: boolean;
   onToggleSearch: () => void;
 }
 
 export default function Tools({
-  isTasksShrunk,
-  onToggleTaskShrink,
+  taskViewMode,
+  onToggleTaskViewMode,
   isSearchActive,
   onToggleSearch
 }: ToolsProps) {
@@ -34,17 +35,23 @@ export default function Tools({
           <Search size={16} />
         </button>
 
-        {/* Task Shrink Toggle */}
+        {/* Task View Mode Toggle */}
         <button
-          onClick={onToggleTaskShrink}
+          onClick={onToggleTaskViewMode}
           className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
-            isTasksShrunk
+            taskViewMode !== 'expand'
               ? 'bg-blue-100 text-blue-700 border border-blue-200'
               : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
           }`}
-          title={isTasksShrunk ? 'Expand task descriptions' : 'Shrink task descriptions'}
+          title={
+            taskViewMode === 'compact' ? 'Switch to shrink view (truncated descriptions)' :
+            taskViewMode === 'shrink' ? 'Switch to expand view (full descriptions)' :
+            'Switch to compact view (no descriptions)'
+          }
         >
-          {isTasksShrunk ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+          {taskViewMode === 'compact' ? <Minus size={16} /> :
+           taskViewMode === 'shrink' ? <Minimize2 size={16} /> :
+           <Maximize2 size={16} />}
         </button>
       </div>
     </div>
