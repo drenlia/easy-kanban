@@ -138,7 +138,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleRoleChange = async (userId: string, action: 'promote' | 'demote') => {
     try {
-      await api.put(`/admin/users/${userId}/role`, { action });
+      const role = action === 'promote' ? 'admin' : 'user';
+      await api.put(`/admin/users/${userId}/role`, { role });
       await loadData(); // Reload users
     } catch (err) {
       setError(`Failed to ${action} user`);

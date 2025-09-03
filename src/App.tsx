@@ -6,6 +6,7 @@ import {
   Columns, 
   Board, 
   PriorityOption, 
+  Tag,
   QueryLog, 
   DragPreview 
 } from './types';
@@ -23,8 +24,8 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, updateUserPreference, TaskViewMode } from './utils/userPreferences';
-import { getAllPriorities, getTaskWatchers, getTaskCollaborators } from './api';
+import { loadUserPreferences, updateUserPreference, TaskViewMode, ViewMode } from './utils/userPreferences';
+import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -76,11 +77,13 @@ export default function App() {
   const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
+  const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
   const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
@@ -370,10 +373,11 @@ export default function App() {
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-                  const [loadedMembers, loadedBoards, loadedPriorities] = await Promise.all([
+                  const [loadedMembers, loadedBoards, loadedPriorities, loadedTags] = await Promise.all([
           api.getMembers(),
           api.getBoards(),
-          getAllPriorities()
+          getAllPriorities(),
+          getAllTags()
         ]);
           
 
@@ -381,6 +385,7 @@ export default function App() {
           setMembers(loadedMembers);
           setBoards(loadedBoards);
           setAvailablePriorities(loadedPriorities || []);
+          setAvailableTags(loadedTags || []);
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -1143,6 +1148,11 @@ export default function App() {
     updateUserPreference('taskViewMode', newMode);
   };
 
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    updateUserPreference('viewMode', mode);
+  };
+
   const handleToggleSearch = () => {
     const newValue = !isSearchActive;
     setIsSearchActive(newValue);
@@ -1445,6 +1455,7 @@ export default function App() {
         draggedColumn={draggedColumn}
         dragPreview={dragPreview}
                       availablePriorities={availablePriorities}
+        availableTags={availableTags}
         taskViewMode={taskViewMode}
         isSearchActive={isSearchActive}
         searchFilters={searchFilters}
@@ -1466,6 +1477,8 @@ export default function App() {
         onToggleCollaborators={handleToggleCollaborators}
         onToggleRequesters={handleToggleRequesters}
         onToggleTaskViewMode={handleToggleTaskViewMode}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
         onToggleSearch={handleToggleSearch}
         onSearchFiltersChange={handleSearchFiltersChange}
                     onSelectBoard={handleBoardSelection}

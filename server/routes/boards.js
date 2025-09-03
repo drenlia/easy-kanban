@@ -13,7 +13,9 @@ router.get('/', (req, res) => {
         // Updated query to include tags, watchers, and collaborators
     const tasksStmt = wrapQuery(
       db.prepare(`
-        SELECT t.*, 
+        SELECT t.id, t.position, t.title, t.description, t.memberId, t.requesterId, 
+               t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId,
+               t.created_at, t.updated_at,
           json_group_array(
             DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
               'id', c.id,
@@ -76,6 +78,8 @@ router.get('/', (req, res) => {
       columns.forEach(column => {
         const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
+          createdAt: task.created_at, // Map snake_case to camelCase
+          updatedAt: task.updated_at, // Map snake_case to camelCase
           comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
           tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean),
           watchers: task.watchers === '[null]' ? [] : JSON.parse(task.watchers).filter(Boolean),

@@ -5,9 +5,10 @@ import {
   Board, 
   Task, 
   Columns, 
-  PriorityOption 
+  PriorityOption,
+  Tag 
 } from '../../types';
-import { TaskViewMode } from '../../utils/userPreferences';
+import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import Admin from '../Admin';
 import KanbanPage from './KanbanPage';
 
@@ -37,7 +38,9 @@ interface MainLayoutProps {
   draggedColumn: any;
   dragPreview: any;
   availablePriorities: PriorityOption[];
+  availableTags: Tag[];
   taskViewMode: TaskViewMode;
+  viewMode: ViewMode;
   isSearchActive: boolean;
   searchFilters: any;
   filteredColumns: Columns;
@@ -60,6 +63,7 @@ interface MainLayoutProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleTaskViewMode: () => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
   onSelectBoard: (boardId: string) => void;

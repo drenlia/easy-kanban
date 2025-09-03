@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { 
   CurrentUser, 
   TeamMember, 
   Board, 
   Task, 
   Columns, 
-  PriorityOption 
+  PriorityOption,
+  Tag 
 } from '../../types';
-import { TaskViewMode } from '../../utils/userPreferences';
+import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
 import SearchInterface from '../SearchInterface';
@@ -18,6 +19,7 @@ import KanbanColumn from '../Column';
 import TaskCard from '../TaskCard';
 import BoardTabs from '../BoardTabs';
 import LoadingSpinner from '../LoadingSpinner';
+import ListView from '../ListView';
 
 
 interface KanbanPageProps {
@@ -38,7 +40,9 @@ interface KanbanPageProps {
   draggedColumn: any;
   dragPreview: any;
   availablePriorities: PriorityOption[];
+  availableTags: Tag[];
   taskViewMode: TaskViewMode;
+  viewMode: ViewMode;
   isSearchActive: boolean;
   searchFilters: any;
   filteredColumns: Columns;
@@ -61,6 +65,7 @@ interface KanbanPageProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleTaskViewMode: () => void;
+  onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
   onSelectBoard: (boardId: string) => void;
@@ -100,6 +105,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   draggedColumn,
   dragPreview,
   availablePriorities,
+  availableTags,
   taskViewMode,
   isSearchActive,
   searchFilters,
@@ -120,6 +126,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleCollaborators,
   onToggleRequesters,
   onToggleTaskViewMode,
+  viewMode,
+  onViewModeChange,
   onToggleSearch,
   onSearchFiltersChange,
   onSelectBoard,
@@ -301,6 +309,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         <Tools 
           taskViewMode={taskViewMode}
           onToggleTaskViewMode={onToggleTaskViewMode}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
           isSearchActive={isSearchActive}
           onToggleSearch={onToggleSearch}
         />
@@ -355,7 +365,29 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             </div>
           )}
           
-          {/* Columns Navigation Container */}
+          {/* Conditional View Rendering */}
+          {viewMode === 'list' ? (
+            <ListView
+              filteredColumns={filteredColumns}
+              members={members}
+              availablePriorities={availablePriorities}
+              availableTags={availableTags}
+              taskViewMode={taskViewMode}
+              onSelectTask={onSelectTask}
+              selectedTask={selectedTask}
+              onRemoveTask={onRemoveTask}
+              onEditTask={onEditTask}
+              onCopyTask={onCopyTask}
+            />
+          ) : viewMode === 'gantt' ? (
+            <div className="text-center text-gray-500 py-20">
+              <Calendar size={48} className="mx-auto mb-4" />
+              <h3 className="text-lg font-semibold mb-2">Gantt View Coming Soon</h3>
+              <p>This feature is currently under development.</p>
+            </div>
+          ) : (
+            <>
+              {/* Columns Navigation Container */}
           <div className="relative">
             {/* Left scroll button - positioned outside board */}
             {canScrollLeft && (
@@ -522,6 +554,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               </DndContext>
             </div>
           </div>
+            </>
+          )}
         </div>
       )}
 
