@@ -94,7 +94,7 @@ router.get('/', (req, res) => {
       };
     });
 
-    console.log('📋 Boards endpoint called, returning', boardsWithData.length, 'boards with tags included');
+
     res.json(boardsWithData);
   } catch (error) {
     console.error('Error fetching boards:', error);

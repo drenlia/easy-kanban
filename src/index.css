@@ -14,3 +14,13 @@
 .comment-tooltip-active .comment-tooltip {
   pointer-events: auto !important;
 }
+
+/* Hide scrollbars for navigation containers */
+.hide-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* Internet Explorer and Edge */
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, and Opera */
+}

@@ -400,7 +400,7 @@ const initializeDefaultData = (db) => {
       orphanedMembers.forEach(member => {
         deleteMemberStmt.run(member.id);
       });
-      console.log(`Cleaned up ${orphanedMembers.length} orphaned members`);
+
     }
   } catch (error) {
     console.error('Error cleaning up orphaned members:', error);

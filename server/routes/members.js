@@ -34,7 +34,7 @@ router.get('/', (req, res) => {
       googleAvatarUrl: member.google_avatar_url
     }));
     
-    console.log('📊 Members endpoint called, returning', transformedMembers.length, 'members');
+
     res.json(transformedMembers);
   } catch (error) {
     console.error('Error fetching members:', error);
