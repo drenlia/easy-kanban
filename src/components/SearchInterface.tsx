@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown, Check, ChevronUp } from 'lucide-react';
-import { TeamMember, Priority, PriorityOption, Tag } from '../types';
+import { Priority, PriorityOption, Tag } from '../types';
 import { getAllTags } from '../api';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 
@@ -17,18 +17,15 @@ interface SearchFilters {
 
 interface SearchInterfaceProps {
   filters: SearchFilters;
-  members: TeamMember[];
   availablePriorities: PriorityOption[];
   onFiltersChange: (filters: SearchFilters) => void;
 }
 
 export default function SearchInterface({
   filters,
-  members,
   availablePriorities,
   onFiltersChange
 }: SearchInterfaceProps) {
-  const [showMembersDropdown, setShowMembersDropdown] = useState(false);
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -36,7 +33,6 @@ export default function SearchInterface({
     return !prefs.isAdvancedSearchExpanded;
   });
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
-  const membersDropdownRef = useRef<HTMLDivElement>(null);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -81,13 +77,6 @@ export default function SearchInterface({
     updateUserPreference('isAdvancedSearchExpanded', !newIsCollapsed);
   };
 
-  const toggleMember = (memberId: string) => {
-    const newSelectedMembers = filters.selectedMembers.includes(memberId)
-      ? filters.selectedMembers.filter(id => id !== memberId)
-      : [...filters.selectedMembers, memberId];
-    updateFilter('selectedMembers', newSelectedMembers);
-  };
-
   const togglePriority = (priority: Priority) => {
     const newSelectedPriorities = filters.selectedPriorities.includes(priority)
       ? filters.selectedPriorities.filter(p => p !== priority)
@@ -118,9 +107,6 @@ export default function SearchInterface({
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (membersDropdownRef.current && !membersDropdownRef.current.contains(event.target as Node)) {
-        setShowMembersDropdown(false);
-      }
       if (priorityDropdownRef.current && !priorityDropdownRef.current.contains(event.target as Node)) {
         setShowPriorityDropdown(false);
       }
@@ -143,7 +129,7 @@ export default function SearchInterface({
           <div className="relative">
             <input
               type="text"
-              placeholder="Search title, description, comments, requester, watchers, collaborators..."
+              placeholder="Search title, description, comments, requester..."
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}
               className="w-[280px] px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
@@ -160,7 +146,7 @@ export default function SearchInterface({
           </div>
           
           {/* Clear All Filters Button */}
-          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedMembers.length > 0 || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
+          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
             <button
               onClick={() => onFiltersChange({
                 text: '',
@@ -168,7 +154,7 @@ export default function SearchInterface({
                 dateTo: '',
                 dueDateFrom: '',
                 dueDateTo: '',
-                selectedMembers: [],
+                selectedMembers: [], // Keep for compatibility but not used in UI
                 selectedPriorities: [],
                 selectedTags: []
               })}
@@ -231,84 +217,79 @@ export default function SearchInterface({
               )}
             </div>
 
-            <div></div> {/* Empty spacer */}
-
-            {/* User Dropdown */}
-            <div className="relative" ref={membersDropdownRef}>
-              <button
-                onClick={() => setShowMembersDropdown(!showMembersDropdown)}
-                className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
-              >
-                <span className="text-gray-700 text-xs">user</span>
-                <ChevronDown size={12} className="text-gray-400" />
-              </button>
-              
-              {showMembersDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
-                  {members.map(member => (
-                    <div
-                      key={member.id}
-                      onClick={() => toggleMember(member.id)}
-                      className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
-                    >
-                      <div className="w-4 h-4 flex items-center justify-center">
-                        {filters.selectedMembers.includes(member.id) && (
-                          <Check size={12} className="text-blue-600" />
-                        )}
+            {/* Tags Dropdown */}
+            <div className="relative" ref={tagsDropdownRef}>
+                <button
+                  onClick={() => setShowTagsDropdown(!showTagsDropdown)}
+                  className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
+                >
+                  <span className="text-gray-700 text-xs">tag</span>
+                  <ChevronDown size={12} className="text-gray-400" />
+                </button>
+                
+                {showTagsDropdown && (
+                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
+                    {availableTags.map(tag => (
+                      <div
+                        key={tag.id}
+                        onClick={() => toggleTag(tag.id.toString())}
+                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
+                      >
+                        <div
+                          className="w-3 h-3 rounded"
+                          style={{ backgroundColor: tag.color }}
+                        ></div>
+                        <span>{tag.name}</span>
                       </div>
-                      <div 
-                        className="w-4 h-4 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: member.color }}
-                      />
-                      <span className="text-gray-700">{member.name}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-            {/* User Pills */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {filters.selectedMembers.map(memberId => {
-                const member = members.find(m => m.id === memberId);
-                if (!member) return null;
-                return (
-                  <div key={memberId} className="flex items-center gap-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+              {/* Tag Pills */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {filters.selectedTags.map(tagId => {
+                  const tag = availableTags.find(t => t.id.toString() === tagId);
+                  if (!tag) return null;
+                  return (
                     <div 
-                      className="w-4 h-4 rounded-full flex-shrink-0 border border-blue-300"
-                      style={{ backgroundColor: member.color }}
-                      title={member.name}
-                    />
-                    <span className="font-medium">{member.name}</span>
-                    <button
-                      onClick={() => toggleMember(memberId)}
-                      className="p-0.5 hover:bg-blue-200 rounded-full transition-colors"
-                      title="Remove user"
+                      key={tagId} 
+                      className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border"
+                      style={{
+                        backgroundColor: tag.color || '#4ECDC4',
+                        color: getTextColor(tag.color || '#4ECDC4'),
+                        borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
+                      }}
                     >
-                      <X size={10} className="text-blue-600" />
+                      <span>{tag.tag}</span>
+                      <button
+                        onClick={() => toggleTag(tagId)}
+                        className="ml-1 hover:bg-black hover:bg-opacity-10 rounded-full p-0.5 transition-colors"
+                        title={`Remove ${tag.tag}`}
+                      >
+                        <X size={10} className="text-red-600" />
+                      </button>
+                    </div>
+                  );
+                })}
+                
+                {/* Clear All Tags Pill - only when multiple selections */}
+                {filters.selectedTags.length > 1 && (
+                  <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
+                    <button
+                      onClick={() => updateFilter('selectedTags', [])}
+                      className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
+                      title="Clear all tags"
+                    >
+                      <X size={10} className="text-red-600" />
                     </button>
                   </div>
-                );
-              })}
-              
-              {/* Clear All Users Pill - only when multiple selections */}
-              {filters.selectedMembers.length > 1 && (
-                <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
-                  <button
-                    onClick={() => updateFilter('selectedMembers', [])}
-                    className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
-                    title="Clear all users"
-                  >
-                    <X size={10} className="text-red-600" />
-                  </button>
-                </div>
-              )}
-            </div>
-
+                )}
+              </div>
 
           </div>
 
-          {/* Row 2: Due Dates, Priority, Tags */}
+          {/* Row 2: Due Dates, Priority */}
           <div className="flex items-center gap-2">
             <div className="relative">
               <label className="text-xs font-medium text-gray-700 absolute left-[64px] top-1/2 -translate-y-1/2">due from:</label>
@@ -348,8 +329,6 @@ export default function SearchInterface({
               )}
             </div>
 
-            <div></div> {/* Empty spacer */}
-
             {/* Priority Dropdown */}
             <div className="relative" ref={priorityDropdownRef}>
               <button
@@ -384,9 +363,8 @@ export default function SearchInterface({
               )}
             </div>
 
-            {/* Pills Container for Row 2 */}
+            {/* Priority Pills */}
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Priority Pills */}
               {filters.selectedPriorities.map(priorityName => {
                 const priority = availablePriorities.find(p => p.priority === priorityName);
                 if (!priority) return null;
@@ -420,86 +398,10 @@ export default function SearchInterface({
                   </button>
                 </div>
               )}
-
-              {/* Tags Dropdown */}
-              <div className="relative" ref={tagsDropdownRef}>
-                <button
-                  onClick={() => setShowTagsDropdown(!showTagsDropdown)}
-                  className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
-                >
-                  <span className="text-gray-700 text-xs">tag</span>
-                  <ChevronDown size={12} className="text-gray-400" />
-                </button>
-                
-                {showTagsDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-[180px] max-h-60 overflow-y-auto">
-                    {availableTags.map(tag => (
-                      <div
-                        key={tag.id}
-                        onClick={() => toggleTag(tag.id.toString())}
-                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
-                      >
-                        <div className="w-4 h-4 flex items-center justify-center">
-                          {filters.selectedTags.includes(tag.id.toString()) && (
-                            <Check size={12} className="text-blue-600" />
-                          )}
-                        </div>
-                        <div
-                          className="px-2 py-1 rounded-full text-xs font-bold inline-block border"
-                          style={{
-                            backgroundColor: tag.color || '#4ECDC4',
-                            color: getTextColor(tag.color || '#4ECDC4'),
-                            borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
-                          }}
-                        >
-                          {tag.tag}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Tag Pills */}
-              {filters.selectedTags.map(tagId => {
-                const tag = availableTags.find(t => t.id.toString() === tagId);
-                if (!tag) return null;
-                return (
-                  <div 
-                    key={tagId} 
-                    className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-bold border"
-                    style={{
-                      backgroundColor: tag.color || '#4ECDC4',
-                      color: getTextColor(tag.color || '#4ECDC4'),
-                      borderColor: getTextColor(tag.color || '#4ECDC4') === '#374151' ? '#d1d5db' : 'rgba(255, 255, 255, 0.3)'
-                    }}
-                  >
-                    <span>{tag.tag}</span>
-                    <button
-                      onClick={() => toggleTag(tagId)}
-                      className="p-0.5 hover:bg-black hover:bg-opacity-10 rounded-full transition-colors"
-                      title="Remove tag"
-                    >
-                      <X size={10} style={{ color: getTextColor(tag.color || '#4ECDC4') }} />
-                    </button>
-                  </div>
-                );
-              })}
-              
-              {/* Clear All Tags Pill - only when multiple selections */}
-              {filters.selectedTags.length > 1 && (
-                <div className="flex items-center bg-red-100 text-red-800 px-2 py-1 rounded-full text-xs border border-red-300">
-                  <button
-                    onClick={() => updateFilter('selectedTags', [])}
-                    className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
-                    title="Clear all tags"
-                  >
-                    <X size={10} className="text-red-600" />
-                  </button>
-                </div>
-              )}
             </div>
+
           </div>
+
         </div>
       )}
     </div>

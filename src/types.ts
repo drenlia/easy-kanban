@@ -51,6 +51,8 @@ export interface Task {
   position?: number;
   boardId?: string;
   tags?: Tag[];
+  watchers?: TeamMember[];
+  collaborators?: TeamMember[];
 }
 
 export interface Tag {

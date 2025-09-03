@@ -10,7 +10,7 @@ router.get('/', (req, res) => {
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
     const columnsStmt = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
-    // Updated query to include tags - matches index_old.js working version
+        // Updated query to include tags, watchers, and collaborators
     const tasksStmt = wrapQuery(
       db.prepare(`
         SELECT t.*, 
@@ -29,15 +29,43 @@ router.get('/', (req, res) => {
               'description', tag.description,
               'color', tag.color
             ) ELSE NULL END
-          ) as tags
+          ) as tags,
+          json_group_array(
+            DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
+              'id', watcher.id,
+              'name', watcher.name,
+              'color', watcher.color,
+              'user_id', watcher.user_id,
+              'email', watcher_user.email,
+              'avatarUrl', watcher_user.avatar_path,
+              'googleAvatarUrl', watcher_user.google_avatar_url
+            ) ELSE NULL END
+          ) as watchers,
+          json_group_array(
+            DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
+              'id', collaborator.id,
+              'name', collaborator.name,
+              'color', collaborator.color,
+              'user_id', collaborator.user_id,
+              'email', collaborator_user.email,
+              'avatarUrl', collaborator_user.avatar_path,
+              'googleAvatarUrl', collaborator_user.google_avatar_url
+            ) ELSE NULL END
+          ) as collaborators
         FROM tasks t
         LEFT JOIN comments c ON c.taskId = t.id
         LEFT JOIN task_tags tt ON tt.taskId = t.id
         LEFT JOIN tags tag ON tag.id = tt.tagId
+        LEFT JOIN watchers w ON w.taskId = t.id
+        LEFT JOIN members watcher ON watcher.id = w.memberId
+        LEFT JOIN users watcher_user ON watcher_user.id = watcher.user_id
+        LEFT JOIN collaborators col ON col.taskId = t.id
+        LEFT JOIN members collaborator ON collaborator.id = col.memberId
+        LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
         WHERE t.columnId = ?
         GROUP BY t.id
         ORDER BY t.position ASC
-      `),
+`),
       'SELECT'
     );
 
@@ -49,7 +77,9 @@ router.get('/', (req, res) => {
         const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
           comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
-          tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean)
+          tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean),
+          watchers: task.watchers === '[null]' ? [] : JSON.parse(task.watchers).filter(Boolean),
+          collaborators: task.collaborators === '[null]' ? [] : JSON.parse(task.collaborators).filter(Boolean)
         }));
         
         columnsObj[column.id] = {

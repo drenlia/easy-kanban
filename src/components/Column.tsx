@@ -9,7 +9,8 @@ import { useDroppable } from '@dnd-kit/core';
 interface KanbanColumnProps {
   column: Column;
   members: TeamMember[];
-  selectedMember: string | null;
+  selectedMembers: string[];
+  selectedTask: Task | null;
   draggedTask: Task | null;
   draggedColumn: Column | null;
   dragPreview?: {
@@ -37,7 +38,8 @@ interface KanbanColumnProps {
 export default function KanbanColumn({
   column,
   members,
-  selectedMember,
+  selectedMembers,
+  selectedTask,
   draggedTask,
   draggedColumn,
   dragPreview,
@@ -149,7 +151,7 @@ export default function KanbanColumn({
   // Task drag handling moved to App level for cross-column support
 
   const handleAddTask = async () => {
-    if (!selectedMember || isSubmitting) return;
+    if (selectedMembers.length === 0 || isSubmitting) return;
     setIsSubmitting(true);
     await onAddTask(column.id);
     setIsSubmitting(false);
@@ -201,6 +203,7 @@ export default function KanbanColumn({
             isDragDisabled={false}
             isTasksShrunk={isTasksShrunk}
             availablePriorities={availablePriorities}
+            selectedTask={selectedTask}
           />
         </div>
       );
@@ -282,10 +285,10 @@ export default function KanbanColumn({
               </h3>
               <button
                 onClick={handleAddTask}
-                disabled={!selectedMember || isSubmitting}
-                title={selectedMember ? 'Add Task' : 'Select a team member first'}
+                disabled={selectedMembers.length === 0 || isSubmitting}
+                title={selectedMembers.length > 0 ? 'Add Task' : 'Select a team member first'}
                 className={`p-1 rounded-full transition-colors ${
-                  selectedMember && !isSubmitting
+                  selectedMembers.length > 0 && !isSubmitting
                     ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
                     : 'text-gray-400 cursor-not-allowed'
                 }`}

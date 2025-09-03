@@ -24,7 +24,7 @@ import { useAuth } from './hooks/useAuth';
 import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import { loadUserPreferences, updateUserPreference } from './utils/userPreferences';
-import { getAllPriorities } from './api';
+import { getAllPriorities, getTaskWatchers, getTaskCollaborators } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -37,8 +37,7 @@ import {
   getInitialPage 
 } from './utils/routingUtils';
 import { 
-  getFilteredColumns, 
-  getFilteredColumnsAsync,
+  filterTasks,
   getFilteredTaskCountForBoard, 
   hasActiveFilters,
   wouldTaskBeFilteredOut 
@@ -54,7 +53,6 @@ export default function App() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(getInitialSelectedBoard);
   const [columns, setColumns] = useState<Columns>({});
-  const [selectedMember, setSelectedMember] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
 
@@ -72,11 +70,15 @@ export default function App() {
   const [boardCreationPause, setBoardCreationPause] = useState(false);
   // Load user preferences from cookies
   const [userPrefs] = useState(() => loadUserPreferences());
+  const [selectedMembers, setSelectedMembers] = useState<string[]>(userPrefs.selectedMembers);
+  const [includeAssignees, setIncludeAssignees] = useState(userPrefs.includeAssignees);
+  const [includeWatchers, setIncludeWatchers] = useState(userPrefs.includeWatchers);
+  const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
+  const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [isTasksShrunk, setIsTasksShrunk] = useState(userPrefs.isTasksShrunk);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
-  const [isFilteringAsync, setIsFilteringAsync] = useState(false);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -120,7 +122,7 @@ export default function App() {
     setBoards([]);
     setColumns({});
     setSelectedBoard(null);
-    setSelectedMember(null);
+    setSelectedMembers([]);
     },
     onAdminRefresh: () => {
       setAdminRefreshKey(prev => prev + 1);
@@ -415,17 +417,19 @@ export default function App() {
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
-    if (members.length > 0 && currentUser && !selectedMember) {
+    if (members.length > 0 && currentUser && selectedMembers.length === 0) {
       // Default to current user if they exist in members, otherwise first member
       const currentUserMember = members.find(m => m.user_id === currentUser.id);
       
       if (currentUserMember) {
-        setSelectedMember(currentUserMember.id);
+        setSelectedMembers([currentUserMember.id]);
+        updateUserPreference('selectedMembers', [currentUserMember.id]);
       } else {
-        setSelectedMember(members[0].id);
+        setSelectedMembers([members[0].id]);
+        updateUserPreference('selectedMembers', [members[0].id]);
       }
     }
-  }, [members, currentUser, selectedMember]);
+  }, [members, currentUser, selectedMembers]);
 
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
@@ -581,18 +585,20 @@ export default function App() {
   };
 
   const handleAddTask = async (columnId: string) => {
-    if (!selectedMember || !selectedBoard) return;
+    if (selectedMembers.length === 0 || !selectedBoard) return;
+    // Use the first selected member for new task creation
+    const primaryMember = selectedMembers[0];
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: 'Task description',
-      memberId: selectedMember,
+      memberId: primaryMember,
       startDate: new Date().toISOString().split('T')[0],
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
       priority: getDefaultPriorityName(), // Use frontend default priority
-      requesterId: selectedMember,
+      requesterId: primaryMember,
       boardId: selectedBoard,
       comments: []
     };
@@ -1145,45 +1151,258 @@ export default function App() {
     updateUserPreference('searchFilters', newFilters);
   };
 
-  // Enhanced async filtering effect
+  // Handle member toggle selection
+  const handleMemberToggle = (memberId: string) => {
+    const newSelectedMembers = selectedMembers.includes(memberId) 
+      ? selectedMembers.filter(id => id !== memberId)
+      : [...selectedMembers, memberId];
+    
+    setSelectedMembers(newSelectedMembers);
+    updateUserPreference('selectedMembers', newSelectedMembers);
+  };
+
+  // Handle clearing all member selections and reverting to current user
+  const handleClearMemberSelections = () => {
+    if (currentUser) {
+      // Find current user's member record
+      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+      if (currentUserMember) {
+        // Set selections to just the current user
+        setSelectedMembers([currentUserMember.id]);
+        updateUserPreference('selectedMembers', [currentUserMember.id]);
+      } else {
+        // Fallback: clear all selections
+        setSelectedMembers([]);
+        updateUserPreference('selectedMembers', []);
+      }
+    } else {
+      // No current user, just clear all
+      setSelectedMembers([]);
+      updateUserPreference('selectedMembers', []);
+    }
+  };
+
+  // Handle selecting all members
+  const handleSelectAllMembers = () => {
+    const allMemberIds = members.map(m => m.id);
+    setSelectedMembers(allMemberIds);
+    updateUserPreference('selectedMembers', allMemberIds);
+    
+    // Also select all checkboxes
+    setIncludeAssignees(true);
+    setIncludeWatchers(true);
+    setIncludeCollaborators(true);
+    setIncludeRequesters(true);
+    updateUserPreference('includeAssignees', true);
+    updateUserPreference('includeWatchers', true);
+    updateUserPreference('includeCollaborators', true);
+    updateUserPreference('includeRequesters', true);
+  };
+
+  // Handle toggling filter options
+  const handleToggleAssignees = (include: boolean) => {
+    console.log('👤 TOGGLE ASSIGNEES:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
+    setIncludeAssignees(include);
+    updateUserPreference('includeAssignees', include);
+  };
+
+  const handleToggleWatchers = (include: boolean) => {
+    console.log('🔍 TOGGLE WATCHERS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
+    setIncludeWatchers(include);
+    updateUserPreference('includeWatchers', include);
+  };
+
+  const handleToggleCollaborators = (include: boolean) => {
+    console.log('🤝 TOGGLE COLLABORATORS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
+    setIncludeCollaborators(include);
+    updateUserPreference('includeCollaborators', include);
+  };
+
+  const handleToggleRequesters = (include: boolean) => {
+    console.log('📋 TOGGLE REQUESTERS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
+    setIncludeRequesters(include);
+    updateUserPreference('includeRequesters', include);
+  };
+
+  // Enhanced async filtering effect with watchers/collaborators/requesters support
   useEffect(() => {
     const performFiltering = async () => {
-      if (!isSearchActive) {
+      // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
+      const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+      
+      console.log('🎯 FILTERING START:', {
+        isFiltering,
+        isSearchActive,
+        selectedMembers,
+        selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean),
+        includeAssignees,
+        includeWatchers,
+        includeCollaborators,
+        includeRequesters,
+        totalColumns: Object.keys(columns).length
+      });
+      
+      if (!isFiltering) {
+        console.log('❌ NO FILTERING - using original columns');
         setFilteredColumns(columns);
-        setIsFilteringAsync(false);
         return;
       }
 
-      // Check if we need enhanced search (watchers/collaborators)
-      const needsEnhancedSearch = searchFilters.text && searchFilters.text.trim().length > 0;
-      
-      if (needsEnhancedSearch) {
-        setIsFilteringAsync(true);
-        try {
-          const enhanced = await getFilteredColumnsAsync(columns, searchFilters, isSearchActive, members);
-          setFilteredColumns(enhanced);
-        } catch (error) {
-          console.error('Enhanced search failed, falling back to basic search:', error);
-          // Fallback to basic search
-          const basic = getFilteredColumns(columns, searchFilters, isSearchActive, members);
-          setFilteredColumns(basic);
-        } finally {
-          setIsFilteringAsync(false);
+      // Create custom filtering function that includes watchers/collaborators/requesters
+      const customFilterTasks = async (tasks: any[]) => {
+        console.log('🔧 CUSTOM FILTER START:', {
+          totalTasks: tasks.length,
+          selectedMembers: selectedMembers.length,
+          includeAssignees,
+          includeWatchers,
+          includeCollaborators,
+          includeRequesters
+        });
+        
+        // If no members selected and no checkboxes enabled, return all tasks
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+          console.log('⚠️ EARLY RETURN - no members or checkboxes');
+          return tasks;
         }
-      } else {
-        // Use basic filtering for non-text searches
-        const basic = getFilteredColumns(columns, searchFilters, isSearchActive, members);
-        setFilteredColumns(basic);
-        setIsFilteringAsync(false);
+        
+        const filteredTasks = [];
+        
+        for (const task of tasks) {
+          let includeTask = false;
+          const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
+          const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
+          
+          console.log(`\n📝 TASK: "${task.title}" (assigned: ${taskMemberName}, requester: ${taskRequesterName})`);
+          
+          // Check if task is assigned to selected members (only if assignees checkbox is enabled)
+          if (selectedMembers.length > 0 && includeAssignees) {
+            const isAssigned = selectedMembers.includes(task.memberId);
+            if (isAssigned) {
+              includeTask = true;
+              console.log(`✅ INCLUDED - assigned: ${isAssigned}`);
+            } else {
+              console.log(`❌ NOT assigned`);
+            }
+          }
+          
+          // Check watchers if checkbox is enabled
+          if (!includeTask && includeWatchers && selectedMembers.length > 0) {
+            console.log(`🔍 Checking watchers...`);
+            try {
+              const watchers = await getTaskWatchers(task.id);
+              console.log(`   Watchers:`, watchers?.map((w: any) => members.find(m => m.id === w.id)?.name || w.id) || []);
+              if (watchers && watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
+                includeTask = true;
+                console.log(`✅ INCLUDED - found as watcher`);
+              } else {
+                console.log(`❌ NOT found as watcher`);
+              }
+            } catch (error) {
+              console.error('Error checking task watchers:', error);
+            }
+          }
+          
+          // Check collaborators if checkbox is enabled
+          if (!includeTask && includeCollaborators && selectedMembers.length > 0) {
+            console.log(`🤝 Checking collaborators...`);
+            try {
+              const collaborators = await getTaskCollaborators(task.id);
+              console.log(`   Collaborators:`, collaborators?.map((c: any) => members.find(m => m.id === c.id)?.name || c.id) || []);
+              if (collaborators && collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
+                includeTask = true;
+                console.log(`✅ INCLUDED - found as collaborator`);
+              } else {
+                console.log(`❌ NOT found as collaborator`);
+              }
+            } catch (error) {
+              console.error('Error checking task collaborators:', error);
+            }
+          }
+          
+          // Check requesters if checkbox is enabled
+          if (!includeTask && includeRequesters && selectedMembers.length > 0 && task.requesterId && selectedMembers.includes(task.requesterId)) {
+            includeTask = true;
+            console.log(`✅ INCLUDED - found as requester`);
+          }
+          
+          if (includeTask) {
+            filteredTasks.push(task);
+            console.log(`🎯 FINAL: INCLUDED`);
+          } else {
+            console.log(`🚫 FINAL: EXCLUDED`);
+          }
+        }
+        
+        console.log(`🏁 FILTER COMPLETE: ${filteredTasks.length}/${tasks.length} tasks included`);
+        return filteredTasks;
+      };
+
+      // Create effective filters with member filtering 
+      const effectiveFilters = {
+        ...searchFilters,
+        selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
+      };
+
+      console.log('🔍 EFFECTIVE FILTERS:', effectiveFilters);
+
+      const filteredColumns: any = {};
+      
+      for (const [columnId, column] of Object.entries(columns)) {
+        let columnTasks = column.tasks;
+        console.log(`📂 COLUMN ${columnId}: ${columnTasks.length} tasks before search filter`);
+        
+        // Apply search filters first, but skip member filtering if we have checkboxes enabled
+        if (isSearchActive) {
+          // Create filters without member filtering if we have checkboxes enabled
+          const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
+            ...effectiveFilters,
+            selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
+          } : effectiveFilters;
+          
+          console.log(`🔍 SEARCH FILTERS:`, searchOnlyFilters);
+          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members);
+          console.log(`🔍 After search filter: ${columnTasks.length} tasks remaining`);
+        }
+        
+        // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
+        if (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
+          columnTasks = await customFilterTasks(columnTasks);
+        }
+        
+        filteredColumns[columnId] = {
+          ...column,
+          tasks: columnTasks
+        };
       }
+      
+      setFilteredColumns(filteredColumns);
     };
 
     performFiltering();
-  }, [columns, searchFilters, isSearchActive, members]);
+  }, [columns, searchFilters, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members]);
 
   // Use filtered columns state
-  const activeFilters = hasActiveFilters(searchFilters, isSearchActive);
-  const getTaskCountForBoard = (board: Board) => getFilteredTaskCountForBoard(board, searchFilters, isSearchActive);
+  const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+  const getTaskCountForBoard = (board: Board) => {
+    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    if (!isFiltering) return 0; // Don't show count when no filters active
+    
+    // If this is the currently selected board, use our filtered columns state
+    if (board.id === selectedBoard) {
+      let totalCount = 0;
+      Object.values(filteredColumns).forEach(column => {
+        totalCount += column.tasks.length;
+      });
+      return totalCount;
+    }
+    
+    // For other boards, fall back to basic filtering (without collaborators/watchers)
+    const effectiveFilters = {
+      ...searchFilters,
+      selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
+    };
+    return getFilteredTaskCountForBoard(board, effectiveFilters, isFiltering);
+  };
 
 
 
@@ -1230,7 +1449,7 @@ export default function App() {
         boards={boards}
         selectedBoard={selectedBoard}
         columns={columns}
-                    selectedMember={selectedMember}
+                    selectedMembers={selectedMembers}
         draggedTask={draggedTask}
         draggedColumn={draggedColumn}
         dragPreview={dragPreview}
@@ -1244,7 +1463,17 @@ export default function App() {
         sensors={sensors}
         collisionDetection={collisionDetection}
 
-        onSelectMember={setSelectedMember}
+        onSelectMember={handleMemberToggle}
+        onClearMemberSelections={handleClearMemberSelections}
+        onSelectAllMembers={handleSelectAllMembers}
+        includeAssignees={includeAssignees}
+        includeWatchers={includeWatchers}
+        includeCollaborators={includeCollaborators}
+        includeRequesters={includeRequesters}
+        onToggleAssignees={handleToggleAssignees}
+        onToggleWatchers={handleToggleWatchers}
+        onToggleCollaborators={handleToggleCollaborators}
+        onToggleRequesters={handleToggleRequesters}
         onToggleTaskShrink={handleToggleTaskShrink}
         onToggleSearch={handleToggleSearch}
         onSearchFiltersChange={handleSearchFiltersChange}
