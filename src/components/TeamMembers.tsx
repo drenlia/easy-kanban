@@ -77,7 +77,7 @@ export default function TeamMembers({
         <img 
           src={member.googleAvatarUrl} 
           alt={member.name}
-          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -87,7 +87,7 @@ export default function TeamMembers({
         <img 
           src={member.avatarUrl} 
           alt={member.name}
-          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -96,7 +96,7 @@ export default function TeamMembers({
     const initials = member.name.split(' ').map(n => n[0]).join('').toUpperCase();
     return (
       <div 
-        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white border-2 border-white shadow-sm"
+        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white shadow-sm"
         style={{ backgroundColor: member.color }}
       >
         {initials}
@@ -196,10 +196,10 @@ export default function TeamMembers({
           return (
             <div
               key={member.id}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full cursor-pointer transition-all duration-200 ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 ${
                 isSelected 
-                  ? 'ring-2 ring-offset-1 shadow-md transform scale-105' 
-                  : 'hover:shadow-sm hover:scale-102'
+                  ? 'ring-2 ring-offset-1 shadow-md transform scale-102' 
+                  : 'hover:shadow-sm hover:scale-101'
               }`}
               style={{
                 backgroundColor: isSelected ? `${member.color}25` : `${member.color}15`,

@@ -145,6 +145,13 @@ export default function SearchInterface({
             )}
           </div>
           
+          {/* Active Filters Indicator */}
+          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
+            <span className="text-red-600 text-xs font-medium">
+              Filters active
+            </span>
+          )}
+          
           {/* Clear All Filters Button */}
           {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
             <button
@@ -239,7 +246,7 @@ export default function SearchInterface({
                           className="w-3 h-3 rounded"
                           style={{ backgroundColor: tag.color }}
                         ></div>
-                        <span>{tag.name}</span>
+                        <span>{tag.tag}</span>
                       </div>
                     ))}
                   </div>
