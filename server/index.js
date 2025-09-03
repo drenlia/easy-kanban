@@ -437,7 +437,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       memberColor: user.member_color
     }));
 
-    console.log('👥 Admin users endpoint called, returning', transformedUsers.length, 'users');
+
     res.json(transformedUsers);
   } catch (error) {
     console.error('Error fetching admin users:', error);

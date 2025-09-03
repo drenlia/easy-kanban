@@ -261,7 +261,14 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
  * Get filtered task count for a board (for tab pills)
  */
 export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, isSearchActive: boolean): number => {
-  if (!isSearchActive) return 0; // Don't show count when no filters active
+  if (!isSearchActive) {
+    // Return total task count when no filters are active
+    let totalCount = 0;
+    Object.values(board.columns || {}).forEach(column => {
+      totalCount += column.tasks.length;
+    });
+    return totalCount;
+  }
   
   let totalCount = 0;
   Object.values(board.columns || {}).forEach(column => {

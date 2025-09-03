@@ -147,9 +147,13 @@ export default function SearchInterface({
           
           {/* Active Filters Indicator */}
           {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
-            <span className="text-red-600 text-xs font-medium">
+            <button
+              onClick={handleToggleCollapse}
+              className="text-red-600 text-xs font-medium hover:text-red-700 hover:underline cursor-pointer transition-colors"
+              title={isCollapsed ? 'Click to view active filters' : 'Click to hide filters'}
+            >
               Filters active
-            </span>
+            </button>
           )}
           
           {/* Clear All Filters Button */}

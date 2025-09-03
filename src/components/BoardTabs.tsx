@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Board } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -178,6 +178,55 @@ export default function BoardTabs({
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  // Check scroll state
+  const checkScrollState = () => {
+    if (!tabsContainerRef.current) return;
+    
+    const container = tabsContainerRef.current;
+    setCanScrollLeft(container.scrollLeft > 0);
+    setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth);
+  };
+
+  // Scroll functions
+  const scrollLeft = () => {
+    if (!tabsContainerRef.current) return;
+    tabsContainerRef.current.scrollBy({ left: -200, behavior: 'smooth' });
+  };
+
+  const scrollRight = () => {
+    if (!tabsContainerRef.current) return;
+    tabsContainerRef.current.scrollBy({ left: 200, behavior: 'smooth' });
+  };
+
+  // Update scroll state on mount and when boards change or container resizes
+  useEffect(() => {
+    // Check scroll state after a short delay to ensure layout is complete
+    const timeoutId = setTimeout(() => {
+      checkScrollState();
+    }, 100);
+    
+    const container = tabsContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', checkScrollState);
+      const resizeObserver = new ResizeObserver(() => {
+        // Also delay the resize check
+        setTimeout(checkScrollState, 50);
+      });
+      resizeObserver.observe(container);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        container.removeEventListener('scroll', checkScrollState);
+        resizeObserver.disconnect();
+      };
+    }
+    
+    return () => clearTimeout(timeoutId);
+  }, [boards]);
 
   // Handle drag end for board reordering (Admin only)
   const handleDragEnd = (event: DragEndEvent) => {
@@ -301,11 +350,28 @@ export default function BoardTabs({
     <div className="mb-6">
       <div className="flex items-center justify-between">
         {/* Board Tabs */}
-        {isAdmin ? (
-          // Admin view with drag and drop
-          <DndContext onDragEnd={handleDragEnd}>
-            <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
-              <div className="flex items-center space-x-1">
+        <div className="flex items-center space-x-2 flex-1 min-w-0">
+          {/* Left scroll button */}
+          {canScrollLeft && (
+            <button
+              onClick={scrollLeft}
+              className="p-1 rounded-md hover:bg-gray-100 transition-colors flex-shrink-0"
+              title="Scroll left"
+            >
+              <ChevronLeft size={16} className="text-gray-600" />
+            </button>
+          )}
+          
+          {/* Scrollable tabs container */}
+          <div 
+            ref={tabsContainerRef}
+            className="flex items-center space-x-1 overflow-x-auto flex-1 min-w-0 hide-scrollbar"
+          >
+            {isAdmin ? (
+              // Admin view with drag and drop
+              <DndContext onDragEnd={handleDragEnd}>
+                <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
+                  <div className="flex items-center space-x-1 flex-shrink-0">
                 {boards.map(board => (
                   <div key={board.id}>
                     {editingBoardId === board.id ? (
@@ -334,17 +400,17 @@ export default function BoardTabs({
                         onConfirmDelete={confirmDeleteBoard}
                         onCancelDelete={cancelDeleteBoard}
                         taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
-                        showTaskCount={hasActiveFilters}
+                        showTaskCount={true}
                       />
                     )}
                   </div>
                 ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        ) : (
-          // Regular user view without drag and drop
-          <div className="flex items-center space-x-1">
+                  </div>
+                </SortableContext>
+              </DndContext>
+            ) : (
+              // Regular user view without drag and drop
+              <div className="flex items-center space-x-1 flex-shrink-0">
             {boards.map(board => (
               <div key={board.id}>
                 {editingBoardId === board.id ? (
@@ -370,13 +436,26 @@ export default function BoardTabs({
                     onRemove={() => handleRemoveClick(board.id)}
                     canDelete={boards.length > 1}
                     taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
-                    showTaskCount={hasActiveFilters}
+                    showTaskCount={true}
                   />
                 )}
               </div>
             ))}
+              </div>
+            )}
           </div>
-        )}
+          
+          {/* Right scroll button */}
+          {canScrollRight && (
+            <button
+              onClick={scrollRight}
+              className="p-1 rounded-md hover:bg-gray-100 transition-colors flex-shrink-0"
+              title="Scroll right"
+            >
+              <ChevronRight size={16} className="text-gray-600" />
+            </button>
+          )}
+        </div>
 
         {/* Add Board Button - Admin Only */}
         {isAdmin && (

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DndContext, DragOverlay } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { 
   CurrentUser, 
   TeamMember, 
@@ -144,6 +145,151 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onTaskDrop,
   onSelectTask,
 }) => {
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const columnsContainerRef = useRef<HTMLDivElement>(null);
+  const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isScrollingRef = useRef(false);
+
+  // Check scroll state for columns
+  const checkColumnsScrollState = () => {
+    if (!columnsContainerRef.current) return;
+    
+    const container = columnsContainerRef.current;
+    setCanScrollLeft(container.scrollLeft > 0);
+    setCanScrollRight(container.scrollLeft < container.scrollWidth - container.clientWidth);
+  };
+
+  // Column scroll functions
+  const scrollColumnsLeft = () => {
+    if (!columnsContainerRef.current) return;
+    const container = columnsContainerRef.current;
+    
+    // Calculate actual column width including gap (300px min + 1.5rem gap)
+    const gap = 24; // 1.5rem = 24px
+    const columnMinWidth = 300;
+    const columnFullWidth = columnMinWidth + gap;
+    
+    container.scrollBy({ left: -columnFullWidth, behavior: 'smooth' });
+  };
+
+  const scrollColumnsRight = () => {
+    if (!columnsContainerRef.current) return;
+    const container = columnsContainerRef.current;
+    
+    // Calculate actual column width including gap (300px min + 1.5rem gap)
+    const gap = 24; // 1.5rem = 24px
+    const columnMinWidth = 300;
+    const columnFullWidth = columnMinWidth + gap;
+    
+    container.scrollBy({ left: columnFullWidth, behavior: 'smooth' });
+  };
+
+  // Continuous scroll functions
+  const startContinuousScroll = (direction: 'left' | 'right') => {
+    if (isScrollingRef.current) return;
+    
+    isScrollingRef.current = true;
+    const container = columnsContainerRef.current;
+    if (!container) return;
+
+    const gap = 24; // 1.5rem = 24px
+    const columnMinWidth = 300;
+    const columnFullWidth = columnMinWidth + gap;
+    const scrollAmount = direction === 'left' ? -columnFullWidth : columnFullWidth;
+
+    // Initial scroll
+    container.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+
+    // Continuous scroll with interval
+    scrollIntervalRef.current = setInterval(() => {
+      if (!columnsContainerRef.current) {
+        stopContinuousScroll();
+        return;
+      }
+
+      const currentContainer = columnsContainerRef.current;
+      const canContinue = direction === 'left' 
+        ? currentContainer.scrollLeft > 0
+        : currentContainer.scrollLeft < currentContainer.scrollWidth - currentContainer.clientWidth;
+
+      if (!canContinue) {
+        stopContinuousScroll();
+        return;
+      }
+
+      currentContainer.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }, 300); // Scroll every 300ms for smooth continuous movement
+  };
+
+  const stopContinuousScroll = () => {
+    if (scrollIntervalRef.current) {
+      clearInterval(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+    isScrollingRef.current = false;
+  };
+
+  // Update scroll state when columns change
+  useEffect(() => {
+    // Check scroll state after a short delay to ensure layout is complete
+    const timeoutId = setTimeout(() => {
+      checkColumnsScrollState();
+    }, 100);
+    
+    const container = columnsContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', checkColumnsScrollState);
+      const resizeObserver = new ResizeObserver(() => {
+        // Also delay the resize check
+        setTimeout(checkColumnsScrollState, 50);
+      });
+      resizeObserver.observe(container);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        container.removeEventListener('scroll', checkColumnsScrollState);
+        resizeObserver.disconnect();
+      };
+    }
+    
+    return () => clearTimeout(timeoutId);
+  }, [columns]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return; // Don't interfere with form inputs
+      }
+      
+      if (event.key === 'ArrowLeft' && canScrollLeft) {
+        event.preventDefault();
+        scrollColumnsLeft();
+      } else if (event.key === 'ArrowRight' && canScrollRight) {
+        event.preventDefault();
+        scrollColumnsRight();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [canScrollLeft, canScrollRight]);
+
+  // Cleanup scroll intervals on unmount and handle global mouse events
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      stopContinuousScroll();
+    };
+
+    document.addEventListener('mouseup', handleGlobalMouseUp);
+    
+    return () => {
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+      stopContinuousScroll();
+    };
+  }, []);
+
   if (loading.general) {
     return <LoadingSpinner size="large" className="mt-20" />;
   }
@@ -209,8 +355,47 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             </div>
           )}
           
-          {/* Unified Drag and Drop Context */}
-          <DndContext
+          {/* Columns Navigation Container */}
+          <div className="relative">
+            {/* Left scroll button - positioned outside board */}
+            {canScrollLeft && (
+              <button
+                onClick={scrollColumnsLeft}
+                onMouseDown={() => startContinuousScroll('left')}
+                onMouseUp={stopContinuousScroll}
+                onMouseLeave={stopContinuousScroll}
+                className="absolute -left-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                title="Click or hold to scroll left (←)"
+              >
+                <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700" />
+              </button>
+            )}
+            
+            {/* Right scroll button - positioned outside board */}
+            {canScrollRight && (
+              <button
+                onClick={scrollColumnsRight}
+                onMouseDown={() => startContinuousScroll('right')}
+                onMouseUp={stopContinuousScroll}
+                onMouseLeave={stopContinuousScroll}
+                className="absolute -right-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                title="Click or hold to scroll right (→)"
+              >
+                <ChevronRight size={18} className="text-gray-500 hover:text-gray-700" />
+              </button>
+            )}
+            
+            {/* Scrollable columns container */}
+            <div
+              ref={columnsContainerRef}
+              className="overflow-x-auto w-full"
+              style={{ 
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#CBD5E1 #F1F5F9'
+              }}
+            >
+              {/* Unified Drag and Drop Context */}
+              <DndContext
             sensors={sensors}
             collisionDetection={collisionDetection}
             onDragStart={onDragStart}
@@ -334,7 +519,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 </div>
               ) : null}
             </DragOverlay>
-          </DndContext>
+              </DndContext>
+            </div>
+          </div>
         </div>
       )}
 

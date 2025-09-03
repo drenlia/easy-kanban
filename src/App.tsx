@@ -79,6 +79,7 @@ export default function App() {
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -535,7 +536,7 @@ export default function App() {
     try {
       // Optimistic update - reorder boards immediately in frontend
       const oldIndex = boards.findIndex(board => board.id === boardId);
-      console.log('Board reorder:', { boardId, oldIndex, newPosition, boardsLength: boards.length });
+
       
       if (oldIndex !== -1 && oldIndex !== newPosition) {
         const newBoards = [...boards];
@@ -548,7 +549,7 @@ export default function App() {
           position: index
         }));
         
-        console.log('Updated boards order:', updatedBoards.map(b => ({ id: b.id, title: b.title, position: b.position })));
+
         setBoards(updatedBoards);
       }
       
@@ -1094,7 +1095,7 @@ export default function App() {
       
       if (oldIndex === -1 || newIndex === -1) return;
       
-      console.log(`Column reorder: ${active.id} from ${oldIndex} to ${newIndex}`);
+
       
       // Reorder columns using arrayMove
       const reorderedColumns = arrayMove(columnArray, oldIndex, newIndex);
@@ -1211,25 +1212,21 @@ export default function App() {
 
   // Handle toggling filter options
   const handleToggleAssignees = (include: boolean) => {
-    console.log('👤 TOGGLE ASSIGNEES:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
     setIncludeAssignees(include);
     updateUserPreference('includeAssignees', include);
   };
 
   const handleToggleWatchers = (include: boolean) => {
-    console.log('🔍 TOGGLE WATCHERS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
     setIncludeWatchers(include);
     updateUserPreference('includeWatchers', include);
   };
 
   const handleToggleCollaborators = (include: boolean) => {
-    console.log('🤝 TOGGLE COLLABORATORS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
     setIncludeCollaborators(include);
     updateUserPreference('includeCollaborators', include);
   };
 
   const handleToggleRequesters = (include: boolean) => {
-    console.log('📋 TOGGLE REQUESTERS:', { include, selectedMembers, selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean) });
     setIncludeRequesters(include);
     updateUserPreference('includeRequesters', include);
   };
@@ -1240,38 +1237,21 @@ export default function App() {
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
-      console.log('🎯 FILTERING START:', {
-        isFiltering,
-        isSearchActive,
-        selectedMembers,
-        selectedMemberNames: selectedMembers.map(id => members.find(m => m.id === id)?.name).filter(Boolean),
-        includeAssignees,
-        includeWatchers,
-        includeCollaborators,
-        includeRequesters,
-        totalColumns: Object.keys(columns).length
-      });
+
       
       if (!isFiltering) {
-        console.log('❌ NO FILTERING - using original columns');
+
         setFilteredColumns(columns);
         return;
       }
 
       // Create custom filtering function that includes watchers/collaborators/requesters
       const customFilterTasks = async (tasks: any[]) => {
-        console.log('🔧 CUSTOM FILTER START:', {
-          totalTasks: tasks.length,
-          selectedMembers: selectedMembers.length,
-          includeAssignees,
-          includeWatchers,
-          includeCollaborators,
-          includeRequesters
-        });
+
         
         // If no members selected and no checkboxes enabled, return all tasks
         if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
-          console.log('⚠️ EARLY RETURN - no members or checkboxes');
+
           return tasks;
         }
         
@@ -1282,30 +1262,23 @@ export default function App() {
           const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
           const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
           
-          console.log(`\n📝 TASK: "${task.title}" (assigned: ${taskMemberName}, requester: ${taskRequesterName})`);
+
           
           // Check if task is assigned to selected members (only if assignees checkbox is enabled)
           if (selectedMembers.length > 0 && includeAssignees) {
             const isAssigned = selectedMembers.includes(task.memberId);
             if (isAssigned) {
               includeTask = true;
-              console.log(`✅ INCLUDED - assigned: ${isAssigned}`);
-            } else {
-              console.log(`❌ NOT assigned`);
+
             }
           }
           
           // Check watchers if checkbox is enabled
           if (!includeTask && includeWatchers && selectedMembers.length > 0) {
-            console.log(`🔍 Checking watchers...`);
             try {
               const watchers = await getTaskWatchers(task.id);
-              console.log(`   Watchers:`, watchers?.map((w: any) => members.find(m => m.id === w.id)?.name || w.id) || []);
               if (watchers && watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
                 includeTask = true;
-                console.log(`✅ INCLUDED - found as watcher`);
-              } else {
-                console.log(`❌ NOT found as watcher`);
               }
             } catch (error) {
               console.error('Error checking task watchers:', error);
@@ -1314,15 +1287,10 @@ export default function App() {
           
           // Check collaborators if checkbox is enabled
           if (!includeTask && includeCollaborators && selectedMembers.length > 0) {
-            console.log(`🤝 Checking collaborators...`);
             try {
               const collaborators = await getTaskCollaborators(task.id);
-              console.log(`   Collaborators:`, collaborators?.map((c: any) => members.find(m => m.id === c.id)?.name || c.id) || []);
               if (collaborators && collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
                 includeTask = true;
-                console.log(`✅ INCLUDED - found as collaborator`);
-              } else {
-                console.log(`❌ NOT found as collaborator`);
               }
             } catch (error) {
               console.error('Error checking task collaborators:', error);
@@ -1332,18 +1300,15 @@ export default function App() {
           // Check requesters if checkbox is enabled
           if (!includeTask && includeRequesters && selectedMembers.length > 0 && task.requesterId && selectedMembers.includes(task.requesterId)) {
             includeTask = true;
-            console.log(`✅ INCLUDED - found as requester`);
+
           }
           
           if (includeTask) {
             filteredTasks.push(task);
-            console.log(`🎯 FINAL: INCLUDED`);
-          } else {
-            console.log(`🚫 FINAL: EXCLUDED`);
           }
         }
         
-        console.log(`🏁 FILTER COMPLETE: ${filteredTasks.length}/${tasks.length} tasks included`);
+
         return filteredTasks;
       };
 
@@ -1353,13 +1318,13 @@ export default function App() {
         selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
       };
 
-      console.log('🔍 EFFECTIVE FILTERS:', effectiveFilters);
+
 
       const filteredColumns: any = {};
       
       for (const [columnId, column] of Object.entries(columns)) {
         let columnTasks = column.tasks;
-        console.log(`📂 COLUMN ${columnId}: ${columnTasks.length} tasks before search filter`);
+
         
         // Apply search filters first, but skip member filtering if we have checkboxes enabled
         if (isSearchActive) {
@@ -1369,9 +1334,7 @@ export default function App() {
             selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
           } : effectiveFilters;
           
-          console.log(`🔍 SEARCH FILTERS:`, searchOnlyFilters);
           columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members);
-          console.log(`🔍 After search filter: ${columnTasks.length} tasks remaining`);
         }
         
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
@@ -1386,32 +1349,52 @@ export default function App() {
       }
       
       setFilteredColumns(filteredColumns);
+      
+      // Calculate task counts for all boards using consistent logic
+      const taskCounts: {[boardId: string]: number} = {};
+      for (const board of boards) {
+        let totalCount = 0;
+        
+        if (isFiltering) {
+          for (const column of Object.values(board.columns || {})) {
+            let columnTasks = column.tasks;
+            
+            // Apply search filters first
+            if (isSearchActive) {
+              const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
+                ...searchFilters,
+                selectedMembers: []
+              } : searchFilters;
+              columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members);
+            }
+            
+            // Apply member filtering (simplified - without watchers/collaborators for performance)
+            if (selectedMembers.length > 0 && includeAssignees) {
+              columnTasks = columnTasks.filter(task => selectedMembers.includes(task.memberId));
+            }
+            
+            totalCount += columnTasks.length;
+          }
+        } else {
+          // No filtering - count all tasks
+          Object.values(board.columns || {}).forEach(column => {
+            totalCount += column.tasks.length;
+          });
+        }
+        
+        taskCounts[board.id] = totalCount;
+      }
+      
+      setBoardTaskCounts(taskCounts);
     };
 
     performFiltering();
-  }, [columns, searchFilters, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members]);
+  }, [columns, searchFilters, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards]);
 
   // Use filtered columns state
   const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
   const getTaskCountForBoard = (board: Board) => {
-    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
-    if (!isFiltering) return 0; // Don't show count when no filters active
-    
-    // If this is the currently selected board, use our filtered columns state
-    if (board.id === selectedBoard) {
-      let totalCount = 0;
-      Object.values(filteredColumns).forEach(column => {
-        totalCount += column.tasks.length;
-      });
-      return totalCount;
-    }
-    
-    // For other boards, fall back to basic filtering (without collaborators/watchers)
-    const effectiveFilters = {
-      ...searchFilters,
-      selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
-    };
-    return getFilteredTaskCountForBoard(board, effectiveFilters, isFiltering);
+    return boardTaskCounts[board.id] || 0;
   };
 
 
@@ -1445,10 +1428,8 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
               onUsersChanged={async () => {
                 try {
-                  console.log('🔄 Refreshing members data after admin user update...');
                   const loadedMembers = await api.getMembers();
                   setMembers(loadedMembers);
-                  console.log('✅ Members refreshed:', loadedMembers.length, 'members loaded');
                 } catch (error) {
                   console.error('❌ Failed to refresh members:', error);
                 }
