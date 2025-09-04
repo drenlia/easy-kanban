@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff, MoreHorizontal, X, Check } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, MoreHorizontal, X, Check, Trash2, Copy, FileText } from 'lucide-react';
 import { Task, TeamMember, Priority, Tag, Columns, TaskViewMode } from '../types';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { getBoardColumns } from '../api';
 
 interface ListViewProps {
   filteredColumns: Columns;
+  selectedBoard: string | null; // Board ID to fetch columns for
   members: TeamMember[];
   availablePriorities: Priority[];
   availableTags: Tag[];
@@ -14,6 +16,7 @@ interface ListViewProps {
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
+  onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
 }
 
 type SortField = 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
@@ -31,8 +34,8 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'assignee', label: 'Assignee', visible: true, width: 120 },
   { key: 'priority', label: 'Priority', visible: true, width: 120 },
   { key: 'column', label: 'Status', visible: true, width: 150 },
-  { key: 'startDate', label: 'Start Date', visible: true, width: 120 },
-  { key: 'dueDate', label: 'Due Date', visible: true, width: 120 },
+  { key: 'startDate', label: 'Start Date', visible: true, width: 140 },
+  { key: 'dueDate', label: 'Due Date', visible: true, width: 140 },
   { key: 'tags', label: 'Tags', visible: true, width: 200 },
   { key: 'comments', label: 'Comments', visible: false, width: 100 },
   { key: 'createdAt', label: 'Created', visible: true, width: 120 }
@@ -40,6 +43,7 @@ const DEFAULT_COLUMNS: ColumnConfig[] = [
 
 export default function ListView({
   filteredColumns,
+  selectedBoard,
   members,
   availablePriorities,
   availableTags,
@@ -48,32 +52,70 @@ export default function ListView({
   selectedTask,
   onRemoveTask,
   onEditTask,
-  onCopyTask
+  onCopyTask,
+  onMoveTaskToColumn
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
   const [showColumnMenu, setShowColumnMenu] = useState<string | null>(null);
   
+  // State for board columns fetched from API
+  const [boardColumns, setBoardColumns] = useState<{id: string, title: string}[]>([]);
+  
+  // Animation state for task moves
+  const [animatingTask, setAnimatingTask] = useState<string | null>(null);
+  const [animationPhase, setAnimationPhase] = useState<'highlight' | 'slide' | 'fade' | null>(null);
+  
+  // Fetch board columns when selectedBoard changes
+  useEffect(() => {
+    console.log('🔥 NEW LISTVIEW CODE IS RUNNING! selectedBoard:', selectedBoard);
+    const fetchBoardColumns = async () => {
+      if (selectedBoard) {
+        try {
+          console.log('🔥 FETCHING COLUMNS FOR BOARD:', selectedBoard);
+          const columns = await getBoardColumns(selectedBoard);
+          setBoardColumns(columns);
+          console.log('📋 FETCHED BOARD COLUMNS:', columns);
+        } catch (error) {
+          console.error('Failed to fetch board columns:', error);
+          setBoardColumns([]);
+        }
+      } else {
+        setBoardColumns([]);
+      }
+    };
+    
+    fetchBoardColumns();
+  }, [selectedBoard]);
+  
   // Inline editing state
   const [editingCell, setEditingCell] = useState<{taskId: string, field: string} | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [showDropdown, setShowDropdown] = useState<{taskId: string, field: string} | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const editInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Flatten all tasks from all columns
   const allTasks = useMemo(() => {
     const tasks: (Task & { columnTitle: string })[] = [];
+    const columnCounts: {[key: string]: number} = {};
     if (filteredColumns && typeof filteredColumns === 'object') {
       Object.values(filteredColumns).forEach(column => {
         if (column && column.tasks && Array.isArray(column.tasks)) {
+          columnCounts[column.title] = column.tasks.length;
           column.tasks.forEach(task => {
             tasks.push({ ...task, columnTitle: column.title });
           });
         }
       });
     }
+    console.log(`📋 LISTVIEW COUNT:`, {
+      totalTasks: tasks.length,
+      columnCounts,
+      columnsUsed: Object.keys(filteredColumns || {}).length
+    });
     return tasks;
   }, [filteredColumns]);
 
@@ -181,7 +223,13 @@ export default function ListView({
   };
 
   const getTagsDisplay = (tags: Tag[]) => {
-    if (!tags || !Array.isArray(tags) || tags.length === 0) return null;
+    if (!tags || !Array.isArray(tags) || tags.length === 0) {
+      return (
+        <div className="px-2 py-1 border border-dashed border-gray-300 rounded text-xs text-gray-400 cursor-pointer hover:border-gray-400 hover:text-gray-500">
+          Click to add tags
+        </div>
+      );
+    }
 
     return (
       <div className="flex flex-wrap gap-1">
@@ -303,16 +351,30 @@ export default function ListView({
     }
   };
 
-  const toggleDropdown = (taskId: string, field: string) => {
+  const calculateDropdownPosition = (element: HTMLElement) => {
+    const rect = element.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const spaceBelow = viewportHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    // If there's more space above and below is tight, show above
+    return spaceBelow < 200 && spaceAbove > spaceBelow ? 'above' : 'below';
+  };
+
+  const toggleDropdown = (taskId: string, field: string, event?: React.MouseEvent) => {
     if (showDropdown?.taskId === taskId && showDropdown?.field === field) {
       setShowDropdown(null);
     } else {
+      if (event?.currentTarget) {
+        const position = calculateDropdownPosition(event.currentTarget as HTMLElement);
+        setDropdownPosition(position);
+      }
       setShowDropdown({ taskId, field });
       setEditingCell(null);
     }
   };
 
-  const handleDropdownSelect = async (taskId: string, field: string, value: string) => {
+  const handleDropdownSelect = async (taskId: string, field: string, value: string | Tag[]) => {
     const task = allTasks.find(t => t.id === taskId);
     if (!task) return;
 
@@ -414,17 +476,69 @@ export default function ListView({
                 </td>
               </tr>
             ) : (
-              sortedTasks.map((task, index) => (
-                <tr
-                  key={task.id}
-                  className={`hover:bg-gray-50 cursor-pointer ${
-                    selectedTask?.id === task.id ? 'bg-blue-50' : ''
-                  }`}
-                  onClick={() => onSelectTask(task)}
-                >
-                  {/* Row number cell */}
-                  <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 w-16">
-                    {index + 1}
+              sortedTasks.map((task, index) => {
+                // Animation classes based on phase
+                const getAnimationClasses = () => {
+                  if (animatingTask !== task.id) return '';
+                  
+                  switch (animationPhase) {
+                    case 'highlight':
+                      return 'bg-yellow-200 border-l-4 border-yellow-500 transform scale-105 transition-all duration-500';
+                    case 'slide':
+                      return 'bg-blue-200 border-l-4 border-blue-500 transform translate-y-4 transition-all duration-800';
+                    case 'fade':
+                      return 'bg-green-100 border-l-4 border-green-500 transition-all duration-1000';
+                    default:
+                      return '';
+                  }
+                };
+                
+                return (
+                <React.Fragment key={task.id}>
+                  {/* Main task row */}
+                  <tr
+                    data-task-id={task.id}
+                    className={`group hover:bg-gray-50 transition-all duration-300 ${
+                      selectedTask?.id === task.id ? 'bg-blue-50' : ''
+                    } ${getAnimationClasses()}`}
+                  >
+                  {/* Row number and actions cell */}
+                  <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 w-24">
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-gray-500 mr-1">{index + 1}</span>
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectTask(task);
+                          }}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600"
+                          title="View Details"
+                        >
+                          <FileText size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCopyTask(task);
+                          }}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-green-600"
+                          title="Copy Task"
+                        >
+                          <Copy size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveTask(task.id);
+                          }}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
+                          title="Delete Task"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
                   </td>
                   {visibleColumns.map(column => (
                     <td 
@@ -502,7 +616,7 @@ export default function ListView({
                             className="cursor-pointer"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleDropdown(task.id, 'assignee');
+                              toggleDropdown(task.id, 'assignee', e);
                             }}
                           >
                             {getMemberDisplay(task.memberId)}
@@ -510,7 +624,7 @@ export default function ListView({
                           {showDropdown?.taskId === task.id && showDropdown?.field === 'assignee' && (
                             <div 
                               ref={dropdownRef}
-                              className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]"
+                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]`}
                             >
                               <div className="py-1">
                                 {members?.map(member => (
@@ -521,11 +635,11 @@ export default function ListView({
                                   >
                                     <img
                                       src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
-                                      alt={`${member.firstName} ${member.lastName}`}
+                                      alt={member.name}
                                       className="w-4 h-4 rounded-full object-cover border border-gray-200"
                                     />
-                                    <span className="text-xs text-gray-900 truncate">
-                                      {member.firstName} {member.lastName}
+                                    <span className="text-sm text-gray-900 font-medium">
+                                      {member.name}
                                     </span>
                                   </button>
                                 ))}
@@ -540,7 +654,7 @@ export default function ListView({
                             className="cursor-pointer"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleDropdown(task.id, 'priority');
+                              toggleDropdown(task.id, 'priority', e);
                             }}
                           >
                             {getPriorityDisplay(task.priority)}
@@ -548,7 +662,7 @@ export default function ListView({
                           {showDropdown?.taskId === task.id && showDropdown?.field === 'priority' && (
                             <div 
                               ref={dropdownRef}
-                              className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[120px]"
+                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[120px]`}
                             >
                               <div className="py-1">
                                 {availablePriorities?.map(priority => (
@@ -580,7 +694,7 @@ export default function ListView({
                             className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs cursor-pointer hover:bg-gray-200"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleDropdown(task.id, 'column');
+                              toggleDropdown(task.id, 'column', e);
                             }}
                           >
                             {task.columnTitle}
@@ -588,18 +702,91 @@ export default function ListView({
                           {showDropdown?.taskId === task.id && showDropdown?.field === 'column' && (
                             <div 
                               ref={dropdownRef}
-                              className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[150px]"
+                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[150px]`}
                             >
-                              <div className="py-1">
-                                {filteredColumns && Object.values(filteredColumns).map(col => (
+                              <div className="py-1 flex flex-col">
+                                {/* Debug: log boardColumns */}
+                                {console.log('📋 STATUS DROPDOWN - boardColumns:', boardColumns)}
+                                {console.log('📋 STATUS DROPDOWN - About to render buttons. boardColumns.length:', boardColumns?.length)}
+                                {boardColumns && boardColumns.length > 0 ? (
+                                  boardColumns.map((col, index) => {
+                                    console.log(`📋 RENDERING BUTTON ${index}:`, col);
+                                    return (
                                   <button
                                     key={col.id}
-                                    onClick={() => handleDropdownSelect(task.id, 'columnId', col.id)}
-                                    className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50"
+                                    onClick={async () => {
+                                      try {
+                                        // Find current column title
+                                        const currentColumn = boardColumns.find(c => c.title === task.columnTitle);
+                                        const targetColumn = col;
+                                        
+                                        // Only animate if actually moving to a different column
+                                        if (currentColumn && currentColumn.id !== targetColumn.id) {
+                                          // Get current task position
+                                          const currentTaskIndex = sortedTasks.findIndex(t => t.id === task.id);
+                                          
+                                          // Start animation sequence
+                                          setAnimatingTask(task.id);
+                                          setAnimationPhase('highlight');
+                                          
+                                          // Phase 1: Highlight (500ms)
+                                          setTimeout(() => {
+                                            setAnimationPhase('slide');
+                                          }, 500);
+                                          
+                                          // Phase 2: Slide and move task (800ms)
+                                          setTimeout(async () => {
+                                            await onMoveTaskToColumn(task.id, col.id);
+                                            setAnimationPhase('fade');
+                                            
+                                            // After task moves, check if we need to scroll to follow it
+                                            setTimeout(() => {
+                                              const newTaskRowElement = document.querySelector(`tr[data-task-id="${task.id}"]`);
+                                              if (newTaskRowElement) {
+                                                const rect = newTaskRowElement.getBoundingClientRect();
+                                                const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+                                                
+                                                if (!isVisible) {
+                                                  newTaskRowElement.scrollIntoView({ 
+                                                    behavior: 'smooth', 
+                                                    block: 'center' 
+                                                  });
+                                                }
+                                              }
+                                            }, 100);
+                                          }, 800);
+                                          
+                                          // Phase 3: Fade back to normal (1200ms) - extended for viewport scrolling
+                                          setTimeout(() => {
+                                            setAnimatingTask(null);
+                                            setAnimationPhase(null);
+                                          }, 2000);
+                                        } else {
+                                          // No animation needed, just move
+                                          await onMoveTaskToColumn(task.id, col.id);
+                                        }
+                                        
+                                        setShowDropdown(null);
+                                      } catch (error) {
+                                        console.error('Failed to move task to column:', error);
+                                        setAnimatingTask(null);
+                                        setAnimationPhase(null);
+                                      }
+                                    }}
+                                    className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 block ${
+                                      task.columnTitle === col.title ? 'bg-blue-50 text-blue-700' : ''
+                                    }`}
                                   >
                                     {col.title}
+                                    {task.columnTitle === col.title && (
+                                      <span className="ml-auto text-blue-600">✓</span>
+                                    )}
                                   </button>
-                                ))}
+                                    );
+                                  })
+                                ) : (
+                                  <div className="px-3 py-2 text-xs text-gray-500">No columns available</div>
+                                )}
                               </div>
                             </div>
                           )}
@@ -658,13 +845,13 @@ export default function ListView({
                           </span>
                         ) : (
                           <span 
-                            className="text-gray-400 text-xs cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
+                            className="text-gray-400 text-xs cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 border border-dashed border-gray-300 hover:border-gray-400"
                             onClick={(e) => {
                               e.stopPropagation();
                               startEditing(task.id, 'dueDate', '');
                             }}
                           >
-                            -
+                            Click to set date
                           </span>
                         )
                       )}
@@ -674,7 +861,7 @@ export default function ListView({
                             className="cursor-pointer"
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleDropdown(task.id, 'tags');
+                              toggleDropdown(task.id, 'tags', e);
                             }}
                           >
                             {getTagsDisplay(task.tags || [])}
@@ -682,7 +869,7 @@ export default function ListView({
                           {showDropdown?.taskId === task.id && showDropdown?.field === 'tags' && (
                             <div 
                               ref={dropdownRef}
-                              className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]"
+                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]`}
                             >
                               <div className="py-1 max-h-48 overflow-y-auto">
                                 <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
@@ -694,9 +881,25 @@ export default function ListView({
                                     <button
                                       key={tag.id}
                                       onClick={() => {
-                                        // Toggle tag selection logic would go here
-                                        // For now, just close the dropdown
-                                        setShowDropdown(null);
+                                        // Toggle tag selection
+                                        const currentTags = task.tags || [];
+                                        let updatedTags;
+                                        
+                                        if (isSelected) {
+                                          // Remove tag
+                                          updatedTags = currentTags.filter(t => t.id !== tag.id);
+                                        } else {
+                                          // Add tag
+                                          updatedTags = [...currentTags, tag];
+                                        }
+                                        
+                                        // Update the task
+                                        const updatedTask = {
+                                          ...task,
+                                          tags: updatedTags
+                                        };
+                                        
+                                        handleDropdownSelect(task.id, 'tags', updatedTags);
                                       }}
                                       className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2 ${
                                         isSelected ? 'bg-blue-50' : ''
@@ -734,7 +937,9 @@ export default function ListView({
                     </td>
                   ))}
                 </tr>
-              ))
+                </React.Fragment>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -47,6 +47,17 @@ router.post('/', (req, res) => {
   const { id, name, color } = req.body;
   try {
     const { db } = req.app.locals;
+    
+    // Check for duplicate member name
+    const existingMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?)'), 
+      'SELECT'
+    ).get(name);
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This display name is already taken by another user' });
+    }
+    
     wrapQuery(db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'), 'INSERT').run(id, name, color);
     res.json({ id, name, color });
   } catch (error) {

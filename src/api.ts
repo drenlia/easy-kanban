@@ -49,6 +49,12 @@ export const getBoards = async () => {
   return data;
 };
 
+// Get columns for a specific board
+export const getBoardColumns = async (boardId: string) => {
+  const { data } = await api.get<{id: string, title: string, boardId: string, position: number}[]>(`/boards/${boardId}/columns`);
+  return data;
+};
+
 export const createBoard = async (board: Board) => {
   const { data } = await api.post<Board>('/boards', board);
   return data;

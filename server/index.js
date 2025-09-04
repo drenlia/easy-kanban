@@ -388,6 +388,16 @@ app.put('/api/users/profile', authenticateToken, (req, res) => {
       return res.status(400).json({ error: 'Display name is required' });
     }
     
+    // Check for duplicate display name (excluding current user)
+    const existingMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
+      'SELECT'
+    ).get(displayName.trim(), userId);
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This display name is already taken by another user' });
+    }
+    
     // Update the member's name in the members table
     const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
     updateMemberStmt.run(displayName.trim(), userId);
@@ -453,6 +463,16 @@ app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole([
     
     if (!displayName || displayName.trim().length === 0) {
       return res.status(400).json({ error: 'Display name is required' });
+    }
+    
+    // Check for duplicate display name (excluding current user)
+    const existingMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
+      'SELECT'
+    ).get(displayName.trim(), userId);
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This display name is already taken by another user' });
     }
     
     console.log('🏷️ Updating member name for user:', userId, 'to:', displayName.trim());
