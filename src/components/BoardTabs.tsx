@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Board } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -32,6 +33,7 @@ const SortableBoardTab: React.FC<{
   taskCount?: number;
   showTaskCount?: boolean;
 }> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, showDeleteConfirm, onConfirmDelete, onCancelDelete, taskCount, showTaskCount }) => {
+  const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
   const {
     attributes,
     listeners,
@@ -47,57 +49,66 @@ const SortableBoardTab: React.FC<{
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="relative group">
-      {/* Drag Handle - Small icon on the left */}
-      <div
-        className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
-        title="Drag to reorder"
-        {...attributes}
-        {...listeners}
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
-          <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/>
-        </svg>
-      </div>
-      
-      {/* Main Tab Button - Now clickable without drag interference */}
-      <button
-        onClick={onSelect}
-        onDoubleClick={onEdit}
-        className={`px-4 py-3 pl-6 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
-          isSelected
-            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
-            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-        } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
-        title="Click to select, double-click to rename (Admin only)"
-      >
-        <div className="flex items-center gap-2">
-          <span>{board.title}</span>
-          {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
-              {taskCount}
-            </span>
-          )}
-        </div>
-      </button>
-      
-      {/* Delete Button - Admin Only */}
-      {canDelete && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-          className="absolute -top-1 -right-1 p-1 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-700 hover:bg-gray-100/50"
-          title="Delete board (Admin only)"
+    <>
+      <div ref={setNodeRef} style={style} className="relative group">
+        {/* Drag Handle - Small icon on the left */}
+        <div
+          className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Drag to reorder"
+          {...attributes}
+          {...listeners}
         >
-          <span className="text-xs font-bold">×</span>
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
+            <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/>
+          </svg>
+        </div>
+        
+        {/* Main Tab Button - Now clickable without drag interference */}
+        <button
+          onClick={onSelect}
+          onDoubleClick={onEdit}
+          className={`px-4 py-3 pl-6 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
+            isSelected
+              ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+          } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
+          title="Click to select, double-click to rename (Admin only)"
+        >
+          <div className="flex items-center gap-2">
+            <span>{board.title}</span>
+            {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+                {taskCount}
+              </span>
+            )}
+          </div>
         </button>
-      )}
-      
-      {/* Delete Confirmation Menu */}
-      {canDelete && showDeleteConfirm === board.id && (
-        <div className="delete-confirmation absolute -top-1 -right-1 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-50 min-w-[140px]">
+        
+        {/* Delete Button - Admin Only */}
+        {canDelete && (
+          <button
+            ref={setDeleteButtonRef}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove();
+            }}
+            className="absolute -top-1 -right-1 p-1 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-700 hover:bg-gray-100/50"
+            title="Delete board (Admin only)"
+          >
+            <span className="text-xs font-bold">×</span>
+          </button>
+        )}
+      </div>
+
+      {/* Delete Confirmation Menu - Using portal to escape stacking context */}
+      {canDelete && showDeleteConfirm === board.id && deleteButtonRef && createPortal(
+        <div 
+          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-[9999] min-w-[140px]"
+          style={{
+            top: `${deleteButtonRef.getBoundingClientRect().bottom + 5}px`,
+            left: `${deleteButtonRef.getBoundingClientRect().left - 120}px`,
+          }}
+        >
           <div className="text-sm text-gray-700 mb-2">
             {(taskCount || 0) > 0 
               ? `Delete board and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`
@@ -118,9 +129,10 @@ const SortableBoardTab: React.FC<{
               No
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 };
 

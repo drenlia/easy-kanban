@@ -106,11 +106,47 @@ router.get('/', (req, res) => {
   }
 });
 
+// Get columns for a specific board
+router.get('/:boardId/columns', (req, res) => {
+  const { boardId } = req.params;
+  try {
+    const { db } = req.app.locals;
+    
+    // Verify board exists
+    const board = wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    if (!board) {
+      return res.status(404).json({ error: 'Board not found' });
+    }
+    
+    // Get columns for this board
+    const columns = wrapQuery(
+      db.prepare('SELECT id, title, boardId, position FROM columns WHERE boardId = ? ORDER BY position ASC'), 
+      'SELECT'
+    ).all(boardId);
+    
+    res.json(columns);
+  } catch (error) {
+    console.error('Error fetching board columns:', error);
+    res.status(500).json({ error: 'Failed to fetch board columns' });
+  }
+});
+
 // Create board
 router.post('/', (req, res) => {
   const { id, title } = req.body;
   try {
     const { db } = req.app.locals;
+    
+    // Check for duplicate board name
+    const existingBoard = wrapQuery(
+      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?)'), 
+      'SELECT'
+    ).get(title);
+    
+    if (existingBoard) {
+      return res.status(400).json({ error: 'A board with this name already exists' });
+    }
+    
     const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
     wrapQuery(db.prepare('INSERT INTO boards (id, title, position) VALUES (?, ?, ?)'), 'INSERT').run(id, title, position + 1);
     res.json({ id, title, position: position + 1 });
@@ -126,6 +162,17 @@ router.put('/:id', (req, res) => {
   const { title } = req.body;
   try {
     const { db } = req.app.locals;
+    
+    // Check for duplicate board name (excluding current board)
+    const existingBoard = wrapQuery(
+      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?) AND id != ?'), 
+      'SELECT'
+    ).get(title, id);
+    
+    if (existingBoard) {
+      return res.status(400).json({ error: 'A board with this name already exists' });
+    }
+    
     wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
     res.json({ id, title });
   } catch (error) {

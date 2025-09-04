@@ -8,6 +8,17 @@ router.post('/', (req, res) => {
   const { id, title, boardId } = req.body;
   try {
     const { db } = req.app.locals;
+    
+    // Check for duplicate column name within the same board
+    const existingColumn = wrapQuery(
+      db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?)'), 
+      'SELECT'
+    ).get(boardId, title);
+    
+    if (existingColumn) {
+      return res.status(400).json({ error: 'A column with this name already exists in this board' });
+    }
+    
     const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
     wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, position + 1);
     res.json({ id, title, boardId, position: position + 1 });
@@ -23,6 +34,23 @@ router.put('/:id', (req, res) => {
   const { title } = req.body;
   try {
     const { db } = req.app.locals;
+    
+    // Get the column's board ID
+    const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    if (!column) {
+      return res.status(404).json({ error: 'Column not found' });
+    }
+    
+    // Check for duplicate column name within the same board (excluding current column)
+    const existingColumn = wrapQuery(
+      db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?) AND id != ?'), 
+      'SELECT'
+    ).get(column.boardId, title, id);
+    
+    if (existingColumn) {
+      return res.status(400).json({ error: 'A column with this name already exists in this board' });
+    }
+    
     wrapQuery(db.prepare('UPDATE columns SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
     res.json({ id, title });
   } catch (error) {

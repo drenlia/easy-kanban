@@ -479,10 +479,23 @@ export default function App() {
       // Pause polling to prevent race conditions
       setBoardCreationPause(true);
       
+      // Generate a unique numbered board name
+      const generateUniqueBoardName = (): string => {
+        let counter = 1;
+        let proposedName = `New Board ${counter}`;
+        
+        while (boards.some(board => board.title.toLowerCase() === proposedName.toLowerCase())) {
+          counter++;
+          proposedName = `New Board ${counter}`;
+        }
+        
+        return proposedName;
+      };
+      
       const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
-        title: 'New Board',
+        title: generateUniqueBoardName(),
         columns: {}
       };
 
@@ -949,6 +962,37 @@ export default function App() {
     }
   };
 
+  // Handle moving task to different column via ListView dropdown
+  const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string) => {
+    // Find the task and its current column
+    let sourceTask: Task | null = null;
+    let sourceColumnId: string | null = null;
+    
+    Object.entries(columns).forEach(([colId, column]) => {
+      const task = column.tasks.find(t => t.id === taskId);
+      if (task) {
+        sourceTask = task;
+        sourceColumnId = colId;
+      }
+    });
+
+    if (!sourceTask || !sourceColumnId || sourceColumnId === targetColumnId) {
+      return; // Task not found or already in target column
+    }
+
+    const targetColumn = columns[targetColumnId];
+    if (!targetColumn) {
+      console.error('Target column not found:', targetColumnId);
+      return;
+    }
+
+    // Move to end of target column
+    const targetIndex = targetColumn.tasks.length;
+    
+    // Use the existing cross-column move logic
+    await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+  };
+
   // Handle moving task to different column
   const handleCrossColumnMove = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
     const sourceColumn = columns[sourceColumnId];
@@ -1359,43 +1403,6 @@ export default function App() {
       }
       
       setFilteredColumns(filteredColumns);
-      
-      // Calculate task counts for all boards using consistent logic
-      const taskCounts: {[boardId: string]: number} = {};
-      for (const board of boards) {
-        let totalCount = 0;
-        
-        if (isFiltering) {
-          for (const column of Object.values(board.columns || {})) {
-            let columnTasks = column.tasks;
-            
-            // Apply search filters first
-            if (isSearchActive) {
-              const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
-                ...searchFilters,
-                selectedMembers: []
-              } : searchFilters;
-              columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members);
-            }
-            
-            // Apply member filtering (simplified - without watchers/collaborators for performance)
-            if (selectedMembers.length > 0 && includeAssignees) {
-              columnTasks = columnTasks.filter(task => selectedMembers.includes(task.memberId));
-            }
-            
-            totalCount += columnTasks.length;
-          }
-        } else {
-          // No filtering - count all tasks
-          Object.values(board.columns || {}).forEach(column => {
-            totalCount += column.tasks.length;
-          });
-        }
-        
-        taskCounts[board.id] = totalCount;
-      }
-      
-      setBoardTaskCounts(taskCounts);
     };
 
     performFiltering();
@@ -1404,7 +1411,25 @@ export default function App() {
   // Use filtered columns state
   const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
   const getTaskCountForBoard = (board: Board) => {
-    return boardTaskCounts[board.id] || 0;
+    
+    // For the currently selected board, use the actual filtered columns data
+    // This ensures the count matches exactly what's displayed in ListView/Kanban
+    if (board.id === selectedBoard && filteredColumns) {
+      let totalCount = 0;
+      const columnCounts: {[key: string]: number} = {};
+      Object.values(filteredColumns).forEach(column => {
+        columnCounts[column.title] = column.tasks.length;
+        totalCount += column.tasks.length;
+      });
+      return totalCount;
+    }
+    
+    // For other boards, show their total task count (no filtering applied to non-selected boards)
+    let totalCount = 0;
+    Object.values(board.columns || {}).forEach(column => {
+      totalCount += column.tasks.length;
+    });
+    return totalCount;
   };
 
 
@@ -1599,6 +1624,7 @@ export default function App() {
                                     onRemoveTask={handleRemoveTask}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
+                                    onMoveTaskToColumn={handleMoveTaskToColumn}
                                     onEditColumn={handleEditColumn}
                                     onRemoveColumn={handleRemoveColumn}
                                     onAddColumn={handleAddColumn}

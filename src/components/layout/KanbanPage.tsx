@@ -83,6 +83,7 @@ interface KanbanPageProps {
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
+  onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   onEditColumn: (columnId: string, title: string) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: () => Promise<void>;
@@ -145,6 +146,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onRemoveTask,
   onEditTask,
   onCopyTask,
+  onMoveTaskToColumn,
   onEditColumn,
   onRemoveColumn,
   onAddColumn,
@@ -369,6 +371,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           {viewMode === 'list' ? (
             <ListView
               filteredColumns={filteredColumns}
+              selectedBoard={selectedBoard}
               members={members}
               availablePriorities={availablePriorities}
               availableTags={availableTags}
@@ -378,6 +381,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               onRemoveTask={onRemoveTask}
               onEditTask={onEditTask}
               onCopyTask={onCopyTask}
+              onMoveTaskToColumn={onMoveTaskToColumn}
             />
           ) : viewMode === 'gantt' ? (
             <div className="text-center text-gray-500 py-20">
