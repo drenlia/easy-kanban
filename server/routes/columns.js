@@ -5,7 +5,7 @@ const router = express.Router();
 
 // Create column
 router.post('/', (req, res) => {
-  const { id, title, boardId } = req.body;
+  const { id, title, boardId, position } = req.body;
   try {
     const { db } = req.app.locals;
     
@@ -19,9 +19,18 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'A column with this name already exists in this board' });
     }
     
-    const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
-    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, position + 1);
-    res.json({ id, title, boardId, position: position + 1 });
+    let finalPosition;
+    if (position !== undefined) {
+      // Use provided position (for inserting between columns)
+      finalPosition = position;
+    } else {
+      // Default behavior: append to end
+      const maxPos = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
+      finalPosition = maxPos + 1;
+    }
+    
+    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition);
+    res.json({ id, title, boardId, position: finalPosition });
   } catch (error) {
     console.error('Error creating column:', error);
     res.status(500).json({ error: 'Failed to create column' });

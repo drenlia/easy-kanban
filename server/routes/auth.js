@@ -5,6 +5,13 @@ import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../m
 
 const router = express.Router();
 
+// Helper function for conditional debug logging
+function debugLog(settingsObj, ...args) {
+  if (settingsObj && settingsObj.GOOGLE_SSO_DEBUG === 'true') {
+    console.log(...args);
+  }
+}
+
 // Helper function to get OAuth settings with caching
 function getOAuthSettings(db) {
   // Check if we have cached settings and no cache invalidation flag
@@ -14,8 +21,7 @@ function getOAuthSettings(db) {
   }
   
   // Fetch fresh settings from database
-  console.log('🔄 [GOOGLE SSO] Loading OAuth settings from database...');
-  const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+  const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'GOOGLE_SSO_DEBUG');
   const settingsObj = {};
   settings.forEach(setting => {
     settingsObj[setting.key] = setting.value;
@@ -28,11 +34,13 @@ function getOAuthSettings(db) {
     timestamp: Date.now()
   };
   
-  console.log('🔄 [GOOGLE SSO] OAuth settings loaded from database:', Object.keys(settingsObj).map(k => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '));
-  console.log('🔄 [GOOGLE SSO] OAuth settings details:', {
+  // Always log basic OAuth config status, detailed logs only if debug enabled
+  console.log('🔄 [GOOGLE SSO] OAuth settings loaded:', Object.keys(settingsObj).filter(k => k !== 'GOOGLE_SSO_DEBUG').map(k => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '), `[DEBUG: ${settingsObj.GOOGLE_SSO_DEBUG === 'true' ? 'ON' : 'OFF'}]`);
+  debugLog(settingsObj, '🔄 [GOOGLE SSO] OAuth settings details:', {
     GOOGLE_CLIENT_ID: settingsObj.GOOGLE_CLIENT_ID ? `${settingsObj.GOOGLE_CLIENT_ID.substring(0, 20)}...` : 'NOT_SET',
     GOOGLE_CLIENT_SECRET: settingsObj.GOOGLE_CLIENT_SECRET ? 'SET' : 'NOT_SET',
-    GOOGLE_CALLBACK_URL: settingsObj.GOOGLE_CALLBACK_URL || 'NOT_SET'
+    GOOGLE_CALLBACK_URL: settingsObj.GOOGLE_CALLBACK_URL || 'NOT_SET',
+    DEBUG_ENABLED: settingsObj.GOOGLE_SSO_DEBUG === 'true'
   });
   
   return settingsObj;
@@ -41,18 +49,18 @@ function getOAuthSettings(db) {
 // Google OAuth endpoints
 router.get('/google/url', (req, res) => {
   try {
-    console.log('🔐 [GOOGLE SSO] Starting Google OAuth URL generation...');
-    console.log('🔐 [GOOGLE SSO] Request headers:', {
+    const db = req.app.locals.db;
+    const settingsObj = getOAuthSettings(db);
+    
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Starting Google OAuth URL generation...');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Request headers:', {
       host: req.headers.host,
       origin: req.headers.origin,
       referer: req.headers.referer,
       userAgent: req.headers['user-agent']?.substring(0, 50) + '...'
     });
     
-    const db = req.app.locals.db;
-    const settingsObj = getOAuthSettings(db);
-    
-    console.log('🔐 [GOOGLE SSO] OAuth settings validation:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] OAuth settings validation:', {
       hasClientId: !!settingsObj.GOOGLE_CLIENT_ID,
       hasClientSecret: !!settingsObj.GOOGLE_CLIENT_SECRET,
       hasCallbackUrl: !!settingsObj.GOOGLE_CALLBACK_URL,
@@ -72,8 +80,8 @@ router.get('/google/url', (req, res) => {
       `&scope=${encodeURIComponent('openid email profile')}` +
       `&access_type=offline`;
     
-    console.log('🔐 [GOOGLE SSO] ✅ Generated OAuth URL successfully');
-    console.log('🔐 [GOOGLE SSO] OAuth URL components:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Generated OAuth URL successfully');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] OAuth URL components:', {
       baseUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       clientId: settingsObj.GOOGLE_CLIENT_ID.substring(0, 20) + '...',
       redirectUri: settingsObj.GOOGLE_CALLBACK_URL,
@@ -89,11 +97,15 @@ router.get('/google/url', (req, res) => {
 
 router.get('/google/callback', async (req, res) => {
   try {
-    console.log('🔐 [GOOGLE SSO] ======== CALLBACK STARTED ========');
     const { code, error, error_description } = req.query;
     const db = req.app.locals.db;
     
-    console.log('🔐 [GOOGLE SSO] Callback request details:', {
+    // Get OAuth settings first to check debug mode
+    const settingsObj = getOAuthSettings(db);
+    
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] ======== CALLBACK STARTED ========');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Raw callback URL:', req.originalUrl);
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Callback request details:', {
       host: req.headers.host,
       url: req.url,
       fullUrl: `${req.protocol}://${req.get('host')}${req.originalUrl}`,
@@ -117,17 +129,14 @@ router.get('/google/callback', async (req, res) => {
       return res.redirect('/?error=oauth_failed');
     }
     
-    console.log('🔐 [GOOGLE SSO] ✅ Authorization code received successfully');
-    
-    // Get OAuth settings
-    const settingsObj = getOAuthSettings(db);
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Authorization code received successfully');
     
     if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
       console.error('🔐 [GOOGLE SSO] ❌ OAuth settings not configured in callback');
       return res.redirect('/?error=oauth_not_configured');
     }
     
-    console.log('🔐 [GOOGLE SSO] Preparing token exchange with Google...');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Preparing token exchange with Google...');
     
     // Exchange code for access token
     const tokenPayload = {
@@ -138,7 +147,7 @@ router.get('/google/callback', async (req, res) => {
       redirect_uri: settingsObj.GOOGLE_CALLBACK_URL
     };
     
-    console.log('🔐 [GOOGLE SSO] Token exchange payload:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Token exchange payload:', {
       client_id: settingsObj.GOOGLE_CLIENT_ID.substring(0, 20) + '...',
       grant_type: tokenPayload.grant_type,
       redirect_uri: tokenPayload.redirect_uri,
@@ -151,7 +160,7 @@ router.get('/google/callback', async (req, res) => {
       body: new URLSearchParams(tokenPayload)
     });
     
-    console.log('🔐 [GOOGLE SSO] Token exchange response:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Token exchange response:', {
       status: tokenResponse.status,
       statusText: tokenResponse.statusText,
       ok: tokenResponse.ok
@@ -168,19 +177,19 @@ router.get('/google/callback', async (req, res) => {
     }
     
     const tokenData = await tokenResponse.json();
-    console.log('🔐 [GOOGLE SSO] ✅ Token exchange successful:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ Token exchange successful:', {
       hasAccessToken: !!tokenData.access_token,
       tokenType: tokenData.token_type,
       expiresIn: tokenData.expires_in
     });
     
     // Get user info from Google
-    console.log('🔐 [GOOGLE SSO] Fetching user info from Google...');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Fetching user info from Google...');
     const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
     
-    console.log('🔐 [GOOGLE SSO] User info response:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] User info response:', {
       status: userInfoResponse.status,
       statusText: userInfoResponse.statusText,
       ok: userInfoResponse.ok
@@ -197,7 +206,7 @@ router.get('/google/callback', async (req, res) => {
     }
     
     const userInfo = await userInfoResponse.json();
-    console.log('🔐 [GOOGLE SSO] ✅ User info received from Google:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] ✅ User info received from Google:', {
       email: userInfo.email,
       name: userInfo.name,
       given_name: userInfo.given_name,
@@ -207,11 +216,11 @@ router.get('/google/callback', async (req, res) => {
     });
     
     // Check if user exists
-    console.log('🔐 [GOOGLE SSO] Checking if user exists in database...');
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] Checking if user exists in database...');
     let user = db.prepare('SELECT * FROM users WHERE email = ?').get(userInfo.email);
     let isNewUser = false;
     
-    console.log('🔐 [GOOGLE SSO] User lookup result:', {
+    debugLog(settingsObj, '🔐 [GOOGLE SSO] User lookup result:', {
       userExists: !!user,
       userEmail: userInfo.email
     });
@@ -349,6 +358,26 @@ router.post('/reload-oauth', authenticateToken, requireRole(['admin']), (req, re
     console.error('Reload OAuth error:', error);
     res.status(500).json({ error: 'Failed to reload OAuth configuration' });
   }
+});
+
+// Test endpoint to verify callback routing (no auth required for testing)
+router.get('/test/callback', (req, res) => {
+  console.log('🧪 [TEST] Callback test endpoint hit!', {
+    url: req.url,
+    query: req.query,
+    headers: {
+      host: req.headers.host,
+      'x-forwarded-host': req.headers['x-forwarded-host'],
+      'x-forwarded-proto': req.headers['x-forwarded-proto'],
+      origin: req.headers.origin,
+      referer: req.headers.referer
+    }
+  });
+  res.json({ 
+    message: 'Callback routing test successful!', 
+    timestamp: new Date().toISOString(),
+    receivedAt: `${req.protocol}://${req.get('host')}${req.originalUrl}`
+  });
 });
 
 // Debug endpoint to check OAuth configuration (Admin only)

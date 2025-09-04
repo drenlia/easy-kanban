@@ -69,6 +69,13 @@ export default function App() {
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
   const [boardCreationPause, setBoardCreationPause] = useState(false);
+  const [animateCopiedTaskId, setAnimateCopiedTaskId] = useState<string | null>(null);
+  const [pendingCopyAnimation, setPendingCopyAnimation] = useState<{
+    title: string;
+    columnId: string;
+    originalPosition: number;
+    originalTaskId: string;
+  } | null>(null);
   // Load user preferences from cookies
   const [userPrefs] = useState(() => loadUserPreferences());
   const [selectedMembers, setSelectedMembers] = useState<string[]>(userPrefs.selectedMembers);
@@ -90,6 +97,31 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+  const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
+  
+  // Debug showColumnDeleteConfirm changes
+  useEffect(() => {
+    if (showColumnDeleteConfirm) {
+      console.log(`📋 showColumnDeleteConfirm changed to: ${showColumnDeleteConfirm}`);
+    } else {
+      console.log(`📋 showColumnDeleteConfirm cleared`);
+    }
+  }, [showColumnDeleteConfirm]);
+
+  // Sync selectedMembers when members list changes (e.g., user deletion)
+  useEffect(() => {
+    if (members.length > 0) {
+      const currentMemberIds = new Set(members.map(m => m.id));
+      const validSelectedMembers = selectedMembers.filter(id => currentMemberIds.has(id));
+      
+      // Only sync if there's a difference (remove deleted members)
+      if (validSelectedMembers.length !== selectedMembers.length) {
+        console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
+        setSelectedMembers(validSelectedMembers);
+        updateUserPreference('selectedMembers', validSelectedMembers);
+      }
+    }
+  }, [members]); // Only depend on members, not selectedMembers to avoid loops
 
   // Helper function to get default priority name
   const getDefaultPriorityName = (): string => {
@@ -424,18 +456,32 @@ export default function App() {
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
     if (members.length > 0 && currentUser && selectedMembers.length === 0) {
-      // Default to current user if they exist in members, otherwise first member
-      const currentUserMember = members.find(m => m.user_id === currentUser.id);
-      
-      if (currentUserMember) {
-        setSelectedMembers([currentUserMember.id]);
-        updateUserPreference('selectedMembers', [currentUserMember.id]);
-      } else {
-        setSelectedMembers([members[0].id]);
-        updateUserPreference('selectedMembers', [members[0].id]);
-      }
+      // Default to ALL members for better first-time experience
+      const allMemberIds = members.map(m => m.id);
+      console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
+      setSelectedMembers(allMemberIds);
+      updateUserPreference('selectedMembers', allMemberIds);
     }
   }, [members, currentUser, selectedMembers]);
+
+  // Watch for copied task to trigger animation
+  useEffect(() => {
+    if (pendingCopyAnimation && columns[pendingCopyAnimation.columnId]) {
+      const columnTasks = columns[pendingCopyAnimation.columnId]?.tasks || [];
+      const copiedTask = columnTasks.find(t => 
+        t.title === pendingCopyAnimation.title && 
+        t.id !== pendingCopyAnimation.originalTaskId && // Not the original task
+        Math.abs((t.position || 0) - pendingCopyAnimation.originalPosition) <= 1 // Within 1 position of original
+      );
+      
+      if (copiedTask) {
+        setAnimateCopiedTaskId(copiedTask.id);
+        setPendingCopyAnimation(null); // Clear pending animation
+        // Clear the animation trigger after a brief delay
+        setTimeout(() => setAnimateCopiedTaskId(null), 100);
+      }
+    }
+  }, [columns, pendingCopyAnimation]);
 
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
@@ -724,10 +770,14 @@ export default function App() {
     // New task will be inserted right after the original (position + 0.5 as intermediate)
     const newPosition = originalPosition + 0.5;
     
+    // Generate unique title for tracking
+    const copyTitle = `${task.title} (Copy)`;
+    const tempId = generateUUID();
+    
     const newTask: Task = {
       ...task,
-      id: generateUUID(),
-      title: `${task.title} (Copy)`,
+      id: tempId,
+      title: copyTitle,
       comments: [],
       position: newPosition
     };
@@ -773,6 +823,14 @@ export default function App() {
         // Refresh to get clean state from backend
         await refreshBoardData();
 
+      });
+      
+      // Set up pending animation - useEffect will trigger when columns update
+      setPendingCopyAnimation({
+        title: copyTitle,
+        columnId: task.columnId,
+        originalPosition,
+        originalTaskId: task.id
       });
       
       // Resume polling after brief delay
@@ -1091,26 +1149,71 @@ export default function App() {
     }
   };
 
+  // Helper function to count tasks in a column
+  const getColumnTaskCount = (columnId: string): number => {
+    return columns[columnId]?.tasks?.length || 0;
+  };
+
+  // Show column delete confirmation (or delete immediately if no tasks)
   const handleRemoveColumn = async (columnId: string) => {
+    const taskCount = getColumnTaskCount(columnId);
+    console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
+    
+    if (taskCount === 0) {
+      // No tasks - delete immediately without confirmation
+      console.log(`🗑️ Deleting empty column immediately`);
+      await handleConfirmColumnDelete(columnId);
+    } else {
+      // Has tasks - show confirmation dialog
+      console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
+      console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
+      setShowColumnDeleteConfirm(columnId);
+    }
+  };
+
+  // Confirm column deletion
+  const handleConfirmColumnDelete = async (columnId: string) => {
+    console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
       await api.deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
       setColumns(remainingColumns);
+      setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to delete column:', error);
     }
   };
 
-  const handleAddColumn = async () => {
+  // Cancel column deletion
+  const handleCancelColumnDelete = () => {
+    console.log(`❌ Cancelling column deletion`);
+    setShowColumnDeleteConfirm(null);
+  };
+
+  const handleAddColumn = async (afterColumnId: string) => {
     if (!selectedBoard) return;
+
+    // Generate auto-numbered column name
+    const existingColumnTitles = Object.values(columns).map(col => col.title);
+    let columnNumber = 1;
+    let newTitle = `New Column ${columnNumber}`;
+    while (existingColumnTitles.includes(newTitle)) {
+      columnNumber++;
+      newTitle = `New Column ${columnNumber}`;
+    }
+
+    // Get the position of the column we want to insert after
+    const afterColumn = columns[afterColumnId];
+    const afterPosition = afterColumn?.position || 0;
 
     const columnId = generateUUID();
     const newColumn: Column = {
       id: columnId,
-      title: 'New Column',
+      title: newTitle,
       tasks: [],
-      boardId: selectedBoard
+      boardId: selectedBoard,
+      position: afterPosition + 0.5 // Insert between current and next column
     };
 
     try {
@@ -1625,9 +1728,14 @@ export default function App() {
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
                                     onMoveTaskToColumn={handleMoveTaskToColumn}
+                                    animateCopiedTaskId={animateCopiedTaskId}
                                     onEditColumn={handleEditColumn}
                                     onRemoveColumn={handleRemoveColumn}
                                     onAddColumn={handleAddColumn}
+                                    showColumnDeleteConfirm={showColumnDeleteConfirm}
+                                    onConfirmColumnDelete={handleConfirmColumnDelete}
+                                    onCancelColumnDelete={handleCancelColumnDelete}
+                                    getColumnTaskCount={getColumnTaskCount}
                                     onTaskDragStart={handleTaskDragStart}
                                     onTaskDragOver={handleTaskDragOver}
                                     onTaskDrop={handleTaskDrop}

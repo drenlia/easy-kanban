@@ -1,8 +1,17 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { ChevronDown, ChevronUp, Eye, EyeOff, MoreHorizontal, X, Check, Trash2, Copy, FileText } from 'lucide-react';
-import { Task, TeamMember, Priority, Tag, Columns, TaskViewMode } from '../types';
+import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus } from 'lucide-react';
+import { Task, TeamMember, Priority, Tag, Columns } from '../types';
+import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
-import { getBoardColumns } from '../api';
+import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
+
+interface ListViewScrollControls {
+  canScrollLeft: boolean;
+  canScrollRight: boolean;
+  scrollLeft: () => void;
+  scrollRight: () => void;
+}
 
 interface ListViewProps {
   filteredColumns: Columns;
@@ -17,6 +26,8 @@ interface ListViewProps {
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
+  animateCopiedTaskId?: string | null; // Task ID to animate (set by parent after copy)
+  onScrollControlsChange?: (controls: ListViewScrollControls) => void; // Expose scroll controls to parent
 }
 
 type SortField = 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
@@ -53,30 +64,157 @@ export default function ListView({
   onRemoveTask,
   onEditTask,
   onCopyTask,
-  onMoveTaskToColumn
+  onMoveTaskToColumn,
+  animateCopiedTaskId,
+  onScrollControlsChange
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
+  
+  // Initialize columns from user preferences
+  const userPrefs = loadUserPreferences();
+  const [columns, setColumns] = useState<ColumnConfig[]>(() => {
+    return DEFAULT_COLUMNS.map(col => ({
+      ...col,
+      visible: userPrefs.listViewColumnVisibility[col.key] ?? col.visible
+    }));
+  });
   const [showColumnMenu, setShowColumnMenu] = useState<string | null>(null);
   
   // State for board columns fetched from API
   const [boardColumns, setBoardColumns] = useState<{id: string, title: string}[]>([]);
   
-  // Animation state for task moves
+  // Animation state for task moves and copies
   const [animatingTask, setAnimatingTask] = useState<string | null>(null);
   const [animationPhase, setAnimationPhase] = useState<'highlight' | 'slide' | 'fade' | null>(null);
   
+  // Track copied tasks for animation (triggered manually after copy action)
+  const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
+
+  // Comment tooltip state
+  const [showCommentTooltip, setShowCommentTooltip] = useState<string | null>(null); // taskId of tooltip being shown
+  const [tooltipPosition, setTooltipPosition] = useState<{vertical: 'above' | 'below', left: number, top: number}>({vertical: 'above', left: 0, top: 0});
+  const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentContainerRefs = useRef<{[taskId: string]: HTMLDivElement | null}>({});
+
+  // Horizontal scroll navigation state
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Function to trigger animation for a copied task
+  const animateCopiedTask = useCallback((taskId: string) => {
+    setCopiedTaskId(taskId);
+    setAnimatingTask(taskId);
+    setAnimationPhase('highlight');
+    
+    // Scroll to the copied task
+    setTimeout(() => {
+      const taskElement = document.querySelector(`[data-task-id="${taskId}"]`);
+      if (taskElement) {
+        const rect = taskElement.getBoundingClientRect();
+        const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+        
+        if (!isVisible) {
+          taskElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }
+      }
+    }, 100);
+    
+    // Fade out after 2 seconds
+    setTimeout(() => {
+      setAnimationPhase('fade');
+      setTimeout(() => {
+        setAnimatingTask(null);
+        setAnimationPhase(null);
+        setCopiedTaskId(null);
+      }, 1000);
+    }, 2000);
+  }, []);
+
+  // Check scroll state for table
+  const checkTableScrollState = () => {
+    if (!tableContainerRef.current) return;
+    
+    const container = tableContainerRef.current;
+    const newCanScrollLeft = container.scrollLeft > 0;
+    const newCanScrollRight = container.scrollLeft < container.scrollWidth - container.clientWidth;
+    
+    setCanScrollLeft(newCanScrollLeft);
+    setCanScrollRight(newCanScrollRight);
+    
+    // Notify parent of scroll control changes
+    if (onScrollControlsChange) {
+      onScrollControlsChange({
+        canScrollLeft: newCanScrollLeft,
+        canScrollRight: newCanScrollRight,
+        scrollLeft: scrollTableLeft,
+        scrollRight: scrollTableRight
+      });
+    }
+  };
+
+  // Table scroll functions
+  const scrollTableLeft = () => {
+    if (!tableContainerRef.current) return;
+    tableContainerRef.current.scrollBy({ left: -300, behavior: 'smooth' });
+  };
+
+  const scrollTableRight = () => {
+    if (!tableContainerRef.current) return;
+    tableContainerRef.current.scrollBy({ left: 300, behavior: 'smooth' });
+  };
+
+  // Continuous scroll for holding down
+  const startContinuousScroll = (direction: 'left' | 'right') => {
+    const scrollFn = direction === 'left' ? scrollTableLeft : scrollTableRight;
+    scrollFn(); // Initial scroll
+    scrollIntervalRef.current = setInterval(scrollFn, 150);
+  };
+
+  const stopContinuousScroll = () => {
+    if (scrollIntervalRef.current) {
+      clearInterval(scrollIntervalRef.current);
+      scrollIntervalRef.current = null;
+    }
+  };
+
+
+  // Cleanup scroll intervals
+  useEffect(() => {
+    return () => {
+      if (scrollIntervalRef.current) {
+        clearInterval(scrollIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Trigger animation when parent sets animateCopiedTaskId
+  useEffect(() => {
+    if (animateCopiedTaskId && !animatingTask) {
+      animateCopiedTask(animateCopiedTaskId);
+    }
+  }, [animateCopiedTaskId, animatingTask, animateCopiedTask]);
+  
+  // Reset animation state when changing boards
+  useEffect(() => {
+    setAnimatingTask(null);
+    setAnimationPhase(null);
+    setCopiedTaskId(null);
+  }, [selectedBoard]);
+
   // Fetch board columns when selectedBoard changes
   useEffect(() => {
-    console.log('🔥 NEW LISTVIEW CODE IS RUNNING! selectedBoard:', selectedBoard);
     const fetchBoardColumns = async () => {
       if (selectedBoard) {
         try {
-          console.log('🔥 FETCHING COLUMNS FOR BOARD:', selectedBoard);
           const columns = await getBoardColumns(selectedBoard);
           setBoardColumns(columns);
-          console.log('📋 FETCHED BOARD COLUMNS:', columns);
         } catch (error) {
           console.error('Failed to fetch board columns:', error);
           setBoardColumns([]);
@@ -94,6 +232,10 @@ export default function ListView({
   const [editValue, setEditValue] = useState<string>('');
   const [showDropdown, setShowDropdown] = useState<{taskId: string, field: string} | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
+  const [assigneeDropdownCoords, setAssigneeDropdownCoords] = useState<{left: number; top: number} | null>(null);
+  const [priorityDropdownCoords, setPriorityDropdownCoords] = useState<{left: number; top: number} | null>(null);
+  const [statusDropdownCoords, setStatusDropdownCoords] = useState<{left: number; top: number} | null>(null);
+  const [tagsDropdownCoords, setTagsDropdownCoords] = useState<{left: number; top: number} | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -111,11 +253,6 @@ export default function ListView({
         }
       });
     }
-    console.log(`📋 LISTVIEW COUNT:`, {
-      totalTasks: tasks.length,
-      columnCounts,
-      columnsUsed: Object.keys(filteredColumns || {}).length
-    });
     return tasks;
   }, [filteredColumns]);
 
@@ -181,6 +318,32 @@ export default function ListView({
     });
   }, [allTasks, sortField, sortDirection, availablePriorities, members]);
 
+  // Update scroll state when table content changes
+  useEffect(() => {
+    // Check scroll state after a short delay to ensure layout is complete
+    const timeoutId = setTimeout(() => {
+      checkTableScrollState();
+    }, 100);
+    
+    const container = tableContainerRef.current;
+    if (container) {
+      container.addEventListener('scroll', checkTableScrollState);
+      const resizeObserver = new ResizeObserver(() => {
+        // Also delay the resize check
+        setTimeout(checkTableScrollState, 50);
+      });
+      resizeObserver.observe(container);
+      
+      return () => {
+        clearTimeout(timeoutId);
+        container.removeEventListener('scroll', checkTableScrollState);
+        resizeObserver.disconnect();
+      };
+    }
+    
+    return () => clearTimeout(timeoutId);
+  }, [sortedTasks]);
+
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -202,6 +365,13 @@ export default function ListView({
     }
     
     setColumns(newColumns);
+    
+    // Save column visibility to user preferences
+    const columnVisibility: ColumnVisibility = {};
+    newColumns.forEach(col => {
+      columnVisibility[col.key] = col.visible;
+    });
+    updateUserPreference('listViewColumnVisibility', columnVisibility);
   };
 
   const getPriorityDisplay = (priorityString: string) => {
@@ -253,18 +423,39 @@ export default function ListView({
     );
   };
 
-  const getMemberDisplay = (memberId: string) => {
+  const getMemberDisplay = (memberId: string, task?: Task) => {
     const member = members?.find(m => m.id === memberId);
     if (!member) return null;
 
+    const watchersCount = task?.watchers?.length || 0;
+    const collaboratorsCount = task?.collaborators?.length || 0;
+
     return (
       <div className="flex items-center gap-2">
-        <img
-          src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
-          alt={`${member.firstName} ${member.lastName}`}
-          className="w-5 h-5 rounded-full object-cover border border-gray-200"
-        />
-        <span className="text-xs text-gray-900 truncate">{member.firstName} {member.lastName}</span>
+        <div className="flex items-center gap-1">
+          <img
+            src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
+            alt={`${member.firstName} ${member.lastName}`}
+            className="w-5 h-5 rounded-full object-cover border border-gray-200"
+          />
+          <span className="text-xs text-gray-900 truncate">{member.firstName} {member.lastName}</span>
+        </div>
+        
+        {/* Watchers & Collaborators Icons */}
+        <div className="flex gap-1">
+          {watchersCount > 0 && (
+            <div className="flex items-center" title={`${watchersCount} watcher${watchersCount > 1 ? 's' : ''}`}>
+              <Eye size={10} className="text-blue-500" />
+              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{watchersCount}</span>
+            </div>
+          )}
+          {collaboratorsCount > 0 && (
+            <div className="flex items-center" title={`${collaboratorsCount} collaborator${collaboratorsCount > 1 ? 's' : ''}`}>
+              <UserPlus size={10} className="text-blue-500" />
+              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{collaboratorsCount}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
@@ -302,6 +493,10 @@ export default function ListView({
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setShowDropdown(null);
+        setAssigneeDropdownCoords(null);
+        setPriorityDropdownCoords(null);
+        setStatusDropdownCoords(null);
+        setTagsDropdownCoords(null);
       }
     };
 
@@ -361,13 +556,97 @@ export default function ListView({
     return spaceBelow < 200 && spaceAbove > spaceBelow ? 'above' : 'below';
   };
 
+  const calculateDropdownCoords = (element: HTMLElement, dropdownType: 'assignee' | 'priority' | 'status' | 'tags') => {
+    const rect = element.getBoundingClientRect();
+    
+    // Set dimensions based on dropdown type
+    let dropdownWidth = 180;
+    let dropdownHeight = 150;
+    
+    switch (dropdownType) {
+      case 'assignee':
+        dropdownWidth = 180;
+        dropdownHeight = 150;
+        break;
+      case 'priority':
+        dropdownWidth = 120;
+        dropdownHeight = 120;
+        break;
+      case 'status':
+        dropdownWidth = 150;
+        dropdownHeight = 200;
+        break;
+      case 'tags':
+        dropdownWidth = 200;
+        dropdownHeight = 180;
+        break;
+    }
+    
+    // Calculate horizontal position
+    let left = rect.left;
+    const spaceRight = window.innerWidth - (left + dropdownWidth);
+    
+    // If dropdown would go beyond right edge, position it to the left of the trigger
+    if (spaceRight < 10) {
+      left = rect.right - dropdownWidth;
+    }
+    
+    // If still beyond left edge, align to viewport edge
+    if (left < 10) {
+      left = 10;
+    }
+    
+    // Calculate vertical position
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let top;
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      // Show above
+      top = rect.top - dropdownHeight - 4;
+    } else {
+      // Show below
+      top = rect.bottom + 4;
+    }
+    
+    // Ensure dropdown stays within viewport
+    top = Math.max(10, Math.min(top, window.innerHeight - dropdownHeight - 10));
+    
+    return { left, top };
+  };
+
   const toggleDropdown = (taskId: string, field: string, event?: React.MouseEvent) => {
     if (showDropdown?.taskId === taskId && showDropdown?.field === field) {
       setShowDropdown(null);
+      setAssigneeDropdownCoords(null);
+      setPriorityDropdownCoords(null);
+      setStatusDropdownCoords(null);
+      setTagsDropdownCoords(null);
     } else {
       if (event?.currentTarget) {
-        const position = calculateDropdownPosition(event.currentTarget as HTMLElement);
+        const element = event.currentTarget as HTMLElement;
+        const position = calculateDropdownPosition(element);
         setDropdownPosition(position);
+        
+        // Calculate Portal coordinates for each dropdown type
+        setAssigneeDropdownCoords(null);
+        setPriorityDropdownCoords(null);
+        setStatusDropdownCoords(null);
+        setTagsDropdownCoords(null);
+        
+        if (field === 'assignee') {
+          const coords = calculateDropdownCoords(element, 'assignee');
+          setAssigneeDropdownCoords(coords);
+        } else if (field === 'priority') {
+          const coords = calculateDropdownCoords(element, 'priority');
+          setPriorityDropdownCoords(coords);
+        } else if (field === 'column') {
+          const coords = calculateDropdownCoords(element, 'status');
+          setStatusDropdownCoords(coords);
+        } else if (field === 'tags') {
+          const coords = calculateDropdownCoords(element, 'tags');
+          setTagsDropdownCoords(coords);
+        }
       }
       setShowDropdown({ taskId, field });
       setEditingCell(null);
@@ -386,24 +665,129 @@ export default function ListView({
     try {
       await onEditTask(updatedTask);
       setShowDropdown(null);
+      setAssigneeDropdownCoords(null);
+      setPriorityDropdownCoords(null);
+      setStatusDropdownCoords(null);
+      setTagsDropdownCoords(null);
     } catch (error) {
       console.error('Failed to update task:', error);
     }
+  };
+
+  // Comment tooltip handlers
+  const handleCommentTooltipShow = (taskId: string) => {
+    // Clear any pending hide timeout
+    if (commentTooltipTimeoutRef.current) {
+      clearTimeout(commentTooltipTimeoutRef.current);
+      commentTooltipTimeoutRef.current = null;
+    }
+    
+    // Clear any existing show timeout
+    if (commentTooltipShowTimeoutRef.current) {
+      clearTimeout(commentTooltipShowTimeoutRef.current);
+    }
+    
+    // Wait 1 second before showing tooltip
+    commentTooltipShowTimeoutRef.current = setTimeout(() => {
+      // Calculate best position for tooltip
+      const position = calculateTooltipPosition(taskId);
+      setTooltipPosition(position);
+      setShowCommentTooltip(taskId);
+      commentTooltipShowTimeoutRef.current = null;
+    }, 1000);
+  };
+
+  const handleCommentTooltipHide = () => {
+    // Cancel any pending show timeout when leaving
+    if (commentTooltipShowTimeoutRef.current) {
+      clearTimeout(commentTooltipShowTimeoutRef.current);
+      commentTooltipShowTimeoutRef.current = null;
+    }
+    
+    // Only hide after a delay to allow mouse movement into tooltip
+    commentTooltipTimeoutRef.current = setTimeout(() => {
+      setShowCommentTooltip(null);
+    }, 500); // Generous delay
+  };
+
+  const handleCommentTooltipClose = () => {
+    // Immediately close tooltip without delay
+    if (commentTooltipTimeoutRef.current) {
+      clearTimeout(commentTooltipTimeoutRef.current);
+      commentTooltipTimeoutRef.current = null;
+    }
+    if (commentTooltipShowTimeoutRef.current) {
+      clearTimeout(commentTooltipShowTimeoutRef.current);
+      commentTooltipShowTimeoutRef.current = null;
+    }
+    setShowCommentTooltip(null);
+  };
+
+  const calculateTooltipPosition = (taskId: string) => {
+    const containerRef = commentContainerRefs.current[taskId];
+    if (containerRef) {
+      const commentRect = containerRef.getBoundingClientRect();
+      const tooltipWidth = 320; // w-80 = 320px
+      const tooltipHeight = 256; // max-h-64 = 256px
+      
+      // Find the table row element that contains this comment
+      let rowElement = containerRef.closest('tr');
+      if (!rowElement) {
+        // Fallback to comment container if row not found
+        rowElement = containerRef;
+      }
+      
+      const rowRect = rowElement.getBoundingClientRect();
+      
+      // Calculate vertical position based on the row
+      const spaceAbove = rowRect.top;
+      const spaceBelow = window.innerHeight - rowRect.bottom;
+      const vertical: 'above' | 'below' = spaceAbove >= tooltipHeight ? 'above' : spaceBelow >= tooltipHeight ? 'below' : 'above';
+      
+      // Calculate horizontal position - center tooltip on the comment icon
+      let left = commentRect.left + (commentRect.width / 2) - (tooltipWidth / 2);
+      const spaceRight = window.innerWidth - (left + tooltipWidth);
+      
+      // If tooltip would go beyond right edge, align to right edge of viewport
+      if (spaceRight < 20) {
+        left = window.innerWidth - tooltipWidth - 20; // 20px padding from edge
+      }
+      
+      // If tooltip would go beyond left edge, align to left edge
+      if (left < 20) {
+        left = 20;
+      }
+      
+      // Position tooltip close to the comment icon
+      let top;
+      if (vertical === 'above') {
+        top = commentRect.top - 20; // Just 20px above the comment icon
+      } else {
+        top = commentRect.bottom + 20; // Just 20px below the comment icon
+      }
+      
+      return {
+        vertical,
+        left,
+        top
+      };
+    }
+    return { vertical: 'above', left: 0, top: 0 };
   };
 
   const visibleColumns = columns.filter(col => col.visible);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-      {/* Header */}
-      <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">
-          Tasks List ({sortedTasks.length} {sortedTasks.length === 1 ? 'task' : 'tasks'})
-        </h3>
-      </div>
-
-      {/* Table */}
-      <div className="overflow-x-auto">
+        {/* Scrollable table container */}
+        <div
+          ref={tableContainerRef}
+          className="overflow-x-auto w-full"
+          style={{ 
+            scrollbarWidth: 'thin',
+            scrollbarColor: '#CBD5E1 #F1F5F9'
+          }}
+        >
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -413,10 +797,10 @@ export default function ListView({
                   <span>#</span>
                   <button
                     onClick={() => setShowColumnMenu(showColumnMenu === 'rowNumber' ? null : 'rowNumber')}
-                    className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-200 rounded"
+                    className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 rounded transition-opacity"
                     title="Show/Hide Columns"
                   >
-                    <MoreHorizontal size={12} />
+                    <Menu size={14} />
                   </button>
                 </div>
 
@@ -619,33 +1003,8 @@ export default function ListView({
                               toggleDropdown(task.id, 'assignee', e);
                             }}
                           >
-                            {getMemberDisplay(task.memberId)}
+                            {getMemberDisplay(task.memberId, task)}
                           </div>
-                          {showDropdown?.taskId === task.id && showDropdown?.field === 'assignee' && (
-                            <div 
-                              ref={dropdownRef}
-                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]`}
-                            >
-                              <div className="py-1">
-                                {members?.map(member => (
-                                  <button
-                                    key={member.id}
-                                    onClick={() => handleDropdownSelect(task.id, 'memberId', member.id)}
-                                    className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2"
-                                  >
-                                    <img
-                                      src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
-                                      alt={member.name}
-                                      className="w-4 h-4 rounded-full object-cover border border-gray-200"
-                                    />
-                                    <span className="text-sm text-gray-900 font-medium">
-                                      {member.name}
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                       {column.key === 'priority' && (
@@ -659,33 +1018,6 @@ export default function ListView({
                           >
                             {getPriorityDisplay(task.priority)}
                           </div>
-                          {showDropdown?.taskId === task.id && showDropdown?.field === 'priority' && (
-                            <div 
-                              ref={dropdownRef}
-                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[120px]`}
-                            >
-                              <div className="py-1">
-                                {availablePriorities?.map(priority => (
-                                  <button
-                                    key={priority.id}
-                                    onClick={() => handleDropdownSelect(task.id, 'priority', priority.priority)}
-                                    className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center"
-                                  >
-                                    <span 
-                                      className="px-1.5 py-0.5 rounded text-xs font-medium mr-2"
-                                      style={{ 
-                                        backgroundColor: priority.color + '20',
-                                        color: priority.color,
-                                        border: `1px solid ${priority.color}40`
-                                      }}
-                                    >
-                                      {priority.priority}
-                                    </span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                       {column.key === 'column' && (
@@ -699,97 +1031,6 @@ export default function ListView({
                           >
                             {task.columnTitle}
                           </span>
-                          {showDropdown?.taskId === task.id && showDropdown?.field === 'column' && (
-                            <div 
-                              ref={dropdownRef}
-                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[150px]`}
-                            >
-                              <div className="py-1 flex flex-col">
-                                {/* Debug: log boardColumns */}
-                                {console.log('📋 STATUS DROPDOWN - boardColumns:', boardColumns)}
-                                {console.log('📋 STATUS DROPDOWN - About to render buttons. boardColumns.length:', boardColumns?.length)}
-                                {boardColumns && boardColumns.length > 0 ? (
-                                  boardColumns.map((col, index) => {
-                                    console.log(`📋 RENDERING BUTTON ${index}:`, col);
-                                    return (
-                                  <button
-                                    key={col.id}
-                                    onClick={async () => {
-                                      try {
-                                        // Find current column title
-                                        const currentColumn = boardColumns.find(c => c.title === task.columnTitle);
-                                        const targetColumn = col;
-                                        
-                                        // Only animate if actually moving to a different column
-                                        if (currentColumn && currentColumn.id !== targetColumn.id) {
-                                          // Get current task position
-                                          const currentTaskIndex = sortedTasks.findIndex(t => t.id === task.id);
-                                          
-                                          // Start animation sequence
-                                          setAnimatingTask(task.id);
-                                          setAnimationPhase('highlight');
-                                          
-                                          // Phase 1: Highlight (500ms)
-                                          setTimeout(() => {
-                                            setAnimationPhase('slide');
-                                          }, 500);
-                                          
-                                          // Phase 2: Slide and move task (800ms)
-                                          setTimeout(async () => {
-                                            await onMoveTaskToColumn(task.id, col.id);
-                                            setAnimationPhase('fade');
-                                            
-                                            // After task moves, check if we need to scroll to follow it
-                                            setTimeout(() => {
-                                              const newTaskRowElement = document.querySelector(`tr[data-task-id="${task.id}"]`);
-                                              if (newTaskRowElement) {
-                                                const rect = newTaskRowElement.getBoundingClientRect();
-                                                const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
-                                                
-                                                if (!isVisible) {
-                                                  newTaskRowElement.scrollIntoView({ 
-                                                    behavior: 'smooth', 
-                                                    block: 'center' 
-                                                  });
-                                                }
-                                              }
-                                            }, 100);
-                                          }, 800);
-                                          
-                                          // Phase 3: Fade back to normal (1200ms) - extended for viewport scrolling
-                                          setTimeout(() => {
-                                            setAnimatingTask(null);
-                                            setAnimationPhase(null);
-                                          }, 2000);
-                                        } else {
-                                          // No animation needed, just move
-                                          await onMoveTaskToColumn(task.id, col.id);
-                                        }
-                                        
-                                        setShowDropdown(null);
-                                      } catch (error) {
-                                        console.error('Failed to move task to column:', error);
-                                        setAnimatingTask(null);
-                                        setAnimationPhase(null);
-                                      }
-                                    }}
-                                    className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 block ${
-                                      task.columnTitle === col.title ? 'bg-blue-50 text-blue-700' : ''
-                                    }`}
-                                  >
-                                    {col.title}
-                                    {task.columnTitle === col.title && (
-                                      <span className="ml-auto text-blue-600">✓</span>
-                                    )}
-                                  </button>
-                                    );
-                                  })
-                                ) : (
-                                  <div className="px-3 py-2 text-xs text-gray-500">No columns available</div>
-                                )}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                       {column.key === 'startDate' && (
@@ -866,72 +1107,40 @@ export default function ListView({
                           >
                             {getTagsDisplay(task.tags || [])}
                           </div>
-                          {showDropdown?.taskId === task.id && showDropdown?.field === 'tags' && (
-                            <div 
-                              ref={dropdownRef}
-                              className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} left-0 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[180px]`}
-                            >
-                              <div className="py-1 max-h-48 overflow-y-auto">
-                                <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
-                                  Click to toggle tags
-                                </div>
-                                {availableTags?.map(tag => {
-                                  const isSelected = task.tags?.some(t => t.id === tag.id);
-                                  return (
-                                    <button
-                                      key={tag.id}
-                                      onClick={() => {
-                                        // Toggle tag selection
-                                        const currentTags = task.tags || [];
-                                        let updatedTags;
-                                        
-                                        if (isSelected) {
-                                          // Remove tag
-                                          updatedTags = currentTags.filter(t => t.id !== tag.id);
-                                        } else {
-                                          // Add tag
-                                          updatedTags = [...currentTags, tag];
-                                        }
-                                        
-                                        // Update the task
-                                        const updatedTask = {
-                                          ...task,
-                                          tags: updatedTags
-                                        };
-                                        
-                                        handleDropdownSelect(task.id, 'tags', updatedTags);
-                                      }}
-                                      className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2 ${
-                                        isSelected ? 'bg-blue-50' : ''
-                                      }`}
-                                    >
-                                      <span 
-                                        className="px-1.5 py-0.5 rounded text-xs font-medium"
-                                        style={{ 
-                                          backgroundColor: tag.color + '20',
-                                          color: tag.color,
-                                          border: `1px solid ${tag.color}40`
-                                        }}
-                                      >
-                                        {tag.tag}
-                                      </span>
-                                      {isSelected && <span className="ml-auto text-blue-600">✓</span>}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
                         </div>
                       )}
                       {column.key === 'comments' && (
-                        <span className="text-xs text-gray-600">
-                          {task.comments?.length || 0}
-                        </span>
+                        task.comments && task.comments.length > 0 ? (
+                          <div 
+                            ref={(el) => commentContainerRefs.current[task.id] = el}
+                            className="relative"
+                            onMouseEnter={() => handleCommentTooltipShow(task.id)}
+                            onMouseLeave={handleCommentTooltipHide}
+                          >
+                            <div
+                              className="flex items-center gap-0.5 rounded px-1 py-1 cursor-pointer"
+                              title="Hover to view comments"
+                            >
+                              <MessageCircle 
+                                size={12} 
+                                className="text-blue-600" 
+                              />
+                              <span className="text-blue-600 font-medium text-xs">
+                                {task.comments.length}
+                              </span>
+                            </div>
+                          
+                          </div>
+                        ) : (
+                          // Hide comment counter when there are no comments
+                          <span className="text-xs text-transparent">
+                            {/* Empty space to maintain column alignment */}
+                          </span>
+                        )
                       )}
                       {column.key === 'createdAt' && (
                         <span className="text-xs text-gray-500 font-mono">
-                          {formatDateTime(task.createdAt)}
+                          {formatToYYYYMMDDHHmmss(task.createdAt)}
                         </span>
                       )}
                     </td>
@@ -943,7 +1152,7 @@ export default function ListView({
             )}
           </tbody>
         </table>
-      </div>
+        </div>
 
       {/* Click outside to close column menu */}
       {showColumnMenu && (
@@ -951,6 +1160,334 @@ export default function ListView({
           className="fixed inset-0 z-5"
           onClick={() => setShowColumnMenu(null)}
         />
+      )}
+
+      {/* Portal-rendered comment tooltip */}
+      {showCommentTooltip && createPortal(
+        <div 
+          className="comment-tooltip fixed w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col"
+          style={{
+            left: `${tooltipPosition.left}px`,
+            top: `${tooltipPosition.top}px`
+          }}
+          onMouseEnter={() => handleCommentTooltipShow(showCommentTooltip)}
+          onMouseLeave={handleCommentTooltipHide}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {(() => {
+            const task = allTasks.find(t => t.id === showCommentTooltip);
+            if (!task || !task.comments) return null;
+
+            return (
+              <>
+                {/* Scrollable comments area */}
+                <div className="p-3 overflow-y-auto flex-1">
+                  {task.comments
+                    .filter(comment => 
+                      comment && 
+                      comment.id && 
+                      comment.text && 
+                      comment.authorId && 
+                      comment.createdAt
+                    )
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map((comment, index) => {
+                      const author = members.find(m => m.id === comment.authorId);
+                      
+                      // Function to render HTML content with safe link handling
+                      const renderCommentHTML = (htmlText: string) => {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = htmlText;
+                        
+                        const links = tempDiv.querySelectorAll('a');
+                        links.forEach(link => {
+                          link.setAttribute('target', '_blank');
+                          link.setAttribute('rel', 'noopener noreferrer');
+                          link.style.color = '#60a5fa';
+                          link.style.textDecoration = 'underline';
+                          link.style.wordBreak = 'break-all';
+                          link.style.cursor = 'pointer';
+                          
+                          link.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            window.open(link.href, '_blank', 'noopener,noreferrer');
+                          });
+                        });
+                        
+                        return { __html: tempDiv.innerHTML };
+                      };
+                      
+                      return (
+                        <div key={comment.id} className={`${index > 0 ? 'mt-3 pt-3 border-t border-gray-600' : ''}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <div 
+                              className="w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-medium flex-shrink-0"
+                              style={{ backgroundColor: author?.color || '#6B7280' }} 
+                            />
+                            <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
+                            <span className="text-gray-400 text-xs">
+                              {formatToYYYYMMDDHHmmss(comment.createdAt)}
+                            </span>
+                          </div>
+                          <div className="text-gray-300 text-xs leading-relaxed select-text">
+                            <div dangerouslySetInnerHTML={renderCommentHTML(comment.text)} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+                
+                {/* Sticky footer */}
+                <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
+                  <span className="text-gray-300 font-medium">
+                    Comments ({task.comments.length})
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCommentTooltipClose(); // Close tooltip immediately
+                      onSelectTask(task);
+                    }}
+                    className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                  >
+                    Open
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-rendered Assignee Dropdown */}
+      {showDropdown?.field === 'assignee' && assigneeDropdownCoords && createPortal(
+        <div 
+          ref={dropdownRef}
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[180px]"
+          style={{
+            left: `${assigneeDropdownCoords.left}px`,
+            top: `${assigneeDropdownCoords.top}px`,
+          }}
+        >
+          <div className="py-1">
+            {members?.map(member => (
+              <button
+                key={member.id}
+                onClick={() => handleDropdownSelect(showDropdown.taskId, 'memberId', member.id)}
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2"
+              >
+                <img
+                  src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
+                  alt={member.name}
+                  className="w-4 h-4 rounded-full object-cover border border-gray-200"
+                />
+                <span className="text-sm text-gray-900 font-medium">
+                  {member.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-rendered Priority Dropdown */}
+      {showDropdown?.field === 'priority' && priorityDropdownCoords && createPortal(
+        <div 
+          ref={dropdownRef}
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[120px]"
+          style={{
+            left: `${priorityDropdownCoords.left}px`,
+            top: `${priorityDropdownCoords.top}px`,
+          }}
+        >
+          <div className="py-1">
+            {availablePriorities?.map(priority => (
+              <button
+                key={priority.id}
+                onClick={() => handleDropdownSelect(showDropdown.taskId, 'priority', priority.priority)}
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center"
+              >
+                <span 
+                  className="px-1.5 py-0.5 rounded text-xs font-medium mr-2"
+                  style={{ 
+                    backgroundColor: priority.color + '20',
+                    color: priority.color,
+                    border: `1px solid ${priority.color}40`
+                  }}
+                >
+                  {priority.priority}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-rendered Status Dropdown */}
+      {showDropdown?.field === 'column' && statusDropdownCoords && createPortal(
+        <div 
+          ref={dropdownRef}
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[150px]"
+          style={{
+            left: `${statusDropdownCoords.left}px`,
+            top: `${statusDropdownCoords.top}px`,
+          }}
+        >
+          <div className="py-1 flex flex-col">
+            {boardColumns && boardColumns.length > 0 ? (
+              boardColumns.map((col) => {
+                const task = allTasks.find(t => t.id === showDropdown.taskId);
+                return (
+                  <button
+                    key={col.id}
+                    onClick={async () => {
+                      try {
+                        if (!task) return;
+                        
+                        // Find current column title
+                        const currentColumn = boardColumns.find(c => c.title === task.columnTitle);
+                        const targetColumn = col;
+                        
+                        // Only animate if actually moving to a different column
+                        if (currentColumn && currentColumn.id !== targetColumn.id) {
+                          // Start animation sequence
+                          setAnimatingTask(task.id);
+                          setAnimationPhase('highlight');
+                          
+                          // Phase 1: Highlight (500ms)
+                          setTimeout(() => {
+                            setAnimationPhase('slide');
+                          }, 500);
+                          
+                          // Phase 2: Slide and move task (800ms)
+                          setTimeout(async () => {
+                            await onMoveTaskToColumn(task.id, col.id);
+                            setAnimationPhase('fade');
+                            
+                            // After task moves, check if we need to scroll to follow it
+                            setTimeout(() => {
+                              const newTaskRowElement = document.querySelector(`tr[data-task-id="${task.id}"]`);
+                              if (newTaskRowElement) {
+                                const rect = newTaskRowElement.getBoundingClientRect();
+                                const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+                                
+                                if (!isVisible) {
+                                  newTaskRowElement.scrollIntoView({ 
+                                    behavior: 'smooth', 
+                                    block: 'center' 
+                                  });
+                                }
+                              }
+                            }, 100);
+                          }, 800);
+                          
+                          // Phase 3: Fade back to normal (1200ms)
+                          setTimeout(() => {
+                            setAnimatingTask(null);
+                            setAnimationPhase(null);
+                          }, 2000);
+                        } else {
+                          // No animation needed, just move
+                          await onMoveTaskToColumn(task.id, col.id);
+                        }
+                        
+                        setShowDropdown(null);
+                        setStatusDropdownCoords(null);
+                      } catch (error) {
+                        console.error('Failed to move task to column:', error);
+                        setAnimatingTask(null);
+                        setAnimationPhase(null);
+                      }
+                    }}
+                    className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 block ${
+                      task?.columnTitle === col.title ? 'bg-blue-50 text-blue-700' : ''
+                    }`}
+                  >
+                    {col.title}
+                    {task?.columnTitle === col.title && (
+                      <span className="ml-auto text-blue-600">✓</span>
+                    )}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="px-3 py-2 text-xs text-gray-500">No columns available</div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-rendered Tags Dropdown */}
+      {showDropdown?.field === 'tags' && tagsDropdownCoords && createPortal(
+        <div 
+          ref={dropdownRef}
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[180px]"
+          style={{
+            left: `${tagsDropdownCoords.left}px`,
+            top: `${tagsDropdownCoords.top}px`,
+          }}
+        >
+          <div className="py-1 max-h-48 overflow-y-auto">
+            <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
+              Click to toggle tags
+            </div>
+            {availableTags?.map(tag => {
+              const task = allTasks.find(t => t.id === showDropdown.taskId);
+              const isSelected = task?.tags?.some(t => t.id === tag.id);
+              return (
+                <button
+                  key={tag.id}
+                  onClick={async () => {
+                    try {
+                      if (!task) return;
+                      
+                      if (isSelected) {
+                        // Remove tag using proper API
+                        await removeTagFromTask(task.id, tag.id);
+                      } else {
+                        // Add tag using proper API
+                        await addTagToTask(task.id, tag.id);
+                      }
+                      
+                      // Close dropdown
+                      setShowDropdown(null);
+                      setTagsDropdownCoords(null);
+                      
+                      // Create updated task for parent to refresh
+                      const updatedTask = { ...task };
+                      // Trigger parent refresh by calling onEditTask with current task
+                      await onEditTask(updatedTask);
+                    } catch (error) {
+                      console.error('Failed to toggle tag:', error);
+                    }
+                  }}
+                  className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2 ${
+                    isSelected ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <span 
+                    className="px-1.5 py-0.5 rounded text-xs font-medium"
+                    style={{ 
+                      backgroundColor: tag.color + '20',
+                      color: tag.color,
+                      border: `1px solid ${tag.color}40`
+                    }}
+                  >
+                    {tag.tag}
+                  </span>
+                  {isSelected && <span className="ml-auto text-blue-600">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );
