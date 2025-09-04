@@ -91,6 +91,20 @@ export default function SearchInterface({
     updateFilter('selectedTags', newSelectedTags);
   };
 
+  // Helper function to get input field styling based on whether it's active
+  const getInputClassName = (isActive: boolean) => {
+    const baseClasses = "px-2 py-1 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent";
+    const activeClasses = isActive ? "border-blue-400 bg-blue-50" : "border-gray-300";
+    return `${baseClasses} ${activeClasses}`;
+  };
+
+  // Helper function to get dropdown button styling based on whether it's active
+  const getDropdownButtonClassName = (isActive: boolean) => {
+    const baseClasses = "bg-white border rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between";
+    const activeClasses = isActive ? "border-blue-400 bg-blue-50" : "border-gray-300";
+    return `${baseClasses} ${activeClasses}`;
+  };
+
   // Load available tags on mount
   useEffect(() => {
     const loadTags = async () => {
@@ -132,7 +146,7 @@ export default function SearchInterface({
               placeholder="Search title, description, comments, requester..."
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}
-              className="w-[280px] px-2 py-1 pr-6 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent"
+              className={`w-[280px] pr-6 ${getInputClassName(!!filters.text)}`}
             />
             {filters.text && (
               <button
@@ -196,7 +210,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) => updateFilter('dateFrom', e.target.value)}
-                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[128px]"
+                className={`w-[140px] ml-[128px] ${getInputClassName(!!filters.dateFrom)}`}
               />
               {filters.dateFrom && (
                 <button
@@ -215,7 +229,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) => updateFilter('dateTo', e.target.value)}
-                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[60px]"
+                className={`w-[140px] ml-[60px] ${getInputClassName(!!filters.dateTo)}`}
               />
               {filters.dateTo && (
                 <button
@@ -232,7 +246,7 @@ export default function SearchInterface({
             <div className="relative" ref={tagsDropdownRef}>
                 <button
                   onClick={() => setShowTagsDropdown(!showTagsDropdown)}
-                  className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
+                  className={getDropdownButtonClassName(filters.selectedTags.length > 0)}
                 >
                   <span className="text-gray-700 text-xs">tag</span>
                   <ChevronDown size={12} className="text-gray-400" />
@@ -308,7 +322,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dueDateFrom}
                 onChange={(e) => updateFilter('dueDateFrom', e.target.value)}
-                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[128px]"
+                className={`w-[140px] ml-[128px] ${getInputClassName(!!filters.dueDateFrom)}`}
               />
               {filters.dueDateFrom && (
                 <button
@@ -327,7 +341,7 @@ export default function SearchInterface({
                 type="date"
                 value={filters.dueDateTo}
                 onChange={(e) => updateFilter('dueDateTo', e.target.value)}
-                className="w-[140px] px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent ml-[60px]"
+                className={`w-[140px] ml-[60px] ${getInputClassName(!!filters.dueDateTo)}`}
               />
               {filters.dueDateTo && (
                 <button
@@ -344,7 +358,7 @@ export default function SearchInterface({
             <div className="relative" ref={priorityDropdownRef}>
               <button
                 onClick={() => setShowPriorityDropdown(!showPriorityDropdown)}
-                className="bg-white border border-gray-300 rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between"
+                className={getDropdownButtonClassName(filters.selectedPriorities.length > 0)}
               >
                 <span className="text-gray-700 text-xs">priority</span>
                 <ChevronDown size={12} className="text-gray-400" />

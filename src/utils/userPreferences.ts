@@ -3,6 +3,10 @@ import { Priority } from '../types';
 export type TaskViewMode = 'compact' | 'shrink' | 'expand';
 export type ViewMode = 'kanban' | 'list' | 'gantt';
 
+export interface ColumnVisibility {
+  [columnKey: string]: boolean;
+}
+
 export interface UserPreferences {
   taskViewMode: TaskViewMode;
   viewMode: ViewMode;
@@ -15,6 +19,7 @@ export interface UserPreferences {
   includeCollaborators: boolean;
   includeRequesters: boolean;
   taskDetailsWidth: number;
+  listViewColumnVisibility: ColumnVisibility;
   searchFilters: {
     text: string;
     dateFrom: string;
@@ -43,6 +48,17 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   includeCollaborators: false, // Default to not include collaborators
   includeRequesters: false, // Default to not include requesters
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
+  listViewColumnVisibility: {
+    // Default column visibility - all columns visible except some less important ones
+    title: true,
+    priority: true,
+    assignee: true,
+    startDate: true,
+    dueDate: true,
+    tags: true,
+    comments: true,
+    createdAt: false // Hide created date by default
+  },
   searchFilters: {
     text: '',
     dateFrom: '',
@@ -84,6 +100,10 @@ export const loadUserPreferences = (): UserPreferences => {
       return {
         ...DEFAULT_PREFERENCES,
         ...loadedPrefs,
+        listViewColumnVisibility: {
+          ...DEFAULT_PREFERENCES.listViewColumnVisibility,
+          ...loadedPrefs.listViewColumnVisibility
+        },
         searchFilters: {
           ...DEFAULT_PREFERENCES.searchFilters,
           ...loadedPrefs.searchFilters,

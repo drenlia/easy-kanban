@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
@@ -26,8 +27,12 @@ interface KanbanColumnProps {
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
   onEditColumn: (columnId: string, title: string) => void;
-  onRemoveColumn: (columnId: string) => void;
-  onAddColumn: () => void;
+  onRemoveColumn: (columnId: string) => Promise<void>;
+  onAddColumn: (afterColumnId: string) => void;
+  showColumnDeleteConfirm?: string | null;
+  onConfirmColumnDelete?: (columnId: string) => Promise<void>;
+  onCancelColumnDelete?: () => void;
+  getColumnTaskCount?: (columnId: string) => number;
   onTaskDragStart: (task: Task) => void;
   onTaskDragEnd: () => void;
   onTaskDragOver: (e: React.DragEvent, columnId: string, index: number) => void;
@@ -56,6 +61,10 @@ export default function KanbanColumn({
   onEditColumn,
   onRemoveColumn,
   onAddColumn,
+  showColumnDeleteConfirm,
+  onConfirmColumnDelete,
+  onCancelColumnDelete,
+  getColumnTaskCount,
   onTaskDragStart,
   onTaskDragEnd,
   onTaskDragOver,
@@ -70,6 +79,11 @@ export default function KanbanColumn({
   const [showMenu, setShowMenu] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number} | null>(null);
+  const [shouldSelectAll, setShouldSelectAll] = useState(false);
+  const columnHeaderRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-close menu when clicking outside
   React.useEffect(() => {
@@ -93,6 +107,33 @@ export default function KanbanColumn({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showMenu]);
+
+  // Handle text selection when editing starts via click
+  React.useEffect(() => {
+    if (isEditing && shouldSelectAll) {
+      // Multiple attempts to ensure input is ready and focused
+      const selectText = () => {
+        if (editInputRef.current) {
+          editInputRef.current.focus();
+          editInputRef.current.select();
+          setShouldSelectAll(false); // Reset flag
+          return true;
+        }
+        return false;
+      };
+
+      // Try immediately
+      if (!selectText()) {
+        // If failed, try with small delay
+        setTimeout(() => {
+          if (!selectText()) {
+            // If still failed, try one more time with longer delay
+            setTimeout(selectText, 50);
+          }
+        }, 10);
+      }
+    }
+  }, [isEditing, shouldSelectAll]);
 
   // Use @dnd-kit sortable hook for columns (Admin only)
   const {
@@ -269,11 +310,12 @@ export default function KanbanColumn({
         </div>
       )}
       
-      <div className="flex items-center justify-between mb-4">
+      <div ref={columnHeaderRef} className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2 flex-1">
           {isEditing ? (
             <form onSubmit={handleTitleSubmit} className="flex-1" onClick={(e) => e.stopPropagation()}>
               <input
+                ref={editInputRef}
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
@@ -292,13 +334,24 @@ export default function KanbanColumn({
           ) : (
             <>
               <h3
-                className={`text-lg font-semibold text-gray-700 ${
-                  isAdmin 
+                className={`text-lg font-semibold text-gray-700 select-none ${
+                  isAdmin && showColumnDeleteConfirm === null
                     ? 'cursor-move hover:text-gray-900' 
                     : 'cursor-default'
                 }`}
-                onClick={() => isAdmin && setIsEditing(true)}
-                title={isAdmin ? 'Click to edit, drag to reorder' : 'Column title'}
+                onClick={() => {
+                  if (isAdmin) {
+                    setShouldSelectAll(true);
+                    setIsEditing(true);
+                  }
+                }}
+                title={
+                  isAdmin && showColumnDeleteConfirm === null 
+                    ? 'Click to edit, drag to reorder' 
+                    : isAdmin && showColumnDeleteConfirm !== null
+                    ? 'Dragging disabled during confirmation'
+                    : 'Column title'
+                }
               >
                 {column.title}
               </h3>
@@ -331,10 +384,10 @@ export default function KanbanColumn({
             </button>
             
             {showMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-10">
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg z-[200]">
                 <button
                   onClick={() => {
-                    onAddColumn();
+                    onAddColumn(column.id);
                     setShowMenu(false);
                   }}
                   className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
@@ -343,7 +396,16 @@ export default function KanbanColumn({
                   Add Column
                 </button>
                 <button
-                  onClick={() => {
+                  ref={setDeleteButtonRef}
+                  onClick={(e) => {
+                    // Capture column header position for dialog alignment
+                    if (columnHeaderRef.current) {
+                      const headerRect = columnHeaderRef.current.getBoundingClientRect();
+                      setDeleteButtonPosition({
+                        top: headerRect.bottom + 8,
+                        left: headerRect.left
+                      });
+                    }
                     onRemoveColumn(column.id);
                     setShowMenu(false);
                   }}
@@ -403,6 +465,45 @@ export default function KanbanColumn({
           </SortableContext>
         )}
       </div>
+
+      {/* Column Delete Confirmation Dialog - Small popup like BoardTabs */}
+      {showColumnDeleteConfirm === column.id && deleteButtonPosition && onConfirmColumnDelete && onCancelColumnDelete && getColumnTaskCount && createPortal(
+        <div 
+          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[220px]"
+          style={{
+            top: `${deleteButtonPosition.top}px`,
+            left: `${deleteButtonPosition.left}px`,
+          }}
+        >
+          <div className="text-sm text-gray-700 mb-3">
+            {(() => {
+              const taskCount = getColumnTaskCount(column.id);
+              return `Delete column and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`;
+            })()}
+          </div>
+          <div className="flex space-x-2 justify-end">
+            <button
+              onClick={() => {
+                onCancelColumnDelete();
+                setDeleteButtonPosition(null);
+              }}
+              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+            >
+              No
+            </button>
+            <button
+              onClick={() => {
+                onConfirmColumnDelete(column.id);
+                setDeleteButtonPosition(null);
+              }}
+              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Yes
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

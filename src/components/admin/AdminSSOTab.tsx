@@ -4,6 +4,7 @@ interface Settings {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CALLBACK_URL?: string;
+  GOOGLE_SSO_DEBUG?: string;
   [key: string]: string | undefined;
 }
 
@@ -81,10 +82,28 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
             value={editingSettings.GOOGLE_CALLBACK_URL || ''}
             onChange={(e) => handleInputChange('GOOGLE_CALLBACK_URL', e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            placeholder="e.g., https://yourdomain.com/auth/google/callback"
+            placeholder="e.g., https://yourdomain.com/api/auth/google/callback"
           />
           <p className="mt-1 text-sm text-gray-500">
             This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol.
+          </p>
+        </div>
+        
+        <div>
+          <label className="flex items-center">
+            <input
+              type="checkbox"
+              checked={editingSettings.GOOGLE_SSO_DEBUG === 'true'}
+              onChange={(e) => handleInputChange('GOOGLE_SSO_DEBUG', e.target.checked ? 'true' : 'false')}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <span className="ml-2 text-sm font-medium text-gray-700">Enable Google SSO Debug Logging</span>
+          </label>
+          <p className="mt-1 text-sm text-gray-500">
+            When enabled, detailed Google SSO authentication logs will be displayed in the server console for debugging purposes.
+          </p>
+          <p className="mt-1 text-xs text-amber-600 font-medium">
+            ⚠️ Note: A service/Docker restart may be required for debug log changes to take effect due to caching.
           </p>
         </div>
         
@@ -100,10 +119,13 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
               <div className="mt-2 text-sm text-blue-700">
                 <p>
                   Google OAuth settings are automatically reloaded when you save changes. 
-                  No application restart is required.
+                  No application restart is required for most settings.
                 </p>
                 <p className="mt-1">
                   <strong>Tip:</strong> Use the "Reload OAuth Config" button if you need to force a reload.
+                </p>
+                <p className="mt-1 text-xs text-blue-600">
+                  <strong>Note:</strong> Debug logging changes may require a service restart due to memory caching.
                 </p>
               </div>
             </div>

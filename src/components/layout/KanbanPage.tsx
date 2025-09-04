@@ -84,9 +84,14 @@ interface KanbanPageProps {
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
+  animateCopiedTaskId?: string | null;
   onEditColumn: (columnId: string, title: string) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
-  onAddColumn: () => Promise<void>;
+  onAddColumn: (afterColumnId: string) => Promise<void>;
+  showColumnDeleteConfirm?: string | null;
+  onConfirmColumnDelete?: (columnId: string) => Promise<void>;
+  onCancelColumnDelete?: () => void;
+  getColumnTaskCount?: (columnId: string) => number;
   onTaskDragStart: (task: Task) => void;
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
@@ -147,9 +152,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onEditTask,
   onCopyTask,
   onMoveTaskToColumn,
+  animateCopiedTaskId,
   onEditColumn,
   onRemoveColumn,
   onAddColumn,
+  showColumnDeleteConfirm,
+  onConfirmColumnDelete,
+  onCancelColumnDelete,
+  getColumnTaskCount,
   onTaskDragStart,
   onTaskDragOver,
   onTaskDrop,
@@ -157,6 +167,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  
+  // ListView scroll controls
+  const [listViewScrollControls, setListViewScrollControls] = useState<{
+    canScrollLeft: boolean;
+    canScrollRight: boolean;
+    scrollLeft: () => void;
+    scrollRight: () => void;
+  } | null>(null);
   const columnsContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isScrollingRef = useRef(false);
@@ -264,7 +282,19 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     }
     
     return () => clearTimeout(timeoutId);
-  }, [columns]);
+  }, [columns, viewMode]);
+
+  // Ensure scroll state is checked when switching to Kanban view
+  useEffect(() => {
+    if (viewMode === 'kanban') {
+      // Small delay to ensure the Kanban columns are rendered
+      const timeoutId = setTimeout(() => {
+        checkColumnsScrollState();
+      }, 150);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [viewMode]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -369,20 +399,45 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           
           {/* Conditional View Rendering */}
           {viewMode === 'list' ? (
-            <ListView
-              filteredColumns={filteredColumns}
-              selectedBoard={selectedBoard}
-              members={members}
-              availablePriorities={availablePriorities}
-              availableTags={availableTags}
-              taskViewMode={taskViewMode}
-              onSelectTask={onSelectTask}
-              selectedTask={selectedTask}
-              onRemoveTask={onRemoveTask}
-              onEditTask={onEditTask}
-              onCopyTask={onCopyTask}
-              onMoveTaskToColumn={onMoveTaskToColumn}
-            />
+            <div className="relative">
+              {/* ListView Navigation Chevrons */}
+              {listViewScrollControls?.canScrollLeft && (
+                <button
+                  onClick={listViewScrollControls.scrollLeft}
+                  className="absolute -left-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                  title="Click to scroll left (←)"
+                >
+                  <ChevronLeft size={18} className="text-gray-500 hover:text-gray-700" />
+                </button>
+              )}
+              
+              {listViewScrollControls?.canScrollRight && (
+                <button
+                  onClick={listViewScrollControls.scrollRight}
+                  className="absolute -right-12 top-4 z-20 p-2 bg-white bg-opacity-60 hover:bg-opacity-95 rounded-full shadow-sm hover:shadow-lg transition-all duration-200 opacity-70 hover:opacity-100 hover:scale-110"
+                  title="Click to scroll right (→)"
+                >
+                  <ChevronRight size={18} className="text-gray-500 hover:text-gray-700" />
+                </button>
+              )}
+              
+              <ListView
+                filteredColumns={filteredColumns}
+                selectedBoard={selectedBoard}
+                members={members}
+                availablePriorities={availablePriorities}
+                availableTags={availableTags}
+                taskViewMode={taskViewMode}
+                onSelectTask={onSelectTask}
+                selectedTask={selectedTask}
+                onRemoveTask={onRemoveTask}
+                onEditTask={onEditTask}
+                onCopyTask={onCopyTask}
+                onMoveTaskToColumn={onMoveTaskToColumn}
+                animateCopiedTaskId={animateCopiedTaskId}
+                onScrollControlsChange={setListViewScrollControls}
+              />
+            </div>
           ) : viewMode === 'gantt' ? (
             <div className="text-center text-gray-500 py-20">
               <Calendar size={48} className="mx-auto mb-4" />
@@ -469,6 +524,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onEditColumn={onEditColumn}
                       onRemoveColumn={onRemoveColumn}
                       onAddColumn={onAddColumn}
+                      showColumnDeleteConfirm={showColumnDeleteConfirm}
+                      onConfirmColumnDelete={onConfirmColumnDelete}
+                      onCancelColumnDelete={onCancelColumnDelete}
+                      getColumnTaskCount={getColumnTaskCount}
                       onTaskDragStart={onTaskDragStart}
                       onTaskDragEnd={() => {}}
                       onTaskDragOver={onTaskDragOver}
@@ -506,6 +565,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onEditColumn={onEditColumn}
                       onRemoveColumn={onRemoveColumn}
                       onAddColumn={onAddColumn}
+                      showColumnDeleteConfirm={showColumnDeleteConfirm}
+                      onConfirmColumnDelete={onConfirmColumnDelete}
+                      onCancelColumnDelete={onCancelColumnDelete}
+                      getColumnTaskCount={getColumnTaskCount}
                       onTaskDragStart={onTaskDragStart}
                       onTaskDragEnd={() => {}}
                       onTaskDragOver={onTaskDragOver}

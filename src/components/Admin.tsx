@@ -353,8 +353,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleReloadOAuth = async () => {
     try {
-      await api.post('/admin/reload-oauth');
-      alert('✅ OAuth configuration reloaded successfully!');
+      await api.post('/auth/reload-oauth');
+      setSuccessMessage('✅ OAuth configuration reloaded successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError('Failed to reload OAuth configuration');
       console.error(err);

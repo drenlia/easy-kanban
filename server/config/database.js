@@ -7,6 +7,43 @@ import bcrypt from 'bcrypt';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Function to create default letter-based avatars
+function createLetterAvatar(letter, userId, role = 'user') {
+  try {
+    const colors = {
+      admin: '#FF6B6B',
+      demo: '#4ECDC4',
+      user: '#6366F1'
+    };
+    
+    const backgroundColor = colors[role] || colors.user;
+    const size = 100;
+    
+    const svg = `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${size}" height="${size}" fill="${backgroundColor}"/>
+      <text x="50%" y="50%" font-family="Arial, sans-serif" font-size="${size * 0.6}" 
+            fill="white" text-anchor="middle" dominant-baseline="central" font-weight="bold">${letter}</text>
+    </svg>`;
+    
+    const filename = `default-${role}-${letter.toLowerCase()}-${Date.now()}.svg`;
+    const avatarsDir = join(dirname(__dirname), 'avatars');
+    
+    // Ensure avatars directory exists
+    if (!fs.existsSync(avatarsDir)) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+    }
+    
+    const filePath = join(avatarsDir, filename);
+    fs.writeFileSync(filePath, svg);
+    
+    console.log(`✅ Created default ${role} avatar: ${filename}`);
+    return `/avatars/${filename}`;
+  } catch (error) {
+    console.error(`❌ Error creating ${role} avatar:`, error);
+    return null;
+  }
+}
+
 // Database path configuration
 const getDbPath = () => {
   // In Docker, use the data volume path; otherwise use local path
@@ -237,10 +274,13 @@ const initializeDefaultData = (db) => {
     const adminId = crypto.randomUUID();
     const adminPasswordHash = bcrypt.hashSync('admin', 10);
     
+    // Create admin avatar
+    const adminAvatarPath = createLetterAvatar('A', adminId, 'admin');
+    
     db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name) 
-      VALUES (?, ?, ?, ?, ?)
-    `).run(adminId, 'admin@example.com', adminPasswordHash, 'Admin', 'User');
+      INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(adminId, 'admin@example.com', adminPasswordHash, 'Admin', 'User', adminAvatarPath);
 
     // Assign admin role to default user
     const adminRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('admin').id;
@@ -249,7 +289,7 @@ const initializeDefaultData = (db) => {
     // Initialize default settings
     const defaultSettings = [
       ['SITE_NAME', 'Easy Kanban'],
-      ['SITE_URL', 'http://localhost:3000'],
+      ['SITE_URL', '/'],
       ['MAIL_ENABLED', 'false'],
       ['MAIL_HOST', ''],
       ['MAIL_PORT', '587'],
@@ -258,7 +298,7 @@ const initializeDefaultData = (db) => {
       ['MAIL_FROM', ''],
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
-      ['GOOGLE_REDIRECT_URI', 'http://localhost:3222/api/auth/google/callback']
+      ['GOOGLE_SSO_DEBUG', 'false']
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -301,10 +341,13 @@ const initializeDefaultData = (db) => {
     
     const existingDemoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@example.com');
     if (!existingDemoUser) {
+      // Create demo avatar
+      const demoAvatarPath = createLetterAvatar('D', demoUserId, 'demo');
+      
       db.prepare(`
-        INSERT INTO users (id, email, password_hash, first_name, last_name) 
-        VALUES (?, ?, ?, ?, ?)
-      `).run(demoUserId, 'demo@example.com', demoPasswordHash, 'Demo', 'User');
+        INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(demoUserId, 'demo@example.com', demoPasswordHash, 'Demo', 'User', demoAvatarPath);
 
       // Assign user role to demo user
       const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
