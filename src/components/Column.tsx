@@ -296,7 +296,21 @@ export default function KanbanColumn({
         <div className="mb-3 bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
           <div className="flex items-start gap-2">
             <span className="text-yellow-600">⚠️</span>
-            <span>{columnWarnings[column.id]}</span>
+            <div className="whitespace-pre-line">
+              {columnWarnings[column.id].split('\n').map((line, index) => (
+                <div key={index}>
+                  {line.includes('**Tip:**') ? (
+                    <>
+                      {line.split('**Tip:**')[0]}
+                      <span className="font-bold">Tip:</span>
+                      {line.split('**Tip:**')[1]}
+                    </>
+                  ) : (
+                    line
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
           {onDismissColumnWarning && (
             <button

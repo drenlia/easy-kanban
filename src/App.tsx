@@ -697,10 +697,28 @@ export default function App() {
       });
       
       // Check if the new task would be filtered out and show warning
-      if (wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive)) {
+      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive);
+      const wouldBeFilteredByMembers = (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) && (() => {
+        // Check if task matches member filtering criteria
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+          return false; // No member filters active
+        }
+        
+        const memberIds = new Set(selectedMembers);
+        let hasMatchingMember = false;
+        
+        if (includeAssignees && newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
+        if (includeRequesters && newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
+        if (includeWatchers && newTask.watchers && Array.isArray(newTask.watchers) && newTask.watchers.some(w => w && memberIds.has(w.memberId))) hasMatchingMember = true;
+        if (includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators) && newTask.collaborators.some(c => c && memberIds.has(c.memberId))) hasMatchingMember = true;
+        
+        return !hasMatchingMember; // Return true if would be filtered out
+      })();
+      
+      if (wouldBeFilteredBySearch || wouldBeFilteredByMembers) {
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: 'Task created but hidden by active filters. Tip: Hide search filters to see all tasks.'
+          [columnId]: 'Task created but hidden by active filters.\n**Tip:** Click "All" to see all tasks and disable relevant filters.'
         }));
       }
       
