@@ -1514,24 +1514,69 @@ export default function App() {
   // Use filtered columns state
   const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
   const getTaskCountForBoard = (board: Board) => {
-    
     // For the currently selected board, use the actual filtered columns data
     // This ensures the count matches exactly what's displayed in ListView/Kanban
     if (board.id === selectedBoard && filteredColumns) {
       let totalCount = 0;
-      const columnCounts: {[key: string]: number} = {};
       Object.values(filteredColumns).forEach(column => {
-        columnCounts[column.title] = column.tasks.length;
         totalCount += column.tasks.length;
       });
       return totalCount;
     }
     
-    // For other boards, show their total task count (no filtering applied to non-selected boards)
+    // For other boards, apply the same filtering logic used in performFiltering
+    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    
+    if (!isFiltering) {
+      // No filters active - return total count
+      let totalCount = 0;
+      Object.values(board.columns || {}).forEach(column => {
+        totalCount += column.tasks?.length || 0;
+      });
+      return totalCount;
+    }
+    
+    // Apply search filters using the utility function
+    let searchFilteredCount = getFilteredTaskCountForBoard(board, searchFilters, isSearchActive);
+    
+    // If no member filtering is needed, return the search-filtered count
+    if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+      return searchFilteredCount;
+    }
+    
+    // Apply member filtering on top of search filtering
     let totalCount = 0;
     Object.values(board.columns || {}).forEach(column => {
-      totalCount += column.tasks.length;
+      if (!column.tasks || !Array.isArray(column.tasks)) return;
+      
+      const filteredTasks = column.tasks.filter(task => {
+        if (!task) return false;
+        
+        // First apply search filters using the same logic as performFiltering
+        if (isSearchActive) {
+          const searchFiltered = filterTasks([task], searchFilters, isSearchActive);
+          if (searchFiltered.length === 0) return false;
+        }
+        
+        // Then apply member filtering
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+          return true;
+        }
+        
+        const memberIds = new Set(selectedMembers);
+        let hasMatchingMember = false;
+        
+        if (includeAssignees && task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
+        if (includeRequesters && task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
+        if (includeWatchers && task.watchers && Array.isArray(task.watchers) && task.watchers.some(w => w && memberIds.has(w.memberId))) hasMatchingMember = true;
+        if (includeCollaborators && task.collaborators && Array.isArray(task.collaborators) && task.collaborators.some(c => c && memberIds.has(c.memberId))) hasMatchingMember = true;
+        
+        return hasMatchingMember;
+      });
+      
+      totalCount += filteredTasks.length;
     });
+    
     return totalCount;
   };
 
