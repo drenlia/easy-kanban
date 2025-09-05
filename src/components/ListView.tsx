@@ -80,6 +80,8 @@ export default function ListView({
     }));
   });
   const [showColumnMenu, setShowColumnMenu] = useState<string | null>(null);
+  const [columnMenuPosition, setColumnMenuPosition] = useState<{top: number, left: number} | null>(null);
+  const columnMenuButtonRef = useRef<HTMLButtonElement>(null);
   
   // State for board columns fetched from API
   const [boardColumns, setBoardColumns] = useState<{id: string, title: string}[]>([]);
@@ -374,6 +376,25 @@ export default function ListView({
     updateUserPreference('listViewColumnVisibility', columnVisibility);
   };
 
+  const handleColumnMenuToggle = () => {
+    if (showColumnMenu === 'rowNumber') {
+      // Close menu
+      setShowColumnMenu(null);
+      setColumnMenuPosition(null);
+    } else {
+      // Open menu and calculate position
+      const button = columnMenuButtonRef.current;
+      if (button) {
+        const rect = button.getBoundingClientRect();
+        setColumnMenuPosition({
+          top: rect.bottom + window.scrollY + 4, // 4px spacing
+          left: rect.left + window.scrollX
+        });
+        setShowColumnMenu('rowNumber');
+      }
+    }
+  };
+
   const getPriorityDisplay = (priorityString: string) => {
     const priority = availablePriorities?.find(p => p.priority === priorityString);
     if (!priority) return null;
@@ -505,6 +526,28 @@ export default function ListView({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, []);
+
+  // Close column menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showColumnMenu && columnMenuButtonRef.current && !columnMenuButtonRef.current.contains(event.target as Node)) {
+        // Check if the click is on the portal menu itself
+        const target = event.target as HTMLElement;
+        const isPortalClick = target.closest('[data-column-menu-portal]');
+        if (!isPortalClick) {
+          setShowColumnMenu(null);
+          setColumnMenuPosition(null);
+        }
+      }
+    };
+
+    if (showColumnMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showColumnMenu]);
 
   // Inline editing functions
   const startEditing = (taskId: string, field: string, currentValue: string) => {
@@ -796,7 +839,8 @@ export default function ListView({
                 <div className="flex items-center justify-between">
                   <span>#</span>
                   <button
-                    onClick={() => setShowColumnMenu(showColumnMenu === 'rowNumber' ? null : 'rowNumber')}
+                    ref={columnMenuButtonRef}
+                    onClick={handleColumnMenuToggle}
                     className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 rounded transition-opacity"
                     title="Show/Hide Columns"
                   >
@@ -804,32 +848,6 @@ export default function ListView({
                   </button>
                 </div>
 
-                {/* Column Management Menu */}
-                {showColumnMenu === 'rowNumber' && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-10 min-w-[160px]">
-                    <div className="py-1">
-                      <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
-                        Show/Hide Columns
-                      </div>
-                      {columns.map(col => (
-                        <button
-                          key={col.key}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleColumnVisibility(col.key);
-                          }}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
-                          disabled={col.visible && visibleColumns.length === 1} // Prevent hiding last column
-                        >
-                          {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                          <span className={col.visible && visibleColumns.length === 1 ? 'text-gray-400' : ''}>
-                            {col.label}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </th>
               {visibleColumns.map(column => (
                 <th
@@ -914,7 +932,7 @@ export default function ListView({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onRemoveTask(task.id);
+                            onRemoveTask(task.id, e);
                           }}
                           className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
                           title="Delete Task"
@@ -1485,6 +1503,41 @@ export default function ListView({
                 </button>
               );
             })}
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Column Management Menu Portal */}
+      {showColumnMenu === 'rowNumber' && columnMenuPosition && createPortal(
+        <div 
+          data-column-menu-portal
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg min-w-[160px] z-50"
+          style={{
+            top: columnMenuPosition.top,
+            left: columnMenuPosition.left,
+          }}
+        >
+          <div className="py-1">
+            <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
+              Show/Hide Columns
+            </div>
+            {columns.map(col => (
+              <button
+                key={col.key}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleColumnVisibility(col.key);
+                }}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
+                disabled={col.visible && visibleColumns.length === 1} // Prevent hiding last column
+              >
+                {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                <span className={col.visible && visibleColumns.length === 1 ? 'text-gray-400' : ''}>
+                  {col.label}
+                </span>
+              </button>
+            ))}
           </div>
         </div>,
         document.body

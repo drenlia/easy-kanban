@@ -149,7 +149,11 @@ export default function KanbanColumn({
     isDragging,
   } = useSortable({ 
     id: column.id, 
-    disabled: !isAdmin || isEditing  // Disable drag when editing THIS column
+    disabled: !isAdmin || isEditing,  // Disable drag when editing THIS column
+    data: {
+      type: 'column',
+      column: column
+    }
   });
 
   // Use droppable hook for middle task area - only for cross-column moves
@@ -174,15 +178,15 @@ export default function KanbanColumn({
     disabled: draggedTask?.columnId === column.id
   });
 
-  // Separate droppable for top area (drop at position 0) - only for cross-column moves
+  // Separate droppable for top area (drop at position 0) - enabled for all moves
   const { setNodeRef: setTopDropRef, isOver: isTopOver } = useDroppable({
     id: `${column.id}-top`,
     data: {
       type: 'column-top',
       columnId: column.id
     },
-    // Only accept drops if it's a cross-column move
-    disabled: draggedTask?.columnId === column.id
+    // Now enabled for both same-column and cross-column moves
+    disabled: false
   });
 
   const style = {
@@ -222,35 +226,40 @@ export default function KanbanColumn({
     const taskElements: React.ReactNode[] = [];
     
     // Always render all tasks in correct order for proper drop zone positioning
-    const tasksToRender = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+    const tasksToRender = [...filteredTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
     
     tasksToRender.forEach((task, index) => {
       const member = members.find(m => m.id === task.memberId);
       if (!member) return;
 
-      // Add drag placeholder before this task if needed
+      // Add enhanced drag placeholder before this task if needed
       if (isTargetColumn && insertIndex === index) {
         taskElements.push(
           <div
             key={`placeholder-${index}`}
-            className="h-12 bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center transition-all duration-200 my-2.5 animate-pulse"
+            className="h-16 bg-gradient-to-r from-blue-100 to-indigo-100 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center transition-all duration-300 my-3 animate-pulse shadow-sm"
           >
-            <div className="text-blue-700 text-sm font-semibold">Drop here</div>
+            <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+              <span>Drop task here</span>
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+            </div>
           </div>
         );
       }
 
-      // Add the actual task (hide if being dragged or filtered out)
+      // Add the actual task (hide if being dragged)
       const isBeingDragged = draggedTask?.id === task.id;
-      const isFilteredOut = !filteredTasks.some(t => t.id === task.id);
       
       taskElements.push(
         <div
           key={task.id}
-          className={`transition-all duration-200 ${
-            isBeingDragged ? 'opacity-0 pointer-events-none h-0 overflow-hidden !my-0' : 'mb-2.5'
-          } ${
-            isFilteredOut ? 'h-0 overflow-hidden opacity-0 pointer-events-none !my-0' : '' // Hide filtered tasks with zero height and spacing
+          className={`transition-all duration-300 ease-in-out ${
+            isBeingDragged 
+              ? 'opacity-0 pointer-events-none h-0 overflow-hidden !my-0' 
+              : isTargetColumn && insertIndex <= index
+                ? 'mb-2.5 transform translate-y-2' // Shift down if insertion point is above
+                : 'mb-2.5'
           }`}
         >
           <TaskCard
@@ -272,20 +281,24 @@ export default function KanbanColumn({
       );
     });
     
-    // Add placeholder at the end only when specifically dropping at end
+    // Add enhanced placeholder at the end when specifically dropping at end
     if (isTargetColumn && insertIndex === tasksToRender.length) {
       taskElements.push(
         <div
           key="placeholder-end"
-          className="h-12 bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center transition-all duration-200 my-1 animate-pulse"
+          className="h-16 bg-gradient-to-r from-blue-100 to-indigo-100 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center transition-all duration-300 my-3 animate-pulse shadow-sm"
         >
-          <div className="text-blue-700 text-sm font-semibold">Drop here</div>
+          <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+            <span>Drop task here</span>
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+          </div>
         </div>
       );
     }
     
     return taskElements;
-  }, [filteredTasks, column.tasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, dragPreview, draggedTask, column.id]);
+  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, dragPreview, draggedTask, column.id]);
 
   const isBeingDraggedOver = draggedColumn && draggedColumn.id !== column.id;
   
@@ -453,22 +466,28 @@ export default function KanbanColumn({
         {filteredTasks.length === 0 ? (
           /* Empty column - no SortableContext to avoid interference */
           <div className="min-h-[100px] pb-4">
-            <div className={`h-full w-full min-h-[100px] flex items-center justify-center transition-all duration-200 ${
+            <div className={`h-full w-full min-h-[200px] flex flex-col items-center justify-center transition-all duration-200 ${
               draggedTask && draggedTask.columnId !== column.id 
-                ? `border-2 border-dashed rounded-lg ${
-                    isOver ? 'bg-blue-100 border-blue-400' : 'bg-blue-50 border-blue-300'
+                ? `border-4 border-dashed rounded-lg ${
+                    isOver ? 'bg-blue-100 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 border-blue-400'
                   }` 
-                : 'border border-dashed border-gray-200 rounded-lg bg-gray-25'
+                : 'border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 hover:border-gray-400 hover:bg-gray-100'
             }`}>
                               {draggedTask && draggedTask.columnId !== column.id ? (
-                  <div className={`font-medium transition-colors ${
-                    isOver ? 'text-blue-700' : 'text-blue-600'
+                  <div className={`text-center transition-all duration-200 ${
+                    isOver ? 'text-blue-800 scale-110' : 'text-blue-600'
                   }`}>
-                    {isOver ? 'Drop task here' : 'Drop zone'}
+                    <div className={`text-4xl mb-2 ${isOver ? 'animate-bounce' : ''}`}>📋</div>
+                    <div className="font-semibold text-lg">
+                      {isOver ? 'Drop task here!' : 'Drop zone'}
+                    </div>
+                    {isOver && <div className="text-sm opacity-75 mt-1">Release to place task</div>}
                   </div>
                 ) : (
-                  <div className="text-gray-400 text-sm font-medium">
-                    Drop tasks here
+                  <div className="text-gray-500 text-center">
+                    <div className="text-3xl mb-2 opacity-50">📋</div>
+                    <div className="text-sm font-medium">No tasks yet</div>
+                    <div className="text-xs opacity-75 mt-1">Drag tasks here</div>
                   </div>
                 )}
             </div>
@@ -476,22 +495,28 @@ export default function KanbanColumn({
         ) : (
           /* Column with tasks - use SortableContext */
           <SortableContext
-            items={[...column.tasks]
+            items={[...filteredTasks]
               .sort((a, b) => (a.position || 0) - (b.position || 0))
-              .map(task => task.id) // Always use ALL tasks for complete drop zone coverage
+              .map(task => task.id) // Use filtered tasks to match what's actually rendered
             }
             strategy={verticalListSortingStrategy}
           >
             <div className="min-h-[100px] pb-4">
-              {/* Top drop zone for position 0 detection - hide if drag placeholder is showing at index 0 */}
+              {/* Enhanced top drop zone for position 0 */}
               <div 
                 ref={setTopDropRef}
-                className={`h-4 w-full transition-colors ${
-                  isTopOver && !(dragPreview?.targetColumnId === column.id && dragPreview?.insertIndex === 0) 
-                    ? 'bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg' 
-                    : 'bg-transparent'
+                className={`transition-all duration-200 ${
+                  isTopOver 
+                    ? 'h-8 bg-blue-100 border-2 border-dashed border-blue-500 rounded-lg mb-2 flex items-center justify-center' 
+                    : 'h-2 bg-transparent'
                 }`}
-              />
+              >
+                {isTopOver && (
+                  <div className="text-blue-600 text-sm font-medium animate-pulse">
+                    📌 Drop at top
+                  </div>
+                )}
+              </div>
               
               {/* Main task area with separate droppable */}
               <div 

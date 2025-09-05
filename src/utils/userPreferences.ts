@@ -13,6 +13,7 @@ export interface UserPreferences {
   isSearchActive: boolean;
   isAdvancedSearchExpanded: boolean;
   selectedTaskId: string | null;
+  lastSelectedBoard: string | null;
   selectedMembers: string[];
   includeAssignees: boolean;
   includeWatchers: boolean;
@@ -31,10 +32,21 @@ export interface UserPreferences {
     selectedPriorities: Priority[];
     selectedTags: string[];
   };
+  appSettings: {
+    taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
+  };
 }
 
-const COOKIE_NAME = 'easy-kanban-user-prefs';
+const COOKIE_NAME_PREFIX = 'easy-kanban-user-prefs';
 const COOKIE_EXPIRY_DAYS = 365;
+
+// Get user-specific cookie name
+const getUserCookieName = (userId: string | null): string => {
+  if (!userId) {
+    return `${COOKIE_NAME_PREFIX}-anonymous`;
+  }
+  return `${COOKIE_NAME_PREFIX}-${userId}`;
+};
 
 // Default preferences
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -43,6 +55,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   isSearchActive: false, // Default to no search active
   isAdvancedSearchExpanded: false, // Default to collapsed (basic search)
   selectedTaskId: null, // Default to no task selected
+  lastSelectedBoard: null, // Default to no board remembered
   selectedMembers: [], // Default to no members selected
   includeAssignees: true, // Default to include assignees (maintains current behavior)
   includeWatchers: false, // Default to not include watchers
@@ -70,28 +83,33 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
     selectedMembers: [],
     selectedPriorities: [],
     selectedTags: []
+  },
+  appSettings: {
+    // taskDeleteConfirm: undefined - let it inherit from system setting by default
   }
 };
 
 // Save preferences to cookie
-export const saveUserPreferences = (preferences: UserPreferences): void => {
+export const saveUserPreferences = (preferences: UserPreferences, userId: string | null = null): void => {
   try {
+    const cookieName = getUserCookieName(userId);
     const prefsJson = JSON.stringify(preferences);
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
     
-    document.cookie = `${COOKIE_NAME}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+    document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
   } catch (error) {
     console.error('Failed to save user preferences:', error);
   }
 };
 
 // Load preferences from cookie
-export const loadUserPreferences = (): UserPreferences => {
+export const loadUserPreferences = (userId: string | null = null): UserPreferences => {
   try {
+    const cookieName = getUserCookieName(userId);
     const cookies = document.cookie.split(';');
     const prefsCookie = cookies.find(cookie => 
-      cookie.trim().startsWith(`${COOKIE_NAME}=`)
+      cookie.trim().startsWith(`${cookieName}=`)
     );
     
     if (prefsCookie) {
@@ -111,6 +129,10 @@ export const loadUserPreferences = (): UserPreferences => {
           ...loadedPrefs.searchFilters,
           // Ensure text is never null
           text: loadedPrefs.searchFilters?.text || ''
+        },
+        appSettings: {
+          ...DEFAULT_PREFERENCES.appSettings,
+          ...loadedPrefs.appSettings
         }
       };
     }
@@ -124,9 +146,24 @@ export const loadUserPreferences = (): UserPreferences => {
 // Update specific preference
 export const updateUserPreference = <K extends keyof UserPreferences>(
   key: K,
-  value: UserPreferences[K]
+  value: UserPreferences[K],
+  userId: string | null = null
 ): void => {
-  const currentPrefs = loadUserPreferences();
+  const currentPrefs = loadUserPreferences(userId);
   const updatedPrefs = { ...currentPrefs, [key]: value };
-  saveUserPreferences(updatedPrefs);
+  saveUserPreferences(updatedPrefs, userId);
+};
+
+// Get effective task delete confirmation setting (user preference with system fallback)
+export const getTaskDeleteConfirmSetting = (
+  userPreferences: UserPreferences,
+  systemSettings: { TASK_DELETE_CONFIRM?: string }
+): boolean => {
+  // If user has explicitly set a preference, use that
+  if (userPreferences.appSettings.taskDeleteConfirm !== undefined) {
+    return userPreferences.appSettings.taskDeleteConfirm;
+  }
+  
+  // Otherwise, use system default (true if not set or if set to 'true')
+  return systemSettings.TASK_DELETE_CONFIRM !== 'false';
 };

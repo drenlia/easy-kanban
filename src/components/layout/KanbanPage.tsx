@@ -499,15 +499,22 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                              {/* DndContext handled at App level for global cross-board functionality */}
             {/* Admin view with column drag and drop */}
             {currentUser?.roles?.includes('admin') ? (
-              // Temporarily disabled SortableContext - using global DndContext from App
-              <div style={gridStyle}>
+              // Re-enabled SortableContext for column reordering
+              <SortableContext
+                items={Object.values(columns)
+                  .sort((a, b) => (a.position || 0) - (b.position || 0))
+                  .map(column => column.id)
+                }
+                strategy={rectSortingStrategy}
+              >
+                <div style={gridStyle}>
                   {Object.values(columns)
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
                                           <KanbanColumn
                       key={column.id}
                       column={column}
-                      filteredTasks={filteredColumns[column.id]?.tasks || []}
+                      filteredTasks={draggedTask ? column.tasks : (filteredColumns[column.id]?.tasks || [])}
                       members={members}
                       selectedMembers={selectedMembers}
                       selectedTask={selectedTask}
@@ -538,6 +545,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                     />
                     ))}
                 </div>
+              </SortableContext>
             ) : (
               /* Regular user view */
               <div style={gridStyle}>
@@ -547,7 +555,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                     <KanbanColumn
                       key={column.id}
                       column={column}
-                      filteredTasks={filteredColumns[column.id]?.tasks || []}
+                      filteredTasks={draggedTask ? column.tasks : (filteredColumns[column.id]?.tasks || [])}
                       members={members}
                       selectedMembers={selectedMembers}
                       selectedTask={selectedTask}

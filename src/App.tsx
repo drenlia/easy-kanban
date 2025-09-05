@@ -15,13 +15,18 @@ import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 
 import Login from './components/Login';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
+import ResetPasswordSuccess from './components/ResetPasswordSuccess';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
 import ModalManager from './components/layout/ModalManager';
 import MiniTaskIcon from './components/MiniTaskIcon';
 import TaskCard from './components/TaskCard';
+import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import Test from './components/Test';
-import * as api from './api';
+import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -39,7 +44,9 @@ import {
 } from './constants';
 import { 
   getInitialSelectedBoard, 
-  getInitialPage 
+  getInitialPage,
+  parseUrlHash,
+  shouldSkipAutoBoardSelection
 } from './utils/routingUtils';
 import { 
   filterTasks,
@@ -51,14 +58,18 @@ import { moveTaskToBoard } from './api';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
+import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
 
 
 
 export default function App() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(getInitialSelectedBoard);
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(null); // Initialize as null, will be set after auth
   const [columns, setColumns] = useState<Columns>({});
+  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string }>({});
+  // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
   const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
@@ -69,11 +80,59 @@ export default function App() {
   const dragStartedRef = useRef<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
+  // Helper function to update user preferences with current user ID
+  const updateCurrentUserPreference = <K extends keyof UserPreferences>(
+    key: K,
+    value: UserPreferences[K]
+  ) => {
+    updateUserPreference(key, value, currentUser?.id || null);
+  };
+
+  // Helper function to get initial selected board with user preference fallback
+  const getInitialSelectedBoardWithPreferences = (userId: string | null): string | null => {
+    // First, check URL hash
+    const boardFromUrl = getInitialSelectedBoard();
+    if (boardFromUrl) {
+      return boardFromUrl;
+    }
+
+    // If no URL hash, check user preferences
+    const userPrefs = loadUserPreferences(userId);
+    return userPrefs.lastSelectedBoard;
+  };
+
   // Enhanced setSelectedTask that also updates user preferences
   const handleSelectTask = (task: Task | null) => {
     setSelectedTask(task);
-    updateUserPreference('selectedTaskId', task?.id || null);
+    updateCurrentUserPreference('selectedTaskId', task?.id || null);
   };
+
+  // Task deletion handler with confirmation
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      await deleteTask(taskId);
+      
+      // Remove task from local state
+      const updatedColumns = { ...columns };
+      Object.keys(updatedColumns).forEach(columnId => {
+        updatedColumns[columnId] = {
+          ...updatedColumns[columnId],
+          tasks: updatedColumns[columnId].tasks.filter(task => task.id !== taskId)
+        };
+      });
+      setColumns(updatedColumns);
+      
+      // Refresh board data to ensure consistent state
+      await refreshBoardData();
+      await fetchQueryLogs();
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      throw error; // Re-throw so the hook can handle the error state
+    }
+  };
+
+  // This will be defined later after the hooks are initialized
+  let handleRemoveTask: (taskId: string, clickEvent?: React.MouseEvent) => Promise<void>;
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
@@ -85,7 +144,7 @@ export default function App() {
     originalPosition: number;
     originalTaskId: string;
   } | null>(null);
-  // Load user preferences from cookies
+  // Load user preferences from cookies (will be updated when user is authenticated)
   const [userPrefs] = useState(() => loadUserPreferences());
   const [selectedMembers, setSelectedMembers] = useState<string[]>(userPrefs.selectedMembers);
   const [includeAssignees, setIncludeAssignees] = useState(userPrefs.includeAssignees);
@@ -96,6 +155,7 @@ export default function App() {
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
+  const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
@@ -104,7 +164,8 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test'>(getInitialPage);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success'>(getInitialPage);
+  const [resetToken, setResetToken] = useState<string>('');
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
@@ -128,7 +189,7 @@ export default function App() {
       if (validSelectedMembers.length !== selectedMembers.length) {
         console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
         setSelectedMembers(validSelectedMembers);
-        updateUserPreference('selectedMembers', validSelectedMembers);
+        updateCurrentUserPreference('selectedMembers', validSelectedMembers);
       }
     }
   }, [members]); // Only depend on members, not selectedMembers to avoid loops
@@ -175,7 +236,7 @@ export default function App() {
     },
     onPageChange: setCurrentPage,
     onMembersRefresh: async () => {
-      const loadedMembers = await api.getMembers(includeSystem);
+      const loadedMembers = await getMembers(includeSystem);
       setMembers(loadedMembers);
     },
   });
@@ -185,6 +246,61 @@ export default function App() {
   const showDebug = useDebug();
   useKeyboardShortcuts(() => setShowHelpModal(true));
   
+  // Initialize task deletion confirmation hook
+  const taskDeleteConfirmation = useTaskDeleteConfirmation({
+    currentUser,
+    systemSettings,
+    onDelete: handleTaskDelete
+  });
+
+  // Now define the handleRemoveTask function
+  handleRemoveTask = async (taskId: string, clickEvent?: React.MouseEvent) => {
+    // If the task being deleted is currently open in TaskDetails, close it first
+    if (selectedTask && selectedTask.id === taskId) {
+      handleSelectTask(null);
+    }
+
+    // Find the full task object from the columns
+    let taskToDelete: Task | null = null;
+    Object.values(columns).forEach(column => {
+      const foundTask = column.tasks.find(task => task.id === taskId);
+      if (foundTask) {
+        taskToDelete = foundTask;
+      }
+    });
+
+    if (taskToDelete) {
+      await taskDeleteConfirmation.deleteTask(taskToDelete, clickEvent);
+    } else {
+      // If task not found in local state, create minimal object and delete
+      await taskDeleteConfirmation.deleteTask({ id: taskId } as Task, clickEvent);
+    }
+  };
+  
+  // Close task delete confirmation when clicking outside
+  useEffect(() => {
+    if (!taskDeleteConfirmation.confirmationTask) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      // Don't close if clicking on the delete confirmation popup or its children
+      if (target.closest('.delete-confirmation')) {
+        return;
+      }
+      taskDeleteConfirmation.cancelDelete();
+    };
+
+    // Use a small delay to avoid interfering with the initial click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 10);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [taskDeleteConfirmation.confirmationTask, taskDeleteConfirmation.cancelDelete]);
+
   // Data polling for real-time collaboration
   const { isPolling, lastPollTime } = useDataPolling({
     enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
@@ -225,10 +341,12 @@ export default function App() {
 
 
 
-  // Handle board selection with URL hash persistence
+  // Handle board selection with URL hash persistence and user preference saving
   const handleBoardSelection = (boardId: string) => {
     setSelectedBoard(boardId);
     window.location.hash = boardId;
+    // Save the selected board to user preferences for future sessions
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
   };
 
   // Header event handlers
@@ -277,136 +395,125 @@ export default function App() {
     }
   }, [isAuthenticated, currentPage]);
 
-  // Handle URL hash changes with PROPER ROUTING
+  // Load user-specific preferences when authenticated
   useEffect(() => {
-    const handleHashChange = () => {
-      const fullHash = window.location.hash;
-      const hash = fullHash.replace('#', '');
+    if (isAuthenticated && currentUser?.id) {
+      const userSpecificPrefs = loadUserPreferences(currentUser.id);
       
-      // Parse the hash to determine routing
-      const routeParts = hash.split('#');
-      const mainRoute = routeParts[0];
-      const subRoute = routeParts[1];
+      // Update all preference-based state with user-specific values
+      setSelectedMembers(userSpecificPrefs.selectedMembers);
+      setIncludeAssignees(userSpecificPrefs.includeAssignees);
+      setIncludeWatchers(userSpecificPrefs.includeWatchers);
+      setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
+      setIncludeRequesters(userSpecificPrefs.includeRequesters);
+      setIncludeSystem(userSpecificPrefs.includeSystem);
+      setTaskViewMode(userSpecificPrefs.taskViewMode);
+      setViewMode(userSpecificPrefs.viewMode);
+      setIsSearchActive(userSpecificPrefs.isSearchActive);
+      setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
+      setSearchFilters(userSpecificPrefs.searchFilters);
       
-      // Handle main page routing
-      if (['kanban', 'admin', 'test'].includes(mainRoute)) {
-        if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin' | 'test');
+      // Set initial selected board with preference fallback
+      if (!selectedBoard) {
+        const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
+        if (initialBoard) {
+          setSelectedBoard(initialBoard);
+        }
+      }
+    }
+  }, [isAuthenticated, currentUser?.id, selectedBoard]);
+
+  // CENTRALIZED ROUTING HANDLER - Single source of truth
+  useEffect(() => {
+    const handleRouting = () => {
+      const route = parseUrlHash(window.location.hash);
+      
+      // 1. Handle page routing
+      if (route.isPage) {
+        if (route.mainRoute !== currentPage) {
+          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success');
         }
         
-        // Handle admin sub-routes
-        if (mainRoute === 'admin' && subRoute) {
-          const validAdminTabs = ['users', 'site-settings', 'sso'];
-          if (validAdminTabs.includes(subRoute)) {
-            // The Admin component will handle this via its own hash handling
+        // Handle password reset token
+        if (route.mainRoute === 'reset-password') {
+          const token = route.queryParams.get('token');
+          if (token) {
+            setResetToken(token);
           }
         }
         
         // Handle kanban board sub-routes
-        if (mainRoute === 'kanban' && subRoute) {
-          // Check if this is a valid board ID
-          if (boards.length > 0) {
-            const board = boards.find(b => b.id === subRoute);
-            if (board) {
-              setSelectedBoard(board.id);
-            } else {
-              setSelectedBoard(null);
-            }
-          }
+        if (route.mainRoute === 'kanban' && route.subRoute && boards.length > 0) {
+          const board = boards.find(b => b.id === route.subRoute);
+          setSelectedBoard(board ? board.id : null);
         }
-      } else if (mainRoute && boards.length > 0) {
-        // Check if this is a valid board ID
-        const board = boards.find(b => b.id === mainRoute);
+        
+      } else if (route.isBoardId && boards.length > 0) {
+        // 2. Handle direct board access (legacy format)
+        const board = boards.find(b => b.id === route.mainRoute);
         if (board) {
+          setCurrentPage('kanban');
           setSelectedBoard(board.id);
         } else {
+          // Invalid board ID - redirect to kanban
           setCurrentPage('kanban');
           setSelectedBoard(null);
         }
-      } else if (mainRoute) {
-        // Unknown route, redirect to kanban page
+        
+      } else if (route.mainRoute) {
+        // 3. Handle unknown routes
         setCurrentPage('kanban');
         setSelectedBoard(null);
       }
     };
 
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    // Handle both hash changes and initial load
+    handleRouting();
+    window.addEventListener('hashchange', handleRouting);
+    return () => window.removeEventListener('hashchange', handleRouting);
   }, [currentPage, boards, isAuthenticated]);
 
-  // Handle initial routing when app loads
+  // AUTO-BOARD-SELECTION LOGIC - Clean and predictable with user preference support
   useEffect(() => {
-    const hash = window.location.hash.replace('#', '');
-    
-    if (hash) {
-      // Parse the initial hash to determine routing
-      const routeParts = hash.split('#');
-      const mainRoute = routeParts[0];
-      const subRoute = routeParts[1];
+    // Only auto-select if:
+    // 1. We're on kanban page
+    // 2. No board is currently selected
+    // 3. We have boards available
+    // 4. We're not on pages that should skip auto-selection
+    // 5. Not during board creation (to avoid race conditions)
+    // 6. User is authenticated (so we can access preferences)
+    if (
+      currentPage === 'kanban' && 
+      !selectedBoard && 
+      boards.length > 0 && 
+      !boardCreationPause &&
+      !shouldSkipAutoBoardSelection(currentPage) &&
+      isAuthenticated && currentUser?.id
+    ) {
+      // Try to use the user's last selected board if it exists in current boards
+      const userPrefs = loadUserPreferences(currentUser.id);
+      const lastBoard = userPrefs.lastSelectedBoard;
       
-      // Handle main page routing
-      if (['kanban', 'admin', 'test'].includes(mainRoute)) {
-        if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin' | 'test');
-        }
-        
-        // Handle admin sub-routes
-        if (mainRoute === 'admin' && subRoute) {
-          const validAdminTabs = ['users', 'site-settings', 'sso'];
-          if (validAdminTabs.includes(subRoute)) {
-            // The Admin component will handle this via its own hash handling
-          }
-        }
-        
-        // Handle kanban board sub-routes
-        if (mainRoute === 'kanban' && subRoute) {
-          // Check if this is a valid board ID
-          if (boards.length > 0) {
-            const board = boards.find(b => b.id === subRoute);
-            if (board) {
-              setSelectedBoard(board.id);
-            } else {
-              setSelectedBoard(null);
-            }
-          }
-        }
-      } else if (mainRoute && boards.length > 0) {
-        // Check if this is a valid board ID
-        const board = boards.find(b => b.id === mainRoute);
-        if (board) {
-          setSelectedBoard(board.id);
-        } else {
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
-        }
-      } else if (mainRoute) {
-        // Unknown route, redirect to kanban page
-        setCurrentPage('kanban');
-        setSelectedBoard(null);
+      let boardToSelect: string | null = null;
+      
+      if (lastBoard && boards.some(board => board.id === lastBoard)) {
+        // User's preferred board exists, use it
+        boardToSelect = lastBoard;
+      } else {
+        // Fall back to first board
+        boardToSelect = boards[0]?.id || null;
       }
-    } else {
-      // No hash - apply the simple rule: select default board if on kanban page
-      if (currentPage === 'kanban' && !selectedBoard && boards.length > 0) {
-        handleBoardSelection(boards[0].id);
+      
+      if (boardToSelect) {
+        setSelectedBoard(boardToSelect);
+        // Update URL to reflect the selected board (only if no hash exists)
+        if (!window.location.hash || window.location.hash === '#') {
+          window.location.hash = `#kanban#${boardToSelect}`;
+        }
       }
     }
-  }, [boards, currentPage, selectedBoard]);
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id]);
 
-  // Ensure default board is selected when on kanban page with no specific board
-  useEffect(() => {
-    // Don't auto-select during board creation to avoid race conditions
-    if (boardCreationPause) return;
-    
-    if (currentPage === 'kanban' && boards.length > 0 && !selectedBoard) {
-      // If no board is selected and we're on kanban page, select the first board
-      const firstBoard = boards[0];
-      if (firstBoard) {
-        setSelectedBoard(firstBoard.id);
-        // Update URL to reflect the selected board
-        window.location.hash = `#kanban#${firstBoard.id}`;
-      }
-    }
-  }, [currentPage, boards, selectedBoard, boardCreationPause]);
 
 
 
@@ -417,11 +524,12 @@ export default function App() {
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-                  const [loadedMembers, loadedBoards, loadedPriorities, loadedTags] = await Promise.all([
-          api.getMembers(includeSystem),
-          api.getBoards(),
+                  const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+          getMembers(includeSystem),
+          getBoards(),
           getAllPriorities(),
-          getAllTags()
+          getAllTags(),
+          api.get('/settings')
         ]);
           
 
@@ -430,6 +538,7 @@ export default function App() {
           setBoards(loadedBoards);
           setAvailablePriorities(loadedPriorities || []);
           setAvailableTags(loadedTags || []);
+          setSystemSettings(settingsResponse.data || {});
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -472,7 +581,7 @@ export default function App() {
       const allMemberIds = members.map(m => m.id);
       console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
       setSelectedMembers(allMemberIds);
-      updateUserPreference('selectedMembers', allMemberIds);
+      updateCurrentUserPreference('selectedMembers', allMemberIds);
     }
   }, [members, currentUser, selectedMembers]);
 
@@ -500,7 +609,7 @@ export default function App() {
 
   const refreshBoardData = async () => {
     try {
-      const loadedBoards = await api.getBoards();
+      const loadedBoards = await getBoards();
       setBoards(loadedBoards);
       
       if (loadedBoards.length > 0) {
@@ -523,7 +632,7 @@ export default function App() {
 
   const fetchQueryLogs = async () => {
     try {
-      const logs = await api.getQueryLogs();
+      const logs = await getQueryLogs();
       setQueryLogs(logs);
     } catch (error) {
       console.error('Failed to fetch query logs:', error);
@@ -630,7 +739,7 @@ export default function App() {
       }
       
       // Update backend
-      await api.reorderBoards(boardId, newPosition);
+      await reorderBoards(boardId, newPosition);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to reorder boards:', error);
@@ -764,28 +873,13 @@ export default function App() {
     
     try {
       await withLoading('tasks', async () => {
-        await api.updateTask(task);
+        await updateTask(task);
         await fetchQueryLogs();
       });
     } catch (error) {
       // Rollback on error
       setColumns(previousColumns);
       console.error('Failed to update task:', error);
-    }
-  };
-
-  const handleRemoveTask = async (taskId: string) => {
-    try {
-      // If the task being deleted is currently open in TaskDetails, close it first
-      if (selectedTask && selectedTask.id === taskId) {
-        handleSelectTask(null);
-      }
-      
-      await api.deleteTask(taskId);
-      await refreshBoardData(); // Refresh to ensure consistent state
-      await fetchQueryLogs();
-    } catch (error) {
-      console.error('Failed to remove task:', error);
     }
   };
 
@@ -843,7 +937,7 @@ export default function App() {
         // Update all positions to be sequential: 0, 1, 2, 3...
         const updatePromises = allColumnTasks.map((t, index) => {
           if (t.position !== index) {
-            return api.updateTask({ ...t, position: index });
+            return updateTask({ ...t, position: index });
           }
           return Promise.resolve();
         }).filter(p => p);
@@ -1104,7 +1198,7 @@ export default function App() {
     // Let backend handle all position calculations
     try {
       // Send the target position (not array index) to backend
-      await api.reorderTasks(task.id, newIndex, columnId);
+      await reorderTasks(task.id, newIndex, columnId);
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
@@ -1120,8 +1214,8 @@ export default function App() {
     }
   };
 
-  // Handle moving task to different column via ListView dropdown
-  const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string) => {
+  // Handle moving task to different column via ListView dropdown or drag & drop
+  const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string, position?: number) => {
     // Find the task and its current column
     let sourceTask: Task | null = null;
     let sourceColumnId: string | null = null;
@@ -1134,8 +1228,8 @@ export default function App() {
       }
     });
 
-    if (!sourceTask || !sourceColumnId || sourceColumnId === targetColumnId) {
-      return; // Task not found or already in target column
+    if (!sourceTask || !sourceColumnId) {
+      return; // Task not found
     }
 
     const targetColumn = columns[targetColumnId];
@@ -1144,11 +1238,17 @@ export default function App() {
       return;
     }
 
-    // Move to end of target column
-    const targetIndex = targetColumn.tasks.length;
+    // If no position specified, move to end of target column
+    const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
     
-    // Use the existing cross-column move logic
-    await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+    // Check if this is a same-column reorder or cross-column move
+    if (sourceColumnId === targetColumnId) {
+      // Same column - use reorder logic
+      await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
+    } else {
+      // Different columns - use cross-column move logic
+      await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+    }
   };
 
   // Handle moving task to different column
@@ -1215,16 +1315,16 @@ export default function App() {
       }
       
       // Step 1: Update the moved task to new column and position
-        await api.updateTask(finalMovedTask);
+        await updateTask(finalMovedTask);
         
       // Step 2: Update all source column tasks (sequential positions)
       for (const task of updatedSourceTasks) {
-        await api.updateTask(task);
+        await updateTask(task);
       }
         
       // Step 3: Update all target column tasks (except the moved one)
       for (const task of updatedTargetTasks.filter(t => t.id !== updatedTask.id)) {
-        await api.updateTask(task);
+        await updateTask(task);
       }
         
         
@@ -1404,7 +1504,7 @@ export default function App() {
       setColumns(newColumnsObj);
       
       // Update database
-      await api.reorderColumns(active.id as string, newIndex, selectedBoard);
+      await reorderColumns(active.id as string, newIndex, selectedBoard);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to reorder columns:', error);
@@ -1430,23 +1530,23 @@ export default function App() {
     const newMode = modes[nextIndex];
     
     setTaskViewMode(newMode);
-    updateUserPreference('taskViewMode', newMode);
+    updateCurrentUserPreference('taskViewMode', newMode);
   };
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
-    updateUserPreference('viewMode', mode);
+    updateCurrentUserPreference('viewMode', mode);
   };
 
   const handleToggleSearch = () => {
     const newValue = !isSearchActive;
     setIsSearchActive(newValue);
-    updateUserPreference('isSearchActive', newValue);
+    updateCurrentUserPreference('isSearchActive', newValue);
   };
 
   const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
     setSearchFilters(newFilters);
-    updateUserPreference('searchFilters', newFilters);
+    updateCurrentUserPreference('searchFilters', newFilters);
   };
 
   // Handle member toggle selection
@@ -1456,7 +1556,7 @@ export default function App() {
       : [...selectedMembers, memberId];
     
     setSelectedMembers(newSelectedMembers);
-    updateUserPreference('selectedMembers', newSelectedMembers);
+    updateCurrentUserPreference('selectedMembers', newSelectedMembers);
   };
 
   // Handle clearing all member selections and reverting to current user
@@ -1467,16 +1567,16 @@ export default function App() {
       if (currentUserMember) {
         // Set selections to just the current user
         setSelectedMembers([currentUserMember.id]);
-        updateUserPreference('selectedMembers', [currentUserMember.id]);
+        updateCurrentUserPreference('selectedMembers', [currentUserMember.id]);
       } else {
         // Fallback: clear all selections
         setSelectedMembers([]);
-        updateUserPreference('selectedMembers', []);
+        updateCurrentUserPreference('selectedMembers', []);
       }
     } else {
       // No current user, just clear all
       setSelectedMembers([]);
-      updateUserPreference('selectedMembers', []);
+      updateCurrentUserPreference('selectedMembers', []);
     }
   };
 
@@ -1492,48 +1592,48 @@ export default function App() {
   const handleSelectAllMembers = () => {
     const allMemberIds = members.map(m => m.id);
     setSelectedMembers(allMemberIds);
-    updateUserPreference('selectedMembers', allMemberIds);
+    updateCurrentUserPreference('selectedMembers', allMemberIds);
     
     // Also select all checkboxes
     setIncludeAssignees(true);
     setIncludeWatchers(true);
     setIncludeCollaborators(true);
     setIncludeRequesters(true);
-    updateUserPreference('includeAssignees', true);
-    updateUserPreference('includeWatchers', true);
-    updateUserPreference('includeCollaborators', true);
-    updateUserPreference('includeRequesters', true);
+    updateCurrentUserPreference('includeAssignees', true);
+    updateCurrentUserPreference('includeWatchers', true);
+    updateCurrentUserPreference('includeCollaborators', true);
+    updateCurrentUserPreference('includeRequesters', true);
   };
 
   // Handle toggling filter options
   const handleToggleAssignees = (include: boolean) => {
     setIncludeAssignees(include);
-    updateUserPreference('includeAssignees', include);
+    updateCurrentUserPreference('includeAssignees', include);
   };
 
   const handleToggleWatchers = (include: boolean) => {
     setIncludeWatchers(include);
-    updateUserPreference('includeWatchers', include);
+    updateCurrentUserPreference('includeWatchers', include);
   };
 
   const handleToggleCollaborators = (include: boolean) => {
     setIncludeCollaborators(include);
-    updateUserPreference('includeCollaborators', include);
+    updateCurrentUserPreference('includeCollaborators', include);
   };
 
   const handleToggleRequesters = (include: boolean) => {
     setIncludeRequesters(include);
-    updateUserPreference('includeRequesters', include);
+    updateCurrentUserPreference('includeRequesters', include);
   };
 
   const handleToggleSystem = async (include: boolean) => {
     console.log(`🔄 Toggling system user: ${include}`);
     setIncludeSystem(include);
-    updateUserPreference('includeSystem', include);
+    updateCurrentUserPreference('includeSystem', include);
     
     // Refresh members to include/exclude system user
     try {
-      const loadedMembers = await api.getMembers(include);
+                        const loadedMembers = await getMembers(include);
       console.log(`📋 Loaded ${loadedMembers.length} members (includeSystem=${include}):`, loadedMembers.map(m => `${m.name} (${m.id})`));
       setMembers(loadedMembers);
     } catch (error) {
@@ -1736,152 +1836,74 @@ export default function App() {
 
 
 
+  // Handle password reset pages (accessible without authentication)
+  if (currentPage === 'forgot-password') {
+    return <ForgotPassword onBackToLogin={() => window.location.hash = '#kanban'} />;
+  }
+  
+  if (currentPage === 'reset-password') {
+    return (
+      <ResetPassword 
+        token={resetToken}
+        onBackToLogin={() => window.location.hash = '#kanban'}
+        onResetSuccess={() => window.location.hash = '#reset-success'}
+        onAutoLogin={(user, token) => {
+          // Automatically log the user in
+          handleLogin(user, token);
+          // Small delay to allow auth state to propagate, then navigate
+          setTimeout(() => {
+            window.location.hash = '#kanban';
+          }, 100);
+        }}
+      />
+    );
+  }
+  
+  if (currentPage === 'reset-success') {
+    return <ResetPasswordSuccess onBackToLogin={() => window.location.hash = '#kanban'} />;
+  }
+
   // Show login page if not authenticated
   if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} hasDefaultAdmin={hasDefaultAdmin ?? undefined} />;
+    return (
+      <Login 
+        onLogin={handleLogin} 
+        hasDefaultAdmin={hasDefaultAdmin ?? undefined}
+        onForgotPassword={() => {
+          // Clear auth token to prevent conflicts during password reset
+          localStorage.removeItem('authToken');
+          window.location.hash = '#forgot-password';
+          // setCurrentPage will be called by the routing handler
+        }}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       
-      {/* Global DndContext for cross-board functionality */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={collisionDetection}
-        onDragStart={(event) => {
-          console.log('🎯 DragStart - item:', event.active.id);
-          
-          // Clear any previous drag preview
-          setDragPreview(null);
-          
-          // Determine if dragging a column or task
-          const draggedItem = Object.values(columns).find(col => col.id === event.active.id);
-          if (draggedItem) {
-            // Column drag
-            console.log('🏛️ Starting column drag:', draggedItem.title);
-            handleColumnDragStart(event);
-          } else {
-            // Task drag - find the task
-            const taskId = event.active.id as string;
-            Object.values(columns).forEach(column => {
-              const task = column.tasks.find(t => t.id === taskId);
-              if (task) {
-                console.log('📋 Starting task drag:', task.title);
-                handleTaskDragStart(task);
-              }
-            });
+      {/* New Enhanced Drag & Drop System */}
+      <SimpleDragDropManager
+        currentBoardId={selectedBoard || ''}
+        columns={columns}
+        boards={boards}
+        onTaskMove={handleMoveTaskToColumn}
+        onTaskMoveToDifferentBoard={handleTaskDropOnBoard}
+        onColumnReorder={async (columnId: string, newPosition: number) => {
+          try {
+            await reorderColumns(columnId, newPosition, selectedBoard || '');
+            await fetchQueryLogs();
+            await refreshBoardData();
+          } catch (error) {
+            console.error('Failed to reorder column:', error);
+            await refreshBoardData();
           }
         }}
-        onDragOver={(event) => {
-          const { active, over } = event;
-          
-          // Detect hovering over board tabs with debouncing to prevent flashing
-          if (draggedTask && over) {
-            const isOverBoardTab = over.data?.current?.type === 'board';
-            
-            // Clear any existing timeout
-            if (boardTabHoverTimeoutRef.current) {
-              clearTimeout(boardTabHoverTimeoutRef.current);
-              boardTabHoverTimeoutRef.current = null;
-            }
-            
-            if (isOverBoardTab && !isHoveringBoardTab) {
-              // Immediately switch to square mode when entering board tab area
-              setIsHoveringBoardTab(true);
-              console.log('🎯 Board tab hover (square mode): true');
-            } else if (!isOverBoardTab && isHoveringBoardTab) {
-              // Delay switching back to full task mode to prevent flashing
-              boardTabHoverTimeoutRef.current = setTimeout(() => {
-                setIsHoveringBoardTab(false);
-                console.log('🎯 Board tab hover (square mode): false');
-                boardTabHoverTimeoutRef.current = null;
-              }, 100); // 100ms delay
-            }
-          } else if (draggedTask && !over) {
-            // Not hovering over anything droppable - clear any timeout and switch to full task
-            if (boardTabHoverTimeoutRef.current) {
-              clearTimeout(boardTabHoverTimeoutRef.current);
-              boardTabHoverTimeoutRef.current = null;
-            }
-            if (isHoveringBoardTab) {
-              setIsHoveringBoardTab(false);
-              console.log('🎯 No hover (full task mode)');
-            }
-          }
-          
-          // Debug what we're hovering over
-          if (draggedTask) {
-            console.log('🎯 DragOver:', {
-              over: over?.id,
-              overType: over?.data?.current?.type,
-              overData: over?.data?.current,
-              hasOver: !!over
-            });
-          }
-          
-          // Handle ALL task drag over (same-column and cross-column)
-          if (draggedTask && over) {
-            let targetColumnId: string | undefined;
-            let insertIndex: number | undefined;
-            
-            // Only update if we're over a valid drop target
-            if (over.data?.current?.type === 'task') {
-              // Hovering over another task
-              Object.entries(columns).forEach(([colId, column]) => {
-                const targetTask = column.tasks.find(t => t.id === over.id);
-                if (targetTask) {
-                  targetColumnId = colId;
-                                      // Handle both same-column and cross-column moves with top position support
-                    const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-                    const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
-                    
-                    // Simple logic: hover over a task = insert after that task
-                    // For position 0 drops, use the column-top drop zone
-                    insertIndex = targetTaskIndex + 1;
-                }
-              });
-            } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom' || over.data?.current?.type === 'column-top') {
-              // Hovering over column area (empty space), bottom drop zone, or top area
-              targetColumnId = over.data.current.columnId as string;
-              if (targetColumnId && columns[targetColumnId]) {
-                if (over.data?.current?.type === 'column-top') {
-                  // Drop at the very top of the column
-                  insertIndex = 0;
-                } else {
-                  // Drop at the end of the column
-                  insertIndex = columns[targetColumnId].tasks.length;
-                }
-              }
-            } else {
-              // Fallback: check if we're over a column by ID
-              const overId = over.id as string;
-              let possibleColumnId = overId;
-              
-              // Handle bottom drop zone IDs (e.g., "column-id-bottom")
-              if (overId.endsWith('-bottom')) {
-                possibleColumnId = overId.replace('-bottom', '');
-              }
-              
-              if (columns[possibleColumnId]) {
-                targetColumnId = possibleColumnId;
-                const columnTasks = columns[possibleColumnId]?.tasks || [];
-                insertIndex = columnTasks.length;
-              }
-            }
-            
-            // Set drag preview for ALL moves (same-column and cross-column)
-            if (targetColumnId && insertIndex !== undefined) {
-              setDragPreview({
-                targetColumnId,
-                insertIndex
-              });
-            } else {
-              setDragPreview(null);
-            }
-          }
-        }}
-        onDragEnd={handleUnifiedTaskDragEnd}
+        onDraggedTaskChange={setDraggedTask}
+        onDraggedColumnChange={setDraggedColumn}
+        onBoardTabHover={setIsHoveringBoardTab}
+        onDragPreviewChange={setDragPreview}
       >
       <Header
         currentUser={currentUser}
@@ -1904,7 +1926,7 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
               onUsersChanged={async () => {
                 try {
-                  const loadedMembers = await api.getMembers(includeSystem);
+                  const loadedMembers = await getMembers(includeSystem);
                   setMembers(loadedMembers);
                 } catch (error) {
                   console.error('❌ Failed to refresh members:', error);
@@ -1991,9 +2013,9 @@ export default function App() {
                                     onAddTask={handleAddTask}
                                     columnWarnings={columnWarnings}
                                     onDismissColumnWarning={handleDismissColumnWarning}
-                                    onRemoveTask={handleRemoveTask}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
+                                    onRemoveTask={handleRemoveTask}
                                     onMoveTaskToColumn={handleMoveTaskToColumn}
                                     animateCopiedTaskId={animateCopiedTaskId}
                                     onEditColumn={handleEditColumn}
@@ -2035,6 +2057,16 @@ export default function App() {
         }}
       />
 
+      {/* Task Delete Confirmation Popup */}
+      <TaskDeleteConfirmation
+        isOpen={!!taskDeleteConfirmation.confirmationTask}
+        task={taskDeleteConfirmation.confirmationTask}
+        onConfirm={taskDeleteConfirmation.confirmDelete}
+        onCancel={taskDeleteConfirmation.cancelDelete}
+        isDeleting={taskDeleteConfirmation.isDeleting}
+        position={taskDeleteConfirmation.confirmationPosition}
+      />
+
       {showDebug && (
         <DebugPanel
           logs={queryLogs}
@@ -2042,80 +2074,13 @@ export default function App() {
         />
       )}
 
-      {/* Global DragOverlay for tasks and columns */}
-      <DragOverlay 
-        dropAnimation={null}
-        style={{ 
-          cursor: 'none'
-        }}
-      >
-        {draggedTask ? (
-          isHoveringBoardTab ? (
-            // Mini task icon when hovering over board tabs
-            <div className="relative">
-              {(() => {
-                const taskMember = members.find(m => m.id === draggedTask.assignedTo);
-                return (
-                  <div className="w-8 h-8 rounded-lg bg-white shadow-lg border-2 border-blue-500 flex items-center justify-center relative">
-                    {/* Task background with assignee color */}
-                    <div 
-                      className="absolute inset-0 rounded-lg opacity-20"
-                      style={{ backgroundColor: taskMember?.color || '#3B82F6' }}
-                    ></div>
-                    
-                    {/* Assignee avatar or initial */}
-                    <div className="relative z-10">
-                      {taskMember?.avatarUrl || taskMember?.googleAvatarUrl ? (
-                        <img
-                          src={taskMember.avatarUrl || taskMember.googleAvatarUrl}
-                          alt={taskMember.name}
-                          className="w-5 h-5 rounded-full object-cover border border-white"
-                        />
-                      ) : (
-                        <div 
-                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white"
-                          style={{ backgroundColor: taskMember?.color || '#3B82F6' }}
-                        >
-                          {taskMember?.name?.charAt(0)?.toUpperCase() || draggedTask.title.charAt(0).toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-                    
-                    {/* Subtle task indicator */}
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
-                      T
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          ) : (
-            // Full task preview when not over board tabs
-            <div className="bg-white p-4 rounded-lg shadow-lg border-l-4 border-blue-500 opacity-90 scale-105 transform rotate-2 ring-2 ring-blue-400 max-w-xs">
-              <div className="font-medium text-gray-800 text-sm mb-2">{draggedTask.title}</div>
-              <div className="text-xs text-gray-500">
-                {draggedTask.description && draggedTask.description.length > 50 
-                  ? draggedTask.description.substring(0, 50) + '...' 
-                  : draggedTask.description}
-              </div>
-            </div>
-          )
-        ) : draggedColumn ? (
-          <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-90 scale-105 shadow-2xl transform rotate-3 ring-2 ring-blue-400">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
-            </div>
-            <div className="flex-1 min-h-[100px] space-y-2">
-              {draggedColumn.tasks.map((task: Task) => (
-                <div key={task.id} className="bg-white p-3 rounded border shadow-sm">
-                  <div className="text-sm text-gray-600">{task.title}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </DragOverlay>
-      </DndContext>
+      {/* Enhanced Drag Overlay */}
+      <SimpleDragOverlay 
+        draggedTask={draggedTask}
+        members={members}
+        isHoveringBoardTab={isHoveringBoardTab}
+      />
+      </SimpleDragDropManager>
     </div>
   );
 }
