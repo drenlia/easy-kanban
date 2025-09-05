@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { X, Upload, User } from 'lucide-react';
-import { uploadAvatar } from '../api';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Upload, User, Trash2 } from 'lucide-react';
+import { uploadAvatar, deleteAccount } from '../api';
 import api from '../api';
 
 interface ProfileProps {
@@ -10,9 +10,10 @@ interface ProfileProps {
   onProfileUpdated: () => void;
   isProfileBeingEdited: boolean;
   onProfileEditingChange: (isEditing: boolean) => void;
+  onAccountDeleted?: () => void;
 }
 
-export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange }: ProfileProps) {
+export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onAccountDeleted }: ProfileProps) {
 
   
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
@@ -20,6 +21,15 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Account deletion state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  
+  // Refs for focus management
+  const displayNameRef = useRef<HTMLInputElement>(null);
+  const deleteConfirmationRef = useRef<HTMLInputElement>(null);
   
   // Track original values to detect changes
   const [originalDisplayName, setOriginalDisplayName] = useState(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
@@ -54,6 +64,47 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       }
     }
   }, [displayName, selectedFile, originalDisplayName, isOpen, isProfileBeingEdited, onProfileEditingChange]);
+
+  // Focus on display name field when modal opens
+  useEffect(() => {
+    if (isOpen && !showDeleteConfirm) {
+      setTimeout(() => {
+        displayNameRef.current?.focus();
+      }, 100);
+    }
+  }, [isOpen, showDeleteConfirm]);
+
+  // Focus on delete confirmation input when Delete My Account is clicked
+  useEffect(() => {
+    if (showDeleteConfirm) {
+      setTimeout(() => {
+        deleteConfirmationRef.current?.focus();
+      }, 100);
+    }
+  }, [showDeleteConfirm]);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        e.preventDefault();
+        if (showDeleteConfirm) {
+          setShowDeleteConfirm(false);
+          setDeleteConfirmation('');
+        } else {
+          onClose();
+        }
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, showDeleteConfirm, onClose]);
 
   // Handle file selection with live preview
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -157,6 +208,29 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       // Clear editing state when modal is manually closed
       onProfileEditingChange(false);
       onClose();
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmation !== 'DELETE') {
+      setError('Please type "DELETE" to confirm account deletion');
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    setError(null);
+
+    try {
+      await deleteAccount();
+      
+      // Call the account deletion callback to handle logout and redirect
+      if (onAccountDeleted) {
+        onAccountDeleted();
+      }
+      
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to delete account');
+      setIsDeletingAccount(false);
     }
   };
 
@@ -288,6 +362,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 Display Name
               </label>
               <input
+                ref={displayNameRef}
                 type="text"
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -328,6 +403,84 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               </button>
             </div>
           </form>
+
+          {/* Danger Zone - Account Deletion */}
+          <div className="mt-8 pt-6 border-t border-red-200">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-red-800 mb-2 flex items-center">
+                <Trash2 className="h-5 w-5 mr-2" />
+                Danger Zone
+              </h3>
+              <p className="text-sm text-red-700 mb-4">
+                Once you delete your account, there is no going back. This action cannot be undone.
+              </p>
+              
+              {!showDeleteConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={isSubmitting || isDeletingAccount}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors text-sm font-medium"
+                >
+                  Delete My Account
+                </button>
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-red-100 border border-red-300 rounded-md p-3">
+                    <p className="text-sm text-red-800 font-medium mb-2">
+                      ⚠️ This will permanently delete your account and all associated data:
+                    </p>
+                    <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
+                      <li>Your profile and personal information</li>
+                      <li>All your comments on tasks</li>
+                      <li>You will be unassigned from all tasks</li>
+                      <li>Your uploaded avatar (if any)</li>
+                    </ul>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-red-800 mb-2">
+                      Type "DELETE" to confirm:
+                    </label>
+                    <input
+                      ref={deleteConfirmationRef}
+                      type="text"
+                      value={deleteConfirmation}
+                      onChange={(e) => setDeleteConfirmation(e.target.value)}
+                      placeholder="Type DELETE here"
+                      disabled={isDeletingAccount}
+                      className="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 text-sm"
+                    />
+                  </div>
+                  
+                  <div className="flex space-x-3">
+                    <button
+                      type="button"
+                      onClick={handleDeleteAccount}
+                      disabled={isDeletingAccount || deleteConfirmation !== 'DELETE'}
+                      className={`px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors text-sm font-medium ${
+                        (isDeletingAccount || deleteConfirmation !== 'DELETE') ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {isDeletingAccount ? 'Deleting Account...' : 'Delete Account Permanently'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDeleteConfirm(false);
+                        setDeleteConfirmation('');
+                        setError(null);
+                      }}
+                      disabled={isDeletingAccount}
+                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

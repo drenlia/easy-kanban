@@ -404,7 +404,7 @@ export default function TaskCard({
         className={`task-card sortable-item ${
           isSelected ? 'bg-gray-100' : isOverdue() ? 'bg-red-50' : 'bg-white'
         } p-4 rounded-lg shadow-sm ${
-          isAnyEditingActive ? 'cursor-default' : 'cursor-move'
+          !isDragDisabled && !isAnyEditingActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
         } relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         }`}
@@ -474,7 +474,7 @@ export default function TaskCard({
                 e.stopPropagation();
                 setShowMemberSelect(!showMemberSelect);
               }}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm"
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
               title="Change Assignee"
             >
               {member.avatarUrl || member.googleAvatarUrl ? (

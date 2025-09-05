@@ -12,6 +12,7 @@ interface UseDataPollingProps {
   currentColumns: Columns;
   currentSiteSettings: SiteSettings;
   currentPriorities: PriorityOption[];
+  includeSystem: boolean;
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
   onColumnsUpdate: (columns: Columns) => void;
@@ -32,6 +33,7 @@ export const useDataPolling = ({
   currentColumns,
   currentSiteSettings,
   currentPriorities,
+  includeSystem,
   onBoardsUpdate,
   onMembersUpdate,
   onColumnsUpdate,
@@ -53,7 +55,7 @@ export const useDataPolling = ({
       try {
         const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities] = await Promise.all([
           api.getBoards(),
-          api.getMembers(),
+          api.getMembers(includeSystem), // Use current includeSystem state
           api.getPublicSettings(),
           getAllPriorities()
         ]);

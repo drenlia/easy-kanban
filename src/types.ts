@@ -39,7 +39,7 @@ export interface Comment {
 export interface Task {
   id: string;
   title: string;
-  description: string;
+  description?: string;
   columnId: string;
   memberId?: string;
   requesterId?: string;

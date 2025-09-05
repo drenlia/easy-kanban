@@ -35,11 +35,14 @@ interface TeamMembersProps {
   includeWatchers?: boolean;
   includeCollaborators?: boolean;
   includeRequesters?: boolean;
+  includeSystem?: boolean;
   onToggleAssignees?: (include: boolean) => void;
   onToggleWatchers?: (include: boolean) => void;
   onToggleCollaborators?: (include: boolean) => void;
   onToggleRequesters?: (include: boolean) => void;
+  onToggleSystem?: (include: boolean) => void;
   currentUserId?: string;
+  currentUser?: any; // To check if user is admin
   onlineUsers?: Set<string>;
   boardOnlineUsers?: Set<string>;
 }
@@ -54,11 +57,14 @@ export default function TeamMembers({
   includeWatchers = false,
   includeCollaborators = false,
   includeRequesters = false,
+  includeSystem = false,
   onToggleAssignees,
   onToggleWatchers,
   onToggleCollaborators,
   onToggleRequesters,
+  onToggleSystem,
   currentUserId,
+  currentUser,
   onlineUsers = new Set(),
   boardOnlineUsers = new Set()
 }: TeamMembersProps) {
@@ -68,6 +74,10 @@ export default function TeamMembers({
       onClearSelections();
     }
   };
+
+  // Create system user member object when needed
+  // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
+  const displayMembers = members;
   
   // Function to get avatar display for a member
   const getMemberAvatar = (member: TeamMember) => {
@@ -186,6 +196,19 @@ export default function TeamMembers({
                 <span className="text-xs text-gray-600">requesters</span>
               </label>
             )}
+            
+            {/* System checkbox - only show for admins */}
+            {onToggleSystem && currentUser?.roles?.includes('admin') && (
+              <label className="flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeSystem}
+                  onChange={(e) => onToggleSystem(e.target.checked)}
+                  className="w-3 h-3 text-amber-600 rounded focus:ring-amber-500 focus:ring-1"
+                />
+                <span className="text-xs text-amber-700 font-medium">system</span>
+              </label>
+            )}
           </div>
         </div>
       </div>
@@ -198,7 +221,7 @@ export default function TeamMembers({
       )}
 
       <div className="flex flex-wrap gap-2">
-        {members.map(member => {
+        {displayMembers.map(member => {
           const isSelected = selectedMembers.includes(member.id);
           return (
             <div

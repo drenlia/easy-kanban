@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Board } from '../types';
+import { Board, Task } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { DndContext, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
+import { 
+  BoardDropState, 
+  shouldShowDropReady, 
+  canMoveTaskToBoard, 
+  getBoardTabDropClasses 
+} from '../utils/crossBoardDragUtils';
 
 interface BoardTabsProps {
   boards: Board[];
@@ -17,7 +23,130 @@ interface BoardTabsProps {
   isAdmin?: boolean;
   getFilteredTaskCount?: (board: Board) => number;
   hasActiveFilters?: boolean;
+  // Cross-board drag props
+  draggedTask?: Task | null;
+  onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
 }
+
+// Droppable Board Tab Component for cross-board task drops
+const DroppableBoardTab: React.FC<{
+  board: Board;
+  isSelected: boolean;
+  onSelect: () => void;
+  taskCount?: number;
+  hasActiveFilters: boolean;
+  draggedTask: Task | null;
+  selectedBoardId: string | null;
+  boardDropState: BoardDropState;
+  onHoverStart: (boardId: string) => void;
+  onHoverEnd: () => void;
+}> = ({ 
+  board, 
+  isSelected, 
+  onSelect, 
+  taskCount, 
+  hasActiveFilters, 
+  draggedTask,
+  selectedBoardId,
+  boardDropState,
+  onHoverStart,
+  onHoverEnd
+}) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `board-${board.id}`,
+    data: {
+      type: 'board',
+      boardId: board.id,
+    },
+  });
+
+  const isDragActive = draggedTask !== null;
+  const isHovering = isOver && isDragActive;
+  const isDropReady = shouldShowDropReady(
+    board.id,
+    boardDropState.hoveredBoardId,
+    boardDropState.hoverStartTime,
+    Date.now()
+  );
+
+  // Removed CSS hover state to prevent re-rendering issues
+
+  const canDrop = draggedTask && canMoveTaskToBoard(draggedTask, board, selectedBoardId || '');
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
+    if (isHovering && canDrop) {
+      // Only call if we're not already hovering this board
+      if (boardDropState.hoveredBoardId !== board.id) {
+        onHoverStart(board.id);
+      }
+    } else if (!isHovering) {
+      // Only call if we were hovering this board
+      if (boardDropState.hoveredBoardId === board.id) {
+        // Much longer delay to prevent rapid switching between adjacent tabs
+        timeoutId = setTimeout(() => {
+          onHoverEnd();
+        }, 800);
+      }
+    }
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isHovering, canDrop, board.id, boardDropState.hoveredBoardId, onHoverStart, onHoverEnd]);
+
+  // Handle click during drop-ready state
+  const handleClick = (e: React.MouseEvent) => {
+    if (isDragActive && canDrop) {
+      // Completely disable click interactions during task drag
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    onSelect();
+  };
+
+  const tabClasses = getBoardTabDropClasses(isDropReady && canDrop, isHovering && canDrop, isDragActive);
+
+  return (
+    <div
+      ref={setNodeRef}
+      onClick={handleClick}
+      style={{
+        userSelect: isDragActive && canDrop ? 'none' : 'auto'
+      }}
+      className={`
+        px-4 py-2 text-sm font-medium rounded-t-lg cursor-pointer
+        flex items-center gap-2 whitespace-nowrap min-w-[100px] justify-center
+        ${isDragActive && canDrop ? 'mx-4' : ''}
+        ${isSelected 
+          ? 'bg-white text-gray-900 border-t border-l border-r border-gray-200' 
+          : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800'
+        }
+        ${isDragActive && canDrop && (isHovering || isDropReady) ? 'bg-blue-100 border-2 border-blue-400 scale-105 shadow-lg' : ''}
+        ${tabClasses}
+        transition-all duration-200
+      `}
+      title={`${board.title}${isDragActive && canDrop ? ' (Drop task here)' : ''}`}
+    >
+      {/* Always show normal tab content - visual feedback comes from border/glow effects */}
+      <div className={`flex items-center gap-2 ${isDragActive && canDrop ? 'pointer-events-none' : ''}`}>
+        <span className="truncate max-w-[150px] pointer-events-none">{board.title}</span>
+        {taskCount !== undefined && taskCount > 0 && (
+          <span className={`
+            px-1.5 py-0.5 text-xs rounded-full font-medium min-w-[20px] text-center pointer-events-none
+            ${hasActiveFilters ? 'bg-blue-500 text-white' : 'bg-gray-500 text-white'}
+          `}>
+            {taskCount}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // Sortable Board Tab Component (Admin only)
 const SortableBoardTab: React.FC<{
@@ -184,7 +313,9 @@ export default function BoardTabs({
   onReorderBoards,
   isAdmin = false,
   getFilteredTaskCount,
-  hasActiveFilters = false
+  hasActiveFilters = false,
+  draggedTask,
+  onTaskDropOnBoard
 }: BoardTabsProps) {
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
@@ -193,6 +324,42 @@ export default function BoardTabs({
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Cross-board drag state
+  const [boardDropState, setBoardDropState] = useState<BoardDropState>({
+    hoveredBoardId: null,
+    hoverStartTime: null,
+    isDropReady: false
+  });
+
+  // Handle board hover for cross-board drops
+  const handleBoardHoverStart = useCallback((boardId: string) => {
+    setBoardDropState(prev => {
+      // Prevent unnecessary state updates
+      if (prev.hoveredBoardId === boardId) {
+        return prev;
+      }
+      return {
+        hoveredBoardId: boardId,
+        hoverStartTime: Date.now(),
+        isDropReady: false
+      };
+    });
+  }, []);
+
+  const handleBoardHoverEnd = useCallback(() => {
+    setBoardDropState(prev => {
+      // Prevent unnecessary state updates
+      if (prev.hoveredBoardId === null) {
+        return prev;
+      }
+      return {
+        hoveredBoardId: null,
+        hoverStartTime: null,
+        isDropReady: false
+      };
+    });
+  }, []);
 
   // Check scroll state
   const checkScrollState = () => {
@@ -380,11 +547,49 @@ export default function BoardTabs({
             className="flex items-center space-x-1 overflow-x-auto flex-1 min-w-0 hide-scrollbar"
           >
             {isAdmin ? (
-              // Admin view with drag and drop
-              <DndContext onDragEnd={handleDragEnd}>
-                <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
-                  <div className="flex items-center space-x-1 flex-shrink-0">
-                {boards.map(board => (
+              // Admin view with drag and drop (only when not dragging tasks)
+              draggedTask ? (
+                // When dragging a task, render tabs without board DndContext to allow cross-board drops
+                <div className="flex items-center space-x-1 flex-shrink-0">
+                  {boards.map(board => (
+                    <div key={board.id}>
+                      {editingBoardId === board.id ? (
+                        // Inline editing form
+                        <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            autoFocus
+                            onBlur={handleTitleSubmit}
+                            disabled={isSubmitting}
+                          />
+                        </form>
+                      ) : (
+                        // Droppable tab for cross-board drops
+                        <DroppableBoardTab
+                          board={board}
+                          isSelected={selectedBoard === board.id}
+                          onSelect={() => onSelectBoard(board.id)}
+                          taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : 0}
+                          hasActiveFilters={hasActiveFilters}
+                          draggedTask={draggedTask}
+                          selectedBoardId={selectedBoard}
+                          boardDropState={boardDropState}
+                          onHoverStart={handleBoardHoverStart}
+                          onHoverEnd={handleBoardHoverEnd}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : !draggedTask ? (
+                // Normal board management with DndContext (only when not dragging a task)
+                <DndContext onDragEnd={handleDragEnd}>
+                  <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
+                    <div className="flex items-center space-x-1 flex-shrink-0">
+                  {boards.map(board => (
                   <div key={board.id}>
                     {editingBoardId === board.id ? (
                       // Inline editing form
@@ -399,8 +604,22 @@ export default function BoardTabs({
                           disabled={isSubmitting}
                         />
                       </form>
+                    ) : draggedTask ? (
+                      // When dragging a task, use droppable tab for cross-board drops
+                      <DroppableBoardTab
+                        board={board}
+                        isSelected={selectedBoard === board.id}
+                        onSelect={() => onSelectBoard(board.id)}
+                        taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : 0}
+                        hasActiveFilters={hasActiveFilters}
+                        draggedTask={draggedTask}
+                        selectedBoardId={selectedBoard}
+                        boardDropState={boardDropState}
+                        onHoverStart={handleBoardHoverStart}
+                        onHoverEnd={handleBoardHoverEnd}
+                      />
                     ) : (
-                      // Sortable tab button
+                      // Normal sortable tab button
                       <SortableBoardTab
                         board={board}
                         isSelected={selectedBoard === board.id}
@@ -417,42 +636,93 @@ export default function BoardTabs({
                     )}
                   </div>
                 ))}
-                  </div>
-                </SortableContext>
-              </DndContext>
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                // When dragging a task, render droppable tabs without nested DndContext
+                <div className="flex items-center space-x-1 flex-shrink-0">
+                  {boards.map(board => (
+                    <div key={board.id}>
+                      {editingBoardId === board.id ? (
+                        // Inline editing form
+                        <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                          <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            autoFocus
+                            onBlur={handleTitleSubmit}
+                            disabled={isSubmitting}
+                          />
+                        </form>
+                      ) : (
+                        // Droppable tab for cross-board drops
+                        <DroppableBoardTab
+                          board={board}
+                          isSelected={selectedBoard === board.id}
+                          taskCount={getFilteredTaskCount ? getFilteredTaskCount(board.id) : 0}
+                          hasActiveFilters={hasActiveFilters}
+                          draggedTask={draggedTask}
+                          selectedBoardId={selectedBoard}
+                          boardDropState={boardDropState}
+                          onSelect={() => onSelectBoard(board.id)}
+                          onHoverStart={handleBoardHoverStart}
+                          onHoverEnd={handleBoardHoverEnd}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
             ) : (
-              // Regular user view without drag and drop
+              // Regular user view - use droppable tabs when dragging tasks
               <div className="flex items-center space-x-1 flex-shrink-0">
-            {boards.map(board => (
-              <div key={board.id}>
-                {editingBoardId === board.id ? (
-                  // Inline editing form
-                  <form onSubmit={handleTitleSubmit} className="px-4 py-3">
-                    <input
-                      type="text"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      autoFocus
-                      onBlur={handleTitleSubmit}
-                      disabled={isSubmitting}
-                    />
-                  </form>
-                ) : (
-                  // Regular tab button
-                  <RegularBoardTab
-                    board={board}
-                    isSelected={selectedBoard === board.id}
-                    onSelect={() => onSelectBoard(board.id)}
-                    onEdit={() => handleEditClick(board.id)}
-                    onRemove={() => handleRemoveClick(board.id)}
-                    canDelete={boards.length > 1}
-                    taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
-                    showTaskCount={true}
-                  />
-                )}
-              </div>
-            ))}
+                {boards.map(board => (
+                  <div key={board.id}>
+                    {editingBoardId === board.id ? (
+                      // Inline editing form
+                      <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                          onBlur={handleTitleSubmit}
+                          disabled={isSubmitting}
+                        />
+                      </form>
+                    ) : draggedTask ? (
+                      // When dragging a task, use droppable tab for cross-board drops
+                      <DroppableBoardTab
+                        board={board}
+                        isSelected={selectedBoard === board.id}
+                        onSelect={() => onSelectBoard(board.id)}
+                        taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : 0}
+                        hasActiveFilters={hasActiveFilters}
+                        draggedTask={draggedTask}
+                        selectedBoardId={selectedBoard}
+                        boardDropState={boardDropState}
+                        onHoverStart={handleBoardHoverStart}
+                        onHoverEnd={handleBoardHoverEnd}
+                      />
+                    ) : (
+                      // Regular tab button
+                      <RegularBoardTab
+                        board={board}
+                        isSelected={selectedBoard === board.id}
+                        onSelect={() => onSelectBoard(board.id)}
+                        onEdit={() => handleEditClick(board.id)}
+                        onRemove={() => handleRemoveClick(board.id)}
+                        canDelete={boards.length > 1}
+                        taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : undefined}
+                        showTaskCount={true}
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

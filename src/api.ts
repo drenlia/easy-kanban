@@ -28,8 +28,9 @@ api.interceptors.response.use(
 );
 
 // Members
-export const getMembers = async () => {
-  const { data } = await api.get<TeamMember[]>('/members');
+export const getMembers = async (includeSystem?: boolean) => {
+  const params = includeSystem ? { includeSystem: 'true' } : {};
+  const { data } = await api.get<TeamMember[]>('/members', { params });
   return data;
 };
 
@@ -93,6 +94,12 @@ export const deleteColumn = async (id: string) => {
 
 export const reorderColumns = async (columnId: string, newPosition: number, boardId: string) => {
   const { data } = await api.post('/columns/reorder', { columnId, newPosition, boardId });
+  return data;
+};
+
+// Move task to different board
+export const moveTaskToBoard = async (taskId: string, targetBoardId: string) => {
+  const { data } = await api.post('/tasks/move-to-board', { taskId, targetBoardId });
   return data;
 };
 
@@ -250,6 +257,12 @@ export const getUserTaskCount = async (userId: string) => {
 
 export const updateMemberColor = async (userId: string, color: string) => {
   const { data } = await api.put(`/admin/users/${userId}/color`, { color });
+  return data;
+};
+
+// Self-service account deletion
+export const deleteAccount = async () => {
+  const { data } = await api.delete('/users/account');
   return data;
 };
 
