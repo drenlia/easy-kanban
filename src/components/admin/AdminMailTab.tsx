@@ -36,6 +36,9 @@ interface AdminMailTabProps {
   showTestEmailModal: boolean;
   testEmailResult: TestEmailResult | null;
   onCloseTestModal: () => void;
+  showTestEmailErrorModal: boolean;
+  testEmailError: string;
+  onCloseTestErrorModal: () => void;
 }
 
 const AdminMailTab: React.FC<AdminMailTabProps> = ({
@@ -50,10 +53,16 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   showTestEmailModal,
   testEmailResult,
   onCloseTestModal,
+  showTestEmailErrorModal,
+  testEmailError,
+  onCloseTestErrorModal,
 }) => {
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
+
+  // Check if running in demo mode
+  const isDemoMode = process.env.DEMO_ENABLED === 'true';
 
   return (
     <>
@@ -63,22 +72,55 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           <p className="text-gray-600">
             Configure SMTP settings for sending emails. Changes are applied immediately.
           </p>
+          
+          {/* Demo Mode Warning */}
+          {isDemoMode && (
+            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-start">
+                <svg className="h-5 w-5 text-amber-400 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <h3 className="text-sm font-medium text-amber-800">Demo Mode Active</h3>
+                  <p className="text-sm text-amber-700 mt-1">
+                    Email communication is disabled in demo mode. The mail server settings cannot be enabled 
+                    to prevent sending emails from demo environments. This restriction will be automatically 
+                    lifted when demo mode is disabled.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         
         <div className="max-w-4xl">
           {/* Mail Server Enable/Disable */}
           <div className="mb-6">
-            <label className="flex items-center">
+            <label className={`flex items-center ${isDemoMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
               <input
                 type="checkbox"
-                checked={editingSettings.MAIL_ENABLED === 'true'}
-                onChange={(e) => handleInputChange('MAIL_ENABLED', e.target.checked ? 'true' : 'false')}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                checked={isDemoMode ? false : editingSettings.MAIL_ENABLED === 'true'}
+                onChange={(e) => {
+                  if (!isDemoMode) {
+                    handleInputChange('MAIL_ENABLED', e.target.checked ? 'true' : 'false');
+                  }
+                }}
+                disabled={isDemoMode}
+                className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ${
+                  isDemoMode ? 'bg-gray-100 cursor-not-allowed opacity-50' : ''
+                }`}
               />
-              <span className="ml-2 text-sm font-medium text-gray-700">Enable Mail Server</span>
+              <span className={`ml-2 text-sm font-medium ${
+                isDemoMode ? 'text-gray-400' : 'text-gray-700'
+              }`}>
+                Enable Mail Server
+              </span>
             </label>
             <p className="mt-1 text-sm text-gray-500">
-              Check this to enable email functionality. Uncheck to disable all email features.
+              {isDemoMode 
+                ? 'Email functionality is disabled in demo mode to prevent sending emails from demo environments.'
+                : 'Check this to enable email functionality. Uncheck to disable all email features.'
+              }
             </p>
           </div>
 
@@ -276,13 +318,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               Cancel
             </button>
             <button
-              onClick={onTestEmail}
-              disabled={isTestingEmail}
+              onClick={isDemoMode ? undefined : onTestEmail}
+              disabled={isTestingEmail || isDemoMode}
               className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isTestingEmail 
+                isTestingEmail || isDemoMode
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
               }`}
+              title={isDemoMode ? 'Email testing is disabled in demo mode' : undefined}
             >
               {isTestingEmail ? (
                 <>
@@ -292,6 +335,8 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   </svg>
                   Testing...
                 </>
+              ) : isDemoMode ? (
+                'Test Email (Disabled in Demo)'
               ) : (
                 'Test Email'
               )}
@@ -331,6 +376,50 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 <button
                   onClick={onCloseTestModal}
                   className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Test Email Error Modal */}
+      {showTestEmailErrorModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </div>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
+                ❌ Email Test Failed
+              </h3>
+              <div className="mt-4 px-2 py-3 bg-red-50 rounded-lg">
+                <div className="text-sm text-red-700">
+                  <p className="font-medium mb-2">Backend Response Details:</p>
+                  <pre className="bg-red-100 p-2 rounded text-xs overflow-auto max-h-64 whitespace-pre-wrap">
+                    {testEmailError}
+                  </pre>
+                  <div className="mt-3 text-xs text-red-600">
+                    <p>Common troubleshooting steps:</p>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      <li>Check if the endpoint exists</li>
+                      <li>Verify SMTP server settings</li>
+                      <li>Check authentication credentials</li>
+                      <li>Verify port and security settings</li>
+                      <li>Test network connectivity</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div className="items-center px-4 py-3">
+                <button
+                  onClick={onCloseTestErrorModal}
+                  className="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300"
                 >
                   Close
                 </button>

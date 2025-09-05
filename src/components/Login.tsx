@@ -4,9 +4,10 @@ import { login } from '../api';
 interface LoginProps {
   onLogin: (userData: any, token: string) => void;
   hasDefaultAdmin?: boolean;
+  onForgotPassword?: () => void;
 }
 
-export default function Login({ onLogin, hasDefaultAdmin = true }: LoginProps) {
+export default function Login({ onLogin, hasDefaultAdmin = true, onForgotPassword }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -179,6 +180,19 @@ export default function Login({ onLogin, hasDefaultAdmin = true }: LoginProps) {
               </button>
             )}
           </div>
+
+          {/* Forgot Password Link */}
+          {onForgotPassword && (
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                className="text-sm text-blue-600 hover:text-blue-500 underline"
+              >
+                Forgot your password?
+              </button>
+            </div>
+          )}
 
           {hasDefaultAdmin && (
             <div className="text-center text-sm text-gray-600">

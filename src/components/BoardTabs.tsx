@@ -503,7 +503,10 @@ export default function BoardTabs({
 
   // Close confirmation menu when clicking outside
   useEffect(() => {
-    if (!showDeleteConfirm) return; // Only add listener when confirmation is showing
+    if (!showDeleteConfirm) {
+      // If no confirmation is showing, don't add listeners but still call useEffect properly
+      return;
+    }
     
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Element;

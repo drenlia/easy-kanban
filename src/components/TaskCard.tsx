@@ -29,7 +29,7 @@ interface TaskCardProps {
   task: Task;
   member: TeamMember;
   members: TeamMember[];
-  onRemove: (taskId: string) => void;
+  onRemove: (taskId: string, event?: React.MouseEvent) => void;
   onEdit: (task: Task) => void;
   onCopy: (task: Task) => void;
   onDragStart: (task: Task) => void;
@@ -415,7 +415,7 @@ export default function TaskCard({
         <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
           {/* Delete Button - Left Corner */}
           <button
-            onClick={() => onRemove(task.id)}
+            onClick={(e) => onRemove(task.id, e)}
             className="absolute top-1 left-2 p-1 hover:bg-red-100 rounded-full transition-colors"
             title="Delete Task"
           >

@@ -145,7 +145,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   useEffect(() => {
     // Check for token in URL hash (for OAuth callback)
     const hash = window.location.hash;
-    if (hash.includes('token=')) {
+    
+    // Skip password reset tokens - only handle OAuth tokens
+    if (hash.includes('token=') && !hash.includes('reset-password')) {
       const tokenMatch = hash.match(/token=([^&]+)/);
       const errorMatch = hash.match(/error=([^&]+)/);
       

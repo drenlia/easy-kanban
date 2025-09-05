@@ -253,6 +253,16 @@ const createTables = (db) => {
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      used BOOLEAN DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     -- Create indexes for better query performance
     CREATE INDEX IF NOT EXISTS idx_watchers_taskId ON watchers(taskId);
     CREATE INDEX IF NOT EXISTS idx_watchers_memberId ON watchers(memberId);

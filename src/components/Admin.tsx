@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
+import { ADMIN_TABS, ROUTES } from '../constants';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
 import AdminTagsTab from './admin/AdminTagsTab';
 import AdminMailTab from './admin/AdminMailTab';
 import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
+import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
 
 interface AdminProps {
   currentUser: any;
@@ -43,14 +45,15 @@ interface Settings {
   SMTP_FROM_NAME?: string;
   SMTP_SECURE?: string;
   MAIL_ENABLED?: string;
+  TASK_DELETE_CONFIRM?: string;
   [key: string]: string | undefined;
 }
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const [activeTab, setActiveTab] = useState(() => {
-    // Get tab from URL hash, fallback to 'users'
+    // Get tab from URL hash, fallback to default
     const hash = window.location.hash.replace('#', '');
-    return ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].includes(hash) ? hash : 'users';
+    return ADMIN_TABS.includes(hash) ? hash : ROUTES.DEFAULT_ADMIN_TAB;
   });
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
@@ -58,7 +61,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
+  const [testEmailError, setTestEmailError] = useState<string>('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
   const [editingSettings, setEditingSettings] = useState<Settings>({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
@@ -83,7 +88,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const hashParts = fullHash.split('#');
       const tabHash = hashParts[hashParts.length - 1]; // Get the last part
       
-      if (['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].includes(tabHash) && tabHash !== activeTab) {
+      if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
         // Clear messages when switching tabs
         setSuccessMessage(null);
@@ -96,7 +101,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const hashParts = fullHash.split('#');
     const tabHash = hashParts[hashParts.length - 1]; // Get the last part
     
-    if (['users', 'site-settings', 'sso', 'mail-server'].includes(tabHash) && tabHash !== activeTab) {
+    if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
       // Clear messages when switching tabs
       setSuccessMessage(null);
@@ -118,8 +123,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       ]);
       
       setUsers(usersResponse.data || []);
-      setSettings(settingsResponse.data || {});
-      setEditingSettings(settingsResponse.data || {});
+      
+      // Ensure default values for settings
+      const loadedSettings = settingsResponse.data || {};
+      const settingsWithDefaults = {
+        ...loadedSettings,
+        TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+      };
+      
+      setSettings(settingsWithDefaults);
+      setEditingSettings(settingsWithDefaults);
       setTags(tagsResponse || []);
       setPriorities(prioritiesResponse || []);
       
@@ -450,8 +463,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setShowTestEmailModal(true);
       
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to test email configuration';
-      setError(errorMessage);
+      // Capture the full error details for debugging
+      const errorDetails = {
+        message: err.message || 'Unknown error',
+        status: err.response?.status || 'No status',
+        statusText: err.response?.statusText || 'No status text',
+        data: err.response?.data || 'No response data',
+        url: err.config?.url || '/admin/test-email',
+        method: err.config?.method || 'POST'
+      };
+      
+      setTestEmailError(JSON.stringify(errorDetails, null, 2));
+      setShowTestEmailErrorModal(true);
     } finally {
       setIsTestingEmail(false);
     }
@@ -541,7 +564,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -557,6 +580,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'mail-server' && 'Mail Server'}
                 {tab === 'tags' && 'Tags'}
                 {tab === 'priorities' && 'Priorities'}
+                {tab === 'app-settings' && 'App Settings'}
               </button>
             ))}
           </nav>
@@ -625,6 +649,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               showTestEmailModal={showTestEmailModal}
               testEmailResult={testEmailResult}
               onCloseTestModal={() => setShowTestEmailModal(false)}
+              showTestEmailErrorModal={showTestEmailErrorModal}
+              testEmailError={testEmailError}
+              onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
             />
           )}
 
@@ -653,6 +680,19 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onDeletePriority={handleDeletePriority}
               onReorderPriorities={handleReorderPriorities}
               onSetDefaultPriority={handleSetDefaultPriority}
+              successMessage={successMessage}
+              error={error}
+            />
+          )}
+
+          {/* App Settings Tab */}
+          {activeTab === 'app-settings' && (
+            <AdminAppSettingsTab
+              settings={settings}
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
               successMessage={successMessage}
               error={error}
             />

@@ -21,6 +21,7 @@ import tasksRouter from './routes/tasks.js';
 import membersRouter from './routes/members.js';
 import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
+import passwordResetRouter from './routes/password-reset.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -223,6 +224,7 @@ app.use('/api/boards', boardsRouter);
 app.use('/api/columns', columnsRouter);
 app.use('/api/tasks', tasksRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/password-reset', passwordResetRouter);
 
 // ================================
 // ADDITIONAL ENDPOINTS
@@ -943,6 +945,37 @@ app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (re
   }
 });
 
+// Reorder priorities (must come before :priorityId route)
+app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorities } = req.body;
+    
+    if (!Array.isArray(priorities)) {
+      return res.status(400).json({ error: 'Priorities array is required' });
+    }
+    
+    // Update positions in a transaction
+    const updatePosition = db.prepare('UPDATE priorities SET position = ? WHERE id = ?');
+    const transaction = db.transaction((priorityUpdates) => {
+      for (const update of priorityUpdates) {
+        updatePosition.run(update.position, update.id);
+      }
+    });
+    
+    transaction(priorities.map((priority, index) => ({
+      id: priority.id,
+      position: index
+    })));
+    
+    // Return updated priorities
+    const updatedPriorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    res.json(updatedPriorities);
+  } catch (error) {
+    console.error('Reorder priorities error:', error);
+    res.status(500).json({ error: 'Failed to reorder priorities' });
+  }
+});
+
 app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
   const { priorityId } = req.params;
   const { priority, color } = req.body;
@@ -990,37 +1023,6 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
   } catch (error) {
     console.error('Error deleting priority:', error);
     res.status(500).json({ error: 'Failed to delete priority' });
-  }
-});
-
-// Reorder priorities (must come before :priorityId route)
-app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    const { priorities } = req.body;
-    
-    if (!Array.isArray(priorities)) {
-      return res.status(400).json({ error: 'Priorities array is required' });
-    }
-    
-    // Update positions in a transaction
-    const updatePosition = db.prepare('UPDATE priorities SET position = ? WHERE id = ?');
-    const transaction = db.transaction((priorityUpdates) => {
-      for (const update of priorityUpdates) {
-        updatePosition.run(update.position, update.id);
-      }
-    });
-    
-    transaction(priorities.map((priority, index) => ({
-      id: priority.id,
-      position: index
-    })));
-    
-    // Return updated priorities
-    const updatedPriorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
-    res.json(updatedPriorities);
-  } catch (error) {
-    console.error('Reorder priorities error:', error);
-    res.status(500).json({ error: 'Failed to reorder priorities' });
   }
 });
 
@@ -1107,6 +1109,63 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   } catch (error) {
     console.error('Update setting error:', error);
     res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+// Test email configuration endpoint
+app.post('/api/admin/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    console.log('🧪 Test email endpoint called');
+    
+    // Check if demo mode is enabled
+    if (process.env.DEMO_ENABLED === 'true') {
+      return res.status(400).json({ 
+        error: 'Email testing disabled in demo mode',
+        details: 'Email functionality is disabled in demo environments to prevent sending emails',
+        demoMode: true
+      });
+    }
+    
+    // Use EmailService for clean, reusable email functionality
+    const EmailService = await import('./services/emailService.js');
+    const emailService = new EmailService.default(db);
+    
+    try {
+      const result = await emailService.sendTestEmail(req.user.email || 'admin@example.com');
+      res.json(result);
+    } catch (error) {
+      console.error('❌ Email test failed:', error);
+      
+      // If it's a validation error, return the validation details
+      if (error.valid === false) {
+        return res.status(400).json(error);
+      }
+      
+      // Return detailed error information for SMTP failures
+      return res.status(500).json({ 
+        error: 'Failed to send test email',
+        details: error.message,
+        errorCode: error.code,
+        command: error.command,
+        troubleshooting: {
+          common_issues: [
+            'Check SMTP credentials (username/password)',
+            'Verify SMTP host and port',
+            'Check if less secure app access is enabled (Gmail)',
+            'Verify firewall/network settings',
+            'Check if 2FA requires app password (Gmail)'
+          ]
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Test email error:', error);
+    res.status(500).json({ 
+      error: 'Failed to test email configuration',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
