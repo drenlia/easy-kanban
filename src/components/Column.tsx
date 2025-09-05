@@ -41,6 +41,8 @@ interface KanbanColumnProps {
   isAdmin?: boolean;
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
+  onTaskEnterMiniMode?: () => void;
+  onTaskExitMiniMode?: () => void;
 }
 
 export default function KanbanColumn({
@@ -72,7 +74,9 @@ export default function KanbanColumn({
   onTaskDrop,
   isAdmin = false,
   taskViewMode = 'expand',
-  availablePriorities = []
+  availablePriorities = [],
+  onTaskEnterMiniMode,
+  onTaskExitMiniMode
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -148,9 +152,9 @@ export default function KanbanColumn({
     disabled: !isAdmin || isEditing  // Disable drag when editing THIS column
   });
 
-  // Use droppable hook for task drops - only for cross-column moves
+  // Use droppable hook for middle task area - only for cross-column moves
   const { setNodeRef: setDroppableRef, isOver } = useDroppable({
-    id: column.id,
+    id: `${column.id}-middle`,
     data: {
       type: 'column',
       columnId: column.id
@@ -164,6 +168,17 @@ export default function KanbanColumn({
     id: `${column.id}-bottom`,
     data: {
       type: 'column-bottom',
+      columnId: column.id
+    },
+    // Only accept drops if it's a cross-column move
+    disabled: draggedTask?.columnId === column.id
+  });
+
+  // Separate droppable for top area (drop at position 0) - only for cross-column moves
+  const { setNodeRef: setTopDropRef, isOver: isTopOver } = useDroppable({
+    id: `${column.id}-top`,
+    data: {
+      type: 'column-top',
       columnId: column.id
     },
     // Only accept drops if it's a cross-column move
@@ -218,9 +233,9 @@ export default function KanbanColumn({
         taskElements.push(
           <div
             key={`placeholder-${index}`}
-            className="h-20 bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200"
+            className="h-12 bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center transition-all duration-200 my-2.5 animate-pulse"
           >
-            <div className="text-blue-600 text-sm font-medium">Drop here</div>
+            <div className="text-blue-700 text-sm font-semibold">Drop here</div>
           </div>
         );
       }
@@ -233,7 +248,7 @@ export default function KanbanColumn({
         <div
           key={task.id}
           className={`transition-all duration-200 ${
-            isBeingDragged ? 'opacity-50 scale-95' : ''
+            isBeingDragged ? 'opacity-0 pointer-events-none h-0 overflow-hidden !my-0' : 'mb-2.5'
           } ${
             isFilteredOut ? 'h-0 overflow-hidden opacity-0 pointer-events-none !my-0' : '' // Hide filtered tasks with zero height and spacing
           }`}
@@ -262,9 +277,9 @@ export default function KanbanColumn({
       taskElements.push(
         <div
           key="placeholder-end"
-          className="h-20 bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200"
+          className="h-12 bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg flex items-center justify-center transition-all duration-200 my-1 animate-pulse"
         >
-          <div className="text-blue-600 text-sm font-medium">Drop here</div>
+          <div className="text-blue-700 text-sm font-semibold">Drop here</div>
         </div>
       );
     }
@@ -274,20 +289,16 @@ export default function KanbanColumn({
 
   const isBeingDraggedOver = draggedColumn && draggedColumn.id !== column.id;
   
-  // Combine refs for both sortable and droppable
-  const combinedRef = useCallback((node: HTMLElement | null) => {
-    setNodeRef(node);
-    setDroppableRef(node);
-  }, [setNodeRef, setDroppableRef]);
+  // Use only sortable ref for the main column container
 
   return (
     <div 
-      ref={combinedRef}
+      ref={setNodeRef}
       style={style}
       className={`sortable-item bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
         isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''
       } ${
-        isOver && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 border-2 border-blue-400' : 'hover:bg-gray-100 border border-transparent'
+        (isOver || isTopOver || isBottomOver) && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 border-2 border-blue-400' : 'hover:bg-gray-100 border border-transparent'
       }`}
       {...(isAdmin ? { ...attributes, ...listeners } : {})}
     >
@@ -324,7 +335,7 @@ export default function KanbanColumn({
         </div>
       )}
       
-      <div ref={columnHeaderRef} className="flex items-center justify-between mb-4">
+      <div ref={columnHeaderRef} className="flex items-center justify-between mb-4" data-column-header>
         <div className="flex items-center gap-2 flex-1">
           {isEditing ? (
             <form onSubmit={handleTitleSubmit} className="flex-1" onClick={(e) => e.stopPropagation()}>
@@ -348,6 +359,7 @@ export default function KanbanColumn({
           ) : (
             <>
               <h3
+                data-column-title
                 className={`text-lg font-semibold text-gray-700 select-none ${
                   isAdmin && showColumnDeleteConfirm === null
                     ? 'cursor-move hover:text-gray-900' 
@@ -364,12 +376,15 @@ export default function KanbanColumn({
                     ? 'Click to edit, drag to reorder' 
                     : isAdmin && showColumnDeleteConfirm !== null
                     ? 'Dragging disabled during confirmation'
+                    : draggedTask
+                    ? 'Hover here to enter cross-board mode'
                     : 'Column title'
                 }
               >
                 {column.title}
               </h3>
               <button
+                data-column-header
                 onClick={handleAddTask}
                 disabled={selectedMembers.length === 0 || isSubmitting}
                 title={selectedMembers.length > 0 ? 'Add Task' : 'Select a team member first'}
@@ -437,7 +452,7 @@ export default function KanbanColumn({
       <div className="flex-1 min-h-[100px]">
         {filteredTasks.length === 0 ? (
           /* Empty column - no SortableContext to avoid interference */
-          <div className="space-y-2 min-h-[100px] pb-4">
+          <div className="min-h-[100px] pb-4">
             <div className={`h-full w-full min-h-[100px] flex items-center justify-center transition-all duration-200 ${
               draggedTask && draggedTask.columnId !== column.id 
                 ? `border-2 border-dashed rounded-lg ${
@@ -467,13 +482,33 @@ export default function KanbanColumn({
             }
             strategy={verticalListSortingStrategy}
           >
-            <div className="space-y-2 min-h-[100px] pb-4">
-              {renderTaskList()}
-              {/* Invisible bottom drop zone for end detection */}
+            <div className="min-h-[100px] pb-4">
+              {/* Top drop zone for position 0 detection - hide if drag placeholder is showing at index 0 */}
+              <div 
+                ref={setTopDropRef}
+                className={`h-4 w-full transition-colors ${
+                  isTopOver && !(dragPreview?.targetColumnId === column.id && dragPreview?.insertIndex === 0) 
+                    ? 'bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg' 
+                    : 'bg-transparent'
+                }`}
+              />
+              
+              {/* Main task area with separate droppable */}
+              <div 
+                ref={setDroppableRef}
+                className={`transition-colors ${
+                  isOver ? 'bg-blue-50 rounded-lg' : ''
+                }`}
+              >
+                {renderTaskList()}
+              </div>
+              
+              {/* Bottom drop zone for end detection */}
               <div 
                 ref={setBottomDropRef}
-                className="h-4 w-full"
-                style={{ pointerEvents: 'none' }}
+                className={`h-4 w-full transition-colors ${
+                  isBottomOver ? 'bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg' : 'bg-transparent'
+                }`}
               />
             </div>
           </SortableContext>

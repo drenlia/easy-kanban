@@ -314,6 +314,37 @@ const initializeDefaultData = (db) => {
       '#FF6B6B', 
       adminId
     );
+
+    // Create system user account (for orphaned tasks when users are deleted)
+    const systemUserId = '00000000-0000-0000-0000-000000000000';
+    const systemMemberId = '00000000-0000-0000-0000-000000000001';
+    const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
+    
+    // Create system avatar (computer icon)
+    const systemAvatarPath = createLetterAvatar('S', systemUserId, 'system');
+    
+    // Check if system user already exists
+    const existingSystemUser = db.prepare('SELECT id FROM users WHERE id = ?').get(systemUserId);
+    if (!existingSystemUser) {
+      db.prepare(`
+        INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(systemUserId, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', 0);
+
+      // Assign user role to system account
+      const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
+      db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(systemUserId, userRoleId);
+
+      // Create system member record
+      db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)').run(
+        systemMemberId, 
+        'SYSTEM', 
+        '#1E40AF', // Blue color
+        systemUserId
+      );
+      
+      console.log('🤖 System account created for orphaned task management');
+    }
   }
 
   // Initialize default priorities if none exist

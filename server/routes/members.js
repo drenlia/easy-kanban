@@ -1,10 +1,11 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get all members
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, (req, res) => {
   try {
     // Prevent browser caching of member data
     res.set({
@@ -14,12 +15,22 @@ router.get('/', (req, res) => {
     });
     
     const { db } = req.app.locals;
+    
+    // Check if user is admin and if includeSystem parameter is true
+    const isAdmin = req.user && req.user.roles && req.user.roles.includes('admin');
+    const includeSystem = req.query.includeSystem === 'true';
+    
+    const whereClause = (isAdmin && includeSystem) 
+      ? '' // Include all members (including System User) for admins when requested
+      : "WHERE m.id != '00000000-0000-0000-0000-000000000001'"; // Exclude System User otherwise
+    
     const stmt = wrapQuery(db.prepare(`
       SELECT 
         m.id, m.name, m.color, m.user_id, m.created_at,
         u.avatar_path, u.auth_provider, u.google_avatar_url
       FROM members m
       LEFT JOIN users u ON m.user_id = u.id
+      ${whereClause}
       ORDER BY m.created_at ASC
     `), 'SELECT');
     const members = stmt.all();

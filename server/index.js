@@ -412,6 +412,75 @@ app.put('/api/users/profile', authenticateToken, (req, res) => {
   }
 });
 
+// Allow users to delete their own account
+app.delete('/api/users/account', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Security validation: ensure user can only delete their own account
+    // The authenticateToken middleware already validates the JWT and sets req.user
+    // No additional user ID parameter needed - use the authenticated user's ID
+    
+    // Check if user exists and is active
+    const user = wrapQuery(db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ? AND is_active = 1'), 'SELECT').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found or already inactive' });
+    }
+    
+    // Begin transaction for cascading deletion
+    const transaction = db.transaction(() => {
+      try {
+        // 1. Delete user roles
+        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 2. Delete comments made by the user
+        wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
+        
+        // 3. Reassign tasks assigned to the user to the system account (preserve task history)
+        const systemMemberId = '00000000-0000-0000-0000-000000000001';
+        
+        wrapQuery(
+          db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = (SELECT id FROM members WHERE user_id = ?)'), 
+          'UPDATE'
+        ).run(systemMemberId, userId);
+        
+        // 4. Reassign tasks requested by the user to the system account
+        wrapQuery(
+          db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = (SELECT id FROM members WHERE user_id = ?)'), 
+          'UPDATE'
+        ).run(systemMemberId, userId);
+        
+        // 5. Delete the member record
+        wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 6. Finally, delete the user account
+        wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        
+        console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
+        
+      } catch (error) {
+        console.error('Error during account deletion transaction:', error);
+        throw error;
+      }
+    });
+    
+    // Execute the transaction
+    transaction();
+    
+    res.json({ 
+      message: 'Account deleted successfully',
+      deletedUser: {
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      }
+    });
+    
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
 // Admin endpoints
 app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res) => {
   try {

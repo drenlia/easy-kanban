@@ -18,6 +18,7 @@ export interface UserPreferences {
   includeWatchers: boolean;
   includeCollaborators: boolean;
   includeRequesters: boolean;
+  includeSystem: boolean;
   taskDetailsWidth: number;
   listViewColumnVisibility: ColumnVisibility;
   searchFilters: {
@@ -47,6 +48,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   includeWatchers: false, // Default to not include watchers
   includeCollaborators: false, // Default to not include collaborators
   includeRequesters: false, // Default to not include requesters
+  includeSystem: false, // Default to not include system user
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones

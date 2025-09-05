@@ -60,10 +60,12 @@ interface KanbanPageProps {
   includeWatchers: boolean;
   includeCollaborators: boolean;
   includeRequesters: boolean;
+  includeSystem: boolean;
   onToggleAssignees: (include: boolean) => void;
   onToggleWatchers: (include: boolean) => void;
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
+  onToggleSystem: (include: boolean) => void;
   onToggleTaskViewMode: () => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
@@ -96,6 +98,7 @@ interface KanbanPageProps {
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null) => void;
+  onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -127,10 +130,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   includeWatchers,
   includeCollaborators,
   includeRequesters,
+  includeSystem,
   onToggleAssignees,
   onToggleWatchers,
   onToggleCollaborators,
   onToggleRequesters,
+  onToggleSystem,
   onToggleTaskViewMode,
   viewMode,
   onViewModeChange,
@@ -164,6 +169,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onTaskDragOver,
   onTaskDrop,
   onSelectTask,
+  onTaskDropOnBoard,
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -357,11 +363,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             includeWatchers={includeWatchers}
             includeCollaborators={includeCollaborators}
             includeRequesters={includeRequesters}
+            includeSystem={includeSystem}
             onToggleAssignees={onToggleAssignees}
             onToggleWatchers={onToggleWatchers}
             onToggleCollaborators={onToggleCollaborators}
             onToggleRequesters={onToggleRequesters}
+            onToggleSystem={onToggleSystem}
             currentUserId={currentUser?.id}
+            currentUser={currentUser}
           />
         </div>
       </div>
@@ -387,6 +396,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         isAdmin={currentUser?.roles?.includes('admin')}
         getFilteredTaskCount={getTaskCountForBoard}
         hasActiveFilters={activeFilters}
+        draggedTask={draggedTask}
+        onTaskDropOnBoard={onTaskDropOnBoard}
       />
 
       {selectedBoard && (
@@ -485,23 +496,11 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 scrollbarColor: '#CBD5E1 #F1F5F9'
               }}
             >
-              {/* Unified Drag and Drop Context */}
-              <DndContext
-            sensors={sensors}
-            collisionDetection={collisionDetection}
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDragEnd={onDragEnd}
-          >
+                             {/* DndContext handled at App level for global cross-board functionality */}
             {/* Admin view with column drag and drop */}
             {currentUser?.roles?.includes('admin') ? (
-              <SortableContext
-                items={Object.values(columns)
-                  .sort((a, b) => (a.position || 0) - (b.position || 0))
-                  .map(col => col.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div style={gridStyle}>
+              // Temporarily disabled SortableContext - using global DndContext from App
+              <div style={gridStyle}>
                   {Object.values(columns)
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
@@ -539,7 +538,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                     />
                     ))}
                 </div>
-              </SortableContext>
             ) : (
               /* Regular user view */
               <div style={gridStyle}>
@@ -581,44 +579,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                   ))}
               </div>
             )}
-            
-            <DragOverlay 
-              dropAnimation={null}
-            >
-              {draggedColumn ? (
-                <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-90 scale-105 shadow-2xl transform rotate-3 ring-2 ring-blue-400">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
-                  </div>
-                  <div className="flex-1 min-h-[100px] space-y-2">
-                    {draggedColumn.tasks.map((task: Task) => (
-                      <div key={task.id} className="bg-white p-3 rounded border shadow-sm">
-                        <div className="text-sm text-gray-600">{task.title}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : draggedTask ? (
-                /* Render exact replica of the original TaskCard */
-                <div style={{ transform: 'rotate(3deg) scale(1.05)', opacity: 0.95 }}>
-                  <TaskCard
-                    task={draggedTask}
-                    member={members.find(m => m.id === draggedTask.memberId)!}
-                    members={members}
-                    onRemove={() => {}}
-                    onEdit={() => {}}
-                    onCopy={() => {}}
-                    onDragStart={() => {}}
-                    onDragEnd={() => {}}
-                    onSelect={() => {}}
-                    isDragDisabled={true}
-                    taskViewMode={taskViewMode}
-                    availablePriorities={availablePriorities}
-                  />
-                </div>
-              ) : null}
-            </DragOverlay>
-              </DndContext>
             </div>
           </div>
             </>

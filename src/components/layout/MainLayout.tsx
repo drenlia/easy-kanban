@@ -58,10 +58,12 @@ interface MainLayoutProps {
   includeWatchers: boolean;
   includeCollaborators: boolean;
   includeRequesters: boolean;
+  includeSystem: boolean;
   onToggleAssignees: (include: boolean) => void;
   onToggleWatchers: (include: boolean) => void;
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
+  onToggleSystem: (include: boolean) => void;
   onToggleTaskViewMode: () => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
@@ -84,11 +86,20 @@ interface MainLayoutProps {
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   onEditColumn: (columnId: string, title: string) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
-  onAddColumn: () => Promise<void>;
+  onAddColumn: (afterColumnId: string) => Promise<void>;
   onTaskDragStart: (task: Task) => void;
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null) => void;
+  onTaskDropOnBoard: (taskId: string, targetBoardId: string) => Promise<void>;
+  animateCopiedTaskId?: string | null;
+  showColumnDeleteConfirm?: string | null;
+  onConfirmColumnDelete?: (columnId: string) => Promise<void>;
+  onCancelColumnDelete?: () => void;
+  getColumnTaskCount?: (columnId: string) => number;
+  isTaskMiniMode?: boolean;
+  onTaskEnterMiniMode?: () => void;
+  onTaskExitMiniMode?: () => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({

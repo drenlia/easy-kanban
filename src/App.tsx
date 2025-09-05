@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   TeamMember, 
   Task, 
@@ -17,6 +18,9 @@ import Login from './components/Login';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
 import ModalManager from './components/layout/ModalManager';
+import MiniTaskIcon from './components/MiniTaskIcon';
+import TaskCard from './components/TaskCard';
+import Test from './components/Test';
 import * as api from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -43,8 +47,9 @@ import {
   hasActiveFilters,
   wouldTaskBeFilteredOut 
 } from './utils/taskUtils';
+import { moveTaskToBoard } from './api';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
-import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 
 
@@ -56,8 +61,12 @@ export default function App() {
   const [columns, setColumns] = useState<Columns>({});
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
+  const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
+  const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
+  const dragStartedRef = useRef<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Enhanced setSelectedTask that also updates user preferences
@@ -83,18 +92,19 @@ export default function App() {
   const [includeWatchers, setIncludeWatchers] = useState(userPrefs.includeWatchers);
   const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
+  const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
-  const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
+  // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(getInitialPage);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test'>(getInitialPage);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
@@ -165,7 +175,7 @@ export default function App() {
     },
     onPageChange: setCurrentPage,
     onMembersRefresh: async () => {
-      const loadedMembers = await api.getMembers();
+      const loadedMembers = await api.getMembers(includeSystem);
       setMembers(loadedMembers);
     },
   });
@@ -184,6 +194,7 @@ export default function App() {
     currentColumns: columns,
     currentSiteSettings: siteSettings,
     currentPriorities: availablePriorities,
+    includeSystem,
     onBoardsUpdate: setBoards,
     onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
     onColumnsUpdate: setColumns,
@@ -221,7 +232,7 @@ export default function App() {
   };
 
   // Header event handlers
-  const handlePageChange = (page: 'kanban' | 'admin') => {
+  const handlePageChange = (page: 'kanban' | 'admin' | 'test') => {
     setCurrentPage(page);
     if (page === 'kanban') {
       // If there was a previously selected board, restore it
@@ -245,8 +256,9 @@ export default function App() {
   // DnD sensors for both columns and tasks - optimized for smooth UX
   const sensors = useSensors(
     useSensor(PointerSensor, {
+      // Make drag activation very permissive for better UX
       activationConstraint: {
-        distance: DND_ACTIVATION_DISTANCE,
+        distance: 1, // Very low threshold
       },
     }),
     useSensor(KeyboardSensor, {
@@ -260,7 +272,7 @@ export default function App() {
   useEffect(() => {
     // Only change page if we're definitely not authenticated (not during auth check)
     // Don't change page during the initial auth check when isAuthenticated is false
-    if (!isAuthenticated && currentPage === 'admin' && !localStorage.getItem('authToken')) {
+    if (!isAuthenticated && (currentPage === 'admin' || currentPage === 'test') && !localStorage.getItem('authToken')) {
       setCurrentPage('kanban');
     }
   }, [isAuthenticated, currentPage]);
@@ -277,9 +289,9 @@ export default function App() {
       const subRoute = routeParts[1];
       
       // Handle main page routing
-      if (['kanban', 'admin'].includes(mainRoute)) {
+      if (['kanban', 'admin', 'test'].includes(mainRoute)) {
         if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin');
+          setCurrentPage(mainRoute as 'kanban' | 'admin' | 'test');
         }
         
         // Handle admin sub-routes
@@ -333,9 +345,9 @@ export default function App() {
       const subRoute = routeParts[1];
       
       // Handle main page routing
-      if (['kanban', 'admin'].includes(mainRoute)) {
+      if (['kanban', 'admin', 'test'].includes(mainRoute)) {
         if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin');
+          setCurrentPage(mainRoute as 'kanban' | 'admin' | 'test');
         }
         
         // Handle admin sub-routes
@@ -406,7 +418,7 @@ export default function App() {
       await withLoading('general', async () => {
         try {
                   const [loadedMembers, loadedBoards, loadedPriorities, loadedTags] = await Promise.all([
-          api.getMembers(),
+          api.getMembers(includeSystem),
           api.getBoards(),
           getAllPriorities(),
           getAllTags()
@@ -436,7 +448,7 @@ export default function App() {
     };
 
     loadInitialData();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, includeSystem]);
 
   // Update columns when selected board changes
   useEffect(() => {
@@ -662,7 +674,7 @@ export default function App() {
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
-      description: 'Task description',
+      description: '',
       memberId: currentUserMember.id,
       startDate: new Date().toISOString().split('T')[0],
       effort: 1,
@@ -709,8 +721,8 @@ export default function App() {
         
         if (includeAssignees && newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
         if (includeRequesters && newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
-        if (includeWatchers && newTask.watchers && Array.isArray(newTask.watchers) && newTask.watchers.some(w => w && memberIds.has(w.memberId))) hasMatchingMember = true;
-        if (includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators) && newTask.collaborators.some(c => c && memberIds.has(c.memberId))) hasMatchingMember = true;
+        if (includeWatchers && newTask.watchers && Array.isArray(newTask.watchers) && newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+        if (includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators) && newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
         
         return !hasMatchingMember; // Return true if would be filtered out
       })();
@@ -880,8 +892,53 @@ export default function App() {
   const handleTaskDrop = async () => {
   };
 
+  // Show both mouse pointer and square icon with mouse precisely centered
+  const setCustomTaskCursor = (task: Task, members: TeamMember[]) => {
+    // Create a 32x32 SVG with a blue square and a white arrow pointer in the center
+    const svg = `
+      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+        <!-- Blue square background -->
+        <rect width="24" height="24" x="4" y="4" fill="#3B82F6" stroke="#FFFFFF" stroke-width="2" rx="3"/>
+        <!-- White mouse pointer arrow in the exact center -->
+        <path d="M 16 12 L 16 20 L 18 18 L 20 20 L 22 18 L 18 16 L 20 16 Z" fill="#FFFFFF" stroke="#000000" stroke-width="0.5"/>
+      </svg>
+    `;
+    
+    // Convert SVG to data URL
+    const dataURL = `data:image/svg+xml;base64,${btoa(svg)}`;
+    
+    // Set cursor with hotspot at exact center (16,16) where the arrow tip is
+    document.body.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
+    document.documentElement.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
+    
+    dragStartedRef.current = true;
+    console.log('🎯 Mouse + square cursor set for task:', task.title);
+  };
+  
+  // Clear custom cursor
+  const clearCustomCursor = () => {
+    if (dragStartedRef.current) {
+      // Remove direct styles
+      document.body.style.removeProperty('cursor');
+      document.documentElement.style.removeProperty('cursor');
+      
+      dragStartedRef.current = false;
+      console.log('🎯 Custom cursor cleared');
+    }
+  };
+
   // Unified task drag handler for both vertical and horizontal moves
   const handleUnifiedTaskDragEnd = (event: DragEndEvent) => {
+    // Clean up hover timeout and reset state
+    if (boardTabHoverTimeoutRef.current) {
+      clearTimeout(boardTabHoverTimeoutRef.current);
+      boardTabHoverTimeoutRef.current = null;
+    }
+    setIsHoveringBoardTab(false);
+    
+    // Clear drag preview
+    setDragPreview(null);
+    
     // Set cooldown and clear dragged task state
     setDraggedTask(null);
     setDragCooldown(true);
@@ -894,6 +951,19 @@ export default function App() {
     
     if (!over) {
         return;
+    }
+
+    // Check if dropping on a board tab for cross-board move
+    if (over.data?.current?.type === 'board') {
+      const targetBoardId = over.data.current.boardId;
+      console.log('🎯 Board drop detected:', { targetBoardId, selectedBoard, overData: over.data.current });
+      if (targetBoardId && targetBoardId !== selectedBoard) {
+        console.log('🚀 Cross-board move initiated:', active.id, '→', targetBoardId);
+        handleTaskDropOnBoard(active.id as string, targetBoardId);
+        return;
+      } else {
+        console.log('❌ Cross-board move blocked:', { targetBoardId, selectedBoard, same: targetBoardId === selectedBoard });
+      }
     }
 
     // Find the dragged task
@@ -926,25 +996,37 @@ export default function App() {
         if (targetTask) {
           targetColumnId = colId;
           
-          // For cross-column moves, calculate the insertion index based on target column's task order
           if (sourceColumnId !== colId) {
-            // Get target column tasks sorted by position
+            // Cross-column move: insert at target task position
             const targetColumnTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
             const targetTaskIndex = targetColumnTasks.findIndex(t => t.id === over.id);
-            targetIndex = targetTaskIndex; // Insert at the target task's index position
+            targetIndex = targetTaskIndex;
+          } else {
+            // Same column: use array-based reordering like Test page
+            const sourceTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+            const oldIndex = sourceTasks.findIndex(t => t.id === draggedTaskId);
+            const newIndex = sourceTasks.findIndex(t => t.id === over.id);
             
-                  } else {
-            // Same column reordering - use the target task's actual position
-            targetIndex = targetTask.position || 0;
-            
-                  }
+            if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+              // Use simple array move logic for same-column reordering
+              handleSameColumnReorder(draggedTask, sourceColumnId, newIndex);
+            }
+            return; // Exit early for same-column moves
+          }
         }
       });
-    } else if (over.data?.current?.type === 'column') {
-      // Dropping on column (add to end)
+    } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-top' || over.data?.current?.type === 'column-bottom') {
+      // Dropping on column area
       targetColumnId = over.data.current.columnId as string;
       const columnTasks = columns[targetColumnId]?.tasks || [];
-      targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
+      
+      if (over.data?.current?.type === 'column-top') {
+        // Drop at position 0 (very top)
+        targetIndex = 0;
+      } else {
+        // Drop at end for regular column or column-bottom
+        targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
+      }
       
       } else {
       // Fallback: try using over.id as column ID
@@ -1209,6 +1291,44 @@ export default function App() {
     setShowColumnDeleteConfirm(null);
   };
 
+  // Handle cross-board task drop
+  const handleTaskDropOnBoard = async (taskId: string, targetBoardId: string) => {
+    try {
+      console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
+      await moveTaskToBoard(taskId, targetBoardId);
+      
+      // Refresh both boards to reflect the change
+      await refreshBoardData();
+      
+      // Show success message
+      console.log(`✅ Task moved successfully to ${targetBoardId}`);
+      
+    } catch (error) {
+      console.error('Failed to move task to board:', error);
+      // You could add a toast notification here
+    }
+  };
+
+  // Mini mode handlers (now unused - keeping for compatibility)
+  const handleTaskEnterMiniMode = () => {
+    // No-op - mini mode is now automatic
+  };
+
+  const handleTaskExitMiniMode = () => {
+    // No-op - mini mode is now automatic
+  };
+
+  // Always use mini mode when dragging tasks for simplicity
+  useEffect(() => {
+    // Set mini mode whenever we have a dragged task
+    setIsTaskMiniMode(!!draggedTask);
+    
+    // Only clear cursor if drag ends (draggedTask becomes null)
+    if (!draggedTask && dragStartedRef.current) {
+      clearCustomCursor();
+    }
+  }, [draggedTask]);
+
   const handleAddColumn = async (afterColumnId: string) => {
     if (!selectedBoard) return;
 
@@ -1406,6 +1526,21 @@ export default function App() {
     updateUserPreference('includeRequesters', include);
   };
 
+  const handleToggleSystem = async (include: boolean) => {
+    console.log(`🔄 Toggling system user: ${include}`);
+    setIncludeSystem(include);
+    updateUserPreference('includeSystem', include);
+    
+    // Refresh members to include/exclude system user
+    try {
+      const loadedMembers = await api.getMembers(include);
+      console.log(`📋 Loaded ${loadedMembers.length} members (includeSystem=${include}):`, loadedMembers.map(m => `${m.name} (${m.id})`));
+      setMembers(loadedMembers);
+    } catch (error) {
+      console.error('Failed to refresh members:', error);
+    }
+  };
+
   // Enhanced async filtering effect with watchers/collaborators/requesters support
   useEffect(() => {
     const performFiltering = async () => {
@@ -1434,8 +1569,8 @@ export default function App() {
         
         for (const task of tasks) {
           let includeTask = false;
-          const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
-          const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
+          // const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
+          // const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
           
 
           
@@ -1455,7 +1590,7 @@ export default function App() {
               if (watchers && watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
                 includeTask = true;
               }
-            } catch (error) {
+        } catch (error) {
               console.error('Error checking task watchers:', error);
             }
           }
@@ -1477,6 +1612,7 @@ export default function App() {
             includeTask = true;
 
           }
+          
           
           if (includeTask) {
             filteredTasks.push(task);
@@ -1586,8 +1722,8 @@ export default function App() {
         
         if (includeAssignees && task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
         if (includeRequesters && task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
-        if (includeWatchers && task.watchers && Array.isArray(task.watchers) && task.watchers.some(w => w && memberIds.has(w.memberId))) hasMatchingMember = true;
-        if (includeCollaborators && task.collaborators && Array.isArray(task.collaborators) && task.collaborators.some(c => c && memberIds.has(c.memberId))) hasMatchingMember = true;
+        if (includeWatchers && task.watchers && Array.isArray(task.watchers) && task.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+        if (includeCollaborators && task.collaborators && Array.isArray(task.collaborators) && task.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
         
         return hasMatchingMember;
       });
@@ -1608,6 +1744,145 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
+      
+      {/* Global DndContext for cross-board functionality */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={(event) => {
+          console.log('🎯 DragStart - item:', event.active.id);
+          
+          // Clear any previous drag preview
+          setDragPreview(null);
+          
+          // Determine if dragging a column or task
+          const draggedItem = Object.values(columns).find(col => col.id === event.active.id);
+          if (draggedItem) {
+            // Column drag
+            console.log('🏛️ Starting column drag:', draggedItem.title);
+            handleColumnDragStart(event);
+          } else {
+            // Task drag - find the task
+            const taskId = event.active.id as string;
+            Object.values(columns).forEach(column => {
+              const task = column.tasks.find(t => t.id === taskId);
+              if (task) {
+                console.log('📋 Starting task drag:', task.title);
+                handleTaskDragStart(task);
+              }
+            });
+          }
+        }}
+        onDragOver={(event) => {
+          const { active, over } = event;
+          
+          // Detect hovering over board tabs with debouncing to prevent flashing
+          if (draggedTask && over) {
+            const isOverBoardTab = over.data?.current?.type === 'board';
+            
+            // Clear any existing timeout
+            if (boardTabHoverTimeoutRef.current) {
+              clearTimeout(boardTabHoverTimeoutRef.current);
+              boardTabHoverTimeoutRef.current = null;
+            }
+            
+            if (isOverBoardTab && !isHoveringBoardTab) {
+              // Immediately switch to square mode when entering board tab area
+              setIsHoveringBoardTab(true);
+              console.log('🎯 Board tab hover (square mode): true');
+            } else if (!isOverBoardTab && isHoveringBoardTab) {
+              // Delay switching back to full task mode to prevent flashing
+              boardTabHoverTimeoutRef.current = setTimeout(() => {
+                setIsHoveringBoardTab(false);
+                console.log('🎯 Board tab hover (square mode): false');
+                boardTabHoverTimeoutRef.current = null;
+              }, 100); // 100ms delay
+            }
+          } else if (draggedTask && !over) {
+            // Not hovering over anything droppable - clear any timeout and switch to full task
+            if (boardTabHoverTimeoutRef.current) {
+              clearTimeout(boardTabHoverTimeoutRef.current);
+              boardTabHoverTimeoutRef.current = null;
+            }
+            if (isHoveringBoardTab) {
+              setIsHoveringBoardTab(false);
+              console.log('🎯 No hover (full task mode)');
+            }
+          }
+          
+          // Debug what we're hovering over
+          if (draggedTask) {
+            console.log('🎯 DragOver:', {
+              over: over?.id,
+              overType: over?.data?.current?.type,
+              overData: over?.data?.current,
+              hasOver: !!over
+            });
+          }
+          
+          // Handle ALL task drag over (same-column and cross-column)
+          if (draggedTask && over) {
+            let targetColumnId: string | undefined;
+            let insertIndex: number | undefined;
+            
+            // Only update if we're over a valid drop target
+            if (over.data?.current?.type === 'task') {
+              // Hovering over another task
+              Object.entries(columns).forEach(([colId, column]) => {
+                const targetTask = column.tasks.find(t => t.id === over.id);
+                if (targetTask) {
+                  targetColumnId = colId;
+                                      // Handle both same-column and cross-column moves with top position support
+                    const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+                    const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
+                    
+                    // Simple logic: hover over a task = insert after that task
+                    // For position 0 drops, use the column-top drop zone
+                    insertIndex = targetTaskIndex + 1;
+                }
+              });
+            } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom' || over.data?.current?.type === 'column-top') {
+              // Hovering over column area (empty space), bottom drop zone, or top area
+              targetColumnId = over.data.current.columnId as string;
+              if (targetColumnId && columns[targetColumnId]) {
+                if (over.data?.current?.type === 'column-top') {
+                  // Drop at the very top of the column
+                  insertIndex = 0;
+                } else {
+                  // Drop at the end of the column
+                  insertIndex = columns[targetColumnId].tasks.length;
+                }
+              }
+            } else {
+              // Fallback: check if we're over a column by ID
+              const overId = over.id as string;
+              let possibleColumnId = overId;
+              
+              // Handle bottom drop zone IDs (e.g., "column-id-bottom")
+              if (overId.endsWith('-bottom')) {
+                possibleColumnId = overId.replace('-bottom', '');
+              }
+              
+              if (columns[possibleColumnId]) {
+                targetColumnId = possibleColumnId;
+                const columnTasks = columns[possibleColumnId]?.tasks || [];
+                insertIndex = columnTasks.length;
+              }
+            }
+            
+            // Set drag preview for ALL moves (same-column and cross-column)
+            if (targetColumnId && insertIndex !== undefined) {
+              setDragPreview({
+                targetColumnId,
+                insertIndex
+              });
+            } else {
+              setDragPreview(null);
+            }
+          }
+        }}
+        onDragEnd={handleUnifiedTaskDragEnd}
+      >
       <Header
         currentUser={currentUser}
         siteSettings={siteSettings}
@@ -1629,7 +1904,7 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
               onUsersChanged={async () => {
                 try {
-                  const loadedMembers = await api.getMembers();
+                  const loadedMembers = await api.getMembers(includeSystem);
                   setMembers(loadedMembers);
                 } catch (error) {
                   console.error('❌ Failed to refresh members:', error);
@@ -1663,10 +1938,12 @@ export default function App() {
         includeWatchers={includeWatchers}
         includeCollaborators={includeCollaborators}
         includeRequesters={includeRequesters}
+        includeSystem={includeSystem}
         onToggleAssignees={handleToggleAssignees}
         onToggleWatchers={handleToggleWatchers}
         onToggleCollaborators={handleToggleCollaborators}
         onToggleRequesters={handleToggleRequesters}
+        onToggleSystem={handleToggleSystem}
         onToggleTaskViewMode={handleToggleTaskViewMode}
         viewMode={viewMode}
         onViewModeChange={handleViewModeChange}
@@ -1695,79 +1972,6 @@ export default function App() {
                                 handleTaskDragStart(task);
                               }
                             });
-                          }
-                        }}
-                        onDragOver={(event) => {
-                          const { active, over } = event;
-                          
-                          if (!over || !draggedTask) return;
-                          
-                          // Only show preview for task drags
-                          const draggedTaskId = active.id as string;
-                          
-                          // Find source column
-                          let sourceColumnId: string | null = null;
-                          Object.entries(columns).forEach(([colId, column]) => {
-                            if (column.tasks.find(t => t.id === draggedTaskId)) {
-                              sourceColumnId = colId;
-                            }
-                          });
-                          
-                          if (!sourceColumnId) return;
-                          
-                          let targetColumnId: string | undefined;
-                          let insertIndex: number | undefined;
-                          
-                          // Determine target column and insertion index
-                          if (over.data?.current?.type === 'task') {
-                            // Hovering over another task
-                            Object.entries(columns).forEach(([colId, column]) => {
-                              const targetTask = column.tasks.find(t => t.id === over.id);
-                              if (targetTask) {
-                                targetColumnId = colId;
-                                if (sourceColumnId !== colId) {
-                                  // Cross-column: calculate insertion index
-                                  const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-                                  const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
-                                  
-                                  // If it's the last task in the column, offer both "before" and "after" options
-                                  // For now, always insert before the target task
-                                  insertIndex = targetTaskIndex;
-                                                              }
-                              }
-                            });
-                          } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom') {
-                            // Hovering over column area (empty space) or bottom drop zone - drop at end
-                            targetColumnId = over.data.current.columnId as string;
-                            if (sourceColumnId !== targetColumnId) {
-                              const columnTasks = columns[targetColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      }
-                          } else {
-                            // Fallback: check if we're over a column by ID or bottom area
-                            const overId = over.id as string;
-                            let possibleColumnId = overId;
-                            
-                            // Handle bottom drop zone IDs (e.g., "column-id-bottom")
-                            if (overId.endsWith('-bottom')) {
-                              possibleColumnId = overId.replace('-bottom', '');
-                                                      }
-                            
-                            if (columns[possibleColumnId] && sourceColumnId !== possibleColumnId) {
-                              targetColumnId = possibleColumnId;  // Use the EXTRACTED column ID, not the original
-                              const columnTasks = columns[possibleColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      }
-                          }
-                          
-                          // Update drag preview state for cross-column moves only
-                          if (targetColumnId && sourceColumnId !== targetColumnId && insertIndex !== undefined) {
-                            setDragPreview({
-                              targetColumnId,
-                              insertIndex
-                            });
-                          } else {
-                            setDragPreview(null);
                           }
                         }}
                         onDragEnd={(event) => {
@@ -1803,6 +2007,10 @@ export default function App() {
                                     onTaskDragOver={handleTaskDragOver}
                                     onTaskDrop={handleTaskDrop}
                                     onSelectTask={handleSelectTask}
+                                    onTaskDropOnBoard={handleTaskDropOnBoard}
+                                    isTaskMiniMode={isTaskMiniMode}
+                                    onTaskEnterMiniMode={handleTaskEnterMiniMode}
+                                    onTaskExitMiniMode={handleTaskExitMiniMode}
       />
 
       <ModalManager
@@ -1821,6 +2029,10 @@ export default function App() {
         onProfileUpdated={handleProfileUpdated}
         isProfileBeingEdited={isProfileBeingEdited}
         onProfileEditingChange={setIsProfileBeingEdited}
+        onAccountDeleted={() => {
+          // Account deleted successfully - handle logout and redirect
+          handleLogout();
+        }}
       />
 
       {showDebug && (
@@ -1829,6 +2041,81 @@ export default function App() {
           onClear={clearQueryLogs}
         />
       )}
+
+      {/* Global DragOverlay for tasks and columns */}
+      <DragOverlay 
+        dropAnimation={null}
+        style={{ 
+          cursor: 'none'
+        }}
+      >
+        {draggedTask ? (
+          isHoveringBoardTab ? (
+            // Mini task icon when hovering over board tabs
+            <div className="relative">
+              {(() => {
+                const taskMember = members.find(m => m.id === draggedTask.assignedTo);
+                return (
+                  <div className="w-8 h-8 rounded-lg bg-white shadow-lg border-2 border-blue-500 flex items-center justify-center relative">
+                    {/* Task background with assignee color */}
+                    <div 
+                      className="absolute inset-0 rounded-lg opacity-20"
+                      style={{ backgroundColor: taskMember?.color || '#3B82F6' }}
+                    ></div>
+                    
+                    {/* Assignee avatar or initial */}
+                    <div className="relative z-10">
+                      {taskMember?.avatarUrl || taskMember?.googleAvatarUrl ? (
+                        <img
+                          src={taskMember.avatarUrl || taskMember.googleAvatarUrl}
+                          alt={taskMember.name}
+                          className="w-5 h-5 rounded-full object-cover border border-white"
+                        />
+                      ) : (
+                        <div 
+                          className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white"
+                          style={{ backgroundColor: taskMember?.color || '#3B82F6' }}
+                        >
+                          {taskMember?.name?.charAt(0)?.toUpperCase() || draggedTask.title.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Subtle task indicator */}
+                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
+                      T
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          ) : (
+            // Full task preview when not over board tabs
+            <div className="bg-white p-4 rounded-lg shadow-lg border-l-4 border-blue-500 opacity-90 scale-105 transform rotate-2 ring-2 ring-blue-400 max-w-xs">
+              <div className="font-medium text-gray-800 text-sm mb-2">{draggedTask.title}</div>
+              <div className="text-xs text-gray-500">
+                {draggedTask.description && draggedTask.description.length > 50 
+                  ? draggedTask.description.substring(0, 50) + '...' 
+                  : draggedTask.description}
+              </div>
+            </div>
+          )
+        ) : draggedColumn ? (
+          <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-90 scale-105 shadow-2xl transform rotate-3 ring-2 ring-blue-400">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
+            </div>
+            <div className="flex-1 min-h-[100px] space-y-2">
+              {draggedColumn.tasks.map((task: Task) => (
+                <div key={task.id} className="bg-white p-3 rounded border shadow-sm">
+                  <div className="text-sm text-gray-600">{task.title}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </DragOverlay>
+      </DndContext>
     </div>
   );
 }

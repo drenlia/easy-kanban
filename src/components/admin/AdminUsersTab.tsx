@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 
 interface User {
@@ -62,6 +63,40 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
+  
+  // Refs for button positioning and focus
+  const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
+  const noButtonRef = useRef<HTMLButtonElement>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string} | null>(null);
+  
+  // Focus the "No" button when any delete dialog opens and handle Enter key
+  useEffect(() => {
+    if (showDeleteConfirm) {
+      // Small delay to ensure the dialog has rendered
+      setTimeout(() => {
+        noButtonRef.current?.focus();
+      }, 50);
+    }
+  }, [showDeleteConfirm]);
+
+  // Handle Enter and ESC keys to choose "No"/cancel by default for all users
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (showDeleteConfirm && (e.key === 'Enter' || e.key === 'Escape')) {
+        e.preventDefault();
+        setDeleteButtonPosition(null);
+        onCancelDeleteUser();
+      }
+    };
+
+    if (showDeleteConfirm) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showDeleteConfirm, onCancelDeleteUser]);
   
   const [editingUserData, setEditingUserData] = useState({
     id: '',
@@ -421,7 +456,20 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       </button>
                       <div className="relative">
                         <button
-                          onClick={() => onDeleteUser(user.id)}
+                          ref={(el) => {
+                            deleteButtonRefs.current[user.id] = el;
+                          }}
+                          onClick={(e) => {
+                            if (user.id === currentUser?.id) return;
+                            
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setDeleteButtonPosition({
+                              top: rect.bottom + 5,
+                              left: rect.right - 200, // Adjust positioning to ensure visibility
+                              userId: user.id
+                            });
+                            onDeleteUser(user.id);
+                          }}
                           disabled={user.id === currentUser?.id}
                           className={`p-1.5 rounded transition-colors ${
                             user.id === currentUser?.id
@@ -433,47 +481,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                           <Trash2 size={16} />
                         </button>
                         
-                        {/* Delete Confirmation Menu */}
-                        {showDeleteConfirm === user.id && (
-                          <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-10 min-w-[180px]">
-                            <div className="text-sm text-gray-700 mb-2">
-                              {userTaskCounts[user.id] > 0 ? (
-                                <>
-                                  <div className="font-medium mb-1">Delete user?</div>
-                                  <div className="text-xs text-gray-700">
-                                    <span className="text-red-600 font-medium">
-                                      {userTaskCounts[user.id]} task{userTaskCounts[user.id] !== 1 ? 's' : ''}
-                                    </span>{' '}
-                                    will be removed for{' '}
-                                    <span className="font-medium">{user.email}</span>
-                                  </div>
-                                </>
-                              ) : (
-                                <>
-                                  <div className="font-medium mb-1">Delete user?</div>
-                                  <div className="text-xs text-gray-600">
-                                    No tasks will be affected for{' '}
-                                    <span className="font-medium">{user.email}</span>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => onConfirmDeleteUser(user.id)}
-                                className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                              >
-                                Yes
-                              </button>
-                              <button
-                                onClick={onCancelDeleteUser}
-                                className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
-                              >
-                                No
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   </td>
@@ -711,6 +718,88 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Portal-based Delete Confirmation Dialog */}
+      {showDeleteConfirm && deleteButtonPosition && deleteButtonPosition.userId === showDeleteConfirm && createPortal(
+        <div 
+          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999]"
+          style={{
+            top: `${deleteButtonPosition.top}px`,
+            left: `${deleteButtonPosition.left}px`,
+            width: users.find(u => u.id === showDeleteConfirm)?.email === 'system@local' ? '320px' : '200px'
+          }}
+        >
+          <div className="text-sm text-gray-700 mb-2 break-words">
+            {(() => {
+              const user = users.find(u => u.id === showDeleteConfirm);
+              if (!user) return null;
+              
+              if (user.email === 'system@local') {
+                return (
+                  <>
+                    <div className="font-medium mb-1 text-amber-600">⚠️ Delete System User?</div>
+                    <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200 mb-2">
+                      <div className="font-medium mb-1">Critical Warning:</div>
+                      <div className="break-words overflow-wrap-anywhere whitespace-normal">
+                        Deleting the System User will affect users who delete their own accounts. 
+                        Their tasks are normally reassigned to this account to preserve project history.
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      Are you absolutely sure you want to proceed?
+                    </div>
+                  </>
+                );
+              } else if (userTaskCounts[user.id] > 0) {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete user?</div>
+                    <div className="text-xs text-gray-700">
+                      <span className="text-red-600 font-medium">
+                        {userTaskCounts[user.id]} task{userTaskCounts[user.id] !== 1 ? 's' : ''}
+                      </span>{' '}
+                      will be removed for{' '}
+                      <span className="font-medium">{user.email}</span>
+                    </div>
+                  </>
+                );
+              } else {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete user?</div>
+                    <div className="text-xs text-gray-600">
+                      No tasks will be affected for{' '}
+                      <span className="font-medium">{user.email}</span>
+                    </div>
+                  </>
+                );
+              }
+            })()}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              ref={noButtonRef}
+              onClick={() => {
+                onCancelDeleteUser();
+                setDeleteButtonPosition(null);
+              }}
+              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              No
+            </button>
+            <button
+              onClick={() => {
+                onConfirmDeleteUser(showDeleteConfirm);
+                setDeleteButtonPosition(null);
+              }}
+              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+            >
+              Yes
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );
