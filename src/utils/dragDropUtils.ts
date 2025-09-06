@@ -33,7 +33,19 @@ export const customCollisionDetection = (args: any, draggedColumn: Column | null
       return column && column.tasks.length === 0 && draggedTask.columnId !== columnId;
     });
     
-    // If we found empty column collisions, prioritize them
+    // Only prioritize empty columns if we have a clear intention to drop there
+    // (i.e., if there are no other valid collision targets like tasks)
+    const taskCollisions = defaultCollisions.filter((collision: any) => {
+      // Check if this collision is with a task (not a column)
+      return !Object.values(columns).some(col => col.id === collision.id);
+    });
+    
+    // If we have task collisions, prefer those over empty columns
+    if (taskCollisions.length > 0) {
+      return defaultCollisions;
+    }
+    
+    // If we found empty column collisions and no task collisions, prioritize them
     if (emptyColumnCollisions.length > 0) {
       return emptyColumnCollisions;
     }

@@ -1916,7 +1916,7 @@ export default function App() {
       {/* New Enhanced Drag & Drop System */}
       <SimpleDragDropManager
         currentBoardId={selectedBoard || ''}
-        columns={columns}
+        columns={filteredColumns}
         boards={boards}
         onTaskMove={handleMoveTaskToColumn}
         onTaskMoveToDifferentBoard={handleTaskDropOnBoard}

@@ -755,4 +755,4 @@ export default function BoardTabs({
       </div>
     </div>
   );
-}
+};

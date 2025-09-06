@@ -5,6 +5,7 @@ import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { useSortable } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
 
@@ -94,7 +95,7 @@ export default function TaskCard({
   const {
     attributes,
     listeners,
-    setNodeRef,
+    setNodeRef: setSortableRef,
     transform,
     transition,
     isDragging,
@@ -108,6 +109,23 @@ export default function TaskCard({
       position: task.position
     }
   });
+
+  // @dnd-kit droppable hook for cross-column insertion
+  const { setNodeRef: setDroppableRef } = useDroppable({
+    id: `${task.id}-drop`,
+    data: {
+      type: 'task',
+      task: task,
+      columnId: task.columnId,
+      position: task.position
+    }
+  });
+
+  // Combine both refs
+  const setNodeRef = (node: HTMLElement | null) => {
+    setSortableRef(node);
+    setDroppableRef(node);
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -409,14 +427,22 @@ export default function TaskCard({
           isSelected ? 'bg-gray-100' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
           isOverdue() ? 'bg-red-50' : 'bg-white'
-        } p-4 rounded-lg shadow-sm ${
-          !isDragDisabled && !isAnyEditingActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
-        } relative transition-all duration-200 ${
+        } p-4 rounded-lg shadow-sm cursor-default relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         }`}
         {...attributes}
-        {...listeners}
       >
+        {/* Left Border Drag Handle - Much wider for easier grabbing */}
+        <div
+          {...listeners}
+          className={`absolute left-0 top-0 bottom-0 w-8 z-[6] ${
+            !isDragDisabled && !isAnyEditingActive && !isDndGloballyDisabled()
+              ? 'cursor-grab active:cursor-grabbing hover:bg-black hover:bg-opacity-5' 
+              : 'cursor-not-allowed'
+          } transition-colors`}
+          title="Drag to move task"
+        />
+
         {/* Overlay Toolbar - Positioned at top edge */}
         <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
           {/* Delete Button - Left Corner */}
@@ -427,6 +453,7 @@ export default function TaskCard({
           >
             <X size={14} className="text-red-500" />
           </button>
+
           
           {/* Centered Action Buttons - Absolutely centered */}
           <div className="flex justify-center">

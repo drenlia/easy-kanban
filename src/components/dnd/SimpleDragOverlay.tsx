@@ -15,10 +15,7 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
 }) => {
   return (
     <DndKitDragOverlay 
-      dropAnimation={{
-        duration: 300,
-        easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)',
-      }}
+      dropAnimation={null}
     >
       {draggedTask ? (
         isHoveringBoardTab ? (
