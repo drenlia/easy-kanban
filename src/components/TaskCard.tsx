@@ -6,6 +6,10 @@ import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
+
+// System user member ID constant
+const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 // Helper function to get priority colors from hex
 const getPriorityColors = (hexColor: string) => {
@@ -96,7 +100,7 @@ export default function TaskCard({
     isDragging,
   } = useSortable({ 
     id: task.id,
-    disabled: isDragDisabled || isAnyEditingActive,
+    disabled: isDragDisabled || isAnyEditingActive || isDndGloballyDisabled(),
     data: {
       type: 'task',
       task: task,
@@ -402,7 +406,9 @@ export default function TaskCard({
         ref={setNodeRef}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
         className={`task-card sortable-item ${
-          isSelected ? 'bg-gray-100' : isOverdue() ? 'bg-red-50' : 'bg-white'
+          isSelected ? 'bg-gray-100' : 
+          member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
+          isOverdue() ? 'bg-red-50' : 'bg-white'
         } p-4 rounded-lg shadow-sm ${
           !isDragDisabled && !isAnyEditingActive ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'
         } relative transition-all duration-200 ${
@@ -433,7 +439,10 @@ export default function TaskCard({
                 <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
               </button>
               <button
-                onClick={() => setShowQuickEdit(true)}
+                onClick={() => {
+                  setShowQuickEdit(true);
+                  setDndGloballyDisabled(true);
+                }}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                 title="Quick Edit"
               >
@@ -488,7 +497,7 @@ export default function TaskCard({
                   className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white border-2 border-white"
                   style={{ backgroundColor: member.color }}
                 >
-                  {member.name.charAt(0).toUpperCase()}
+                  {member.id === SYSTEM_MEMBER_ID ? '🤖' : member.name.charAt(0).toUpperCase()}
                 </div>
               )}
             </button>
@@ -561,11 +570,11 @@ export default function TaskCard({
               <div
                 className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
                 onDoubleClick={() => setIsEditingDescription(true)}
-                title={taskViewMode === 'shrink' && task.description.length > 60 ? task.description : "Double-click to edit description"}
+                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description : "Double-click to edit description"}
               >
-                {taskViewMode === 'shrink' && task.description.length > 60 
+                {taskViewMode === 'shrink' && task.description && task.description.length > 60 
                   ? `${task.description.substring(0, 60)}...` 
-                  : task.description
+                  : task.description || ''
                 }
               </div>
             )}
@@ -898,7 +907,10 @@ export default function TaskCard({
         <QuickEditModal
           task={task}
           members={members}
-          onClose={() => setShowQuickEdit(false)}
+          onClose={() => {
+            setShowQuickEdit(false);
+            setDndGloballyDisabled(false);
+          }}
           onSave={onEdit}
         />
       )}

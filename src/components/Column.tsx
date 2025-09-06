@@ -462,7 +462,7 @@ export default function KanbanColumn({
         )}
       </div>
 
-      <div className="flex-1 min-h-[100px]">
+      <div className="flex-1 min-h-[150px]">
         {filteredTasks.length === 0 ? (
           /* Empty column - no SortableContext to avoid interference */
           <div className="min-h-[100px] pb-4">
@@ -501,7 +501,7 @@ export default function KanbanColumn({
             }
             strategy={verticalListSortingStrategy}
           >
-            <div className="min-h-[100px] pb-4">
+            <div className="min-h-[100px] pb-2 flex-1 flex flex-col">
               {/* Enhanced top drop zone for position 0 */}
               <div 
                 ref={setTopDropRef}
@@ -518,23 +518,37 @@ export default function KanbanColumn({
                 )}
               </div>
               
-              {/* Main task area with separate droppable */}
+              {/* Main task area with separate droppable - flexible to push bottom zone down */}
               <div 
                 ref={setDroppableRef}
-                className={`transition-colors ${
+                className={`flex-1 transition-colors ${
                   isOver ? 'bg-blue-50 rounded-lg' : ''
                 }`}
               >
                 {renderTaskList()}
               </div>
               
-              {/* Bottom drop zone for end detection */}
+              {/* Clean bottom drop zone - larger target area, only visible when needed */}
               <div 
                 ref={setBottomDropRef}
-                className={`h-4 w-full transition-colors ${
-                  isBottomOver ? 'bg-blue-100 border-2 border-dashed border-blue-400 rounded-lg' : 'bg-transparent'
+                className={`transition-all duration-200 w-full ${
+                  isBottomOver 
+                    ? 'h-16 bg-gradient-to-r from-blue-100 to-indigo-100 border-2 border-dashed border-blue-500 rounded-lg flex items-center justify-center shadow-sm mt-3' 
+                    : draggedTask && draggedTask.columnId !== column.id
+                      ? 'h-12 bg-transparent mt-2'
+                      : filteredTasks.length <= 3
+                        ? 'h-12 bg-transparent'
+                        : 'h-8 bg-transparent'
                 }`}
-              />
+              >
+                {isBottomOver && (
+                  <div className="flex items-center gap-2 text-blue-700 text-sm font-semibold animate-pulse">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                    <span>Drop at bottom</span>
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  </div>
+                )}
+              </div>
             </div>
           </SortableContext>
         )}

@@ -26,7 +26,7 @@ import TaskCard from './components/TaskCard';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -60,6 +60,9 @@ import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, Dra
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
 import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
+
+// System user member ID constant
+const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 
 
@@ -300,7 +303,7 @@ export default function App() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [taskDeleteConfirmation.confirmationTask, taskDeleteConfirmation.cancelDelete]);
-
+  
   // Data polling for real-time collaboration
   const { isPolling, lastPollTime } = useDataPolling({
     enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
@@ -406,6 +409,7 @@ export default function App() {
       setIncludeWatchers(userSpecificPrefs.includeWatchers);
       setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
       setIncludeRequesters(userSpecificPrefs.includeRequesters);
+      console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
       setIncludeSystem(userSpecificPrefs.includeSystem);
       setTaskViewMode(userSpecificPrefs.taskViewMode);
       setViewMode(userSpecificPrefs.viewMode);
@@ -519,13 +523,15 @@ export default function App() {
 
   // Load initial data
   useEffect(() => {
-    if (!isAuthenticated) return;
+    // Only load data if authenticated and user preferences have been loaded (currentUser.id exists)
+    if (!isAuthenticated || !currentUser?.id) return;
     
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-                  const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
-          getMembers(includeSystem),
+          console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
+          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+            getMembers(includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
@@ -534,6 +540,7 @@ export default function App() {
           
 
           
+          console.log(`📋 Loaded ${loadedMembers.length} members with includeSystem=${includeSystem}`);
           setMembers(loadedMembers);
           setBoards(loadedBoards);
           setAvailablePriorities(loadedPriorities || []);
@@ -557,7 +564,7 @@ export default function App() {
     };
 
     loadInitialData();
-  }, [isAuthenticated, includeSystem]);
+  }, [isAuthenticated, includeSystem, currentUser?.id]);
 
   // Update columns when selected board changes
   useEffect(() => {
@@ -707,7 +714,7 @@ export default function App() {
 
   const handleEditBoard = async (boardId: string, title: string) => {
     try {
-      await api.updateBoard(boardId, title);
+      await updateBoard(boardId, title);
       setBoards(prev => prev.map(b => 
         b.id === boardId ? { ...b, title } : b
       ));
@@ -811,7 +818,7 @@ export default function App() {
     try {
       await withLoading('tasks', async () => {
         // Let backend handle positioning and shifting
-        await api.createTaskAtTop(newTask);
+        await createTaskAtTop(newTask);
         
         // Refresh to get clean state from backend
         await refreshBoardData();
@@ -1247,7 +1254,7 @@ export default function App() {
       await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
     } else {
       // Different columns - use cross-column move logic
-      await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+    await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
@@ -1338,7 +1345,7 @@ export default function App() {
 
   const handleEditColumn = async (columnId: string, title: string) => {
     try {
-      await api.updateColumn(columnId, title);
+      await updateColumn(columnId, title);
       setColumns(prev => ({
         ...prev,
         [columnId]: { ...prev[columnId], title }
@@ -1633,9 +1640,32 @@ export default function App() {
     
     // Refresh members to include/exclude system user
     try {
-                        const loadedMembers = await getMembers(include);
+      const loadedMembers = await getMembers(include);
       console.log(`📋 Loaded ${loadedMembers.length} members (includeSystem=${include}):`, loadedMembers.map(m => `${m.name} (${m.id})`));
       setMembers(loadedMembers);
+      
+      // Handle SYSTEM user selection logic
+      
+      if (include) {
+        // Checkbox ON: Auto-select SYSTEM user if not already selected
+        setSelectedMembers(prev => {
+          if (!prev.includes(SYSTEM_MEMBER_ID)) {
+            const newSelection = [...prev, SYSTEM_MEMBER_ID];
+            console.log(`✅ Auto-selecting SYSTEM user`);
+            updateCurrentUserPreference('selectedMembers', newSelection);
+            return newSelection;
+          }
+          return prev;
+        });
+      } else {
+        // Checkbox OFF: Auto-deselect SYSTEM user
+        setSelectedMembers(prev => {
+          const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
+          console.log(`❌ Auto-deselecting SYSTEM user`);
+          updateCurrentUserPreference('selectedMembers', newSelection);
+          return newSelection;
+        });
+      }
     } catch (error) {
       console.error('Failed to refresh members:', error);
     }
@@ -1842,7 +1872,7 @@ export default function App() {
   }
   
   if (currentPage === 'reset-password') {
-    return (
+  return (
       <ResetPassword 
         token={resetToken}
         onBackToLogin={() => window.location.hash = '#kanban'}
