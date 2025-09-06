@@ -61,7 +61,45 @@ const DroppableBoardTab: React.FC<{
   });
 
   const isDragActive = draggedTask !== null;
-  const isHovering = isOver && isDragActive;
+  
+  // Get current mouse position to check if we're in the actual tab area
+  const [currentMouseY, setCurrentMouseY] = React.useState(0);
+  
+  React.useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setCurrentMouseY(e.clientY);
+    };
+    
+    if (isDragActive) {
+      document.addEventListener('mousemove', handleMouseMove);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+    };
+  }, [isDragActive]);
+  
+  // Check if mouse is actually in tab area (get tab bounds dynamically)
+  const isMouseInTabArea = React.useMemo(() => {
+    if (!isDragActive) return true; // Allow normal behavior when not dragging
+    
+    // Find the tab container to get bounds
+    const tabContainer = document.querySelector('.flex.items-center.space-x-1.overflow-x-auto') ||
+                        document.querySelector('[class*="board-tabs"]') ||
+                        document.querySelector('button[id^="board-"]')?.parentElement;
+    
+    if (tabContainer) {
+      const rect = tabContainer.getBoundingClientRect();
+      const tabTop = rect.top - 30; // Same 30px extension as in SimpleDragDropManager
+      const tabBottom = rect.bottom;
+      return currentMouseY >= tabTop && currentMouseY <= tabBottom;
+    }
+    
+    return false; // If we can't find tab container, don't allow hover
+  }, [isDragActive, currentMouseY]);
+  
+  // Only allow hovering if mouse is actually in tab area
+  const isHovering = isOver && isDragActive && isMouseInTabArea;
   const isDropReady = shouldShowDropReady(
     board.id,
     boardDropState.hoveredBoardId,
@@ -84,10 +122,10 @@ const DroppableBoardTab: React.FC<{
     } else if (!isHovering) {
       // Only call if we were hovering this board
       if (boardDropState.hoveredBoardId === board.id) {
-        // Much longer delay to prevent rapid switching between adjacent tabs
+        // Short delay to prevent rapid switching between adjacent tabs
         timeoutId = setTimeout(() => {
           onHoverEnd();
-        }, 800);
+        }, 100);
       }
     }
     
@@ -113,15 +151,13 @@ const DroppableBoardTab: React.FC<{
 
   return (
     <div
-      ref={setNodeRef}
       onClick={handleClick}
       style={{
         userSelect: isDragActive && canDrop ? 'none' : 'auto'
       }}
       className={`
         px-4 py-2 text-sm font-medium rounded-t-lg cursor-pointer
-        flex items-center gap-2 whitespace-nowrap min-w-[100px] justify-center
-        ${isDragActive && canDrop ? 'mx-4' : ''}
+        flex items-center gap-2 whitespace-nowrap min-w-[80px] justify-center
         ${isSelected 
           ? 'bg-white text-gray-900 border-t border-l border-r border-gray-200' 
           : 'bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800'
@@ -129,9 +165,17 @@ const DroppableBoardTab: React.FC<{
         ${isDragActive && canDrop && (isHovering || isDropReady) ? 'bg-blue-100 border-2 border-blue-400 scale-105 shadow-lg' : ''}
         ${tabClasses}
         transition-all duration-200
+        relative
       `}
       title={`${board.title}${isDragActive && canDrop ? ' (Drop task here)' : ''}`}
     >
+      {/* VERY SMALL droppable area - only the inner content */}
+      <div
+        ref={setNodeRef}
+        className="absolute inset-2 pointer-events-none"
+        style={{ pointerEvents: isDragActive && canDrop ? 'auto' : 'none' }}
+      />
+      
       {/* Always show normal tab content - visual feedback comes from border/glow effects */}
       <div className={`flex items-center gap-2 ${isDragActive && canDrop ? 'pointer-events-none' : ''}`}>
         <span className="truncate max-w-[150px] pointer-events-none">{board.title}</span>
