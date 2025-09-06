@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { DndContext, DragOverlay } from '@dnd-kit/core';
+import { DndContext, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
 import { 
@@ -507,14 +507,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 }
                 strategy={rectSortingStrategy}
               >
-                <div style={gridStyle}>
+                <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
                   {Object.values(columns)
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
                                           <KanbanColumn
                       key={column.id}
                       column={column}
-                      filteredTasks={draggedTask ? column.tasks : (filteredColumns[column.id]?.tasks || [])}
+                      filteredTasks={filteredColumns[column.id]?.tasks || []}
                       members={members}
                       selectedMembers={selectedMembers}
                       selectedTask={selectedTask}
@@ -544,18 +544,18 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availablePriorities={availablePriorities}
                     />
                     ))}
-                </div>
+                </BoardDropArea>
               </SortableContext>
             ) : (
               /* Regular user view */
-              <div style={gridStyle}>
+              <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
                 {Object.values(columns)
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
                   .map(column => (
                     <KanbanColumn
                       key={column.id}
                       column={column}
-                      filteredTasks={draggedTask ? column.tasks : (filteredColumns[column.id]?.tasks || [])}
+                      filteredTasks={filteredColumns[column.id]?.tasks || []}
                       members={members}
                       selectedMembers={selectedMembers}
                       selectedTask={selectedTask}
@@ -585,7 +585,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availablePriorities={availablePriorities}
                     />
                   ))}
-              </div>
+              </BoardDropArea>
             )}
             </div>
           </div>
@@ -596,6 +596,23 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
 
     </>
+  );
+};
+
+// Board-level droppable area to detect when entering board area from tabs
+const BoardDropArea: React.FC<{ selectedBoard: string | null; style: React.CSSProperties; children: React.ReactNode }> = ({ selectedBoard, style, children }) => {
+  const { setNodeRef } = useDroppable({
+    id: `board-area-${selectedBoard}`,
+    data: {
+      type: 'board-area',
+      boardId: selectedBoard
+    }
+  });
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      {children}
+    </div>
   );
 };
 

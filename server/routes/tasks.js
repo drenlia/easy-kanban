@@ -65,12 +65,20 @@ router.put('/:id', (req, res) => {
   try {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
+    
+    // Get current task to track previous location
+    const currentTask = wrapQuery(db.prepare('SELECT columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    const previousColumnId = currentTask ? currentTask.columnId : null;
+    const previousBoardId = currentTask ? currentTask.boardId : null;
+    
     wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
-      dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ?, updated_at = ? WHERE id = ?
+      dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ?, 
+      pre_boardId = ?, pre_columnId = ?, updated_at = ? WHERE id = ?
     `), 'UPDATE').run(
       task.title, task.description, task.memberId, task.requesterId, task.startDate,
-      task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, id
+      task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0,
+      previousBoardId, previousColumnId, now, id
     );
     res.json(task);
   } catch (error) {
@@ -97,13 +105,15 @@ router.post('/reorder', (req, res) => {
   const { taskId, newPosition, columnId } = req.body;
   try {
     const { db } = req.app.locals;
-    const currentTask = wrapQuery(db.prepare('SELECT position FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const currentTask = wrapQuery(db.prepare('SELECT position, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
 
     if (!currentTask) {
       return res.status(404).json({ error: 'Task not found' });
     }
 
     const currentPosition = currentTask.position;
+    const previousColumnId = currentTask.columnId;
+    const previousBoardId = currentTask.boardId;
 
     db.transaction(() => {
       if (newPosition > currentPosition) {
@@ -120,8 +130,16 @@ router.post('/reorder', (req, res) => {
         `), 'UPDATE').run(columnId, newPosition, currentPosition);
       }
 
-      // Update the moved task to its new position
-      wrapQuery(db.prepare('UPDATE tasks SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, taskId);
+      // Update the moved task to its new position and track previous location
+      wrapQuery(db.prepare(`
+        UPDATE tasks SET 
+          position = ?, 
+          columnId = ?,
+          pre_boardId = ?, 
+          pre_columnId = ?,
+          updated_at = ?
+        WHERE id = ?
+      `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
     })();
 
     res.json({ message: 'Task reordered successfully' });
@@ -214,8 +232,9 @@ router.post('/move-to-board', (req, res) => {
       return res.status(404).json({ error: 'Target board has no columns' });
     }
     
-    // Generate new task ID outside transaction
-    const newTaskId = `${taskId}-moved-${Date.now()}`;
+    // Store original location for tracking
+    const originalBoardId = task.boardId;
+    const originalColumnId = task.columnId;
     
     // Start transaction for atomic operation
     db.transaction(() => {
@@ -225,102 +244,29 @@ router.post('/move-to-board', (req, res) => {
         'UPDATE'
       ).run(targetColumn.id);
       
-      // Create new task in target board/column
+      // Update the existing task to move it to the new location
       wrapQuery(
         db.prepare(`
-          INSERT INTO tasks (
-            id, position, title, description, memberId, requesterId, 
-            startDate, dueDate, effort, priority, columnId, boardId,
-            created_at, updated_at
-          ) VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          UPDATE tasks SET 
+            columnId = ?, 
+            boardId = ?, 
+            position = 0,
+            pre_boardId = ?, 
+            pre_columnId = ?,
+            updated_at = ?
+          WHERE id = ?
         `), 
-        'INSERT'
+        'UPDATE'
       ).run(
-        newTaskId, task.title, task.description, task.memberId, task.requesterId,
-        task.startDate, task.dueDate, task.effort, task.priority, 
-        targetColumn.id, targetBoardId, task.created_at, new Date().toISOString()
+        targetColumn.id, targetBoardId, originalBoardId, originalColumnId,
+        new Date().toISOString(), taskId
       );
-      
-      // Copy tags
-      if (task.tags_json && task.tags_json !== '[null]') {
-        const tags = JSON.parse(task.tags_json).filter(tag => tag !== null);
-        tags.forEach(tag => {
-          wrapQuery(
-            db.prepare('INSERT OR IGNORE INTO task_tags (taskId, tagId) VALUES (?, ?)'),
-            'INSERT'
-          ).run(newTaskId, tag.id);
-        });
-      }
-      
-      // Copy watchers
-      if (task.watchers_json && task.watchers_json !== '[null]') {
-        const watchers = JSON.parse(task.watchers_json).filter(watcher => watcher !== null);
-        watchers.forEach(watcher => {
-          try {
-            wrapQuery(
-              db.prepare('INSERT OR IGNORE INTO watchers (taskId, memberId, createdAt) VALUES (?, ?, ?)'),
-              'INSERT'
-            ).run(newTaskId, watcher.id, watcher.createdAt);
-          } catch (error) {
-            console.log('Warning: Could not copy watcher:', watcher, error.message);
-          }
-        });
-      }
-      
-      // Copy collaborators
-      if (task.collaborators_json && task.collaborators_json !== '[null]') {
-        const collaborators = JSON.parse(task.collaborators_json).filter(collab => collab !== null);
-        collaborators.forEach(collab => {
-          try {
-            wrapQuery(
-              db.prepare('INSERT OR IGNORE INTO collaborators (taskId, memberId, createdAt) VALUES (?, ?, ?)'),
-              'INSERT'
-            ).run(newTaskId, collab.id, collab.createdAt);
-          } catch (error) {
-            console.log('Warning: Could not copy collaborator:', collab, error.message);
-          }
-        });
-      }
-      
-      // Copy comments
-      const comments = wrapQuery(
-        db.prepare('SELECT * FROM comments WHERE taskId = ?'),
-        'SELECT'
-      ).all(taskId);
-      
-      comments.forEach(comment => {
-        const newCommentId = `${comment.id}-moved-${Date.now()}`;
-        wrapQuery(
-          db.prepare('INSERT INTO comments (id, taskId, text, authorId, createdAt) VALUES (?, ?, ?, ?, ?)'),
-          'INSERT'
-        ).run(newCommentId, newTaskId, comment.text, comment.authorId, comment.createdAt);
-        
-        // Copy attachments for this comment
-        const attachments = wrapQuery(
-          db.prepare('SELECT * FROM attachments WHERE commentId = ?'),
-          'SELECT'
-        ).all(comment.id);
-        
-        attachments.forEach(attachment => {
-          const newAttachmentId = `${attachment.id}-moved-${Date.now()}`;
-          wrapQuery(
-            db.prepare('INSERT INTO attachments (id, commentId, name, url, type, size) VALUES (?, ?, ?, ?, ?, ?)'),
-            'INSERT'
-          ).run(newAttachmentId, newCommentId, attachment.name, attachment.url, attachment.type, attachment.size);
-        });
-      });
-      
-      // Delete original task (cascade will handle related data)
-      wrapQuery(
-        db.prepare('DELETE FROM tasks WHERE id = ?'),
-        'DELETE'
-      ).run(taskId);
       
     })();
     
     res.json({ 
       success: true, 
-      newTaskId,
+      newTaskId: taskId, // Return original taskId since we're not changing it
       targetColumnId: targetColumn.id,
       targetBoardId,
       message: 'Task moved successfully' 
