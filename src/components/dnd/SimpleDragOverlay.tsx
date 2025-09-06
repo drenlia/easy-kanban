@@ -1,5 +1,6 @@
 import React from 'react';
 import { DragOverlay as DndKitDragOverlay } from '@dnd-kit/core';
+import { FileText } from 'lucide-react';
 import { Task, TeamMember } from '../../types';
 
 interface SimpleDragOverlayProps {
@@ -19,8 +20,8 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
     >
       {draggedTask ? (
         isHoveringBoardTab ? (
-          // Mini task icon when hovering over board tabs
-          <MiniTaskIcon 
+          // Small corner indicator when hovering over board tabs
+          <SmallTaskIndicator 
             task={draggedTask} 
             member={members.find(m => m.id === draggedTask.assignedTo)} 
           />
@@ -33,37 +34,26 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
   );
 };
 
-// Mini task icon component for board tab drops
-const MiniTaskIcon: React.FC<{ task: Task; member?: TeamMember }> = ({ task, member }) => {
+// Small task indicator for when hovering over board tabs
+const SmallTaskIndicator: React.FC<{ task: Task; member?: TeamMember }> = ({ task, member }) => {
   return (
-    <div className="w-8 h-8 rounded-lg bg-white shadow-lg border-2 border-blue-500 flex items-center justify-center relative">
-      {/* Task background with assignee color */}
-      <div 
-        className="absolute inset-0 rounded-lg opacity-20"
-        style={{ backgroundColor: member?.color || '#3B82F6' }}
-      ></div>
-      
-      {/* Assignee avatar or initial */}
-      <div className="relative z-10">
-        {member?.avatarUrl || member?.googleAvatarUrl ? (
-          <img
-            src={member.avatarUrl || member.googleAvatarUrl}
-            alt={member.name}
-            className="w-5 h-5 rounded-full object-cover border border-white"
-          />
-        ) : (
-          <div 
-            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white"
-            style={{ backgroundColor: member?.color || '#3B82F6' }}
-          >
-            {member?.name?.charAt(0)?.toUpperCase() || task.title.charAt(0).toUpperCase()}
-          </div>
-        )}
-      </div>
-      
-      {/* Subtle task indicator */}
-      <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
-        T
+    // Container matches the original task card size to maintain mouse offset
+    <div className="w-80 h-24 relative pointer-events-none">
+      {/* Small indicator positioned at top-left corner */}
+      <div className="absolute top-2 left-2 w-8 h-8 rounded-lg bg-white shadow-lg border-2 border-blue-500 flex items-center justify-center">
+        {/* Task background with assignee color */}
+        <div 
+          className="absolute inset-0 rounded-lg opacity-20"
+          style={{ backgroundColor: member?.color || '#3B82F6' }}
+        />
+        
+        {/* FileText icon (same as task details button) */}
+        <FileText size={16} className="text-blue-600 relative z-10" />
+        
+        {/* Small task count indicator */}
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-blue-500 rounded-full border border-white text-[8px] text-white flex items-center justify-center font-bold">
+          1
+        </div>
       </div>
     </div>
   );

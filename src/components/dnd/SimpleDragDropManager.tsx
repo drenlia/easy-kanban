@@ -101,8 +101,9 @@ const customCollisionDetection = (args: any) => {
     return data?.type !== 'board';
   });
   
-  if (strictBoardCollisions.length > 0 && 
-      pointerCollisions.length === strictBoardCollisions.length &&
+  // Be EXTREMELY restrictive - require exactly ONE board collision
+  if (strictBoardCollisions.length === 1 && 
+      pointerCollisions.length === 1 &&
       nonBoardCornerCollisions.length === 0) {
     return strictBoardCollisions;
   }
@@ -129,35 +130,184 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
   onBoardTabHover,
   onDragPreviewChange
 }) => {
-  // Board tab hover delay state
-  const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Y-coordinate based tab area detection
   const [isHoveringBoardTabDelayed, setIsHoveringBoardTabDelayed] = useState(false);
+  const [currentMouseY, setCurrentMouseY] = useState(0);
+  const [tabAreaBounds, setTabAreaBounds] = useState({ top: 0, bottom: 80 }); // Dynamic tab bounds
+  const [usingYCoordinateDetection, setUsingYCoordinateDetection] = useState(false); // Flag to prioritize Y-detection
 
-  // Clear timeout on component unmount
+  // Track mouse Y position for tab area detection
   useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setCurrentMouseY(e.clientY);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
     return () => {
-      if (boardTabHoverTimeoutRef.current) {
-        clearTimeout(boardTabHoverTimeoutRef.current);
-      }
+      document.removeEventListener('mousemove', handleMouseMove);
     };
   }, []);
 
+  // Add visual debug lines to show tab area bounds
+  const addDebugLines = (bounds: { top: number; bottom: number }) => {
+    // Remove any existing debug lines
+    removeDebugLines();
+    
+    // Create extended top line (30px above actual tabs)
+    const topLine = document.createElement('div');
+    topLine.id = 'tab-debug-top';
+    topLine.style.cssText = `
+      position: fixed;
+      top: ${bounds.top}px;
+      left: 0;
+      width: 100px;
+      height: 2px;
+      background: #00ff00;
+      z-index: 9999;
+      pointer-events: none;
+    `;
+    
+    // Create actual tab top line (for reference)
+    const actualTabLine = document.createElement('div');
+    actualTabLine.id = 'tab-debug-actual';
+    actualTabLine.style.cssText = `
+      position: fixed;
+      top: ${bounds.top + 30}px;
+      left: 0;
+      width: 80px;
+      height: 1px;
+      background: #ffff00;
+      z-index: 9999;
+      pointer-events: none;
+    `;
+    
+    // Create bottom line (actual tab bottom - keep this accurate)
+    const bottomLine = document.createElement('div');
+    bottomLine.id = 'tab-debug-bottom';
+    bottomLine.style.cssText = `
+      position: fixed;
+      top: ${bounds.bottom}px;
+      left: 0;
+      width: 100px;
+      height: 2px;
+      background: #ff0000;
+      z-index: 9999;
+      pointer-events: none;
+    `;
+    
+    // Create extended area indicator (includes 30px extension)
+    const areaIndicator = document.createElement('div');
+    areaIndicator.id = 'tab-debug-area';
+    areaIndicator.style.cssText = `
+      position: fixed;
+      top: ${bounds.top}px;
+      left: 0;
+      width: 50px;
+      height: ${bounds.bottom - bounds.top}px;
+      background: rgba(0, 255, 0, 0.2);
+      z-index: 9998;
+      pointer-events: none;
+      border: 1px solid #00ff00;
+    `;
+    
+    document.body.appendChild(topLine);
+    document.body.appendChild(actualTabLine);
+    document.body.appendChild(bottomLine);
+    document.body.appendChild(areaIndicator);
+    
+    console.log('🟢 DEBUG LINES ADDED:', { 
+      topY: bounds.top, 
+      bottomY: bounds.bottom, 
+      height: bounds.bottom - bounds.top 
+    });
+  };
+  
+  // Remove debug lines
+  const removeDebugLines = () => {
+    ['tab-debug-top', 'tab-debug-actual', 'tab-debug-bottom', 'tab-debug-area', 'mouse-indicator'].forEach(id => {
+      const element = document.getElementById(id);
+      if (element) element.remove();
+    });
+  };
+  
+  // Update mouse position indicator
+  const updateMouseIndicator = (mouseY: number, isInTabArea: boolean) => {
+    let indicator = document.getElementById('mouse-indicator');
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.id = 'mouse-indicator';
+      document.body.appendChild(indicator);
+    }
+    
+    indicator.style.cssText = `
+      position: fixed;
+      top: ${mouseY - 1}px;
+      left: 110px;
+      width: 60px;
+      height: 2px;
+      background: ${isInTabArea ? '#00ff00' : '#0066ff'};
+      z-index: 9999;
+      pointer-events: none;
+    `;
+  };
+
   const handleDragStart = (event: DragStartEvent) => {
     const activeData = event.active.data?.current;
+    
+    // Detect tab container bounds dynamically
+    const detectTabBounds = () => {
+      // Look for board tabs container - try multiple selectors
+      const tabSelectors = [
+        '[class*="board-tabs"]',
+        '[class*="BoardTabs"]', 
+        '.flex.items-center.space-x-1.overflow-x-auto',
+        'div:has(> button[id^="board-"])',
+        // Fallback: find any element containing board tabs
+        'button[id^="board-"]'
+      ];
+      
+      let tabContainer = null;
+      for (const selector of tabSelectors) {
+        const element = document.querySelector(selector);
+        if (element) {
+          tabContainer = element.tagName === 'BUTTON' ? element.parentElement : element;
+          break;
+        }
+      }
+      
+      if (tabContainer) {
+        const rect = tabContainer.getBoundingClientRect();
+        const bounds = { 
+          top: rect.top - 30, // Extend 30px above the tabs for more room
+          bottom: rect.bottom 
+        };
+        console.log('🎯 DETECTED TAB BOUNDS (extended +30px up):', bounds);
+        setTabAreaBounds(bounds);
+        return bounds;
+      } else {
+        console.warn('⚠️ Could not find tab container, using fallback bounds');
+        const fallback = { top: 0, bottom: 80 };
+        setTabAreaBounds(fallback);
+        return fallback;
+      }
+    };
+    
+    // Detect bounds at drag start
+    const bounds = detectTabBounds();
+    
+    // Add visual debug lines to show tab area
+    addDebugLines(bounds);
     
     // Reset all states at drag start to ensure clean state
     onBoardTabHover?.(false);
     onDragPreviewChange?.(null);
     
-    // Clear any existing board tab hover timeout
-    if (boardTabHoverTimeoutRef.current) {
-      clearTimeout(boardTabHoverTimeoutRef.current);
-      boardTabHoverTimeoutRef.current = null;
-    }
+    // Reset tab area state
     setIsHoveringBoardTabDelayed(false);
     
     // Safety: Force reset global DND state in case it got stuck
     resetDndGlobalState();
+    
     
     if (activeData?.type === 'task') {
       const task = activeData.task as Task;
@@ -182,6 +332,42 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
   const handleDragOver = (event: DragOverEvent) => {
     const { over, active } = event;
     
+    // FIRST: Check for mouse-based tab area detection (before any other logic)
+    const isTaskDrag = active.data?.current?.type === 'task';
+    
+    if (isTaskDrag) {
+      // Pure Y-coordinate based detection using dynamic tab bounds
+      const isInTabArea = currentMouseY >= tabAreaBounds.top && currentMouseY <= tabAreaBounds.bottom;
+      
+      // Update mouse position indicator
+      updateMouseIndicator(currentMouseY, isInTabArea);
+      
+      // Set flag to indicate Y-coordinate detection is active
+      setUsingYCoordinateDetection(true);
+      
+      if (isInTabArea && !isHoveringBoardTabDelayed) {
+        console.log('🎯 ENTERED TAB AREA (Y-based - PRIORITY):', { 
+          mouseY: currentMouseY, 
+          tabTop: tabAreaBounds.top, 
+          tabBottom: tabAreaBounds.bottom 
+        });
+        setIsHoveringBoardTabDelayed(true);
+        onBoardTabHover?.(true);
+        onDragPreviewChange?.(null);
+      } else if (!isInTabArea && isHoveringBoardTabDelayed) {
+        console.log('🎯 LEFT TAB AREA (Y-based - PRIORITY):', { 
+          mouseY: currentMouseY, 
+          tabTop: tabAreaBounds.top, 
+          tabBottom: tabAreaBounds.bottom 
+        });
+        setIsHoveringBoardTabDelayed(false);
+        onBoardTabHover?.(false);
+      }
+    } else {
+      // Reset flag when not dragging tasks
+      setUsingYCoordinateDetection(false);
+    }
+    
     // Debug: Log ALL drag over events to see if they're firing
     console.log('📍 Drag Over Event:', {
       hasOver: !!over,
@@ -198,7 +384,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     
     // Only detect board tab hover if we're actually dragging a task (not a column)
     const activeData = active?.data?.current;
-    const isTaskDrag = activeData?.type === 'task';
+    // isTaskDrag already declared above
     
     // Debug: Always log the activeData to see what's happening
     // Active data debug removed for performance
@@ -221,30 +407,19 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       console.log('❌ NOT a task drag - skipping collision detection');
     }
     
-    // Detect if we're hovering over any board tab - but only for task drags
-    if (isTaskDrag && over.data?.current?.type === 'board' && over.data?.current?.boardId) {
-      // Start the 0.5s delay timer if not already started
-      if (!boardTabHoverTimeoutRef.current) {
-        boardTabHoverTimeoutRef.current = setTimeout(() => {
-          setIsHoveringBoardTabDelayed(true);
-          onBoardTabHover?.(true);
-          onDragPreviewChange?.(null); // Clear column preview when over board tab
-        }, 500); // 0.5 second delay
-      }
+    // DEBUG: Only log when we detect board type (should only be tabs)
+    if (isTaskDrag && over.data?.current?.type === 'board') {
+      console.log('🔴 BOARD TYPE DETECTED (COMPLETELY DISABLED - Y-coords only):', {
+        type: over.data.current.type,
+        boardId: over.data.current.boardId,
+        overId: over.id,
+        element: over.id,
+        yCoordPriority: usingYCoordinateDetection
+      });
+      // NEVER process collision-based board tab detection - Y-coordinates only
       return;
     }
     
-    // Clear board tab hover immediately when leaving tab area
-    if (boardTabHoverTimeoutRef.current) {
-      clearTimeout(boardTabHoverTimeoutRef.current);
-      boardTabHoverTimeoutRef.current = null;
-    }
-    
-    // Immediate revert to full card when not over board tabs
-    if (isHoveringBoardTabDelayed) {
-      setIsHoveringBoardTabDelayed(false);
-      onBoardTabHover?.(false);
-    }
 
     // Update drag preview for visual feedback (only for task drags)
     if (isTaskDrag && over) {
@@ -395,13 +570,29 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
         const task = activeData.task as Task;
         
         if (overData?.type === 'board' && overData.boardId !== currentBoardId) {
-          // Cross-board move
-          console.log('🔄 Cross-board move:', task.id, '→', overData.boardId);
+          // Check if Y-coordinate detection should override collision detection
+          const isInTabAreaAtDrop = currentMouseY >= tabAreaBounds.top && currentMouseY <= tabAreaBounds.bottom;
+          
+          if (!isInTabAreaAtDrop) {
+            console.log('🚫 BOARD DROP REJECTED - Y-coordinate outside tab area:', {
+              mouseY: currentMouseY,
+              tabTop: tabAreaBounds.top,
+              tabBottom: tabAreaBounds.bottom,
+              boardId: overData.boardId
+            });
+            // Don't execute cross-board move if mouse is outside tab area
+            return;
+          }
+          
+          // Cross-board move (only if mouse is actually in tab area)
+          console.log('🔄 Cross-board move (Y-coord approved):', task.id, '→', overData.boardId);
           console.log('🔄 Cross-board details:', { 
             taskId: task.id, 
             targetBoardId: overData.boardId, 
             currentBoardId,
-            overDataType: overData.type 
+            overDataType: overData.type,
+            mouseY: currentMouseY,
+            inTabArea: isInTabAreaAtDrop
           });
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
           console.log('✅ Cross-board move completed');
@@ -416,16 +607,22 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
             const targetTask = overData.task;
             targetColumnId = targetTask.columnId;
             
-            // Find the actual index position to insert before this task
-            const targetColumn = columns[targetColumnId];
-            if (targetColumn) {
-              // CRITICAL FIX: Exclude the dragged task from position calculations
-              const tasksWithoutDragged = targetColumn.tasks.filter(t => t.id !== task.id);
-              const sortedTasks = tasksWithoutDragged.sort((a, b) => (a.position || 0) - (b.position || 0));
-              const taskIndex = sortedTasks.findIndex(t => t.id === targetTask.id);
-              position = taskIndex >= 0 ? taskIndex : 0;
+            // For same-column moves: use target task position directly
+            // For cross-column moves: use filtered array index for insertion
+            if (targetColumnId === task.columnId) {
+              // Same column: take the target task's position
+              position = targetTask.position || 0;
             } else {
-              position = 0;
+              // Cross column: use insertion index in filtered array
+              const targetColumn = columns[targetColumnId];
+              if (targetColumn) {
+                const tasksWithoutDragged = targetColumn.tasks.filter(t => t.id !== task.id);
+                const sortedTasks = tasksWithoutDragged.sort((a, b) => (a.position || 0) - (b.position || 0));
+                const taskIndex = sortedTasks.findIndex(t => t.id === targetTask.id);
+                position = taskIndex >= 0 ? taskIndex : 0;
+              } else {
+                position = 0;
+              }
             }
           } else if (overData?.type === 'column-top') {
             // Dropping at top of column
@@ -541,12 +738,11 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       onBoardTabHover?.(false);
       onDragPreviewChange?.(null);
       
-      // Clear board tab hover timeout
-      if (boardTabHoverTimeoutRef.current) {
-        clearTimeout(boardTabHoverTimeoutRef.current);
-        boardTabHoverTimeoutRef.current = null;
-      }
+      // Reset tab area state
       setIsHoveringBoardTabDelayed(false);
+      
+      // Remove debug lines
+      removeDebugLines();
       
       console.log('🏁 All states cleared - board tab hover reset to FALSE');
     }

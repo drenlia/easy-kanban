@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, X, Edit2, FileText, MessageCircle, Copy, Calendar, Eye, UserPlus } from 'lucide-react';
+import { Clock, X, Edit2, FileText, MessageCircle, Copy, Calendar, Eye, UserPlus, GripVertical } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
@@ -432,29 +432,21 @@ export default function TaskCard({
         }`}
         {...attributes}
       >
-        {/* Left Border Drag Handle - Much wider for easier grabbing */}
+        {/* Top-Left Drag Handle - Small grip icon */}
         <div
           {...listeners}
-          className={`absolute left-0 top-0 bottom-0 w-8 z-[6] ${
+          className={`absolute top-1 left-1 p-1 z-[6] rounded ${
             !isDragDisabled && !isAnyEditingActive && !isDndGloballyDisabled()
-              ? 'cursor-grab active:cursor-grabbing hover:bg-black hover:bg-opacity-5' 
-              : 'cursor-not-allowed'
-          } transition-colors`}
+              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-0 group-hover:opacity-100' 
+              : 'cursor-not-allowed opacity-0'
+          } transition-all duration-200`}
           title="Drag to move task"
-        />
+        >
+          <GripVertical size={12} className="text-gray-400" />
+        </div>
 
         {/* Overlay Toolbar - Positioned at top edge */}
         <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
-          {/* Delete Button - Left Corner */}
-          <button
-            onClick={(e) => onRemove(task.id, e)}
-            className="absolute top-1 left-2 p-1 hover:bg-red-100 rounded-full transition-colors"
-            title="Delete Task"
-          >
-            <X size={14} className="text-red-500" />
-          </button>
-
-          
           {/* Centered Action Buttons - Absolutely centered */}
           <div className="flex justify-center">
             <div className="flex gap-1">
@@ -481,6 +473,14 @@ export default function TaskCard({
                 title="View Details"
               >
                 <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+              </button>
+              {/* Delete Button - Right side of details icon */}
+              <button
+                onClick={(e) => onRemove(task.id, e)}
+                className="p-1 hover:bg-red-100 rounded-full transition-colors"
+                title="Delete Task"
+              >
+                <X size={14} className="text-red-500" />
               </button>
             </div>
           </div>
