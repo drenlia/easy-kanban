@@ -222,7 +222,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-96">
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-[576px]">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold">Quick Edit Task</h3>
           <button
@@ -235,6 +235,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
         </div>
 
         <div className="space-y-4">
+          {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Title
@@ -248,21 +249,18 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             />
           </div>
 
+          {/* Description - moved under title, made larger */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Assigned To
+              Description
             </label>
-            <select
-              value={editedTask.memberId}
-              onChange={e => setEditedTask(prev => ({ ...prev, memberId: e.target.value }))}
+            <textarea
+              value={editedTask.description}
+              onChange={e => setEditedTask(prev => ({ ...prev, description: e.target.value }))}
               className="w-full px-3 py-2 border rounded-md"
-            >
-              {members.map(member => (
-                <option key={member.id} value={member.id}>
-                  {member.name}
-                </option>
-              ))}
-            </select>
+              rows={6}
+              style={{ width: '150%', maxWidth: '100%' }}
+            />
           </div>
 
           {/* Watchers Section */}
@@ -407,17 +405,6 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             )}
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
-            </label>
-            <textarea
-              value={editedTask.description}
-              onChange={e => setEditedTask(prev => ({ ...prev, description: e.target.value }))}
-              className="w-full px-3 py-2 border rounded-md"
-              rows={3}
-            />
-          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -444,17 +431,36 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Effort (hours)
-            </label>
-            <input
-              type="number"
-              min="0"
-              value={editedTask.effort}
-              onChange={e => setEditedTask(prev => ({ ...prev, effort: Number(e.target.value) }))}
-              className="w-full px-3 py-2 border rounded-md"
-            />
+          {/* Bottom row: Assigned to (left) and Effort (right) */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Assigned To
+              </label>
+              <select
+                value={editedTask.memberId}
+                onChange={e => setEditedTask(prev => ({ ...prev, memberId: e.target.value }))}
+                className="w-full px-3 py-2 border rounded-md"
+              >
+                {members.map(member => (
+                  <option key={member.id} value={member.id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Effort (hours)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={editedTask.effort}
+                onChange={e => setEditedTask(prev => ({ ...prev, effort: Number(e.target.value) }))}
+                className="w-full px-3 py-2 border rounded-md"
+              />
+            </div>
           </div>
 
           {/* Tags Selection */}
