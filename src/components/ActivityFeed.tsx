@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Activity, Clock, ChevronDown, ChevronUp } from 'lucide-react';
-import { updateUserSetting } from '../api';
+import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { updateActivityFeedPreference } from '../utils/userPreferences';
 
 interface ActivityItem {
   id: number;
@@ -25,6 +25,11 @@ interface ActivityFeedProps {
   clearActivityId?: number;
   onMarkAsRead?: (activityId: number) => void;
   onClearAll?: (activityId: number) => void;
+  position?: { x: number; y: number };
+  onPositionChange?: (position: { x: number; y: number }) => void;
+  dimensions?: { width: number; height: number };
+  onDimensionsChange?: (dimensions: { width: number; height: number }) => void;
+  userId?: string | null;
 }
 
 const ActivityFeed: React.FC<ActivityFeedProps> = ({ 
@@ -36,14 +41,27 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   lastSeenActivityId = 0,
   clearActivityId = 0,
   onMarkAsRead,
-  onClearAll
+  onClearAll,
+  position = { x: window.innerWidth - 220, y: 66 },
+  onPositionChange,
+  dimensions = { width: 208, height: 400 },
+  onDimensionsChange,
+  userId = null
 }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMinimized, setIsMinimized] = useState(initialIsMinimized);
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{top: number, left: number} | null>(null);
+  const [showMinimizeDropdown, setShowMinimizeDropdown] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [isResizing, setIsResizing] = useState<'width' | 'height' | 'height-top' | 'both' | 'both-top' | null>(null);
+  const [resizeOffset, setResizeOffset] = useState({ x: 0, y: 0 });
+  const currentDragPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const currentDragDimensionsRef = useRef<{ width: number; height: number } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
 
   // Sync with prop changes
   useEffect(() => {
@@ -51,13 +69,60 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   }, [initialIsMinimized]);
 
   // Handle minimize/expand with user setting persistence
-  const handleMinimizedChange = async (minimized: boolean) => {
+  const handleMinimizeInPlace = async () => {
+    await handleMinimizedChange(true, false);
+  };
+
+  const handleMinimizeToBottom = async () => {
+    // Move to bottom of viewport first
+    const bottomPosition = {
+      x: position.x,
+      y: window.innerHeight - 80 // 60px height + 20px margin
+    };
+    
+    onPositionChange?.(bottomPosition);
+    
+    // Save the new position
+    try {
+      await updateActivityFeedPreference('position', bottomPosition, userId);
+    } catch (error) {
+      console.error('Failed to save bottom position:', error);
+    }
+    
+    // Then minimize
+    await handleMinimizedChange(true, true);
+  };
+
+  const handleMinimizedChange = async (minimized: boolean, isBottomMinimize: boolean = false) => {
     setIsMinimized(minimized);
     onMinimizedChange?.(minimized);
     
-    // Save to user settings
+    // When maximizing, check if the expanded height would go off-screen
+    if (!minimized) {
+      const currentY = position.y;
+      const expandedHeight = dimensions.height;
+      const viewportHeight = window.innerHeight;
+      
+      // If the bottom of the expanded feed would be off-screen, move it up
+      if (currentY + expandedHeight > viewportHeight - 20) {
+        const newY = Math.max(66, viewportHeight - expandedHeight - 20); // 66 is header height + gap
+        const adjustedPosition = { x: position.x, y: newY };
+        
+        console.log(`Adjusting position on maximize: ${currentY} -> ${newY} (height: ${expandedHeight})`);
+        onPositionChange?.(adjustedPosition);
+        
+        // Save the adjusted position
+        try {
+          await updateActivityFeedPreference('position', adjustedPosition, userId);
+        } catch (error) {
+          console.error('Failed to save adjusted position:', error);
+        }
+      }
+    }
+    
+    // Save minimized state to user preferences (unified system)
     try {
-      await updateUserSetting('activityFeedMinimized', minimized);
+      await updateActivityFeedPreference('isMinimized', minimized, userId);
     } catch (error) {
       console.error('Failed to save activity feed minimized state:', error);
     }
@@ -78,6 +143,187 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     setTooltipPosition(null);
   };
 
+  // Drag functionality
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (!feedRef.current) return;
+    
+    const rect = feedRef.current.getBoundingClientRect();
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+    setIsDragging(true);
+    
+    // Prevent text selection
+    e.preventDefault();
+  };
+
+  const handleDragMove = (e: MouseEvent) => {
+    if (!isDragging) return;
+    
+    const newX = e.clientX - dragOffset.x;
+    const newY = e.clientY - dragOffset.y;
+    
+    // Constrain to viewport using dynamic dimensions
+    const feedWidth = isMinimized ? dimensions.width : dimensions.width;
+    const feedHeight = isMinimized ? 60 : dimensions.height;
+    
+    const constrainedX = Math.max(0, Math.min(window.innerWidth - feedWidth, newX));
+    const constrainedY = Math.max(0, Math.min(window.innerHeight - feedHeight, newY));
+    
+    const newPosition = { x: constrainedX, y: constrainedY };
+    currentDragPositionRef.current = newPosition;
+    onPositionChange?.(newPosition);
+  };
+
+  const handleDragEnd = async () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+    
+    // Use the position that was actually set during dragging
+    const positionToSave = currentDragPositionRef.current || position;
+    
+    // Save current position to user preferences (unified system)
+    try {
+      await updateActivityFeedPreference('position', positionToSave, userId);
+    } catch (error) {
+      console.error('Failed to save activity feed position:', error);
+    }
+    
+    // Clear the drag position
+    currentDragPositionRef.current = null;
+  };
+
+  // Resize functionality
+  const handleResizeStart = (e: React.MouseEvent, resizeType: 'width' | 'height' | 'height-top' | 'both' | 'both-top') => {
+    if (!feedRef.current) return;
+    
+    const rect = feedRef.current.getBoundingClientRect();
+    setResizeOffset({
+      x: e.clientX - rect.right, // Distance from right edge
+      y: e.clientY - rect.bottom  // Distance from bottom edge
+    });
+    setIsResizing(resizeType);
+    
+    // Prevent text selection
+    e.preventDefault();
+    e.stopPropagation(); // Prevent drag from starting
+  };
+
+  const handleResizeMove = (e: MouseEvent) => {
+    if (!isResizing || !feedRef.current) return;
+    
+    const rect = feedRef.current.getBoundingClientRect();
+    let newWidth = dimensions.width;
+    let newHeight = dimensions.height;
+    let newPosition = position;
+    
+    // Calculate new dimensions based on resize type
+    if (isResizing === 'width' || isResizing === 'both' || isResizing === 'both-top') {
+      newWidth = Math.max(180, Math.min(400, e.clientX - rect.left));
+    }
+    
+    if (isResizing === 'height' || isResizing === 'both') {
+      // Resize from bottom - normal behavior
+      newHeight = Math.max(200, Math.min(window.innerHeight * 0.8, e.clientY - rect.top));
+    }
+    
+    if (isResizing === 'height-top' || isResizing === 'both-top') {
+      // Resize from top - adjust both height and position
+      const deltaY = e.clientY - rect.top;
+      const proposedHeight = dimensions.height - deltaY;
+      const constrainedHeight = Math.max(200, Math.min(window.innerHeight * 0.8, proposedHeight));
+      
+      // Only move position if we're not hitting the minimum height constraint
+      if (proposedHeight >= 200) {
+        newPosition = {
+          x: position.x,
+          y: Math.max(66, position.y + (dimensions.height - constrainedHeight)) // Don't go above header
+        };
+      }
+      
+      newHeight = constrainedHeight;
+    }
+    
+    const newDimensions = { width: newWidth, height: newHeight };
+    currentDragDimensionsRef.current = newDimensions;
+    onDimensionsChange?.(newDimensions);
+    
+    // Update position if resizing from top
+    if ((isResizing === 'height-top' || isResizing === 'both-top') && newPosition !== position) {
+      currentDragPositionRef.current = newPosition;
+      onPositionChange?.(newPosition);
+    }
+  };
+
+  const handleResizeEnd = async () => {
+    if (!isResizing) return;
+    setIsResizing(null);
+    
+    // Use the dimensions that were actually set during resizing
+    const dimensionsToSave = currentDragDimensionsRef.current || dimensions;
+    const positionToSave = currentDragPositionRef.current || position;
+    
+    // Save current dimensions to user preferences
+    try {
+      await updateActivityFeedPreference('width', dimensionsToSave.width, userId);
+      await updateActivityFeedPreference('height', dimensionsToSave.height, userId);
+      
+      // Save position if it was changed (for top resize)
+      if (currentDragPositionRef.current) {
+        await updateActivityFeedPreference('position', positionToSave, userId);
+      }
+    } catch (error) {
+      console.error('Failed to save activity feed dimensions/position:', error);
+    }
+    
+    // Clear the resize dimensions and position
+    currentDragDimensionsRef.current = null;
+    currentDragPositionRef.current = null;
+  };
+
+  // Add global mouse event listeners for dragging and resizing
+  useEffect(() => {
+    if (isDragging) {
+      const handleMove = (e: MouseEvent) => handleDragMove(e);
+      const handleEnd = () => handleDragEnd();
+      
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleEnd);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleEnd);
+      };
+    }
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (isResizing) {
+      const handleMove = (e: MouseEvent) => handleResizeMove(e);
+      const handleEnd = () => handleResizeEnd();
+      
+      document.addEventListener('mousemove', handleMove);
+      document.addEventListener('mouseup', handleEnd);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleEnd);
+      };
+    }
+  }, [isResizing]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showMinimizeDropdown && !(event.target as Element).closest('.minimize-dropdown')) {
+        setShowMinimizeDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMinimizeDropdown]);
 
   const formatTimeAgo = (timestamp: string) => {
     const now = new Date();
@@ -159,9 +405,25 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   
   if (isMinimized) {
     return (
-      <div className="fixed right-2 bottom-4 w-52 bg-white shadow-lg rounded border border-gray-200 z-40">
+      <div 
+        ref={feedRef}
+        className={`fixed bg-white shadow-lg rounded border border-gray-200 z-40 ${isDragging ? 'cursor-grabbing' : ''}`}
+        style={{
+          left: position.x,
+          top: position.y,
+          width: dimensions.width,
+          height: 60, // Fixed height for minimized
+        }}
+      >
         {/* Minimized Header */}
         <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
+          {/* Drag Handle */}
+          <div 
+            className="cursor-grab active:cursor-grabbing flex items-center"
+            onMouseDown={handleDragStart}
+          >
+            <GripVertical className="w-3 h-3 text-gray-400 mr-1" />
+          </div>
           <div 
             className="flex items-center space-x-1.5 flex-1 min-w-0 cursor-help"
             onMouseEnter={latestActivity ? handleMouseEnter : undefined}
@@ -181,6 +443,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 <span className="text-xs text-gray-500">No recent activity</span>
               )}
             </div>
+            {unreadCount > 0 && (
+              <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none ml-1">
+                {unreadCount}
+              </div>
+            )}
           </div>
           <div className="flex items-center space-x-0.5 ml-1">
             <button
@@ -235,10 +502,27 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   }
 
   return (
-    <div className="fixed right-2 top-[66px] bottom-4 w-52 bg-white shadow-xl rounded border border-gray-200 z-40 flex flex-col">
+    <div 
+      ref={feedRef}
+      className={`fixed bg-white shadow-xl rounded border border-gray-200 z-40 flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
+      style={{
+        left: position.x,
+        top: position.y,
+        width: dimensions.width,
+        height: dimensions.height,
+      }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between p-2 border-b border-gray-200 bg-gray-50 rounded-t">
-        <div className="flex items-center space-x-1.5">
+        {/* Drag Handle */}
+        <div 
+          className="cursor-grab active:cursor-grabbing flex items-center mr-1"
+          onMouseDown={handleDragStart}
+        >
+          <GripVertical className="w-3 h-3 text-gray-400" />
+        </div>
+        
+        <div className="flex items-center space-x-1.5 flex-1">
           <Activity className="w-3 h-3 text-blue-600" />
           <h3 className="font-medium text-gray-900 text-xs">Activity Feed</h3>
           {unreadCount > 0 && (
@@ -248,13 +532,42 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           )}
         </div>
         <div className="flex items-center space-x-0.5">
-          <button
-            onClick={() => handleMinimizedChange(true)}
-            className="p-0.5 hover:bg-gray-200 rounded transition-colors"
-            title="Minimize Activity Feed"
-          >
-            <ChevronDown className="w-2.5 h-2.5 text-gray-500" />
-          </button>
+          {/* Minimize Dropdown */}
+          <div className="relative minimize-dropdown">
+            <button
+              onClick={() => setShowMinimizeDropdown(!showMinimizeDropdown)}
+              className="p-0.5 hover:bg-gray-200 rounded transition-colors flex items-center"
+              title="Minimize Options"
+            >
+              <ChevronDown className="w-2.5 h-2.5 text-gray-500" />
+            </button>
+            
+            {showMinimizeDropdown && (
+              <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[140px]">
+                <button
+                  onClick={() => {
+                    handleMinimizeInPlace();
+                    setShowMinimizeDropdown(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <ChevronDown className="w-3 h-3 mr-2" />
+                  Minimize in place
+                </button>
+                <button
+                  onClick={() => {
+                    handleMinimizeToBottom();
+                    setShowMinimizeDropdown(false);
+                  }}
+                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+                >
+                  <ChevronDown className="w-3 h-3 mr-2" />
+                  Minimize to bottom
+                </button>
+              </div>
+            )}
+          </div>
+          
           <button
             onClick={onClose}
             className="p-0.5 hover:bg-gray-200 rounded transition-colors"
@@ -345,6 +658,42 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           </div>
         )}
       </div>
+
+      {/* Resize Handles */}
+      {/* Top edge resize handle */}
+      <div
+        className="absolute top-0 left-0 w-full h-1 cursor-ns-resize hover:bg-blue-200 transition-colors"
+        onMouseDown={(e) => handleResizeStart(e, 'height-top')}
+        style={{ top: -2 }}
+      />
+      
+      {/* Right edge resize handle */}
+      <div
+        className="absolute top-0 right-0 w-1 h-full cursor-ew-resize hover:bg-blue-200 transition-colors"
+        onMouseDown={(e) => handleResizeStart(e, 'width')}
+        style={{ right: -2 }}
+      />
+      
+      {/* Bottom edge resize handle */}
+      <div
+        className="absolute bottom-0 left-0 w-full h-1 cursor-ns-resize hover:bg-blue-200 transition-colors"
+        onMouseDown={(e) => handleResizeStart(e, 'height')}
+        style={{ bottom: -2 }}
+      />
+      
+      {/* Bottom-right corner resize handle */}
+      <div
+        className="absolute bottom-0 right-0 w-3 h-3 cursor-nw-resize hover:bg-blue-300 transition-colors"
+        onMouseDown={(e) => handleResizeStart(e, 'both')}
+        style={{ bottom: -2, right: -2 }}
+      />
+      
+      {/* Top-right corner resize handle */}
+      <div
+        className="absolute top-0 right-0 w-3 h-3 cursor-ne-resize hover:bg-blue-300 transition-colors"
+        onMouseDown={(e) => handleResizeStart(e, 'both-top')}
+        style={{ top: -2, right: -2 }}
+      />
     </div>
   );
 };

@@ -24,3 +24,97 @@
 .hide-scrollbar::-webkit-scrollbar {
   display: none; /* Chrome, Safari, and Opera */
 }
+
+/* TipTap Editor List Styles - Fix for bullet and numbering issues */
+.ProseMirror ul {
+  list-style-type: disc !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.ProseMirror ol {
+  list-style-type: decimal !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.ProseMirror li {
+  display: list-item !important;
+  margin-left: 0 !important;
+  padding-left: 0.25rem !important;
+}
+
+.ProseMirror ul ul {
+  list-style-type: circle !important;
+  margin-left: 1.5rem !important;
+}
+
+.ProseMirror ul ul ul {
+  list-style-type: square !important;
+  margin-left: 1.5rem !important;
+}
+
+/* Ensure list items have proper spacing */
+.ProseMirror li p {
+  margin: 0 !important;
+}
+
+.ProseMirror li + li {
+  margin-top: 0.25rem !important;
+}
+
+/* Also apply list styles to rendered comments (prose class) */
+.prose ul {
+  list-style-type: disc !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.prose ol {
+  list-style-type: decimal !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.prose li {
+  display: list-item !important;
+  margin-left: 0 !important;
+  padding-left: 0.25rem !important;
+}
+
+.prose ul ul {
+  list-style-type: circle !important;
+  margin-left: 1.5rem !important;
+}
+
+.prose ul ul ul {
+  list-style-type: square !important;
+  margin-left: 1.5rem !important;
+}
+
+.prose li p {
+  margin: 0 !important;
+}
+
+.prose li + li {
+  margin-top: 0.25rem !important;
+}
+
+/* TipTap specific list classes */
+.tiptap-bullet-list {
+  list-style-type: disc !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.tiptap-ordered-list {
+  list-style-type: decimal !important;
+  margin-left: 1.5rem !important;
+  padding-left: 0 !important;
+}
+
+.tiptap-list-item {
+  display: list-item !important;
+  margin-left: 0 !important;
+  padding-left: 0.25rem !important;
+}

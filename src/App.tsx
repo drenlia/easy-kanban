@@ -27,14 +27,14 @@ import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, updateUserSetting } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, updateUserPreference, TaskViewMode, ViewMode } from './utils/userPreferences';
+import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode } from './utils/userPreferences';
 import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
 import { 
   DEFAULT_COLUMNS, 
@@ -77,6 +77,14 @@ export default function App() {
   // Activity Feed state
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
   const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
+  const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
+    x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
+    y: 66 
+  });
+  const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
+    width: 208,
+    height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400
+  });
   const [activities, setActivities] = useState<any[]>([]);
   const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
   const [clearActivityId, setClearActivityId] = useState<number>(0);
@@ -337,6 +345,32 @@ export default function App() {
           setActivityFeedMinimized(settings.activityFeedMinimized || false); // Default to expanded
           setLastSeenActivityId(settings.lastSeenActivityId || 0); // Default to 0 (show all as unread)
           setClearActivityId(settings.clearActivityId || 0); // Default to 0 (show all)
+          
+          // Load saved position or use default
+          if (settings.activityFeedPosition) {
+            try {
+              console.log('Loading saved activity feed position:', settings.activityFeedPosition);
+              const savedPosition = JSON.parse(settings.activityFeedPosition);
+              console.log('Parsed position:', savedPosition);
+              setActivityFeedPosition(savedPosition);
+            } catch (error) {
+              console.warn('Failed to parse saved activity feed position:', error);
+            }
+          } else {
+            console.log('No saved activity feed position found, using default');
+          }
+
+          // Load saved dimensions or use default
+          if (settings.activityFeedWidth || settings.activityFeedHeight) {
+            const savedDimensions = {
+              width: settings.activityFeedWidth || 208,
+              height: settings.activityFeedHeight || (typeof window !== 'undefined' ? window.innerHeight - 200 : 400)
+            };
+            console.log('Loading saved activity feed dimensions:', savedDimensions);
+            setActivityFeedDimensions(savedDimensions);
+          } else {
+            console.log('No saved activity feed dimensions found, using default');
+          }
         } catch (error) {
           console.error('Failed to load user settings:', error);
         }
@@ -345,6 +379,20 @@ export default function App() {
     
     loadUserSettings();
   }, [currentUser?.id, systemSettings]);
+
+  // Load admin defaults for new user preferences
+  useEffect(() => {
+    const initializeAdminDefaults = async () => {
+      try {
+        await loadAdminDefaults();
+        console.log('Admin defaults loaded for new users');
+      } catch (error) {
+        console.warn('Failed to load admin defaults:', error);
+      }
+    };
+    
+    initializeAdminDefaults();
+  }, []); // Run once on mount
 
   // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
@@ -360,7 +408,7 @@ export default function App() {
   // Activity feed mark as read handler
   const handleActivityFeedMarkAsRead = async (activityId: number) => {
     try {
-      await updateUserSetting('lastSeenActivityId', activityId);
+      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
       setLastSeenActivityId(activityId);
     } catch (error) {
       console.error('Failed to mark activities as read:', error);
@@ -372,8 +420,8 @@ export default function App() {
     try {
       // Set both clear point and read point to the same value
       // This ensures new activities after clear will show as unread
-      await updateUserSetting('clearActivityId', activityId);
-      await updateUserSetting('lastSeenActivityId', activityId);
+      await updateActivityFeedPreference('clearActivityId', activityId, currentUser?.id || null);
+      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
       setClearActivityId(activityId);
       setLastSeenActivityId(activityId);
     } catch (error) {
@@ -2270,6 +2318,11 @@ export default function App() {
         clearActivityId={clearActivityId}
         onMarkAsRead={handleActivityFeedMarkAsRead}
         onClearAll={handleActivityFeedClearAll}
+        position={activityFeedPosition}
+        onPositionChange={setActivityFeedPosition}
+        dimensions={activityFeedDimensions}
+        onDimensionsChange={setActivityFeedDimensions}
+        userId={currentUser?.id || null}
       />
     </div>
   );

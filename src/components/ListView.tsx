@@ -1,11 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
 import { Task, TeamMember, Priority, Tag, Columns } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
+import DOMPurify from 'dompurify';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -980,6 +981,16 @@ export default function ListView({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            onEditTask(task);
+                          }}
+                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600"
+                          title="Quick Edit"
+                        >
+                          <Edit2 size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
                             onRemoveTask(task.id, e);
                           }}
                           className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
@@ -1038,10 +1049,10 @@ export default function ListView({
                               />
                             ) : (
                               <div 
-                                className={`text-sm text-gray-500 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 ${
+                                className={`text-sm text-gray-500 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 prose prose-sm max-w-none ${
                                   taskViewMode === 'shrink' ? 'truncate' : 'break-words'
                                 }`} 
-                                title={task.description}
+                                title={task.description ? task.description.replace(/<[^>]*>/g, '') : ''}
                                 style={{
                                   maxHeight: taskViewMode === 'shrink' ? '1.5em' : 'none',
                                   overflow: taskViewMode === 'shrink' ? 'hidden' : 'visible'
@@ -1050,12 +1061,14 @@ export default function ListView({
                                   e.stopPropagation();
                                   startEditing(task.id, 'description', task.description);
                                 }}
-                              >
-                                {taskViewMode === 'shrink' && task.description.length > 100 
-                                  ? `${task.description.substring(0, 100)}...` 
-                                  : task.description
-                                }
-                              </div>
+                                dangerouslySetInnerHTML={{
+                                  __html: DOMPurify.sanitize(
+                                    taskViewMode === 'shrink' && task.description && task.description.length > 100 
+                                      ? `${task.description.substring(0, 100)}...` 
+                                      : task.description || ''
+                                  )
+                                }}
+                              />
                             )
                           )}
                         </div>

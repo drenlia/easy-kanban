@@ -270,6 +270,7 @@ const createTables = (db) => {
       columnId TEXT,
       boardId TEXT,
       tagId INTEGER,
+      commentId TEXT,
       details TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -285,11 +286,23 @@ const createTables = (db) => {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS user_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      userId TEXT NOT NULL,
+      setting_key TEXT NOT NULL,
+      setting_value TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE(userId, setting_key)
+    );
+
     -- Create indexes for better query performance
     CREATE INDEX IF NOT EXISTS idx_watchers_taskId ON watchers(taskId);
     CREATE INDEX IF NOT EXISTS idx_watchers_memberId ON watchers(memberId);
     CREATE INDEX IF NOT EXISTS idx_collaborators_taskId ON collaborators(taskId);
     CREATE INDEX IF NOT EXISTS idx_collaborators_memberId ON collaborators(memberId);
+    CREATE INDEX IF NOT EXISTS idx_user_settings_userId ON user_settings(userId);
   `);
 };
 
@@ -330,7 +343,13 @@ const initializeDefaultData = (db) => {
       ['MAIL_FROM', ''],
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
-      ['GOOGLE_SSO_DEBUG', 'false']
+      ['GOOGLE_SSO_DEBUG', 'false'],
+      // Admin-configurable user preference defaults
+      ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
+      ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
+      ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 0, "y": 443}'], // Default activity feed position
+      ['DEFAULT_ACTIVITY_FEED_WIDTH', '180'], // Default activity feed width
+      ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'] // Default activity feed height
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

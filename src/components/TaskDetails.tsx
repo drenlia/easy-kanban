@@ -3,6 +3,7 @@ import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser
 import { X, Paperclip, ChevronDown, Check, Edit2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import CommentEditor from './CommentEditor';
+import TextEditor from './TextEditor';
 import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
@@ -817,12 +818,27 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
               </label>
-              <textarea
-                value={editedTask.description}
-                onChange={e => handleTextUpdate('description', e.target.value)}
-                className="w-full px-3 py-2 border rounded-md"
-                rows={3}
-                disabled={isSubmitting}
+              <TextEditor
+                onSubmit={async () => {
+                  // No-op since we're using onChange instead
+                }}
+                onChange={(content) => {
+                  handleTextUpdate('description', content);
+                }}
+                initialContent={editedTask.description}
+                placeholder="Enter task description..."
+                minHeight="120px"
+                showSubmitButtons={false}
+                toolbarOptions={{
+                  bold: true,
+                  italic: true,
+                  underline: true,
+                  link: true,
+                  lists: true,
+                  alignment: false,
+                  attachments: false
+                }}
+                className="w-full"
               />
             </div>
 

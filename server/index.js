@@ -14,8 +14,8 @@ import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_
 import { attachmentUpload, avatarUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
-import { initActivityLogger, logActivity } from './services/activityLogger.js';
-import { TAG_ACTIONS } from './constants/activityActions.js';
+import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
+import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
 import boardsRouter from './routes/boards.js';
@@ -237,8 +237,9 @@ app.use('/api/password-reset', passwordResetRouter);
 // ================================
 
 // Comments endpoints
-app.post('/api/comments', (req, res) => {
+app.post('/api/comments', authenticateToken, async (req, res) => {
   const comment = req.body;
+  const userId = req.user.id;
   
   try {
     // Begin transaction
@@ -280,6 +281,16 @@ app.post('/api/comments', (req, res) => {
 
       // Commit transaction
       db.prepare('COMMIT').run();
+      
+      // Log comment creation activity
+      await logCommentActivity(
+        userId,
+        COMMENT_ACTIONS.CREATE,
+        comment.id,
+        comment.taskId,
+        `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`
+      );
+      
       res.json(comment);
     } catch (error) {
       // Rollback on error
@@ -293,11 +304,19 @@ app.post('/api/comments', (req, res) => {
 });
 
 // Update comment endpoint
-app.put('/api/comments/:id', (req, res) => {
+app.put('/api/comments/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
+  const userId = req.user.id;
   
   try {
+    // Get original comment first
+    const originalComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    
+    if (!originalComment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
     // Update comment text in database
     const stmt = db.prepare('UPDATE comments SET text = ? WHERE id = ?');
     const result = stmt.run(text, id);
@@ -305,6 +324,15 @@ app.put('/api/comments/:id', (req, res) => {
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Comment not found' });
     }
+    
+    // Log comment update activity
+    await logCommentActivity(
+      userId,
+      COMMENT_ACTIONS.UPDATE,
+      id,
+      originalComment.taskId,
+      `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`
+    );
     
     // Return updated comment
     const updatedComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
@@ -315,10 +343,18 @@ app.put('/api/comments/:id', (req, res) => {
   }
 });
 
-app.delete('/api/comments/:id', async (req, res) => {
+app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const userId = req.user.id;
   
   try {
+    // Get comment details before deleting
+    const commentToDelete = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    
+    if (!commentToDelete) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
     // Get attachments before deleting the comment
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE commentId = ?');
     const attachments = attachmentsStmt.all(id);
@@ -336,6 +372,15 @@ app.delete('/api/comments/:id', async (req, res) => {
     // Delete the comment (cascades to attachments)
     const stmt = db.prepare('DELETE FROM comments WHERE id = ?');
     stmt.run(id);
+
+    // Log comment deletion activity
+    await logCommentActivity(
+      userId,
+      COMMENT_ACTIONS.DELETE,
+      id,
+      commentToDelete.taskId,
+      `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`
+    );
 
     res.json({ message: 'Comment and attachments deleted successfully' });
   } catch (error) {
@@ -1374,15 +1419,25 @@ app.get('/api/user/settings', authenticateToken, (req, res) => {
     
     // Convert to object format
     const settingsObj = settings.reduce((acc, setting) => {
-      acc[setting.setting_key] = setting.setting_value === 'true' ? true : setting.setting_value === 'false' ? false : setting.setting_value;
+      let value = setting.setting_value;
+      
+      // Convert booleans
+      if (value === 'true') {
+        value = true;
+      } else if (value === 'false') {
+        value = false;
+      } else if (!isNaN(value) && !isNaN(parseFloat(value))) {
+        // Convert numbers (but only if it's actually a pure number)
+        value = parseFloat(value);
+      }
+      // Leave strings (including JSON strings) as strings
+      
+      acc[setting.setting_key] = value;
       return acc;
     }, {});
     
-    // Set defaults if not found
-    if (!settingsObj.hasOwnProperty('showActivityFeed')) {
-      settingsObj.showActivityFeed = false; // Default to off
-    }
-    
+    // Don't set defaults here - let the client handle smart merging
+    // This allows the client to properly merge cookie vs database values
     res.json(settingsObj);
   } catch (error) {
     console.error('Error fetching user settings:', error);
@@ -1395,10 +1450,19 @@ app.put('/api/user/settings', authenticateToken, (req, res) => {
   const { setting_key, setting_value } = req.body;
   
   try {
+    // Handle undefined/null values
+    if (setting_value === undefined || setting_value === null) {
+      console.warn(`Skipping save for ${setting_key}: value is ${setting_value}`);
+      return res.json({ message: 'Setting skipped (undefined/null value)' });
+    }
+    
+    // Convert value to string safely
+    const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
+    
     wrapQuery(db.prepare(`
       INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    `), 'INSERT').run(userId, setting_key, setting_value.toString());
+    `), 'INSERT').run(userId, setting_key, valueString);
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {

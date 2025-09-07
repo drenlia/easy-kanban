@@ -3,6 +3,7 @@ import { X, ChevronDown, Check } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
 import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
+import TextEditor from './TextEditor';
 
 interface QuickEditModalProps {
   task: Task;
@@ -249,17 +250,32 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             />
           </div>
 
-          {/* Description - moved under title, made larger */}
+          {/* Description - using TextEditor for rich text */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Description
             </label>
-            <textarea
-              value={editedTask.description}
-              onChange={e => setEditedTask(prev => ({ ...prev, description: e.target.value }))}
-              className="w-full px-3 py-2 border rounded-md"
-              rows={6}
-              style={{ width: '150%', maxWidth: '100%' }}
+            <TextEditor
+              onSubmit={async () => {
+                // No-op since we're using onChange instead
+              }}
+              onChange={(content) => {
+                setEditedTask(prev => ({ ...prev, description: content }));
+              }}
+              initialContent={editedTask.description}
+              placeholder="Enter task description..."
+              minHeight="150px"
+              showSubmitButtons={false}
+              toolbarOptions={{
+                bold: true,
+                italic: true,
+                underline: true,
+                link: true,
+                lists: true,
+                alignment: false,
+                attachments: false
+              }}
+              className="w-full"
             />
           </div>
 
