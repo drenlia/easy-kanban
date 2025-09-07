@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical } from 'lucide-react';
-import { Column, Task, TeamMember, PriorityOption } from '../types';
+import { Column, Task, TeamMember, PriorityOption, CurrentUser } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -12,6 +12,7 @@ interface KanbanColumnProps {
   column: Column;
   filteredTasks: Task[];
   members: TeamMember[];
+  currentUser?: CurrentUser | null;
   selectedMembers: string[];
   selectedTask: Task | null;
   draggedTask: Task | null;
@@ -50,6 +51,7 @@ export default function KanbanColumn({
   column,
   filteredTasks,
   members,
+  currentUser,
   selectedMembers,
   selectedTask,
   draggedTask,
@@ -252,6 +254,7 @@ export default function KanbanColumn({
             task={task}
             member={member}
             members={members}
+            currentUser={currentUser}
             onRemove={onRemoveTask}
             onEdit={onEditTask}
             onCopy={onCopyTask}
