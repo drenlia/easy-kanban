@@ -85,7 +85,8 @@ const createTables = (db) => {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       description TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -98,7 +99,8 @@ const createTables = (db) => {
       auth_provider TEXT DEFAULT 'local',
       google_avatar_url TEXT,
       is_active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS user_roles (
@@ -106,6 +108,7 @@ const createTables = (db) => {
       user_id TEXT NOT NULL,
       role_id INTEGER NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
       UNIQUE(user_id, role_id)
@@ -116,13 +119,16 @@ const createTables = (db) => {
       name TEXT NOT NULL,
       color TEXT NOT NULL,
       user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS boards (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
-      position INTEGER DEFAULT 0
+      position INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS columns (
@@ -130,6 +136,8 @@ const createTables = (db) => {
       boardId TEXT NOT NULL,
       title TEXT NOT NULL,
       position INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
     );
 
@@ -146,6 +154,8 @@ const createTables = (db) => {
       priority TEXT NOT NULL,
       columnId TEXT NOT NULL,
       boardId TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (memberId) REFERENCES members(id),
       FOREIGN KEY (requesterId) REFERENCES members(id),
       FOREIGN KEY (columnId) REFERENCES columns(id) ON DELETE CASCADE,
@@ -158,6 +168,7 @@ const createTables = (db) => {
       text TEXT NOT NULL,
       authorId TEXT NOT NULL,
       createdAt TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
       FOREIGN KEY (authorId) REFERENCES members(id)
     );
@@ -169,6 +180,8 @@ const createTables = (db) => {
       url TEXT NOT NULL,
       type TEXT NOT NULL,
       size INTEGER NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (commentId) REFERENCES comments(id) ON DELETE CASCADE
     );
 
@@ -183,7 +196,8 @@ const createTables = (db) => {
       tag TEXT NOT NULL UNIQUE,
       description TEXT,
       color TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS priorities (
@@ -192,6 +206,7 @@ const createTables = (db) => {
       color TEXT NOT NULL,
       position INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       initial INTEGER DEFAULT 0
     );
 
@@ -209,6 +224,7 @@ const createTables = (db) => {
       priorityFilters TEXT,
       tagFilters TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -217,6 +233,7 @@ const createTables = (db) => {
       taskId TEXT NOT NULL,
       tagId INTEGER NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
       FOREIGN KEY (tagId) REFERENCES tags(id) ON DELETE CASCADE,
       UNIQUE(taskId, tagId)
@@ -227,6 +244,7 @@ const createTables = (db) => {
       taskId TEXT NOT NULL,
       memberId TEXT NOT NULL,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
       FOREIGN KEY (memberId) REFERENCES members(id) ON DELETE CASCADE,
       UNIQUE(taskId, memberId)
@@ -237,6 +255,7 @@ const createTables = (db) => {
       taskId TEXT NOT NULL,
       memberId TEXT NOT NULL,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
       FOREIGN KEY (memberId) REFERENCES members(id) ON DELETE CASCADE,
       UNIQUE(taskId, memberId)
@@ -245,12 +264,15 @@ const createTables = (db) => {
     CREATE TABLE IF NOT EXISTS activity (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       userId TEXT NOT NULL,
+      roleId INTEGER,
       action TEXT NOT NULL,
       taskId TEXT,
       columnId TEXT,
+      boardId TEXT,
+      tagId INTEGER,
       details TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -470,75 +492,6 @@ const initializeDefaultData = (db) => {
     // Column already exists, ignore error
   }
 
-  // Add missing created_at and updated_at columns (migration)
-  // SQLite doesn't support DEFAULT CURRENT_TIMESTAMP in ALTER TABLE, so we add columns then update
-  const alterQueries = [
-    // Add created_at to tables that don't have it
-    'ALTER TABLE boards ADD COLUMN created_at DATETIME',
-    'ALTER TABLE boards ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE columns ADD COLUMN created_at DATETIME',
-    'ALTER TABLE columns ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE tasks ADD COLUMN created_at DATETIME',
-    'ALTER TABLE tasks ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE attachments ADD COLUMN created_at DATETIME',
-    'ALTER TABLE attachments ADD COLUMN updated_at DATETIME',
-    
-    // Add updated_at to existing tables
-    'ALTER TABLE roles ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE users ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE user_roles ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE members ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE comments ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE tags ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE priorities ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE views ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE task_tags ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE watchers ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE collaborators ADD COLUMN updated_at DATETIME',
-    'ALTER TABLE activity ADD COLUMN created_at DATETIME',
-    'ALTER TABLE activity ADD COLUMN updated_at DATETIME'
-  ];
-
-  alterQueries.forEach(query => {
-    try {
-      db.prepare(query).run();
-    } catch (error) {
-      // Column already exists, ignore error
-    }
-  });
-
-  // Update NULL timestamp values to current timestamp
-  const updateQueries = [
-    'UPDATE boards SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
-    'UPDATE boards SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE columns SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
-    'UPDATE columns SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE tasks SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
-    'UPDATE tasks SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE attachments SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
-    'UPDATE attachments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE roles SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE user_roles SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE members SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE comments SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE tags SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE priorities SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE views SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE task_tags SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE watchers SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE collaborators SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL',
-    'UPDATE activity SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL',
-    'UPDATE activity SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL'
-  ];
-
-  updateQueries.forEach(query => {
-    try {
-      db.prepare(query).run();
-    } catch (error) {
-      // Ignore errors (table might not exist or column might not be added yet)
-    }
-  });
 
   // Clean up orphaned members (members without corresponding users)
   try {

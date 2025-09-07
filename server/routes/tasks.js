@@ -1,5 +1,7 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
+import { TASK_ACTIONS } from '../constants/activityActions.js';
 
 const router = express.Router();
 
@@ -16,11 +18,15 @@ router.get('/', (req, res) => {
 });
 
 // Create task
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const task = req.body;
+  const userId = req.user?.id || 'system'; // Fallback for now
+  
   try {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
+    
+    // Create the task
     wrapQuery(db.prepare(`
       INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -28,6 +34,19 @@ router.post('/', (req, res) => {
       task.id, task.title, task.description || '', task.memberId, task.requesterId,
       task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
     );
+    
+    // Log the activity (console only for now)
+    await logTaskActivity(
+      userId,
+      TASK_ACTIONS.CREATE,
+      task.id,
+      `created task "${task.title}"`,
+      { 
+        columnId: task.columnId,
+        boardId: task.boardId 
+      }
+    );
+    
     res.json(task);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -36,8 +55,10 @@ router.post('/', (req, res) => {
 });
 
 // Create task at top
-router.post('/add-at-top', (req, res) => {
+router.post('/add-at-top', async (req, res) => {
   const task = req.body;
+  const userId = req.user?.id || 'system';
+  
   try {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
@@ -51,6 +72,19 @@ router.post('/add-at-top', (req, res) => {
         task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
       );
     })();
+    
+    // Log task creation activity
+    await logTaskActivity(
+      userId,
+      TASK_ACTIONS.CREATE,
+      task.id,
+      `created task "${task.title}" at top of column`,
+      { 
+        columnId: task.columnId,
+        boardId: task.boardId 
+      }
+    );
+    
     res.json(task);
   } catch (error) {
     console.error('Error creating task at top:', error);
@@ -59,17 +93,40 @@ router.post('/add-at-top', (req, res) => {
 });
 
 // Update task
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const task = req.body;
+  const userId = req.user?.id || 'system';
+  
   try {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
     
-    // Get current task to track previous location
-    const currentTask = wrapQuery(db.prepare('SELECT columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(id);
-    const previousColumnId = currentTask ? currentTask.columnId : null;
-    const previousBoardId = currentTask ? currentTask.boardId : null;
+    // Get current task for change tracking and previous location
+    const currentTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    if (!currentTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    const previousColumnId = currentTask.columnId;
+    const previousBoardId = currentTask.boardId;
+    
+    // Generate change details
+    const changes = [];
+    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'priority', 'columnId'];
+    
+    fieldsToTrack.forEach(field => {
+      if (currentTask[field] !== task[field]) {
+        if (field === 'columnId') {
+          // Special handling for column moves - get column titles for better readability
+          const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
+          const newColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
+          changes.push(`moved from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
+        } else {
+          changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field]));
+        }
+      }
+    });
     
     wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
@@ -80,6 +137,22 @@ router.put('/:id', (req, res) => {
       task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0,
       previousBoardId, previousColumnId, now, id
     );
+    
+    // Log activity if there were changes
+    if (changes.length > 0) {
+      const details = changes.length === 1 ? changes[0] : `updated task: ${changes.join(', ')}`;
+      await logTaskActivity(
+        userId,
+        TASK_ACTIONS.UPDATE,
+        id,
+        details,
+        {
+          columnId: task.columnId,
+          boardId: task.boardId
+        }
+      );
+    }
+    
     res.json(task);
   } catch (error) {
     console.error('Error updating task:', error);
@@ -88,11 +161,33 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete task
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const { id } = req.params;
+  const userId = req.user?.id || 'system';
+  
   try {
     const { db } = req.app.locals;
+    
+    // Get task details before deletion for logging
+    const task = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
     wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
+    
+    // Log deletion activity
+    await logTaskActivity(
+      userId,
+      TASK_ACTIONS.DELETE,
+      id,
+      `deleted task "${task.title}"`,
+      {
+        columnId: task.columnId,
+        boardId: task.boardId
+      }
+    );
+    
     res.json({ message: 'Task deleted successfully' });
   } catch (error) {
     console.error('Error deleting task:', error);
@@ -101,11 +196,13 @@ router.delete('/:id', (req, res) => {
 });
 
 // Reorder tasks
-router.post('/reorder', (req, res) => {
+router.post('/reorder', async (req, res) => {
   const { taskId, newPosition, columnId } = req.body;
+  const userId = req.user?.id || 'system';
+  
   try {
     const { db } = req.app.locals;
-    const currentTask = wrapQuery(db.prepare('SELECT position, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const currentTask = wrapQuery(db.prepare('SELECT position, columnId, boardId, title FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
 
     if (!currentTask) {
       return res.status(404).json({ error: 'Task not found' });
@@ -142,6 +239,18 @@ router.post('/reorder', (req, res) => {
       `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
     })();
 
+    // Log reorder activity
+    await logTaskActivity(
+      userId,
+      TASK_ACTIONS.UPDATE, // Reorder is a type of update
+      taskId,
+      `reordered task "${currentTask.title}" from position ${currentPosition} to ${newPosition}`,
+      {
+        columnId: columnId,
+        boardId: currentTask.boardId
+      }
+    );
+
     res.json({ message: 'Task reordered successfully' });
   } catch (error) {
     console.error('Error reordering task:', error);
@@ -150,9 +259,10 @@ router.post('/reorder', (req, res) => {
 });
 
 // Move task to different board
-router.post('/move-to-board', (req, res) => {
+router.post('/move-to-board', async (req, res) => {
   console.log('🔄 Cross-board move endpoint hit:', { taskId: req.body.taskId, targetBoardId: req.body.targetBoardId });
   const { taskId, targetBoardId } = req.body;
+  const userId = req.user?.id || 'system';
   
   if (!taskId || !targetBoardId) {
     console.error('❌ Missing required fields:', { taskId, targetBoardId });
@@ -263,6 +373,21 @@ router.post('/move-to-board', (req, res) => {
       );
       
     })();
+    
+    // Log move activity
+    const originalBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);
+    const targetBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(targetBoardId);
+    
+    await logTaskActivity(
+      userId,
+      TASK_ACTIONS.MOVE,
+      taskId,
+      `moved task "${task.title}" from board "${originalBoard?.title || 'Unknown'}" to "${targetBoard?.title || 'Unknown'}"`,
+      {
+        columnId: targetColumn.id,
+        boardId: targetBoardId
+      }
+    );
     
     res.json({ 
       success: true, 
