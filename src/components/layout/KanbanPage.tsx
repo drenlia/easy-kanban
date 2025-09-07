@@ -86,6 +86,8 @@ interface KanbanPageProps {
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
+  onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
+  onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   animateCopiedTaskId?: string | null;
   onEditColumn: (columnId: string, title: string) => Promise<void>;
@@ -158,6 +160,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onRemoveTask,
   onEditTask,
   onCopyTask,
+  onTagAdd,
+  onTagRemove,
   onMoveTaskToColumn,
   animateCopiedTaskId,
   onEditColumn,
@@ -546,6 +550,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       isAdmin={true}
                       taskViewMode={taskViewMode}
                       availablePriorities={availablePriorities}
+                      availableTags={availableTags}
+                      onTagAdd={onTagAdd}
+                      onTagRemove={onTagRemove}
                     />
                     ))}
                 </BoardDropArea>
@@ -588,6 +595,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       isAdmin={false}
                       taskViewMode={taskViewMode}
                       availablePriorities={availablePriorities}
+                      availableTags={availableTags}
+                      onTagAdd={onTagAdd}
+                      onTagRemove={onTagRemove}
                     />
                   ))}
               </BoardDropArea>

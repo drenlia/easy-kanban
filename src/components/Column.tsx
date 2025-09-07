@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical } from 'lucide-react';
-import { Column, Task, TeamMember, PriorityOption, CurrentUser } from '../types';
+import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -43,6 +43,9 @@ interface KanbanColumnProps {
   isAdmin?: boolean;
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
+  availableTags?: Tag[];
+  onTagAdd?: (taskId: string) => (tagId: string) => Promise<void>;
+  onTagRemove?: (taskId: string) => (tagId: string) => Promise<void>;
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
 }
@@ -78,6 +81,9 @@ export default function KanbanColumn({
   isAdmin = false,
   taskViewMode = 'expand',
   availablePriorities = [],
+  availableTags = [],
+  onTagAdd,
+  onTagRemove,
   onTaskEnterMiniMode,
   onTaskExitMiniMode
 }: KanbanColumnProps) {
@@ -265,6 +271,9 @@ export default function KanbanColumn({
             taskViewMode={taskViewMode}
             availablePriorities={availablePriorities}
             selectedTask={selectedTask}
+            availableTags={availableTags}
+            onTagAdd={onTagAdd ? onTagAdd(task.id) : undefined}
+            onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
           />
         </div>
       );

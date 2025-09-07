@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
-import { X, Paperclip, ChevronDown, Check } from 'lucide-react';
+import { X, Paperclip, ChevronDown, Check, Edit2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import CommentEditor from './CommentEditor';
-import { createComment, uploadFile, updateTask, deleteComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
-import { formatToYYYYMMDD, formatToYYYYMMDDHHmm, getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
+import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 
@@ -14,10 +14,9 @@ interface TaskDetailsProps {
   currentUser: CurrentUser | null;
   onClose: () => void;
   onUpdate: (updatedTask: Task) => void;
-  onAddComment?: (comment: Comment & { taskId: string }) => Promise<void>;
 }
 
-export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, onAddComment }: TaskDetailsProps) {
+export default function TaskDetails({ task, members, currentUser, onClose, onUpdate }: TaskDetailsProps) {
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
   const [isResizing, setIsResizing] = useState(false);
@@ -52,7 +51,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingText, setIsSavingText] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<HTMLDivElement>(null);
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,6 +76,76 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const tagsButtonRef = useRef<HTMLButtonElement>(null);
   const previousTaskIdRef = useRef<string | null>(null);
   const previousTaskRef = useRef<Task | null>(null);
+
+  // Comment editing state
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState<string>('');
+  const [showRefreshIndicator, setShowRefreshIndicator] = useState(false);
+  const [isInitialTaskLoad, setIsInitialTaskLoad] = useState(true);
+
+  // Auto-refresh comments when task prop updates (from polling)
+  useEffect(() => {
+    // Don't process updates if we're currently editing a comment
+    if (editingCommentId) return;
+
+    const processedComments = (task.comments || [])
+      .filter(comment => 
+        comment && 
+        comment.id && 
+        comment.text && 
+        comment.authorId && 
+        comment.createdAt
+      )
+      .map(comment => ({
+        id: comment.id,
+        text: comment.text,
+        authorId: comment.authorId,
+        createdAt: comment.createdAt,
+        taskId: task.id,
+        attachments: Array.isArray(comment.attachments) 
+          ? comment.attachments.map(attachment => ({
+              id: attachment.id,
+              name: attachment.name,
+              url: attachment.url,
+              type: attachment.type,
+              size: attachment.size
+            }))
+          : []
+      }));
+
+    // Update local state when task prop changes, but preserve any unsaved local changes
+    setEditedTask(prev => {
+      // Check if comments have changed (new comments added by other users)
+      const prevCommentIds = (prev.comments || []).map(c => c.id).sort();
+      const newCommentIds = processedComments.map(c => c.id).sort();
+      const commentsChanged = JSON.stringify(prevCommentIds) !== JSON.stringify(newCommentIds);
+
+      // Show refresh indicator if comments were added/removed (but not on initial task load)
+      if (commentsChanged && prev.comments && prev.comments.length > 0 && !isInitialTaskLoad) {
+        console.log('💬 Comments updated! Showing refresh indicator', {
+          prevCount: prev.comments.length,
+          newCount: processedComments.length,
+          taskId: task.id
+        });
+        setShowRefreshIndicator(true);
+        setTimeout(() => setShowRefreshIndicator(false), 3000); // Hide after 3 seconds
+      }
+
+      // Mark that we've completed the initial load for this task
+      if (isInitialTaskLoad) {
+        setIsInitialTaskLoad(false);
+      }
+
+      return {
+        ...task,
+        // Preserve unsaved text changes to avoid losing user input
+        title: prev.title !== task.title && isSavingText ? prev.title : task.title,
+        description: prev.description !== task.description && isSavingText ? prev.description : task.description,
+        // Update comments with processed data
+        comments: processedComments
+      };
+    });
+  }, [task, isSavingText, editingCommentId]);
 
   // Helper function to calculate optimal dropdown position
   const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
@@ -271,6 +339,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       // Update the refs for next comparison
       previousTaskIdRef.current = currentTaskId;
       previousTaskRef.current = task;
+      
+      // Reset initial load flag for new task
+      setIsInitialTaskLoad(true);
       
       // Reset edited task to match the new task
       setEditedTask({
@@ -493,8 +564,27 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
+  // Helper function to check if user can edit/delete a comment
+  const canModifyComment = (comment: Comment): boolean => {
+    if (!currentUser) return false;
+    
+    // Admin can modify any comment
+    if (currentUser.roles?.includes('admin')) return true;
+    
+    // User can modify their own comments
+    const currentMember = members.find(m => m.user_id === currentUser.id);
+    return currentMember?.id === comment.authorId;
+  };
+
   const handleDeleteComment = async (commentId: string) => {
     if (isSubmitting) return;
+
+    // Find the comment to check permissions
+    const comment = editedTask.comments?.find(c => c.id === commentId);
+    if (!comment || !canModifyComment(comment)) {
+      console.error('Unauthorized: Cannot delete this comment');
+      return;
+    }
 
     try {
       setIsSubmitting(true);
@@ -534,6 +624,52 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleEditComment = (comment: Comment) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.text);
+  };
+
+
+  const handleSaveEditCommentWithContent = async (content: string) => {
+    if (!editingCommentId || !content.trim() || isSubmitting) return;
+
+    try {
+      setIsSubmitting(true);
+
+      // Update comment on server
+      await updateComment(editingCommentId, content.trim());
+
+      // Update local state
+      const updatedComments = editedTask.comments?.map(comment => 
+        comment.id === editingCommentId 
+          ? { ...comment, text: content.trim() }
+          : comment
+      ) || [];
+      
+      const updatedTask = { ...editedTask, comments: updatedComments };
+      setEditedTask(updatedTask);
+
+      // Update parent component
+      if (onUpdate) {
+        await onUpdate(updatedTask);
+      }
+
+      // Clear editing state
+      setEditingCommentId(null);
+      setEditingCommentText('');
+
+    } catch (error) {
+      console.error('Failed to update comment:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentText('');
   };
 
   const sortedComments = (editedTask.comments || [])
@@ -645,9 +781,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pl-2">
-        <div className="bg-white border-b border-gray-200 p-6">
-          <div className="flex justify-between items-center mb-4">
+      <div className="flex-1 flex flex-col overflow-hidden pl-2">
+        {/* Sticky Header */}
+        <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-10 shadow-sm">
+          <div className="flex justify-between items-center mb-2">
             <div className="w-full">
               {/* <div className="text-sm text-gray-500 mb-1">Task #{editedTask.id}</div> */}
               <input
@@ -669,7 +806,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 <X size={20} />
               </button>
             </div>
-          </div>
+          </div></div>
+
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-6 pt-0">
 
           <div className="space-y-4">
             <div>
@@ -1021,9 +1162,22 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         </div>
 
         <div className="p-6 border-t border-gray-200">
-          <h3 className="text-lg font-semibold mb-3">
-            Comments ({sortedComments.length})
-          </h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold">
+              Comments ({sortedComments.length})
+            </h3>
+            {showRefreshIndicator && (
+              <div 
+                className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1 rounded-full transition-all duration-300 ease-in-out"
+                style={{
+                  animation: 'fadeIn 0.3s ease-in-out'
+                }}
+              >
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                Comments updated
+              </div>
+            )}
+          </div>
           <div className="mb-4">
             <CommentEditor 
               onSubmit={handleAddComment}
@@ -1050,19 +1204,43 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         {formatToYYYYMMDDHHmmss(comment.createdAt)}
                       </span>
                     </div>
-                    <button
-                      onClick={() => handleDeleteComment(comment.id)}
-                      disabled={isSubmitting}
-                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
-                      title="Delete comment"
-                    >
-                      <X size={16} />
-                    </button>
+                    {canModifyComment(comment) && editingCommentId !== comment.id && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleEditComment(comment)}
+                          disabled={isSubmitting}
+                          className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
+                          title="Edit comment"
+                        >
+                          <Edit2 size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteComment(comment.id)}
+                          disabled={isSubmitting}
+                          className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
+                          title="Delete comment"
+                        >
+                          <X size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div
-                    className="prose prose-sm max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.text) }}
-                  />
+                  {editingCommentId === comment.id ? (
+                    <CommentEditor
+                      initialContent={editingCommentText}
+                      isEditing={true}
+                      onSubmit={async (content: string) => {
+                        setEditingCommentText(content);
+                        await handleSaveEditCommentWithContent(content);
+                      }}
+                      onCancel={handleCancelEditComment}
+                    />
+                  ) : (
+                    <div
+                      className="prose prose-sm max-w-none"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.text) }}
+                    />
+                  )}
                   {attachments.length > 0 && (
                     <div className="mt-3 space-y-1">
                       {attachments.map(attachment => (
@@ -1087,6 +1265,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               );
             })}
           </div>
+        </div>
         </div>
       </div>
     </div>

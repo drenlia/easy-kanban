@@ -34,7 +34,7 @@ import { useAuth } from './hooks/useAuth';
 import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import { loadUserPreferences, updateUserPreference, TaskViewMode, ViewMode } from './utils/userPreferences';
-import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators } from './api';
+import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -350,6 +350,27 @@ export default function App() {
       }
     }
   }, [columns, selectedTask]);
+
+  // Update selectedTask when columns data is refreshed (for auto-refresh comments)
+  useEffect(() => {
+    if (selectedTask && Object.keys(columns).length > 0) {
+      // Find the updated version of the selected task in the refreshed data
+      for (const column of Object.values(columns)) {
+        const updatedTask = column.tasks.find(task => task.id === selectedTask.id);
+        if (updatedTask) {
+          // Only update if the task data has actually changed
+          if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
+            console.log('🔄 Auto-updating selectedTask with fresh data from polling', {
+              taskId: updatedTask.id,
+              commentCount: updatedTask.comments?.length || 0
+            });
+            setSelectedTask(updatedTask);
+          }
+          break;
+        }
+      }
+    }
+  }, [columns]); // Remove selectedTask from deps to avoid infinite loops
 
 
   // Mock socket object for compatibility with existing UI (removed unused variable)
@@ -987,6 +1008,28 @@ export default function App() {
       console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
       await refreshBoardData();
+    }
+  };
+
+  const handleTagAdd = (taskId: string) => async (tagId: string) => {
+    try {
+      const numericTagId = parseInt(tagId);
+      await addTagToTask(taskId, numericTagId);
+      // Refresh the task data to show the new tag
+      await refreshBoardData();
+    } catch (error) {
+      console.error('Failed to add tag to task:', error);
+    }
+  };
+
+  const handleTagRemove = (taskId: string) => async (tagId: string) => {
+    try {
+      const numericTagId = parseInt(tagId);
+      await removeTagFromTask(taskId, numericTagId);
+      // Refresh the task data to remove the tag
+      await refreshBoardData();
+    } catch (error) {
+      console.error('Failed to remove tag from task:', error);
     }
   };
 
@@ -2080,6 +2123,8 @@ export default function App() {
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
                                     onRemoveTask={handleRemoveTask}
+                                    onTagAdd={handleTagAdd}
+                                    onTagRemove={handleTagRemove}
                                     onMoveTaskToColumn={handleMoveTaskToColumn}
                                     animateCopiedTaskId={animateCopiedTaskId}
                                     onEditColumn={handleEditColumn}

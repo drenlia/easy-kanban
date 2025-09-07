@@ -19,6 +19,8 @@ import {
 interface CommentEditorProps {
   onSubmit: (content: string, attachments: File[]) => Promise<void>;
   onCancel?: () => void;
+  initialContent?: string;
+  isEditing?: boolean;
 }
 
 const formatDateTime = (dateString: string) => {
@@ -37,7 +39,7 @@ const getLocalISOString = (date: Date) => {
   return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString();
 };
 
-export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
+export default function CommentEditor({ onSubmit, onCancel, initialContent = '', isEditing = false }: CommentEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
@@ -67,7 +69,7 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
         types: ['heading', 'paragraph']
       })
     ],
-    content: '',
+    content: initialContent,
     editorProps: {
       attributes: {
         class: 'prose prose-sm max-w-none focus:outline-none min-h-[100px] px-3 py-2'
@@ -231,7 +233,7 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
           }`}
         >
           <Check size={16} />
-          <span>Add Comment</span>
+          <span>{isEditing ? 'Update Comment' : 'Add Comment'}</span>
         </button>
       </div>
 
