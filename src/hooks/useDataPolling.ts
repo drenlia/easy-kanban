@@ -2,7 +2,19 @@ import { useState, useEffect } from 'react';
 import { Board, TeamMember, Columns, SiteSettings, PriorityOption } from '../types';
 import { POLLING_INTERVAL } from '../constants';
 import * as api from '../api';
-import { getAllPriorities } from '../api';
+import { getAllPriorities, getActivityFeed } from '../api';
+
+interface ActivityItem {
+  id: number;
+  action: string;
+  details: string;
+  member_name: string;
+  role_name: string;
+  board_title: string;
+  column_title: string;
+  taskId: string;
+  created_at: string;
+}
 
 interface UseDataPollingProps {
   enabled: boolean;
@@ -12,12 +24,14 @@ interface UseDataPollingProps {
   currentColumns: Columns;
   currentSiteSettings: SiteSettings;
   currentPriorities: PriorityOption[];
+  currentActivities?: ActivityItem[];
   includeSystem: boolean;
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
   onColumnsUpdate: (columns: Columns) => void;
   onSiteSettingsUpdate: (settings: SiteSettings) => void;
   onPrioritiesUpdate: (priorities: PriorityOption[]) => void;
+  onActivitiesUpdate?: (activities: ActivityItem[]) => void;
 }
 
 interface UseDataPollingReturn {
@@ -33,12 +47,14 @@ export const useDataPolling = ({
   currentColumns,
   currentSiteSettings,
   currentPriorities,
+  currentActivities = [],
   includeSystem,
   onBoardsUpdate,
   onMembersUpdate,
   onColumnsUpdate,
   onSiteSettingsUpdate,
   onPrioritiesUpdate,
+  onActivitiesUpdate,
 }: UseDataPollingProps): UseDataPollingReturn => {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -53,11 +69,12 @@ export const useDataPolling = ({
 
     const pollForUpdates = async () => {
       try {
-        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities] = await Promise.all([
+        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities] = await Promise.all([
           api.getBoards(),
           api.getMembers(includeSystem), // Use current includeSystem state
           api.getPublicSettings(),
-          getAllPriorities()
+          getAllPriorities(),
+          onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([])
         ]);
 
         // Update boards list if it changed
@@ -90,6 +107,16 @@ export const useDataPolling = ({
 
         if (currentPrioritiesString !== newPrioritiesString) {
           onPrioritiesUpdate(loadedPriorities || []);
+        }
+
+        // Update activities if they changed
+        if (onActivitiesUpdate && loadedActivities) {
+          const currentActivitiesString = JSON.stringify(currentActivities);
+          const newActivitiesString = JSON.stringify(loadedActivities);
+
+          if (currentActivitiesString !== newActivitiesString) {
+            onActivitiesUpdate(loadedActivities);
+          }
         }
 
         // Update columns for the current board if it changed

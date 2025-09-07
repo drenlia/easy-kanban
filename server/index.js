@@ -1317,6 +1317,96 @@ app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res)
   }
 });
 
+// Activity Feed endpoint
+app.get('/api/activity/feed', authenticateToken, (req, res) => {
+  const { limit = 20 } = req.query;
+  
+  try {
+    const activities = wrapQuery(db.prepare(`
+      SELECT 
+        a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+        datetime(a.created_at) || 'Z' as created_at,
+        a.updated_at,
+        m.name as member_name,
+        r.name as role_name,
+        b.title as board_title,
+        c.title as column_title
+      FROM activity a
+      LEFT JOIN users u ON a.userId = u.id
+      LEFT JOIN members m ON u.id = m.user_id
+      LEFT JOIN roles r ON a.roleId = r.id
+      LEFT JOIN boards b ON a.boardId = b.id
+      LEFT JOIN columns c ON a.columnId = c.id
+      ORDER BY a.created_at DESC
+      LIMIT ?
+    `), 'SELECT').all(parseInt(limit));
+    
+    res.json(activities);
+  } catch (error) {
+    console.error('Error fetching activity feed:', error);
+    res.status(500).json({ error: 'Failed to fetch activity feed' });
+  }
+});
+
+// User Settings endpoints
+app.get('/api/user/settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    // Create user_settings table if it doesn't exist
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        setting_key TEXT NOT NULL,
+        setting_value TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(userId, setting_key)
+      )
+    `);
+    
+    const settings = wrapQuery(db.prepare(`
+      SELECT setting_key, setting_value 
+      FROM user_settings 
+      WHERE userId = ?
+    `), 'SELECT').all(userId);
+    
+    // Convert to object format
+    const settingsObj = settings.reduce((acc, setting) => {
+      acc[setting.setting_key] = setting.setting_value === 'true' ? true : setting.setting_value === 'false' ? false : setting.setting_value;
+      return acc;
+    }, {});
+    
+    // Set defaults if not found
+    if (!settingsObj.hasOwnProperty('showActivityFeed')) {
+      settingsObj.showActivityFeed = false; // Default to off
+    }
+    
+    res.json(settingsObj);
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    res.status(500).json({ error: 'Failed to fetch user settings' });
+  }
+});
+
+app.put('/api/user/settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { setting_key, setting_value } = req.body;
+  
+  try {
+    wrapQuery(db.prepare(`
+      INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `), 'INSERT').run(userId, setting_key, setting_value.toString());
+    
+    res.json({ message: 'Setting updated successfully' });
+  } catch (error) {
+    console.error('Error updating user setting:', error);
+    res.status(500).json({ error: 'Failed to update user setting' });
+  }
+});
+
 // Task-Watchers association endpoints
 app.get('/api/tasks/:taskId/watchers', authenticateToken, (req, res) => {
   const { taskId } = req.params;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, User, Trash2 } from 'lucide-react';
-import { uploadAvatar, deleteAccount } from '../api';
+import { uploadAvatar, deleteAccount, getUserSettings, updateUserSetting } from '../api';
 import { loadUserPreferences, updateUserPreference, getTaskDeleteConfirmSetting } from '../utils/userPreferences';
 import api from '../api';
 
@@ -11,13 +11,15 @@ interface ProfileProps {
   onProfileUpdated: () => void;
   isProfileBeingEdited: boolean;
   onProfileEditingChange: (isEditing: boolean) => void;
+  onActivityFeedToggle?: (enabled: boolean) => void;
   onAccountDeleted?: () => void;
 }
 
-export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onAccountDeleted }: ProfileProps) {
+export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
-  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string }>({});
+  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  const [userSettings, setUserSettings] = useState<{ showActivityFeed?: boolean }>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,9 +49,33 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           console.error('Failed to load system settings:', error);
         }
       };
+      
       loadSystemSettings();
     }
   }, [isOpen]);
+
+  // Load user settings when system settings are available
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (isOpen && Object.keys(systemSettings).length > 0) {
+        try {
+          const settings = await getUserSettings();
+          // Use system defaults for any settings not explicitly set by user
+          const settingsWithDefaults = {
+            showActivityFeed: settings.showActivityFeed !== undefined 
+              ? settings.showActivityFeed 
+              : systemSettings.SHOW_ACTIVITY_FEED !== 'false', // Default to true unless system says false
+            ...settings
+          };
+          setUserSettings(settingsWithDefaults);
+        } catch (error) {
+          console.error('Failed to load user settings:', error);
+        }
+      }
+    };
+    
+    loadUserSettings();
+  }, [isOpen, systemSettings]);
 
   // Reset form when modal opens (but not when currentUser changes during editing)
   useEffect(() => {
@@ -246,6 +272,20 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     };
     
     updateUserPreference('appSettings', newAppSettings, currentUser?.id);
+  };
+
+  const handleActivityFeedToggle = async (enabled: boolean) => {
+    try {
+      await updateUserSetting('showActivityFeed', enabled);
+      setUserSettings(prev => ({ ...prev, showActivityFeed: enabled }));
+      // Also update the parent state
+      if (onActivityFeedToggle) {
+        onActivityFeedToggle(enabled);
+      }
+    } catch (error) {
+      console.error('Failed to update activity feed setting:', error);
+      setError('Failed to update activity feed setting');
+    }
   };
 
   const getCurrentTaskDeleteConfirmSetting = () => {
@@ -584,6 +624,32 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       <option value="true">Always Confirm</option>
                       <option value="false">Never Confirm</option>
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Activity Feed Setting */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      Activity Feed
+                    </label>
+                    <p className="text-sm text-gray-500">
+                      Show a floating activity feed on the right side of the screen to see recent actions and changes.
+                      {systemSettings.SHOW_ACTIVITY_FEED !== 'false' ? ' System default: Enabled' : ' System default: Disabled'}
+                    </p>
+                  </div>
+                  <div className="ml-6 flex-shrink-0">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userSettings.showActivityFeed || false}
+                        onChange={(e) => handleActivityFeedToggle(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
                   </div>
                 </div>
               </div>

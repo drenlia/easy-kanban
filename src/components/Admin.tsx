@@ -46,6 +46,7 @@ interface Settings {
   SMTP_SECURE?: string;
   MAIL_ENABLED?: string;
   TASK_DELETE_CONFIRM?: string;
+  SHOW_ACTIVITY_FEED?: string;
   [key: string]: string | undefined;
 }
 
