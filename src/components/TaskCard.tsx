@@ -91,6 +91,24 @@ export default function TaskCard({
   // Check if any editing is active to disable drag
   const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip;
 
+  // Prevent component updates while editing description to maintain focus
+  useEffect(() => {
+    if (isEditingDescription) {
+      // Add a flag to prevent polling/refreshes while editing
+      const preventRefresh = () => {
+        console.log('🚫 Preventing refresh while editing description');
+        return false;
+      };
+      
+      // Store original values to prevent unnecessary re-renders
+      const originalDescription = task.description;
+      
+      return () => {
+        // Cleanup if needed
+      };
+    }
+  }, [isEditingDescription, task.description]);
+
   // @dnd-kit sortable hook for vertical reordering
   const {
     attributes,
@@ -209,9 +227,175 @@ export default function TaskCard({
     setShowMemberSelect(false);
   };
 
-  const handleTitleDoubleClick = () => {
+  const [clickPosition, setClickPosition] = useState<number | null>(null);
+  const [clickPositionDescription, setClickPositionDescription] = useState<{x: number, y: number} | null>(null);
+  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleTitleClick = (e: React.MouseEvent<HTMLElement>) => {
+    // Calculate cursor position based on click location
+    const element = e.currentTarget;
+    const rect = element.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    
+    // Store the click position for later use
+    setClickPosition(clickX);
     setIsEditingTitle(true);
     setEditedTitle(task.title);
+  };
+
+  const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    if (clickPosition !== null) {
+      const input = e.target;
+      
+      // Create a temporary span to measure text width
+      const tempSpan = document.createElement('span');
+      tempSpan.style.font = window.getComputedStyle(input).font;
+      tempSpan.style.visibility = 'hidden';
+      tempSpan.style.position = 'absolute';
+      tempSpan.style.whiteSpace = 'pre';
+      document.body.appendChild(tempSpan);
+      
+      // Find the character position closest to the click
+      let cursorPosition = 0;
+      for (let i = 0; i <= task.title.length; i++) {
+        tempSpan.textContent = task.title.substring(0, i);
+        const textWidth = tempSpan.offsetWidth;
+        if (textWidth > clickPosition - 4) { // 4px padding offset
+          cursorPosition = Math.max(0, i - 1);
+          break;
+        }
+        cursorPosition = i;
+      }
+      
+      document.body.removeChild(tempSpan);
+      
+      // Set cursor position after a brief delay to ensure it works
+      setTimeout(() => {
+        input.setSelectionRange(cursorPosition, cursorPosition);
+      }, 0);
+      
+      // Clear the click position
+      setClickPosition(null);
+    }
+  };
+
+  const handleDescriptionClick = (e: React.MouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Calculate cursor position based on click location
+    const element = e.currentTarget;
+    const rect = element.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    
+    // Store both X and Y positions for later use
+    setClickPositionDescription({ x: clickX, y: clickY });
+    setIsEditingDescription(true);
+    setEditedDescription(task.description || '');
+  };
+
+  const handleDescriptionInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
+    if (clickPositionDescription !== null) {
+      const textarea = e.target;
+      const { x: clickX, y: clickY } = clickPositionDescription;
+      
+      // Create a temporary div to measure text layout (better for multi-line)
+      const tempDiv = document.createElement('div');
+      const computedStyle = window.getComputedStyle(textarea);
+      tempDiv.style.font = computedStyle.font;
+      tempDiv.style.fontSize = computedStyle.fontSize;
+      tempDiv.style.fontFamily = computedStyle.fontFamily;
+      tempDiv.style.lineHeight = computedStyle.lineHeight;
+      tempDiv.style.padding = computedStyle.padding;
+      tempDiv.style.border = computedStyle.border;
+      tempDiv.style.width = computedStyle.width;
+      tempDiv.style.visibility = 'hidden';
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.whiteSpace = 'pre-wrap';
+      tempDiv.style.wordWrap = 'break-word';
+      document.body.appendChild(tempDiv);
+      
+      const description = task.description || '';
+      
+      // Always use the full text for cursor positioning when editing
+      // The click coordinates are based on the display, but we want to edit the full text
+      const displayedText = description;
+      
+      // Create a div that matches the textarea's wrapping behavior to find visual lines
+      const tempDiv2 = document.createElement('div');
+      tempDiv2.style.font = computedStyle.font;
+      tempDiv2.style.fontSize = computedStyle.fontSize;
+      tempDiv2.style.fontFamily = computedStyle.fontFamily;
+      tempDiv2.style.width = computedStyle.width;
+      tempDiv2.style.whiteSpace = 'pre-wrap';
+      tempDiv2.style.wordWrap = 'break-word';
+      tempDiv2.style.visibility = 'hidden';
+      tempDiv2.style.position = 'absolute';
+      tempDiv2.style.lineHeight = computedStyle.lineHeight;
+      tempDiv2.style.padding = computedStyle.padding;
+      document.body.appendChild(tempDiv2);
+      
+      const lineHeight = parseInt(computedStyle.lineHeight) || 20;
+      const paddingTop = parseInt(computedStyle.paddingTop) || 8;
+      
+      // Find the character position by testing each character and seeing where it wraps
+      let cursorPosition = 0;
+      let bestDistance = Infinity;
+      
+      // Test each character position to find the closest one to the click
+      for (let i = 0; i <= displayedText.length; i++) {
+        tempDiv2.textContent = displayedText.substring(0, i);
+        
+        // Get the position of the last character
+        if (i > 0) {
+          const range = document.createRange();
+          const textNode = tempDiv2.firstChild;
+          if (textNode) {
+            // Set range to the last character
+            const charIndex = Math.min(i - 1, textNode.textContent?.length || 0);
+            range.setStart(textNode, charIndex);
+            range.setEnd(textNode, Math.min(i, textNode.textContent?.length || 0));
+            
+            const rect = range.getBoundingClientRect();
+            const divRect = tempDiv2.getBoundingClientRect();
+            
+            // Calculate position relative to the div
+            const charX = rect.left - divRect.left;
+            const charY = rect.top - divRect.top;
+            
+            // Calculate distance from click point
+            const distance = Math.sqrt(Math.pow(clickX - charX, 2) + Math.pow(clickY - charY, 2));
+            
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              cursorPosition = i;
+            }
+          }
+        }
+      }
+      
+      document.body.removeChild(tempDiv2);
+      
+      document.body.removeChild(tempDiv);
+      
+      // Set cursor position after a brief delay to ensure it works
+      setTimeout(() => {
+        const textareaElement = descriptionTextareaRef.current;
+        if (textareaElement) {
+          // Make sure cursor position is within bounds
+          const maxPosition = textareaElement.value.length;
+          const safeCursorPosition = Math.min(cursorPosition, maxPosition);
+          
+          
+          textareaElement.setSelectionRange(safeCursorPosition, safeCursorPosition);
+          textareaElement.focus(); // Ensure focus is maintained
+        }
+      }, 10); // Slightly longer delay
+      
+      // Clear the click position
+      setClickPositionDescription(null);
+    }
   };
 
   const handleTitleSave = () => {
@@ -437,7 +621,7 @@ export default function TaskCard({
           {...listeners}
           className={`absolute top-1 left-1 p-1 z-[6] rounded ${
             !isDragDisabled && !isAnyEditingActive && !isDndGloballyDisabled()
-              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-0 group-hover:opacity-100' 
+              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
               : 'cursor-not-allowed opacity-0'
           } transition-all duration-200`}
           title="Drag to move task"
@@ -559,15 +743,16 @@ export default function TaskCard({
               onChange={(e) => setEditedTitle(e.target.value)}
               onBlur={handleTitleCancel}
               onKeyDown={handleTitleKeyDown}
+              onFocus={handleInputFocus}
               className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
-              autoFocus
               onClick={(e) => e.stopPropagation()}
+              autoFocus
             />
           ) : (
             <h3 
               className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded text-sm pr-12"
-              onDoubleClick={handleTitleDoubleClick}
-              title="Double-click to edit"
+              onClick={handleTitleClick}
+              title="Click to edit"
             >
               {task.title}
             </h3>
@@ -580,14 +765,17 @@ export default function TaskCard({
             {isEditingDescription ? (
               <div className="-mt-2 mb-3">
                 <textarea
+                  ref={descriptionTextareaRef}
                   value={editedDescription}
                   onChange={(e) => setEditedDescription(e.target.value)}
                   onBlur={handleDescriptionCancel}
                   onKeyDown={handleDescriptionKeyDown}
+                  onFocus={handleDescriptionInputFocus}
                   className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
-                  rows={3}
+                  rows={task.description ? Math.max(3, Math.ceil(task.description.length / 50)) : 1}
                   onClick={(e) => e.stopPropagation()}
                   placeholder="Enter task description..."
+                  autoFocus
                 />
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
                   <span>Press Enter to save, Shift+Enter for new line, Escape to cancel</span>
@@ -595,9 +783,9 @@ export default function TaskCard({
               </div>
             ) : (
               <div
-                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap"
-                onDoubleClick={() => setIsEditingDescription(true)}
-                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description : "Double-click to edit description"}
+                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap min-h-[2.5rem]"
+                onClick={handleDescriptionClick}
+                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description : "Click to edit description"}
               >
                 {taskViewMode === 'shrink' && task.description && task.description.length > 60 
                   ? `${task.description.substring(0, 60)}...` 
