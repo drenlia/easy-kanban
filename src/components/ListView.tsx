@@ -69,8 +69,8 @@ export default function ListView({
   animateCopiedTaskId,
   onScrollControlsChange
 }: ListViewProps) {
-  const [sortField, setSortField] = useState<SortField>('createdAt');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [sortField, setSortField] = useState<SortField>('column');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   
   // Initialize columns from user preferences
   const userPrefs = loadUserPreferences();
@@ -259,65 +259,92 @@ export default function ListView({
     return tasks;
   }, [filteredColumns]);
 
-  // Sort tasks
+  // Sort tasks with multi-level sorting
   const sortedTasks = useMemo(() => {
     return [...allTasks].sort((a, b) => {
-      let aValue: any, bValue: any;
+      // Multi-level sort when using default column sort, or single-field sort when user clicks a column
+      if (sortField === 'column' && sortDirection === 'asc') {
+        // Default multi-level sort: status → start date desc → due date desc → title asc
+        
+        // 1. By status (column title)
+        const statusCompare = a.columnTitle.localeCompare(b.columnTitle);
+        if (statusCompare !== 0) return statusCompare;
+        
+        // 2. By start date descending (newest first)
+        const aStartDate = new Date(a.startDate);
+        const bStartDate = new Date(b.startDate);
+        const aStartTime = !isNaN(aStartDate.getTime()) ? aStartDate.getTime() : 0;
+        const bStartTime = !isNaN(bStartDate.getTime()) ? bStartDate.getTime() : 0;
+        if (aStartTime !== bStartTime) return bStartTime - aStartTime; // desc
+        
+        // 3. By due date descending (latest due dates first)
+        const aDueDate = a.dueDate ? new Date(a.dueDate) : null;
+        const bDueDate = b.dueDate ? new Date(b.dueDate) : null;
+        const aDueTime = aDueDate && !isNaN(aDueDate.getTime()) ? aDueDate.getTime() : 0;
+        const bDueTime = bDueDate && !isNaN(bDueDate.getTime()) ? bDueDate.getTime() : 0;
+        if (aDueTime !== bDueTime) return bDueTime - aDueTime; // desc
+        
+        // 4. By task title ascending
+        return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+      } else {
+        // Single-field sorting when user clicks on a column header
+        let aValue: any, bValue: any;
 
-      switch (sortField) {
-        case 'title':
-          aValue = a.title.toLowerCase();
-          bValue = b.title.toLowerCase();
-          break;
-        case 'priority':
-          const aPriority = availablePriorities?.find(p => p.id === a.priorityId);
-          const bPriority = availablePriorities?.find(p => p.id === b.priorityId);
-          aValue = aPriority?.order || 999;
-          bValue = bPriority?.order || 999;
-          break;
-        case 'assignee':
-          const aMember = members?.find(m => m.id === a.memberId);
-          const bMember = members?.find(m => m.id === b.memberId);
-          aValue = aMember ? `${aMember.firstName} ${aMember.lastName}`.toLowerCase() : '';
-          bValue = bMember ? `${bMember.firstName} ${bMember.lastName}`.toLowerCase() : '';
-          break;
-        case 'dueDate':
-          const aDate = a.dueDate ? new Date(a.dueDate) : null;
-          const bDate = b.dueDate ? new Date(b.dueDate) : null;
-          aValue = aDate && !isNaN(aDate.getTime()) ? aDate.getTime() : 0;
-          bValue = bDate && !isNaN(bDate.getTime()) ? bDate.getTime() : 0;
-          break;
-        case 'startDate':
-          const aStart = new Date(a.startDate);
-          const bStart = new Date(b.startDate);
-          aValue = !isNaN(aStart.getTime()) ? aStart.getTime() : 0;
-          bValue = !isNaN(bStart.getTime()) ? bStart.getTime() : 0;
-          break;
-        case 'createdAt':
-          const aCreated = new Date(a.createdAt);
-          const bCreated = new Date(b.createdAt);
-          aValue = !isNaN(aCreated.getTime()) ? aCreated.getTime() : 0;
-          bValue = !isNaN(bCreated.getTime()) ? bCreated.getTime() : 0;
-          break;
-        case 'column':
-          aValue = a.columnTitle.toLowerCase();
-          bValue = b.columnTitle.toLowerCase();
-          break;
-        case 'tags':
-          aValue = a.tags?.length || 0;
-          bValue = b.tags?.length || 0;
-          break;
-        case 'comments':
-          aValue = a.comments?.length || 0;
-          bValue = b.comments?.length || 0;
-          break;
-        default:
-          return 0;
+        switch (sortField) {
+          case 'title':
+            aValue = a.title.toLowerCase();
+            bValue = b.title.toLowerCase();
+            break;
+          case 'priority':
+            const aPriority = availablePriorities?.find(p => p.id === a.priorityId);
+            const bPriority = availablePriorities?.find(p => p.id === b.priorityId);
+            aValue = aPriority?.order || 999;
+            bValue = bPriority?.order || 999;
+            break;
+          case 'assignee':
+            const aMember = members?.find(m => m.id === a.memberId);
+            const bMember = members?.find(m => m.id === b.memberId);
+            aValue = aMember ? `${aMember.firstName} ${aMember.lastName}`.toLowerCase() : '';
+            bValue = bMember ? `${bMember.firstName} ${bMember.lastName}`.toLowerCase() : '';
+            break;
+          case 'dueDate':
+            const aDate = a.dueDate ? new Date(a.dueDate) : null;
+            const bDate = b.dueDate ? new Date(b.dueDate) : null;
+            aValue = aDate && !isNaN(aDate.getTime()) ? aDate.getTime() : 0;
+            bValue = bDate && !isNaN(bDate.getTime()) ? bDate.getTime() : 0;
+            break;
+          case 'startDate':
+            const aStart = new Date(a.startDate);
+            const bStart = new Date(b.startDate);
+            aValue = !isNaN(aStart.getTime()) ? aStart.getTime() : 0;
+            bValue = !isNaN(bStart.getTime()) ? bStart.getTime() : 0;
+            break;
+          case 'createdAt':
+            const aCreated = new Date(a.createdAt);
+            const bCreated = new Date(b.createdAt);
+            aValue = !isNaN(aCreated.getTime()) ? aCreated.getTime() : 0;
+            bValue = !isNaN(bCreated.getTime()) ? bCreated.getTime() : 0;
+            break;
+          case 'column':
+            aValue = a.columnTitle.toLowerCase();
+            bValue = b.columnTitle.toLowerCase();
+            break;
+          case 'tags':
+            aValue = a.tags?.length || 0;
+            bValue = b.tags?.length || 0;
+            break;
+          case 'comments':
+            aValue = a.comments?.length || 0;
+            bValue = b.comments?.length || 0;
+            break;
+          default:
+            return 0;
+        }
+
+        if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+        return 0;
       }
-
-      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
     });
   }, [allTasks, sortField, sortDirection, availablePriorities, members]);
 
@@ -428,12 +455,32 @@ export default function ListView({
         {tags.slice(0, 2).map(tag => (
           <span
             key={tag.id}
-            className="px-1.5 py-0.5 rounded text-xs"
-            style={{
-              backgroundColor: tag.color + '20',
-              color: tag.color,
-              border: `1px solid ${tag.color}40`
-            }}
+            className="px-1.5 py-0.5 rounded text-xs font-medium"
+            style={(() => {
+              if (!tag.color) {
+                return { backgroundColor: '#6b7280', color: 'white' };
+              }
+              
+              // Calculate luminance to determine text color
+              const hex = tag.color.replace('#', '');
+              if (hex.length === 6) {
+                const r = parseInt(hex.substring(0, 2), 16);
+                const g = parseInt(hex.substring(2, 4), 16);
+                const b = parseInt(hex.substring(4, 6), 16);
+                
+                // Calculate relative luminance
+                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                
+                // Use dark text for light backgrounds, white text for dark backgrounds
+                const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
+                const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
+                
+                return { backgroundColor: tag.color, color: textColor, ...borderStyle };
+              }
+              
+              // Fallback for invalid hex colors
+              return { backgroundColor: tag.color, color: 'white' };
+            })()}
           >
             {tag.tag}
           </span>
@@ -1492,11 +1539,31 @@ export default function ListView({
                 >
                   <span 
                     className="px-1.5 py-0.5 rounded text-xs font-medium"
-                    style={{ 
-                      backgroundColor: tag.color + '20',
-                      color: tag.color,
-                      border: `1px solid ${tag.color}40`
-                    }}
+                    style={(() => {
+                      if (!tag.color) {
+                        return { backgroundColor: '#6b7280', color: 'white' };
+                      }
+                      
+                      // Calculate luminance to determine text color
+                      const hex = tag.color.replace('#', '');
+                      if (hex.length === 6) {
+                        const r = parseInt(hex.substring(0, 2), 16);
+                        const g = parseInt(hex.substring(2, 4), 16);
+                        const b = parseInt(hex.substring(4, 6), 16);
+                        
+                        // Calculate relative luminance
+                        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                        
+                        // Use dark text for light backgrounds, white text for dark backgrounds
+                        const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
+                        const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
+                        
+                        return { backgroundColor: tag.color, color: textColor, ...borderStyle };
+                      }
+                      
+                      // Fallback for invalid hex colors
+                      return { backgroundColor: tag.color, color: 'white' };
+                    })()}
                   >
                     {tag.tag}
                   </span>

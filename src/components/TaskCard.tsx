@@ -815,12 +815,25 @@ export default function TaskCard({
                     if (!tag.color) {
                       return { backgroundColor: '#6b7280', color: 'white' };
                     }
-                    // Check if color is white or very light
+                    
+                    // Calculate luminance to determine text color
                     const hex = tag.color.replace('#', '');
-                    if (hex.toLowerCase() === 'ffffff' || hex.toLowerCase() === 'fff') {
-                      return { backgroundColor: tag.color, color: '#374151', border: '1px solid #d1d5db' };
+                    if (hex.length === 6) {
+                      const r = parseInt(hex.substring(0, 2), 16);
+                      const g = parseInt(hex.substring(2, 4), 16);
+                      const b = parseInt(hex.substring(4, 6), 16);
+                      
+                      // Calculate relative luminance
+                      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                      
+                      // Use dark text for light backgrounds, white text for dark backgrounds
+                      const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
+                      const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
+                      
+                      return { backgroundColor: tag.color, color: textColor, ...borderStyle };
                     }
-                    // Use solid color background with white text
+                    
+                    // Fallback for invalid hex colors
                     return { backgroundColor: tag.color, color: 'white' };
                   })()}
                   title="Click to remove tag"

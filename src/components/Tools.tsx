@@ -45,9 +45,9 @@ export default function Tools({
             'Switch to kanban view'
           }
         >
-          {viewMode === 'kanban' ? <LayoutGrid size={16} /> :
-           viewMode === 'list' ? <List size={16} /> :
-           <Calendar size={16} />}
+          {viewMode === 'kanban' ? <List size={16} /> :
+           viewMode === 'list' ? <LayoutGrid size={16} /> :
+           <LayoutGrid size={16} />}
         </button>
 
         {/* Search Toggle */}

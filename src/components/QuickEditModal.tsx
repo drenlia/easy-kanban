@@ -522,17 +522,33 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 {taskTags.map(tag => (
                   <span
                     key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border hover:opacity-80 transition-opacity"
-                    style={{ 
-                      backgroundColor: `${tag.color || '#4ECDC4'}20`,
-                      borderColor: tag.color || '#4ECDC4',
-                      color: tag.color || '#4ECDC4'
-                    }}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium hover:opacity-80 transition-opacity"
+                    style={(() => {
+                      if (!tag.color) {
+                        return { backgroundColor: '#6b7280', color: 'white' };
+                      }
+                      
+                      // Calculate luminance to determine text color
+                      const hex = tag.color.replace('#', '');
+                      if (hex.length === 6) {
+                        const r = parseInt(hex.substring(0, 2), 16);
+                        const g = parseInt(hex.substring(2, 4), 16);
+                        const b = parseInt(hex.substring(4, 6), 16);
+                        
+                        // Calculate relative luminance
+                        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                        
+                        // Use dark text for light backgrounds, white text for dark backgrounds
+                        const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
+                        const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
+                        
+                        return { backgroundColor: tag.color, color: textColor, ...borderStyle };
+                      }
+                      
+                      // Fallback for invalid hex colors
+                      return { backgroundColor: tag.color, color: 'white' };
+                    })()}
                   >
-                    <div 
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: tag.color || '#4ECDC4' }}
-                    />
                     {tag.tag}
                     <button
                       type="button"

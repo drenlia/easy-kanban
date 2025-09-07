@@ -26,7 +26,7 @@ import TaskCard from './components/TaskCard';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -968,7 +968,7 @@ export default function App() {
     try {
       await withLoading('tasks', async () => {
         // Create task with specific position
-        await api.createTask(newTask);
+        await createTask(newTask);
             
         // Now fix all positions to be sequential
         const allColumnTasks = [...columnTasks, newTask]
