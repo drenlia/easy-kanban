@@ -31,6 +31,7 @@ interface TeamMembersProps {
   onSelectMember: (id: string) => void;
   onClearSelections?: () => void;
   onSelectAll?: () => void;
+  isAllModeActive?: boolean;
   includeAssignees?: boolean;
   includeWatchers?: boolean;
   includeCollaborators?: boolean;
@@ -53,6 +54,7 @@ export default function TeamMembers({
   onSelectMember,
   onClearSelections,
   onSelectAll,
+  isAllModeActive = false,
   includeAssignees = false,
   includeWatchers = false,
   includeCollaborators = false,
@@ -136,21 +138,27 @@ export default function TeamMembers({
             )}
           </h2>
           
-          {/* Select All Button */}
+          {/* All/None Toggle Button */}
           {onSelectAll && (
             <button
               onClick={onSelectAll}
               className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-blue-600 border border-gray-300 hover:border-blue-400 rounded transition-colors"
-              title="Select all team members"
+              title={isAllModeActive 
+                ? "Switch to None mode: only assignees + current user" 
+                : "Switch to All mode: select all members and checkboxes"
+              }
             >
-              All
+              {isAllModeActive ? 'None' : 'All'}
             </button>
           )}
           
           {/* Filter Options Checkboxes */}
           <div className="flex items-center gap-3">
             {onToggleAssignees && (
-              <label className="flex items-center gap-1 cursor-pointer">
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks assigned to the selected team members"
+              >
                 <input
                   type="checkbox"
                   checked={includeAssignees}
@@ -162,7 +170,10 @@ export default function TeamMembers({
             )}
             
             {onToggleWatchers && (
-              <label className="flex items-center gap-1 cursor-pointer">
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks where the selected members are watching for updates"
+              >
                 <input
                   type="checkbox"
                   checked={includeWatchers}
@@ -174,7 +185,10 @@ export default function TeamMembers({
             )}
             
             {onToggleCollaborators && (
-              <label className="flex items-center gap-1 cursor-pointer">
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks where the selected members are actively collaborating"
+              >
                 <input
                   type="checkbox"
                   checked={includeCollaborators}
@@ -186,7 +200,10 @@ export default function TeamMembers({
             )}
             
             {onToggleRequesters && (
-              <label className="flex items-center gap-1 cursor-pointer">
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks requested by the selected team members"
+              >
                 <input
                   type="checkbox"
                   checked={includeRequesters}
@@ -199,7 +216,10 @@ export default function TeamMembers({
             
             {/* System checkbox - only show for admins */}
             {onToggleSystem && currentUser?.roles?.includes('admin') && (
-              <label className="flex items-center gap-1 cursor-pointer">
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks assigned to the system user (admin only)"
+              >
                 <input
                   type="checkbox"
                   checked={includeSystem}

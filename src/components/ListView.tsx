@@ -4,6 +4,7 @@ import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, File
 import { Task, TeamMember, Priority, Tag, Columns } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 
 interface ListViewScrollControls {
@@ -464,16 +465,16 @@ export default function ListView({
         
         {/* Watchers & Collaborators Icons */}
         <div className="flex gap-1">
-          {watchersCount > 0 && (
-            <div className="flex items-center" title={`${watchersCount} watcher${watchersCount > 1 ? 's' : ''}`}>
+          {task?.watchers && task.watchers.length > 0 && (
+            <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
               <Eye size={10} className="text-blue-500" />
-              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{watchersCount}</span>
+              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
             </div>
           )}
-          {collaboratorsCount > 0 && (
-            <div className="flex items-center" title={`${collaboratorsCount} collaborator${collaboratorsCount > 1 ? 's' : ''}`}>
+          {task?.collaborators && task.collaborators.length > 0 && (
+            <div className="flex items-center" title={formatMembersTooltip(task.collaborators, 'collaborator')}>
               <UserPlus size={10} className="text-blue-500" />
-              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{collaboratorsCount}</span>
+              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
             </div>
           )}
         </div>
