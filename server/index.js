@@ -14,6 +14,8 @@ import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_
 import { attachmentUpload, avatarUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
+import { initActivityLogger, logActivity } from './services/activityLogger.js';
+import { TAG_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
 import boardsRouter from './routes/boards.js';
@@ -27,6 +29,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Initialize database using extracted module
 const db = initializeDatabase();
+
+// Initialize activity logger with database instance
+initActivityLogger(db);
+
 const app = express();
 
 // Make database available to routes
@@ -222,7 +228,7 @@ app.get('/api/auth/check-default-admin', (req, res) => {
 app.use('/api/members', membersRouter);
 app.use('/api/boards', boardsRouter);
 app.use('/api/columns', columnsRouter);
-app.use('/api/tasks', tasksRouter);
+app.use('/api/tasks', authenticateToken, tasksRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
 
@@ -1234,8 +1240,9 @@ app.get('/api/tasks/:taskId/tags', authenticateToken, (req, res) => {
   }
 });
 
-app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
+app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
+  const userId = req.user?.id || 'system';
   
   try {
     // Check if association already exists
@@ -1245,7 +1252,27 @@ app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
       return res.status(409).json({ error: 'Tag already associated with this task' });
     }
     
+    // Get tag and task details for logging
+    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
     wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
+    
+    // Log tag association activity
+    if (tag && task) {
+      await logActivity(
+        userId,
+        TAG_ACTIONS.ASSOCIATE,
+        `associated tag "${tag.tag}" with task "${task.title}"`,
+        {
+          taskId: taskId,
+          tagId: parseInt(tagId),
+          columnId: task.columnId,
+          boardId: task.boardId
+        }
+      );
+    }
+    
     res.json({ message: 'Tag added to task successfully' });
   } catch (error) {
     console.error('Error adding tag to task:', error);
@@ -1253,14 +1280,34 @@ app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
   }
 });
 
-app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, (req, res) => {
+app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
+  const userId = req.user?.id || 'system';
   
   try {
+    // Get tag and task details for logging before deletion
+    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
     const result = wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Tag association not found' });
+    }
+    
+    // Log tag disassociation activity
+    if (tag && task) {
+      await logActivity(
+        userId,
+        TAG_ACTIONS.DISASSOCIATE,
+        `removed tag "${tag.tag}" from task "${task.title}"`,
+        {
+          taskId: taskId,
+          tagId: parseInt(tagId),
+          columnId: task.columnId,
+          boardId: task.boardId
+        }
+      );
     }
     
     res.json({ message: 'Tag removed from task successfully' });
