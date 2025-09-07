@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Clock, X, Edit2, FileText, MessageCircle, Copy, Calendar, Eye, UserPlus, GripVertical } from 'lucide-react';
-import { Task, TeamMember, Priority, PriorityOption } from '../types';
+import { Clock, MessageCircle, Calendar } from 'lucide-react';
+import { Task, TeamMember, Priority, PriorityOption, CurrentUser } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
+import TaskCardToolbar from './TaskCardToolbar';
+import AddCommentModal from './AddCommentModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
-import { formatMembersTooltip } from '../utils/taskUtils';
+import { createComment } from '../api';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,6 +37,7 @@ interface TaskCardProps {
   task: Task;
   member: TeamMember;
   members: TeamMember[];
+  currentUser?: CurrentUser | null;
   onRemove: (taskId: string, event?: React.MouseEvent) => void;
   onEdit: (task: Task) => void;
   onCopy: (task: Task) => void;
@@ -53,6 +56,7 @@ export default function TaskCard({
   task,
   member,
   members,
+  currentUser,
   onRemove,
   onEdit,
   onCopy,
@@ -81,6 +85,7 @@ export default function TaskCard({
   const [editedDescription, setEditedDescription] = useState(task.description);
   const [showAllTags, setShowAllTags] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
+  const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -206,13 +211,55 @@ export default function TaskCard({
   }, []);
 
 
-  const handleCopy = () => {
-    onCopy(task);
-  };
 
   const handleMemberChange = (memberId: string) => {
     onEdit({ ...task, memberId });
     setShowMemberSelect(false);
+  };
+
+  const handleAddComment = () => {
+    setShowAddCommentModal(true);
+  };
+
+  const handleCommentSubmit = async (commentText: string) => {
+    if (!currentUser) {
+      console.error('No current user available for comment');
+      throw new Error('You must be logged in to add comments');
+    }
+
+    // Find the current user's member record to get the authorId
+    const currentMember = members.find(m => m.user_id === currentUser.id);
+    if (!currentMember) {
+      console.error('Current user member record not found');
+      throw new Error('Unable to identify user for comment');
+    }
+
+    try {
+      // Create the comment via API
+      const newComment = {
+        id: `comment-${Date.now()}`, // Generate a unique ID
+        text: commentText,
+        authorId: currentMember.id, // Use member ID as authorId
+        createdAt: new Date().toISOString(),
+        taskId: task.id,
+        attachments: []
+      };
+
+      // Call the API to create the comment
+      await createComment(newComment);
+
+      // Update the local task state with the new comment
+      const updatedTask = {
+        ...task,
+        comments: [...(task.comments || []), newComment]
+      };
+      
+      // Update the task in the UI
+      onEdit(updatedTask);
+    } catch (error) {
+      console.error('Failed to add comment:', error);
+      throw error;
+    }
   };
 
   const [clickPosition, setClickPosition] = useState<number | null>(null);
@@ -601,123 +648,26 @@ export default function TaskCard({
         }`}
         {...attributes}
       >
-        {/* Top-Left Drag Handle - Small grip icon */}
-        <div
-          {...listeners}
-          className={`absolute top-1 left-1 p-1 z-[6] rounded ${
-            !isDragDisabled && !isAnyEditingActive && !isDndGloballyDisabled()
-              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
-              : 'cursor-not-allowed opacity-0'
-          } transition-all duration-200`}
-          title="Drag to move task"
-        >
-          <GripVertical size={12} className="text-gray-400" />
-        </div>
-
-        {/* Overlay Toolbar - Positioned at top edge */}
-        <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
-          {/* Centered Action Buttons - Absolutely centered */}
-          <div className="flex justify-center">
-            <div className="flex gap-1">
-              <button
-                onClick={handleCopy}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Copy Task"
-              >
-                <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-              </button>
-              <button
-                onClick={() => {
-                  setShowQuickEdit(true);
-                  setDndGloballyDisabled(true);
-                }}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Quick Edit"
-              >
-                <Edit2 size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-              </button>
-              <button
-                onClick={() => onSelect(task)}
-                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="View Details"
-              >
-                <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-              </button>
-              {/* Delete Button - Right side of details icon */}
-              <button
-                onClick={(e) => onRemove(task.id, e)}
-                className="p-1 hover:bg-red-100 rounded-full transition-colors"
-                title="Delete Task"
-              >
-                <X size={14} className="text-red-500" />
-              </button>
-            </div>
-          </div>
-
-          {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
-          <div className="absolute top-1 right-12 flex gap-1">
-            {task.watchers && task.watchers.length > 0 && (
-              <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
-                <Eye size={12} className="text-blue-500" />
-                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
-              </div>
-            )}
-            {task.collaborators && task.collaborators.length > 0 && (
-              <div className="flex items-center" title={formatMembersTooltip(task.collaborators, 'collaborator')}>
-                <UserPlus size={12} className="text-blue-500" />
-                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Avatar Overlay - Top Right */}
-        <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
-          <div className="relative">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowMemberSelect(!showMemberSelect);
-              }}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
-              title="Change Assignee"
-            >
-              {member.avatarUrl || member.googleAvatarUrl ? (
-                <img
-                  src={member.avatarUrl || member.googleAvatarUrl}
-                  alt={member.name}
-                  className="w-8 h-8 rounded-full object-cover border-2 border-white"
-                />
-              ) : (
-                <div 
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white border-2 border-white"
-                  style={{ backgroundColor: member.color }}
-                >
-                  {member.id === SYSTEM_MEMBER_ID ? '🤖' : member.name.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </button>
-            
-            {/* Member Selection Dropdown */}
-            {showMemberSelect && (
-              <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-md shadow-lg z-[100] border border-gray-200">
-                {members.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => handleMemberChange(m.id)}
-                    className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2"
-                  >
-                    <div 
-                      className="w-4 h-4 rounded-full" 
-                      style={{ backgroundColor: m.color }}
-                    />
-                    <span>{m.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
+        {/* TaskCard Toolbar - Extracted to separate component */}
+        <TaskCardToolbar
+          task={task}
+          member={member}
+          members={members}
+          isDragDisabled={isDragDisabled || isAnyEditingActive || isDndGloballyDisabled()}
+          showMemberSelect={showMemberSelect}
+          onCopy={onCopy}
+          onEdit={onEdit}
+          onSelect={onSelect}
+          onRemove={onRemove}
+          onShowQuickEdit={() => setShowQuickEdit(true)}
+          onAddComment={handleAddComment}
+          onMemberChange={handleMemberChange}
+          onToggleMemberSelect={() => setShowMemberSelect(!showMemberSelect)}
+          setDropdownPosition={setDropdownPosition}
+          dropdownPosition={dropdownPosition}
+          listeners={listeners}
+          attributes={attributes}
+        />
 
         {/* Title Row - Full Width */}
         <div className="mb-2 mt-1">
@@ -1114,6 +1064,14 @@ export default function TaskCard({
           onSave={onEdit}
         />
       )}
+
+      {/* Add Comment Modal */}
+      <AddCommentModal
+        isOpen={showAddCommentModal}
+        taskTitle={task.title}
+        onClose={() => setShowAddCommentModal(false)}
+        onSubmit={handleCommentSubmit}
+      />
     </>
   );
 }
