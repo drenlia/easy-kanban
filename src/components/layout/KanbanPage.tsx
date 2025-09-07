@@ -56,6 +56,7 @@ interface KanbanPageProps {
   onSelectMember: (memberId: string) => void;
   onClearMemberSelections: () => void;
   onSelectAllMembers: () => void;
+  isAllModeActive: boolean;
   includeAssignees: boolean;
   includeWatchers: boolean;
   includeCollaborators: boolean;
@@ -126,6 +127,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onSelectMember,
   onClearMemberSelections,
   onSelectAllMembers,
+  isAllModeActive,
   includeAssignees,
   includeWatchers,
   includeCollaborators,
@@ -359,6 +361,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             onSelectMember={onSelectMember}
             onClearSelections={onClearMemberSelections}
             onSelectAll={onSelectAllMembers}
+            isAllModeActive={isAllModeActive}
             includeAssignees={includeAssignees}
             includeWatchers={includeWatchers}
             includeCollaborators={includeCollaborators}

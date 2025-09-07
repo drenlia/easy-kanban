@@ -20,8 +20,10 @@ router.get('/', authenticateToken, (req, res) => {
     const isAdmin = req.user && req.user.roles && req.user.roles.includes('admin');
     const includeSystem = req.query.includeSystem === 'true';
     
-    const whereClause = (isAdmin && includeSystem) 
-      ? '' // Include all members (including System User) for admins when requested
+    // Allow any authenticated user to include System User when explicitly requested
+    // This fixes member filtering for regular users who need to see System User tasks
+    const whereClause = includeSystem 
+      ? '' // Include all members (including System User) when requested
       : "WHERE m.id != '00000000-0000-0000-0000-000000000001'"; // Exclude System User otherwise
     
     const stmt = wrapQuery(db.prepare(`

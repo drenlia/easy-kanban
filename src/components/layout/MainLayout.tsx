@@ -54,6 +54,7 @@ interface MainLayoutProps {
   onSelectMember: (memberId: string) => void;
   onClearMemberSelections: () => void;
   onSelectAllMembers: () => void;
+  isAllModeActive: boolean;
   includeAssignees: boolean;
   includeWatchers: boolean;
   includeCollaborators: boolean;

@@ -4,6 +4,7 @@ import { Task, TeamMember, Priority, PriorityOption } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { formatMembersTooltip } from '../utils/taskUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -80,8 +81,6 @@ export default function TaskCard({
   const [editedDescription, setEditedDescription] = useState(task.description);
   const [showAllTags, setShowAllTags] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
-  const [watchersCount, setWatchersCount] = useState(0);
-  const [collaboratorsCount, setCollaboratorsCount] = useState(0);
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -95,13 +94,7 @@ export default function TaskCard({
   useEffect(() => {
     if (isEditingDescription) {
       // Add a flag to prevent polling/refreshes while editing
-      const preventRefresh = () => {
-        console.log('🚫 Preventing refresh while editing description');
-        return false;
-      };
-      
-      // Store original values to prevent unnecessary re-renders
-      const originalDescription = task.description;
+      console.log('🚫 Preventing refresh while editing description');
       
       return () => {
         // Cleanup if needed
@@ -212,11 +205,6 @@ export default function TaskCard({
     };
   }, []);
 
-  // Update watchers and collaborators count from task data
-  useEffect(() => {
-    setWatchersCount(task.watchers?.length || 0);
-    setCollaboratorsCount(task.collaborators?.length || 0);
-  }, [task.watchers, task.collaborators]);
 
   const handleCopy = () => {
     onCopy(task);
@@ -335,9 +323,6 @@ export default function TaskCard({
       tempDiv2.style.lineHeight = computedStyle.lineHeight;
       tempDiv2.style.padding = computedStyle.padding;
       document.body.appendChild(tempDiv2);
-      
-      const lineHeight = parseInt(computedStyle.lineHeight) || 20;
-      const paddingTop = parseInt(computedStyle.paddingTop) || 8;
       
       // Find the character position by testing each character and seeing where it wraps
       let cursorPosition = 0;
@@ -671,16 +656,16 @@ export default function TaskCard({
 
           {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
           <div className="absolute top-1 right-12 flex gap-1">
-            {watchersCount > 0 && (
-              <div className="flex items-center" title={`${watchersCount} watcher${watchersCount > 1 ? 's' : ''}`}>
+            {task.watchers && task.watchers.length > 0 && (
+              <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
                 <Eye size={12} className="text-blue-500" />
-                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{watchersCount}</span>
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
               </div>
             )}
-            {collaboratorsCount > 0 && (
-              <div className="flex items-center" title={`${collaboratorsCount} collaborator${collaboratorsCount > 1 ? 's' : ''}`}>
+            {task.collaborators && task.collaborators.length > 0 && (
+              <div className="flex items-center" title={formatMembersTooltip(task.collaborators, 'collaborator')}>
                 <UserPlus size={12} className="text-blue-500" />
-                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{collaboratorsCount}</span>
+                <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
               </div>
             )}
           </div>

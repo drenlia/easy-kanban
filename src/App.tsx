@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   TeamMember, 
@@ -155,6 +155,18 @@ export default function App() {
   const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
+  
+  // Computed: Check if we're in "All" mode (all members selected + all main checkboxes checked)
+  const isAllModeActive = useMemo(() => {
+    const allMemberIds = members.map(m => m.id);
+    const allMembersSelected = allMemberIds.length > 0 && 
+      allMemberIds.every(id => selectedMembers.includes(id)) &&
+      selectedMembers.length === allMemberIds.length;
+    const allMainCheckboxesChecked = includeAssignees && includeWatchers && 
+      includeCollaborators && includeRequesters;
+    
+    return allMembersSelected && allMainCheckboxesChecked;
+  }, [members, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
@@ -1597,19 +1609,40 @@ export default function App() {
   };
 
   const handleSelectAllMembers = () => {
-    const allMemberIds = members.map(m => m.id);
-    setSelectedMembers(allMemberIds);
-    updateCurrentUserPreference('selectedMembers', allMemberIds);
-    
-    // Also select all checkboxes
-    setIncludeAssignees(true);
-    setIncludeWatchers(true);
-    setIncludeCollaborators(true);
-    setIncludeRequesters(true);
-    updateCurrentUserPreference('includeAssignees', true);
-    updateCurrentUserPreference('includeWatchers', true);
-    updateCurrentUserPreference('includeCollaborators', true);
-    updateCurrentUserPreference('includeRequesters', true);
+    if (isAllModeActive) {
+      // Currently in "All" mode, switch to "None" mode
+      // None mode: only assignees checkbox + current user selected
+      const currentUserMemberId = currentUser?.id ? 
+        members.find(m => m.user_id === currentUser.id)?.id : null;
+      
+      setSelectedMembers(currentUserMemberId ? [currentUserMemberId] : []);
+      setIncludeAssignees(true);
+      setIncludeWatchers(false);
+      setIncludeCollaborators(false);
+      setIncludeRequesters(false);
+      setIncludeSystem(false);
+      
+      updateCurrentUserPreference('selectedMembers', currentUserMemberId ? [currentUserMemberId] : []);
+      updateCurrentUserPreference('includeAssignees', true);
+      updateCurrentUserPreference('includeWatchers', false);
+      updateCurrentUserPreference('includeCollaborators', false);
+      updateCurrentUserPreference('includeRequesters', false);
+      updateCurrentUserPreference('includeSystem', false);
+    } else {
+      // Currently in "None" mode, switch to "All" mode
+      const allMemberIds = members.map(m => m.id);
+      setSelectedMembers(allMemberIds);
+      setIncludeAssignees(true);
+      setIncludeWatchers(true);
+      setIncludeCollaborators(true);
+      setIncludeRequesters(true);
+      
+      updateCurrentUserPreference('selectedMembers', allMemberIds);
+      updateCurrentUserPreference('includeAssignees', true);
+      updateCurrentUserPreference('includeWatchers', true);
+      updateCurrentUserPreference('includeCollaborators', true);
+      updateCurrentUserPreference('includeRequesters', true);
+    }
   };
 
   // Handle toggling filter options
@@ -1986,6 +2019,7 @@ export default function App() {
         onSelectMember={handleMemberToggle}
         onClearMemberSelections={handleClearMemberSelections}
         onSelectAllMembers={handleSelectAllMembers}
+        isAllModeActive={isAllModeActive}
         includeAssignees={includeAssignees}
         includeWatchers={includeWatchers}
         includeCollaborators={includeCollaborators}
