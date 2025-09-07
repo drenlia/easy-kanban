@@ -84,6 +84,8 @@ interface MainLayoutProps {
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
+  onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
+  onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   onEditColumn: (columnId: string, title: string) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;

@@ -7,13 +7,18 @@ interface AddCommentModalProps {
   taskTitle: string;
   onClose: () => void;
   onSubmit: (commentText: string) => Promise<void>;
+  editingComment?: {
+    id: string;
+    text: string;
+  } | null;
 }
 
 export default function AddCommentModal({
   isOpen,
   taskTitle,
   onClose,
-  onSubmit
+  onSubmit,
+  editingComment
 }: AddCommentModalProps) {
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,13 +31,13 @@ export default function AddCommentModal({
     }
   }, [isOpen]);
 
-  // Reset state when modal opens/closes
+  // Reset state when modal opens/closes or editing comment changes
   useEffect(() => {
     if (isOpen) {
-      setCommentText('');
+      setCommentText(editingComment?.text || '');
       setIsSubmitting(false);
     }
-  }, [isOpen]);
+  }, [isOpen, editingComment]);
 
   const handleSubmit = async () => {
     if (commentText.trim() && !isSubmitting) {
@@ -83,7 +88,9 @@ export default function AddCommentModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Add Comment</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {editingComment ? 'Edit Comment' : 'Add Comment'}
+          </h3>
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -96,7 +103,7 @@ export default function AddCommentModal({
         {/* Task Title */}
         <div className="mb-4">
           <p className="text-sm text-gray-600">
-            Adding comment to: <span className="font-medium text-gray-800">{taskTitle}</span>
+            {editingComment ? 'Editing comment on:' : 'Adding comment to:'} <span className="font-medium text-gray-800">{taskTitle}</span>
           </p>
         </div>
 
@@ -140,12 +147,12 @@ export default function AddCommentModal({
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Adding...
+                {editingComment ? 'Updating...' : 'Adding...'}
               </>
             ) : (
               <>
                 <Send size={16} />
-                Add Comment
+                {editingComment ? 'Update Comment' : 'Add Comment'}
               </>
             )}
           </button>

@@ -286,6 +286,29 @@ app.post('/api/comments', (req, res) => {
   }
 });
 
+// Update comment endpoint
+app.put('/api/comments/:id', (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  
+  try {
+    // Update comment text in database
+    const stmt = db.prepare('UPDATE comments SET text = ? WHERE id = ?');
+    const result = stmt.run(text, id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
+    // Return updated comment
+    const updatedComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    res.json(updatedComment);
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    res.status(500).json({ error: 'Failed to update comment' });
+  }
+});
+
 app.delete('/api/comments/:id', async (req, res) => {
   const { id } = req.params;
   

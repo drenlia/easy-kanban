@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
-import { Copy, Edit2, FileText, X, Eye, UserPlus, GripVertical, MessageCircle } from 'lucide-react';
-import { Task, TeamMember } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Copy, Edit2, FileText, X, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus } from 'lucide-react';
+import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { setDndGloballyDisabled } from '../utils/globalDndState';
 
@@ -25,6 +26,8 @@ interface TaskCardToolbarProps {
   dropdownPosition: 'above' | 'below';
   listeners?: any; // DnD kit listeners
   attributes?: any; // DnD kit attributes
+  availableTags?: Tag[];
+  onTagAdd?: (tagId: string) => void;
 }
 
 export default function TaskCardToolbar({
@@ -44,18 +47,82 @@ export default function TaskCardToolbar({
   setDropdownPosition,
   dropdownPosition,
   listeners,
-  attributes
+  attributes,
+  availableTags = [],
+  onTagAdd
 }: TaskCardToolbarProps) {
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
+  const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
+  const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
+  const quickTagButtonRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = () => {
     onCopy(task);
+  };
+
+  // Filter out tags that are already assigned to the task
+  const availableTagsForAssignment = availableTags.filter(tag => 
+    !task.tags?.some(taskTag => taskTag.id === tag.id)
+  );
+
+  // Debug logging removed for clarity
+
+  const handleQuickTagClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!showQuickTagDropdown && quickTagButtonRef.current) {
+      // Calculate position for portal dropdown
+      const rect = quickTagButtonRef.current.getBoundingClientRect();
+      const dropdownWidth = 200;
+      const dropdownHeight = 200;
+      
+      // Position below the button, centered
+      let left = rect.left + (rect.width / 2) - (dropdownWidth / 2);
+      let top = rect.bottom + 5;
+      
+      // Keep within viewport
+      if (left + dropdownWidth > window.innerWidth - 20) {
+        left = window.innerWidth - dropdownWidth - 20;
+      }
+      if (left < 20) {
+        left = 20;
+      }
+      if (top + dropdownHeight > window.innerHeight - 20) {
+        top = rect.top - dropdownHeight - 5; // Position above instead
+      }
+      
+      setTagDropdownPosition({ left, top });
+    }
+    
+    setShowQuickTagDropdown(!showQuickTagDropdown);
+  };
+
+  const handleQuickTagSelect = (tagId: string) => {
+    if (onTagAdd) {
+      onTagAdd(tagId);
+    }
+    setShowQuickTagDropdown(false); // Close immediately after selection
   };
 
   const handleQuickEdit = () => {
     onShowQuickEdit();
     setDndGloballyDisabled(true);
   };
+
+  // Close quick tag dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (quickTagButtonRef.current && !quickTagButtonRef.current.contains(event.target as Node)) {
+        setShowQuickTagDropdown(false);
+      }
+    };
+
+    if (showQuickTagDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showQuickTagDropdown]);
+
 
   const handleMemberToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -104,9 +171,25 @@ export default function TaskCardToolbar({
             onAddComment();
           }}
         >
-          <MessageCircle size={12} className="text-gray-400" />
+          <MessageSquarePlus size={12} className="text-gray-400" />
         </div>
       )}
+
+      {/* Quick Tag Button - Right next to comment button */}
+      {onTagAdd && availableTagsForAssignment.length > 0 && (
+        <div
+          ref={quickTagButtonRef}
+          className="absolute top-1 left-12 p-1 z-[6] rounded hover:bg-gray-200 opacity-60 hover:opacity-100 cursor-pointer transition-all duration-200"
+          title="Add tag"
+          onClick={handleQuickTagClick}
+        >
+          <div className="relative">
+            <TagIcon size={12} className="text-gray-400" />
+            <Plus size={6} className="text-gray-400 absolute -top-1 -right-1" />
+          </div>
+        </div>
+      )}
+
 
       {/* Overlay Toolbar - Positioned at top edge */}
       <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
@@ -229,6 +312,52 @@ export default function TaskCardToolbar({
           )}
         </div>
       </div>
+
+      {/* Portal-rendered quick tag dropdown */}
+      {showQuickTagDropdown && createPortal(
+        <div 
+          className="fixed w-[200px] bg-white border border-gray-200 rounded-md shadow-lg z-[9999] max-h-[200px] overflow-y-auto"
+          style={{
+            left: `${tagDropdownPosition.left}px`,
+            top: `${tagDropdownPosition.top}px`
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {availableTagsForAssignment.length === 0 ? (
+            <div className="p-3 text-sm text-gray-500">
+              No more tags available
+            </div>
+          ) : (
+            availableTagsForAssignment.map(tag => (
+              <div
+                key={tag.id}
+                className="flex items-center gap-2 p-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleQuickTagSelect(tag.id.toString());
+                }}
+                onMouseUp={(e) => {
+                  e.stopPropagation();
+                  // Use onMouseUp as primary trigger since onClick sometimes fails
+                  handleQuickTagSelect(tag.id.toString());
+                }}
+                onMouseDown={(e) => {
+                  // Critical: This stopPropagation is essential for proper event handling
+                  e.stopPropagation();
+                }}
+              >
+                <div 
+                  className="w-3 h-3 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: tag.color }}
+                />
+                <span className="text-sm text-gray-700 truncate">{tag.tag}</span>
+              </div>
+            ))
+          )}
+        </div>,
+        document.body
+      )}
     </>
   );
 }

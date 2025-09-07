@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock, MessageCircle, Calendar } from 'lucide-react';
-import { Task, TeamMember, Priority, PriorityOption, CurrentUser } from '../types';
+import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { createComment } from '../api';
+import { generateUUID } from '../utils/uuid';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -48,6 +50,9 @@ interface TaskCardProps {
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
   selectedTask?: Task | null;
+  availableTags?: Tag[];
+  onTagAdd?: (tagId: string) => void;
+  onTagRemove?: (tagId: string) => void;
 }
 
 
@@ -66,12 +71,18 @@ export default function TaskCard({
   isDragDisabled = false,
   taskViewMode = 'expand',
   availablePriorities = [],
-  selectedTask = null
+  selectedTask = null,
+  availableTags = [],
+  onTagAdd,
+  onTagRemove
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
-  const [tooltipPosition, setTooltipPosition] = useState<'above' | 'below'>('above');
+  const [tooltipPosition, setTooltipPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
+  const [showTagRemovalMenu, setShowTagRemovalMenu] = useState(false);
+  const [selectedTagForRemoval, setSelectedTagForRemoval] = useState<Tag | null>(null);
+  const [tagRemovalPosition, setTagRemovalPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
   const [isEditingDate, setIsEditingDate] = useState(false);
@@ -91,9 +102,10 @@ export default function TaskCard({
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentContainerRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
+  const tagRemovalMenuRef = useRef<HTMLDivElement>(null);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip;
+  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu;
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -237,7 +249,7 @@ export default function TaskCard({
     try {
       // Create the comment via API
       const newComment = {
-        id: `comment-${Date.now()}`, // Generate a unique ID
+        id: generateUUID(), // Generate a proper UUID
         text: commentText,
         authorId: currentMember.id, // Use member ID as authorId
         createdAt: new Date().toISOString(),
@@ -591,15 +603,38 @@ export default function TaskCard({
 
   const calculateTooltipPosition = () => {
     if (commentContainerRef.current) {
-      const rect = commentContainerRef.current.getBoundingClientRect();
-      const spaceAbove = rect.top;
-      const spaceBelow = window.innerHeight - rect.bottom;
+      const commentRect = commentContainerRef.current.getBoundingClientRect();
+      const tooltipWidth = 320; // w-80 = 320px
       const tooltipHeight = 256; // max-h-64 = 256px
       
-      // Prefer above, but use below if not enough space above
-      return spaceAbove >= tooltipHeight ? 'above' : spaceBelow >= tooltipHeight ? 'below' : 'above';
+      // Calculate vertical position
+      const spaceAbove = commentRect.top;
+      const spaceBelow = window.innerHeight - commentRect.bottom;
+      const preferAbove = spaceAbove >= tooltipHeight;
+      
+      // Calculate horizontal position - center tooltip on the comment icon
+      let left = commentRect.left + (commentRect.width / 2) - (tooltipWidth / 2);
+      
+      // Keep tooltip within viewport bounds
+      const spaceRight = window.innerWidth - (left + tooltipWidth);
+      if (spaceRight < 20) {
+        left = window.innerWidth - tooltipWidth - 20; // 20px padding from edge
+      }
+      if (left < 20) {
+        left = 20;
+      }
+      
+      // Position tooltip above or below the comment icon
+      let top;
+      if (preferAbove) {
+        top = commentRect.top - tooltipHeight - 10; // 10px gap above
+      } else {
+        top = commentRect.bottom + 10; // 10px gap below
+      }
+      
+      return { left, top };
     }
-    return 'above';
+    return { left: 0, top: 0 };
   };
 
   useEffect(() => {
@@ -623,6 +658,35 @@ export default function TaskCard({
       onDragEnd();
     }
   }, [isDragging, task, onDragStart, onDragEnd]);
+
+  // Close tag removal menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tagRemovalMenuRef.current && !tagRemovalMenuRef.current.contains(event.target as Node)) {
+        setShowTagRemovalMenu(false);
+        setSelectedTagForRemoval(null);
+      }
+    };
+
+    if (showTagRemovalMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showTagRemovalMenu]);
+
+  // Tag removal handlers
+  const handleConfirmTagRemoval = () => {
+    if (selectedTagForRemoval && onTagRemove) {
+      onTagRemove(selectedTagForRemoval.id.toString());
+      setShowTagRemovalMenu(false);
+      setSelectedTagForRemoval(null);
+    }
+  };
+
+  const handleCancelTagRemoval = () => {
+    setShowTagRemovalMenu(false);
+    setSelectedTagForRemoval(null);
+  };
 
   const validComments = (task.comments || [])
     .filter(comment => 
@@ -667,6 +731,8 @@ export default function TaskCard({
           dropdownPosition={dropdownPosition}
           listeners={listeners}
           attributes={attributes}
+          availableTags={availableTags}
+          onTagAdd={onTagAdd}
         />
 
         {/* Title Row - Full Width */}
@@ -744,7 +810,7 @@ export default function TaskCard({
               {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
                 <span
                   key={tag.id}
-                  className="px-1.5 py-0.5 rounded-full text-xs font-medium"
+                  className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
                   style={(() => {
                     if (!tag.color) {
                       return { backgroundColor: '#6b7280', color: 'white' };
@@ -757,7 +823,41 @@ export default function TaskCard({
                     // Use solid color background with white text
                     return { backgroundColor: tag.color, color: 'white' };
                   })()}
-                  title={tag.description || tag.tag}
+                  title="Click to remove tag"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                    const menuWidth = 220;
+                    const menuHeight = 80; // Approximate height of the menu
+                    
+                    // Calculate ideal position (centered below tag)
+                    let left = rect.left + rect.width / 2 - menuWidth / 2;
+                    let top = rect.bottom + 5;
+                    
+                    // Prevent going off the right edge
+                    if (left + menuWidth > window.innerWidth - 10) {
+                      left = window.innerWidth - menuWidth - 10;
+                    }
+                    
+                    // Prevent going off the left edge
+                    if (left < 10) {
+                      left = 10;
+                    }
+                    
+                    // If menu would go below viewport, show it above the tag instead
+                    if (top + menuHeight > window.innerHeight - 10) {
+                      top = rect.top - menuHeight - 5;
+                    }
+                    
+                    // If still going off top, position it within viewport
+                    if (top < 10) {
+                      top = 10;
+                    }
+                    
+                    setTagRemovalPosition({ left, top });
+                    setSelectedTagForRemoval(tag);
+                    setShowTagRemovalMenu(true);
+                  }}
                 >
                   {tag.tag}
                 </span>
@@ -886,116 +986,6 @@ export default function TaskCard({
                   </span>
                 </div>
               
-                {/* JavaScript-controlled Comment Tooltip */}
-                {showCommentTooltip && (
-                  <>
-                    {/* Invisible bridge to fill gap */}
-                    <div 
-                      className={`absolute left-0 w-full h-2 z-40 ${
-                        tooltipPosition === 'above' ? 'bottom-0' : 'top-0'
-                      }`}
-                      onMouseEnter={handleCommentTooltipShow}
-                      onMouseLeave={handleCommentTooltipHide}
-                    />
-                    <div 
-                      className={`comment-tooltip absolute left-0 w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[100] max-h-64 flex flex-col ${
-                        tooltipPosition === 'above' 
-                          ? 'bottom-full mb-1' 
-                          : 'top-full mt-1'
-                      }`}
-                      onMouseEnter={handleCommentTooltipShow}
-                      onMouseLeave={handleCommentTooltipHide}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {/* Scrollable comments area */}
-                      <div className="p-3 overflow-y-auto flex-1">
-                    {validComments
-                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                      .map((comment, index) => {
-                        const author = members.find(m => m.id === comment.authorId);
-                        
-                        // Function to render HTML content with safe link handling
-                        const renderCommentHTML = (htmlText: string) => {
-                          // Create a temporary div to parse the HTML
-                          const tempDiv = document.createElement('div');
-                          tempDiv.innerHTML = htmlText;
-                          
-                          // Find all links and update their attributes for safety
-                          const links = tempDiv.querySelectorAll('a');
-                          links.forEach(link => {
-                            link.setAttribute('target', '_blank');
-                            link.setAttribute('rel', 'noopener noreferrer');
-                            link.style.color = '#60a5fa'; // text-blue-400
-                            link.style.textDecoration = 'underline';
-                            link.style.wordBreak = 'break-all';
-                            link.style.cursor = 'pointer';
-                            
-                            // Add click handler
-                            link.addEventListener('click', (e) => {
-                              e.stopPropagation();
-                              window.open(link.href, '_blank', 'noopener,noreferrer');
-                            });
-                            
-                            link.addEventListener('mousedown', (e) => {
-                              e.stopPropagation();
-                            });
-                          });
-                          
-                          return (
-                            <span 
-                              dangerouslySetInnerHTML={{ __html: tempDiv.innerHTML }}
-                              className="select-text"
-                            />
-                          );
-                        };
-
-                        return (
-                          <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
-                            <div className="flex items-center gap-2 mb-1">
-                              <div 
-                                className="w-2 h-2 rounded-full flex-shrink-0" 
-                                style={{ backgroundColor: author?.color || '#6B7280' }} 
-                              />
-                              <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
-                              <span className="text-gray-400 text-xs">
-                                {formatDateTime(comment.createdAt)}
-                              </span>
-                            </div>
-                            <div className="text-gray-300 text-xs leading-relaxed select-text">
-                              {renderCommentHTML(comment.text)}
-                            </div>
-                          </div>
-                        );
-                        })}
-                      </div>
-                      
-                      {/* Sticky footer */}
-                      <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
-                        <span className="text-gray-300 font-medium">
-                          Comments ({validComments.length})
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelect(task);
-                          }}
-                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-                        >
-                          Open
-                        </button>
-                      </div>
-                      
-                      {/* Tooltip arrow */}
-                      <div className={`absolute left-2 w-2 h-2 bg-gray-800 transform rotate-45 ${
-                        tooltipPosition === 'above' 
-                          ? '-bottom-1' 
-                          : '-top-1'
-                      }`} />
-                    </div>
-                  </>
-                )}
               </div>
             )}
           </div>
@@ -1072,6 +1062,136 @@ export default function TaskCard({
         onClose={() => setShowAddCommentModal(false)}
         onSubmit={handleCommentSubmit}
       />
+
+      {/* Portal-rendered comment tooltip */}
+      {showCommentTooltip && createPortal(
+        <div 
+          className="comment-tooltip fixed w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col"
+          style={{
+            left: `${tooltipPosition.left}px`,
+            top: `${tooltipPosition.top}px`
+          }}
+          onMouseEnter={handleCommentTooltipShow}
+          onMouseLeave={handleCommentTooltipHide}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Scrollable comments area */}
+          <div className="p-3 overflow-y-auto flex-1">
+            {validComments
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .map((comment, index) => {
+                const author = members.find(m => m.id === comment.authorId);
+                
+                // Function to render HTML content with safe link handling
+                const renderCommentHTML = (htmlText: string) => {
+                  // Create a temporary div to parse the HTML
+                  const tempDiv = document.createElement('div');
+                  tempDiv.innerHTML = htmlText;
+                  
+                  // Find all links and update their attributes for safety
+                  const links = tempDiv.querySelectorAll('a');
+                  links.forEach(link => {
+                    link.setAttribute('target', '_blank');
+                    link.setAttribute('rel', 'noopener noreferrer');
+                    link.style.color = '#60a5fa'; // text-blue-400
+                    link.style.textDecoration = 'underline';
+                    link.style.wordBreak = 'break-all';
+                    link.style.cursor = 'pointer';
+                    
+                    // Add click handler
+                    link.addEventListener('click', (e) => {
+                      e.stopPropagation();
+                      window.open(link.href, '_blank', 'noopener,noreferrer');
+                    });
+                    
+                    link.addEventListener('mousedown', (e) => {
+                      e.stopPropagation();
+                    });
+                  });
+                  
+                  return (
+                    <span 
+                      dangerouslySetInnerHTML={{ __html: tempDiv.innerHTML }}
+                      className="select-text"
+                    />
+                  );
+                };
+
+                return (
+                  <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <div 
+                        className="w-2 h-2 rounded-full flex-shrink-0" 
+                        style={{ backgroundColor: author?.color || '#6B7280' }} 
+                      />
+                      <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
+                      <span className="text-gray-400 text-xs">
+                        {formatDateTime(comment.createdAt)}
+                      </span>
+                    </div>
+                    <div className="text-gray-300 text-xs leading-relaxed select-text">
+                      {renderCommentHTML(comment.text)}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          
+          {/* Sticky footer */}
+          <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
+            <span className="text-gray-300 font-medium">
+              Comments ({validComments.length})
+            </span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect(task);
+              }}
+              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+            >
+              Open
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Tag Removal Confirmation Menu - Portal */}
+      {showTagRemovalMenu && selectedTagForRemoval && createPortal(
+        <div 
+          ref={tagRemovalMenuRef}
+          className="fixed w-[220px] bg-white border border-gray-200 rounded-lg shadow-lg z-[9999] p-3"
+          style={{ 
+            left: `${tagRemovalPosition.left}px`, 
+            top: `${tagRemovalPosition.top}px`
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="text-sm font-medium text-gray-800 mb-2">
+            Remove Tag
+          </div>
+          <div className="text-xs text-gray-600 mb-3">
+            Remove "{selectedTagForRemoval.tag}" from this task?
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleConfirmTagRemoval}
+              className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
+            >
+              Remove
+            </button>
+            <button
+              onClick={handleCancelTagRemoval}
+              className="flex-1 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 }
