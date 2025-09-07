@@ -226,7 +226,7 @@ const SortableBoardTab: React.FC<{
       <div ref={setNodeRef} style={style} className="relative group">
         {/* Drag Handle - Small icon on the left */}
         <div
-          className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition-opacity"
           title="Drag to reorder"
           {...attributes}
           {...listeners}
