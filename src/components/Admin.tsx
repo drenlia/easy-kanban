@@ -47,6 +47,11 @@ interface Settings {
   MAIL_ENABLED?: string;
   TASK_DELETE_CONFIRM?: string;
   SHOW_ACTIVITY_FEED?: string;
+  DEFAULT_VIEW_MODE?: string;
+  DEFAULT_TASK_VIEW_MODE?: string;
+  DEFAULT_ACTIVITY_FEED_POSITION?: string;
+  DEFAULT_ACTIVITY_FEED_WIDTH?: string;
+  DEFAULT_ACTIVITY_FEED_HEIGHT?: string;
   [key: string]: string | undefined;
 }
 

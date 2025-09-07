@@ -38,6 +38,30 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
   }
 
   try {
+    // Get task and board information for context
+    let taskTitle = 'Unknown Task';
+    let boardId = null;
+    let boardTitle = 'Unknown Board';
+    let columnId = null;
+
+    try {
+      const taskInfo = db.prepare(
+        `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
+         FROM tasks t 
+         LEFT JOIN boards b ON t.boardId = b.id 
+         WHERE t.id = ?`
+      ).get(taskId);
+      
+      if (taskInfo) {
+        taskTitle = taskInfo.title || 'Unknown Task';
+        boardId = taskInfo.boardId;
+        boardTitle = taskInfo.boardTitle || 'Unknown Board';
+        columnId = taskInfo.columnId;
+      }
+    } catch (taskError) {
+      console.warn('Failed to get task/board info for task activity:', taskError.message);
+    }
+
     // Get user's current role
     const userRole = db.prepare(`
       SELECT r.id as roleId 
@@ -60,16 +84,28 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       return;
     }
 
+    // Create enhanced details with context for specific actions
+    let enhancedDetails = details;
+    if (action === 'create_task') {
+      enhancedDetails = `created task "${taskTitle}" in board "${boardTitle}"`;
+    } else if (action === 'delete_task') {
+      enhancedDetails = `deleted task "${taskTitle}" from board "${boardTitle}"`;
+    } else if (action === 'move_task') {
+      enhancedDetails = `${details} in board "${boardTitle}"`;
+    } else if (action === 'update_task') {
+      enhancedDetails = `${details} in task "${taskTitle}" in board "${boardTitle}"`;
+    }
+
     // Debug logging
     console.log('📝 Attempting to log activity with values:', {
       userId,
       roleId,
       action,
       taskId,
-      columnId: additionalData.columnId || null,
-      boardId: additionalData.boardId || null,
+      columnId: columnId || additionalData.columnId || null,
+      boardId: boardId || additionalData.boardId || null,
       tagId: additionalData.tagId || null,
-      details
+      details: enhancedDetails
     });
 
     // Insert activity into database
@@ -85,13 +121,13 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       roleId,
       action,
       taskId,
-      additionalData.columnId || null,
-      additionalData.boardId || null,
+      columnId || additionalData.columnId || null,
+      boardId || additionalData.boardId || null,
       additionalData.tagId || null,
-      details
+      enhancedDetails
     );
 
-    console.log(`📝 Activity logged: User ${userId} performed ${action} on task ${taskId} - ${details}`);
+    console.log(`📝 Activity logged: User ${userId} performed ${action} on task ${taskId} - ${enhancedDetails}`);
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -195,5 +231,123 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
     return `cleared ${fieldLabel} (was "${oldValue}")${context}`;
   } else {
     return `changed ${fieldLabel} from "${oldValue}" to "${newValue}"${context}`;
+  }
+};
+
+/**
+ * Log a comment-related activity
+ * @param {string} userId - User ID
+ * @param {string} action - Action constant from COMMENT_ACTIONS
+ * @param {string} commentId - Comment ID (TEXT/UUID)
+ * @param {string} taskId - Task ID that the comment belongs to
+ * @param {string} details - Description of the change
+ * @param {Object} [additionalData] - Additional data (boardId, columnId, etc.)
+ */
+export const logCommentActivity = async (userId, action, commentId, taskId, details, additionalData = {}) => {
+  if (!db) {
+    console.warn('Activity logger not initialized, skipping comment log');
+    return;
+  }
+
+  if (!isValidAction(action)) {
+    console.warn(`Unknown comment action "${action}" being logged`);
+  }
+
+  try {
+    // Get task and board information for context
+    let taskTitle = 'Unknown Task';
+    let boardId = null;
+    let boardTitle = 'Unknown Board';
+    let columnId = null;
+
+    try {
+      const taskInfo = db.prepare(
+        `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
+         FROM tasks t 
+         LEFT JOIN boards b ON t.boardId = b.id 
+         WHERE t.id = ?`
+      ).get(taskId);
+      
+      if (taskInfo) {
+        taskTitle = taskInfo.title || 'Unknown Task';
+        boardId = taskInfo.boardId;
+        boardTitle = taskInfo.boardTitle || 'Unknown Board';
+        columnId = taskInfo.columnId;
+      }
+    } catch (taskError) {
+      console.warn('Failed to get task/board info for comment activity:', taskError.message);
+    }
+
+    // Get user role with fallback
+    let userRole = null;
+    let fallbackRole = null;
+
+    try {
+      const roleResult = db.prepare(
+        `SELECT ur.role_id, r.name as role_name 
+         FROM user_roles ur 
+         JOIN roles r ON ur.role_id = r.id 
+         WHERE ur.user_id = ?`
+      ).get(userId);
+      userRole = roleResult?.role_id || null;
+    } catch (roleError) {
+      console.warn('Failed to get user role for comment activity:', roleError.message);
+    }
+
+    // Fallback to Member role if no role found
+    if (!userRole) {
+      try {
+        const memberRoleResult = db.prepare(`SELECT id FROM roles WHERE name = 'Member'`).get();
+        fallbackRole = memberRoleResult?.id || null;
+      } catch (fallbackError) {
+        console.warn('Failed to get fallback Member role:', fallbackError.message);
+      }
+    }
+
+    const finalRoleId = userRole || fallbackRole;
+
+    // Check if user exists
+    const userExists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    if (!userExists) {
+      console.warn(`User ${userId} not found for comment activity logging`);
+    }
+
+    // Create enhanced details with context
+    const actionText = action === 'create_comment' ? 'added comment' : 
+                      action === 'update_comment' ? 'updated comment' : 
+                      action === 'delete_comment' ? 'deleted comment' : 'modified comment';
+    
+    const enhancedDetails = `${actionText}: "${details.replace(/^(added comment|updated comment|deleted comment): "/, '').replace(/"$/, '')}" to task "${taskTitle}" in board "${boardTitle}"`;
+
+    console.log('Logging comment activity:', {
+      userId,
+      roleId: finalRoleId,
+      action,
+      taskId,
+      commentId,
+      boardId,
+      columnId,
+      details: enhancedDetails,
+      additionalData
+    });
+
+    db.prepare(
+      `INSERT INTO activity (userId, roleId, action, taskId, commentId, columnId, boardId, tagId, details) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      userId,
+      finalRoleId,
+      action,
+      taskId,
+      commentId,
+      columnId || additionalData.columnId || null,
+      boardId || additionalData.boardId || null,
+      additionalData.tagId || null,
+      enhancedDetails
+    );
+
+    console.log('Comment activity logged successfully');
+  } catch (error) {
+    console.error('Failed to log comment activity:', error);
   }
 };

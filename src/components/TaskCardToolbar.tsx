@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Edit2, FileText, X, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus } from 'lucide-react';
+import { Copy, Edit2, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2 } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { setDndGloballyDisabled } from '../utils/globalDndState';
@@ -223,7 +223,7 @@ export default function TaskCardToolbar({
               className="p-1 hover:bg-red-100 rounded-full transition-colors"
               title="Delete Task"
             >
-              <X size={14} className="text-red-500" />
+              <Trash2 size={14} className="text-red-500" />
             </button>
           </div>
         </div>

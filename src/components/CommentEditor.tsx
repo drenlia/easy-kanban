@@ -4,6 +4,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
+import BulletList from '@tiptap/extension-bullet-list';
+import OrderedList from '@tiptap/extension-ordered-list';
+import ListItem from '@tiptap/extension-list-item';
 import { 
   Bold, 
   Italic, 
@@ -49,13 +52,29 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        bulletList: {
-          keepMarks: true,
-          keepAttributes: false,
+        // Disable the default list extensions from StarterKit
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+      }),
+      // Add explicit list extensions with proper configuration
+      BulletList.configure({
+        keepMarks: true,
+        keepAttributes: false,
+        HTMLAttributes: {
+          class: 'tiptap-bullet-list',
         },
-        orderedList: {
-          keepMarks: true,
-          keepAttributes: false,
+      }),
+      OrderedList.configure({
+        keepMarks: true,
+        keepAttributes: false,
+        HTMLAttributes: {
+          class: 'tiptap-ordered-list',
+        },
+      }),
+      ListItem.configure({
+        HTMLAttributes: {
+          class: 'tiptap-list-item',
         },
       }),
       Underline,

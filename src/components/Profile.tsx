@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Upload, User, Trash2 } from 'lucide-react';
-import { uploadAvatar, deleteAccount, getUserSettings, updateUserSetting } from '../api';
-import { loadUserPreferences, updateUserPreference, getTaskDeleteConfirmSetting } from '../utils/userPreferences';
+import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, getTaskDeleteConfirmSetting } from '../utils/userPreferences';
 import api from '../api';
 
 interface ProfileProps {
@@ -20,6 +20,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
   const [userSettings, setUserSettings] = useState<{ showActivityFeed?: boolean }>({});
+  const [userPrefs, setUserPrefs] = useState(loadUserPreferences(currentUser?.id));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -59,11 +60,16 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     const loadUserSettings = async () => {
       if (isOpen && Object.keys(systemSettings).length > 0) {
         try {
+          // Load unified preferences (cookie + database)
+          const unifiedPrefs = await loadUserPreferencesAsync(currentUser?.id);
+          setUserPrefs(unifiedPrefs);
+          
+          // Also load database-only settings for backwards compatibility
           const settings = await getUserSettings();
           // Use system defaults for any settings not explicitly set by user
           const settingsWithDefaults = {
-            showActivityFeed: settings.showActivityFeed !== undefined 
-              ? settings.showActivityFeed 
+            showActivityFeed: unifiedPrefs.appSettings.showActivityFeed !== undefined 
+              ? unifiedPrefs.appSettings.showActivityFeed 
               : systemSettings.SHOW_ACTIVITY_FEED !== 'false', // Default to true unless system says false
             ...settings
           };
@@ -75,7 +81,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     };
     
     loadUserSettings();
-  }, [isOpen, systemSettings]);
+  }, [isOpen, systemSettings, currentUser?.id]);
 
   // Reset form when modal opens (but not when currentUser changes during editing)
   useEffect(() => {
@@ -276,8 +282,21 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   const handleActivityFeedToggle = async (enabled: boolean) => {
     try {
-      await updateUserSetting('showActivityFeed', enabled);
+      // Update the unified preferences
+      const updatedPrefs = {
+        ...userPrefs,
+        appSettings: { 
+          ...userPrefs.appSettings, 
+          showActivityFeed: enabled 
+        }
+      };
+      
+      await updateUserPreference('appSettings', updatedPrefs.appSettings, currentUser?.id);
+      
+      // Update local state
+      setUserPrefs(updatedPrefs);
       setUserSettings(prev => ({ ...prev, showActivityFeed: enabled }));
+      
       // Also update the parent state
       if (onActivityFeedToggle) {
         onActivityFeedToggle(enabled);

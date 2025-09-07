@@ -48,6 +48,41 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     });
   };
 
+  const handleDefaultViewModeChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_VIEW_MODE: value
+    });
+  };
+
+  const handleDefaultTaskViewModeChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_TASK_VIEW_MODE: value
+    });
+  };
+
+  const handleDefaultActivityFeedPositionChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_ACTIVITY_FEED_POSITION: value
+    });
+  };
+
+  const handleDefaultActivityFeedWidthChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_ACTIVITY_FEED_WIDTH: value
+    });
+  };
+
+  const handleDefaultActivityFeedHeightChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      DEFAULT_ACTIVITY_FEED_HEIGHT: value
+    });
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -141,6 +176,130 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        {/* New User Defaults Section */}
+        <div className="px-6 py-4 border-t border-gray-200">
+          <h4 className="text-md font-medium text-gray-900 mb-4">New User Defaults</h4>
+          <p className="text-sm text-gray-500 mb-6">
+            Configure default preferences for new users. Existing users keep their current settings.
+          </p>
+          
+          <div className="space-y-6">
+            {/* Default View Mode */}
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Default View Mode
+                </label>
+                <p className="text-sm text-gray-500">
+                  Default view mode for new users (Kanban or List view)
+                </p>
+              </div>
+              <div className="ml-6 flex-shrink-0">
+                <select
+                  value={editingSettings.DEFAULT_VIEW_MODE || 'kanban'}
+                  onChange={(e) => handleDefaultViewModeChange(e.target.value)}
+                  className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                >
+                  <option value="kanban">Kanban</option>
+                  <option value="list">List</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Default Task View Mode */}
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Default Task View Mode
+                </label>
+                <p className="text-sm text-gray-500">
+                  Default task card size for new users (Expanded or Collapsed)
+                </p>
+              </div>
+              <div className="ml-6 flex-shrink-0">
+                <select
+                  value={editingSettings.DEFAULT_TASK_VIEW_MODE || 'expand'}
+                  onChange={(e) => handleDefaultTaskViewModeChange(e.target.value)}
+                  className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                >
+                  <option value="expand">Expanded</option>
+                  <option value="collapse">Collapsed</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Activity Feed Defaults */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h5 className="text-sm font-medium text-blue-900 mb-3">Activity Feed Defaults</h5>
+              
+              {/* Activity Feed Position */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Default Position
+                  </label>
+                  <p className="text-sm text-gray-500">
+                    Default position for activity feed (JSON format: {`{"x": 0, "y": 66}`})
+                  </p>
+                </div>
+                <div className="ml-6 flex-shrink-0">
+                  <input
+                    type="text"
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_POSITION || '{"x": 0, "y": 66}'}
+                    onChange={(e) => handleDefaultActivityFeedPositionChange(e.target.value)}
+                    className="block w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    placeholder='{"x": 0, "y": 66}'
+                  />
+                </div>
+              </div>
+
+              {/* Activity Feed Width */}
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Default Width
+                  </label>
+                  <p className="text-sm text-gray-500">
+                    Default width in pixels (180-400)
+                  </p>
+                </div>
+                <div className="ml-6 flex-shrink-0">
+                  <input
+                    type="number"
+                    min="180"
+                    max="400"
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH || '208'}
+                    onChange={(e) => handleDefaultActivityFeedWidthChange(e.target.value)}
+                    className="block w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Activity Feed Height */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Default Height
+                  </label>
+                  <p className="text-sm text-gray-500">
+                    Default height in pixels (200-800)
+                  </p>
+                </div>
+                <div className="ml-6 flex-shrink-0">
+                  <input
+                    type="number"
+                    min="200"
+                    max="800"
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_HEIGHT || '400'}
+                    onChange={(e) => handleDefaultActivityFeedHeightChange(e.target.value)}
+                    className="block w-20 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>

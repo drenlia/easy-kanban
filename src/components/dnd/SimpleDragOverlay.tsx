@@ -2,6 +2,7 @@ import React from 'react';
 import { DragOverlay as DndKitDragOverlay } from '@dnd-kit/core';
 import { FileText } from 'lucide-react';
 import { Task, TeamMember } from '../../types';
+import DOMPurify from 'dompurify';
 
 interface SimpleDragOverlayProps {
   draggedTask: Task | null;
@@ -72,11 +73,16 @@ const TaskDragPreview: React.FC<{ task: Task; member?: TeamMember }> = ({ task, 
         </div>
       </div>
       {task.description && (
-        <p className="text-sm text-gray-600 line-clamp-2 mb-2">
-          {task.description.length > 50 
-            ? task.description.substring(0, 50) + '...' 
-            : task.description}
-        </p>
+        <div 
+          className="text-sm text-gray-600 line-clamp-2 mb-2 prose prose-sm max-w-none"
+          dangerouslySetInnerHTML={{
+            __html: DOMPurify.sanitize(
+              task.description.length > 50 
+                ? task.description.substring(0, 50) + '...' 
+                : task.description
+            )
+          }}
+        />
       )}
       <div className="flex items-center justify-between text-xs text-gray-500">
         <span>Moving...</span>

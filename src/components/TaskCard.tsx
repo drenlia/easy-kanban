@@ -13,6 +13,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
+import DOMPurify from 'dompurify';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -784,15 +785,17 @@ export default function TaskCard({
               </div>
             ) : (
               <div
-                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors whitespace-pre-wrap min-h-[2.5rem]"
+                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none"
                 onClick={handleDescriptionClick}
-                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description : "Click to edit description"}
-              >
-                {taskViewMode === 'shrink' && task.description && task.description.length > 60 
-                  ? `${task.description.substring(0, 60)}...` 
-                  : task.description || ''
-                }
-              </div>
+                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description.replace(/<[^>]*>/g, '') : "Click to edit description"}
+                dangerouslySetInnerHTML={{
+                  __html: DOMPurify.sanitize(
+                    taskViewMode === 'shrink' && task.description && task.description.length > 60 
+                      ? `${task.description.substring(0, 60)}...` 
+                      : task.description || ''
+                  )
+                }}
+              />
             )}
           </>
         )}
