@@ -41,6 +41,13 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     });
   };
 
+  const handleShowActivityFeedChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      SHOW_ACTIVITY_FEED: value
+    });
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -105,6 +112,30 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               <select
                 value={editingSettings.TASK_DELETE_CONFIRM || 'true'}
                 onChange={(e) => handleTaskDeleteConfirmChange(e.target.value)}
+                className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Activity Feed Default Setting */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <label className="text-sm font-medium text-gray-700 block mb-1">
+                Activity Feed Default
+              </label>
+              <p className="text-sm text-gray-500">
+                Default visibility setting for the activity feed. Users can override this in their personal preferences.
+              </p>
+            </div>
+            <div className="ml-6 flex-shrink-0">
+              <select
+                value={editingSettings.SHOW_ACTIVITY_FEED || 'true'}
+                onChange={(e) => handleShowActivityFeedChange(e.target.value)}
                 className="block w-32 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
               >
                 <option value="true">Enabled</option>

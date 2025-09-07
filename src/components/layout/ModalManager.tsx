@@ -22,6 +22,7 @@ interface ModalManagerProps {
   onProfileUpdated: () => Promise<void>;
   isProfileBeingEdited: boolean;
   onProfileEditingChange: (isEditing: boolean) => void;
+  onActivityFeedToggle?: (enabled: boolean) => void;
   onAccountDeleted?: () => void;
 }
 
@@ -38,6 +39,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   onProfileUpdated,
   isProfileBeingEdited,
   onProfileEditingChange,
+  onActivityFeedToggle,
   onAccountDeleted,
 }) => {
   return (
@@ -75,6 +77,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
         onProfileUpdated={onProfileUpdated}
         isProfileBeingEdited={isProfileBeingEdited}
         onProfileEditingChange={onProfileEditingChange}
+        onActivityFeedToggle={onActivityFeedToggle}
         onAccountDeleted={onAccountDeleted}
       />
     </>

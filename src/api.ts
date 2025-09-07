@@ -281,6 +281,23 @@ export const getPublicSettings = async () => {
   return data;
 };
 
+// Activity Feed
+export const getActivityFeed = async (limit: number = 20) => {
+  const { data } = await api.get(`/activity/feed?limit=${limit}`);
+  return data;
+};
+
+// User Settings
+export const getUserSettings = async () => {
+  const { data } = await api.get('/user/settings');
+  return data;
+};
+
+export const updateUserSetting = async (setting_key: string, setting_value: any) => {
+  const { data } = await api.put('/user/settings', { setting_key, setting_value });
+  return data;
+};
+
 export const updateSetting = async (key: string, value: string) => {
   const { data } = await api.put('/admin/settings', { key, value });
   return data;

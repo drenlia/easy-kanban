@@ -24,9 +24,10 @@ import ModalManager from './components/layout/ModalManager';
 import MiniTaskIcon from './components/MiniTaskIcon';
 import TaskCard from './components/TaskCard';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
+import ActivityFeed from './components/ActivityFeed';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, updateUserSetting } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -71,7 +72,15 @@ export default function App() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null); // Initialize as null, will be set after auth
   const [columns, setColumns] = useState<Columns>({});
-  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string }>({});
+  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  
+  // Activity Feed state
+  const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
+  const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
+  const [activities, setActivities] = useState<any[]>([]);
+  const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
+  const [clearActivityId, setClearActivityId] = useState<number>(0);
+  
   // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
@@ -315,6 +324,62 @@ export default function App() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [taskDeleteConfirmation.confirmationTask, taskDeleteConfirmation.cancelDelete]);
+
+  // Load user settings for activity feed
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (currentUser?.id) {
+        try {
+          const settings = await getUserSettings();
+          // Use system default if user hasn't set a preference
+          const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false'; // Default to true unless system says false
+          setShowActivityFeed(settings.showActivityFeed !== undefined ? settings.showActivityFeed : defaultFromSystem);
+          setActivityFeedMinimized(settings.activityFeedMinimized || false); // Default to expanded
+          setLastSeenActivityId(settings.lastSeenActivityId || 0); // Default to 0 (show all as unread)
+          setClearActivityId(settings.clearActivityId || 0); // Default to 0 (show all)
+        } catch (error) {
+          console.error('Failed to load user settings:', error);
+        }
+      }
+    };
+    
+    loadUserSettings();
+  }, [currentUser?.id, systemSettings]);
+
+  // Activity feed toggle handler
+  const handleActivityFeedToggle = (enabled: boolean) => {
+    setShowActivityFeed(enabled);
+  };
+
+  // Activity feed minimized state handler
+  const handleActivityFeedMinimizedChange = (minimized: boolean) => {
+    setActivityFeedMinimized(minimized);
+  };
+
+
+  // Activity feed mark as read handler
+  const handleActivityFeedMarkAsRead = async (activityId: number) => {
+    try {
+      await updateUserSetting('lastSeenActivityId', activityId);
+      setLastSeenActivityId(activityId);
+    } catch (error) {
+      console.error('Failed to mark activities as read:', error);
+    }
+  };
+
+  // Activity feed clear all handler
+  const handleActivityFeedClearAll = async (activityId: number) => {
+    try {
+      // Set both clear point and read point to the same value
+      // This ensures new activities after clear will show as unread
+      await updateUserSetting('clearActivityId', activityId);
+      await updateUserSetting('lastSeenActivityId', activityId);
+      setClearActivityId(activityId);
+      setLastSeenActivityId(activityId);
+    } catch (error) {
+      console.error('Failed to clear activities:', error);
+    }
+  };
   
   // Data polling for real-time collaboration
   const { isPolling, lastPollTime } = useDataPolling({
@@ -325,12 +390,14 @@ export default function App() {
     currentColumns: columns,
     currentSiteSettings: siteSettings,
     currentPriorities: availablePriorities,
+    currentActivities: activities,
     includeSystem,
     onBoardsUpdate: setBoards,
     onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
+    onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
   });
 
   // Restore selected task from preferences when tasks are loaded
@@ -707,7 +774,7 @@ export default function App() {
       };
 
       // Create the board first
-      await api.createBoard(newBoard);
+      await createBoard(newBoard);
 
       // Create default columns for the new board
       const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
@@ -718,7 +785,7 @@ export default function App() {
           boardId: boardId,
           position: index
         };
-        return api.createColumn(column);
+        return createColumn(column);
       });
 
       await Promise.all(columnPromises);
@@ -795,7 +862,7 @@ export default function App() {
     }
 
     try {
-      await api.deleteBoard(boardId);
+      await deleteBoard(boardId);
       const newBoards = boards.filter(b => b.id !== boardId);
       setBoards(newBoards);
       
@@ -1437,7 +1504,7 @@ export default function App() {
   const handleConfirmColumnDelete = async (columnId: string) => {
     console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
-      await api.deleteColumn(columnId);
+      await deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
       setColumns(remainingColumns);
       setShowColumnDeleteConfirm(null);
@@ -1517,7 +1584,7 @@ export default function App() {
     };
 
     try {
-      await api.createColumn(newColumn);
+      await createColumn(newColumn);
       await refreshBoardData(); // Refresh to ensure consistent state
       await fetchQueryLogs();
     } catch (error) {
@@ -1673,12 +1740,12 @@ export default function App() {
       updateCurrentUserPreference('includeSystem', false);
     } else {
       // Currently in "None" mode, switch to "All" mode
-      const allMemberIds = members.map(m => m.id);
-      setSelectedMembers(allMemberIds);
-      setIncludeAssignees(true);
-      setIncludeWatchers(true);
-      setIncludeCollaborators(true);
-      setIncludeRequesters(true);
+    const allMemberIds = members.map(m => m.id);
+    setSelectedMembers(allMemberIds);
+    setIncludeAssignees(true);
+    setIncludeWatchers(true);
+    setIncludeCollaborators(true);
+    setIncludeRequesters(true);
       
       updateCurrentUserPreference('selectedMembers', allMemberIds);
       updateCurrentUserPreference('includeAssignees', true);
@@ -2160,6 +2227,7 @@ export default function App() {
         onProfileUpdated={handleProfileUpdated}
         isProfileBeingEdited={isProfileBeingEdited}
         onProfileEditingChange={setIsProfileBeingEdited}
+        onActivityFeedToggle={handleActivityFeedToggle}
         onAccountDeleted={() => {
           // Account deleted successfully - handle logout and redirect
           handleLogout();
@@ -2190,6 +2258,19 @@ export default function App() {
         isHoveringBoardTab={isHoveringBoardTab}
       />
       </SimpleDragDropManager>
+
+      {/* Activity Feed */}
+      <ActivityFeed
+        isVisible={showActivityFeed}
+        onClose={() => setShowActivityFeed(false)}
+        isMinimized={activityFeedMinimized}
+        onMinimizedChange={handleActivityFeedMinimizedChange}
+        activities={activities}
+        lastSeenActivityId={lastSeenActivityId}
+        clearActivityId={clearActivityId}
+        onMarkAsRead={handleActivityFeedMarkAsRead}
+        onClearAll={handleActivityFeedClearAll}
+      />
     </div>
   );
 }
