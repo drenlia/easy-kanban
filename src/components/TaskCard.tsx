@@ -14,6 +14,7 @@ import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
 import DOMPurify from 'dompurify';
+import TextEditor from './TextEditor';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -765,35 +766,51 @@ export default function TaskCard({
         {taskViewMode !== 'compact' && (
           <>
             {isEditingDescription ? (
-              <div className="-mt-2 mb-3">
-                <textarea
-                  ref={descriptionTextareaRef}
-                  value={editedDescription}
-                  onChange={(e) => setEditedDescription(e.target.value)}
-                  onBlur={handleDescriptionCancel}
-                  onKeyDown={handleDescriptionKeyDown}
-                  onFocus={handleDescriptionInputFocus}
-                  className="w-full text-sm text-gray-600 bg-white border border-blue-400 rounded px-2 py-1 outline-none focus:border-blue-500 resize-y"
-                  rows={task.description ? Math.max(3, Math.ceil(task.description.length / 50)) : 1}
-                  onClick={(e) => e.stopPropagation()}
+              <div className="-mt-2 mb-3" onClick={(e) => e.stopPropagation()}>
+                <TextEditor
+                  onSubmit={async (content) => {
+                    // Handle save
+                    if (content !== task.description) {
+                      onEdit({ ...task, description: content });
+                    }
+                    setIsEditingDescription(false);
+                  }}
+                  onCancel={() => {
+                    setEditedDescription(task.description);
+                    setIsEditingDescription(false);
+                  }}
+                  onChange={(content) => {
+                    setEditedDescription(content);
+                  }}
+                  initialContent={editedDescription}
                   placeholder="Enter task description..."
-                  autoFocus
+                  compact={true}
+                  showSubmitButtons={false}
+                  resizable={false}
+                  toolbarOptions={{
+                    bold: true,
+                    italic: true,
+                    underline: false,
+                    link: true,
+                    lists: false,
+                    alignment: false,
+                    attachments: false
+                  }}
+                  className="w-full"
                 />
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                  <span>Press Enter to save, Shift+Enter for new line, Escape to cancel</span>
+                  <span>Press Enter to save, Shift+Enter for new line, Escape to cancel, or click outside to save</span>
                 </div>
               </div>
             ) : (
               <div
-                className="text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none"
+                className={`text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
+                  taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
+                }`}
                 onClick={handleDescriptionClick}
-                title={taskViewMode === 'shrink' && task.description && task.description.length > 60 ? task.description.replace(/<[^>]*>/g, '') : "Click to edit description"}
+                title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : "Click to edit description"}
                 dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(
-                    taskViewMode === 'shrink' && task.description && task.description.length > 60 
-                      ? `${task.description.substring(0, 60)}...` 
-                      : task.description || ''
-                  )
+                  __html: DOMPurify.sanitize(task.description || '')
                 }}
               />
             )}

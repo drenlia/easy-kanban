@@ -1050,23 +1050,15 @@ export default function ListView({
                             ) : (
                               <div 
                                 className={`text-sm text-gray-500 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 prose prose-sm max-w-none ${
-                                  taskViewMode === 'shrink' ? 'truncate' : 'break-words'
+                                  taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : 'break-words'
                                 }`} 
                                 title={task.description ? task.description.replace(/<[^>]*>/g, '') : ''}
-                                style={{
-                                  maxHeight: taskViewMode === 'shrink' ? '1.5em' : 'none',
-                                  overflow: taskViewMode === 'shrink' ? 'hidden' : 'visible'
-                                }}
                                 onDoubleClick={(e) => {
                                   e.stopPropagation();
                                   startEditing(task.id, 'description', task.description);
                                 }}
                                 dangerouslySetInnerHTML={{
-                                  __html: DOMPurify.sanitize(
-                                    taskViewMode === 'shrink' && task.description && task.description.length > 100 
-                                      ? `${task.description.substring(0, 100)}...` 
-                                      : task.description || ''
-                                  )
+                                  __html: DOMPurify.sanitize(task.description || '')
                                 }}
                               />
                             )
