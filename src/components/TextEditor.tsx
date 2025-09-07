@@ -49,6 +49,7 @@ interface TextEditorProps {
   className?: string;
   editorClassName?: string;
   resizable?: boolean;
+  compact?: boolean;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -77,7 +78,8 @@ export default function TextEditor({
   toolbarOptions = defaultToolbarOptions,
   className = '',
   editorClassName = '',
-  resizable = true
+  resizable = true,
+  compact = false
 }: TextEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -88,8 +90,22 @@ export default function TextEditor({
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Merge default toolbar options with provided ones
-  const finalToolbarOptions = { ...defaultToolbarOptions, ...toolbarOptions };
+  // Merge default toolbar options with provided ones, with compact overrides
+  const compactToolbarOptions = compact ? {
+    bold: true,
+    italic: true,
+    underline: false,
+    link: true,
+    lists: false,
+    alignment: false,
+    attachments: false
+  } : defaultToolbarOptions;
+  
+  const finalToolbarOptions = { ...compactToolbarOptions, ...toolbarOptions };
+
+  // Compact styling
+  const buttonClass = compact ? 'p-1' : 'p-2';
+  const iconSize = compact ? 14 : 16;
 
   const editor = useEditor({
     extensions: [
@@ -143,8 +159,8 @@ export default function TextEditor({
     },
     editorProps: {
       attributes: {
-        class: `prose prose-sm max-w-none focus:outline-none px-3 py-2 ${editorClassName}`,
-        style: `min-height: ${minHeight}`,
+        class: `prose prose-sm max-w-none focus:outline-none ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${editorClassName}`,
+        style: `min-height: ${compact ? '60px' : minHeight}`,
         placeholder: placeholder
       },
       handleClick: (view, pos, event) => {
@@ -171,6 +187,31 @@ export default function TextEditor({
         }
         
         return false; // Not handled, let editor handle normally
+      },
+      handleKeyDown: (view, event) => {
+        // Handle Escape key for compact mode
+        if (compact && event.key === 'Escape' && onCancel) {
+          event.preventDefault();
+          onCancel();
+          return true;
+        }
+        
+        // Handle Enter key for compact mode (save)
+        if (compact && event.key === 'Enter' && !event.shiftKey && onSubmit) {
+          event.preventDefault();
+          const content = view.state.doc.textContent;
+          onSubmit(editor?.getHTML() || '', []);
+          return true;
+        }
+        
+        return false;
+      },
+      handleBlur: (view, event) => {
+        // Auto-save on blur for compact mode
+        if (compact && onSubmit) {
+          const content = editor?.getHTML() || '';
+          onSubmit(content, []);
+        }
       }
     }
   });
@@ -275,20 +316,20 @@ export default function TextEditor({
   if (!editor) return null;
 
   return (
-    <div className={`border rounded-lg overflow-hidden ${className}`}>
+    <div className={`${compact ? 'border rounded' : 'border rounded-lg'} overflow-hidden ${className}`}>
       {/* Toolbar */}
       {showToolbar && (
-        <div className="flex flex-wrap gap-1 p-2 border-b bg-gray-50">
+        <div className={`flex flex-wrap gap-1 ${compact ? 'p-1' : 'p-2'} border-b bg-gray-50`}>
           {finalToolbarOptions.bold && (
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleBold().run()}
-              className={`p-2 rounded hover:bg-gray-200 ${
+              className={`${buttonClass} rounded hover:bg-gray-200 ${
                 editor.isActive('bold') ? 'bg-gray-200' : ''
               }`}
               title="Bold"
             >
-              <Bold size={16} />
+              <Bold size={iconSize} />
             </button>
           )}
           
@@ -296,12 +337,12 @@ export default function TextEditor({
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={`p-2 rounded hover:bg-gray-200 ${
+              className={`${buttonClass} rounded hover:bg-gray-200 ${
                 editor.isActive('italic') ? 'bg-gray-200' : ''
               }`}
               title="Italic"
             >
-              <Italic size={16} />
+              <Italic size={iconSize} />
             </button>
           )}
           
@@ -309,12 +350,12 @@ export default function TextEditor({
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`p-2 rounded hover:bg-gray-200 ${
+              className={`${buttonClass} rounded hover:bg-gray-200 ${
                 editor.isActive('underline') ? 'bg-gray-200' : ''
               }`}
               title="Underline"
             >
-              <UnderlineIcon size={16} />
+              <UnderlineIcon size={iconSize} />
             </button>
           )}
           
@@ -405,12 +446,12 @@ export default function TextEditor({
                 }
                 setShowLinkDialog(true);
               }}
-              className={`p-2 rounded hover:bg-gray-200 ${
+              className={`${buttonClass} rounded hover:bg-gray-200 ${
                 editor.isActive('link') ? 'bg-gray-200' : ''
               }`}
               title={editor?.isActive('link') ? 'Edit Link' : 'Add Link'}
             >
-              <Link2 size={16} />
+              <Link2 size={iconSize} />
             </button>
           )}
           
