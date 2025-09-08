@@ -89,6 +89,7 @@ export default function TextEditor({
   const [openInNewWindow, setOpenInNewWindow] = useState(true);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const editorRef = React.useRef<HTMLDivElement>(null);
 
   // Merge default toolbar options with provided ones, with compact overrides
   const compactToolbarOptions = compact ? {
@@ -96,7 +97,7 @@ export default function TextEditor({
     italic: true,
     underline: false,
     link: true,
-    lists: false,
+    lists: true,
     alignment: false,
     attachments: false
   } : defaultToolbarOptions;
@@ -108,6 +109,7 @@ export default function TextEditor({
   const iconSize = compact ? 14 : 16;
 
   const editor = useEditor({
+    autofocus: compact ? 'end' : false,
     extensions: [
       StarterKit.configure({
         // Disable the default list extensions from StarterKit
@@ -197,24 +199,54 @@ export default function TextEditor({
         }
         
         // Handle Enter key for compact mode (save)
-        if (compact && event.key === 'Enter' && !event.shiftKey && onSubmit) {
-          event.preventDefault();
-          const content = view.state.doc.textContent;
-          onSubmit(editor?.getHTML() || '', []);
-          return true;
+        if (compact && event.key === 'Enter' && !event.shiftKey && onSubmit && editor) {
+          // Don't save if we're in a list - let TipTap handle list item creation
+          const { $from } = view.state.selection;
+          const isInList = $from.parent.type.name === 'listItem' || 
+                          editor.isActive('bulletList') || 
+                          editor.isActive('orderedList');
+          
+          if (!isInList) {
+            event.preventDefault();
+            onSubmit(editor.getHTML() || '', []);
+            return true;
+          }
         }
         
         return false;
-      },
-      handleBlur: (view, event) => {
-        // Auto-save on blur for compact mode
-        if (compact && onSubmit) {
-          const content = editor?.getHTML() || '';
-          onSubmit(content, []);
-        }
       }
     }
   });
+
+  // Handle outside clicks for compact mode (moved after useEditor)
+  React.useEffect(() => {
+    if (!compact || !onSubmit || !editor) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      // Safety checks
+      if (!event.target || !editorRef.current) return;
+      
+      try {
+        if (!editorRef.current.contains(event.target as Node)) {
+          // Save and close when clicking outside
+          const content = editor.getHTML();
+          onSubmit(content, []);
+        }
+      } catch (error) {
+        console.error('Error in handleClickOutside:', error);
+      }
+    };
+
+    // Add a small delay to ensure editor is fully initialized
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 100);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [compact, onSubmit, editor]);
 
   const handleLinkSubmit = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
@@ -316,7 +348,10 @@ export default function TextEditor({
   if (!editor) return null;
 
   return (
-    <div className={`${compact ? 'border rounded' : 'border rounded-lg'} overflow-hidden ${className}`}>
+    <div 
+      ref={editorRef}
+      className={`${compact ? 'border rounded' : 'border rounded-lg'} overflow-hidden ${className}`}
+    >
       {/* Toolbar */}
       {showToolbar && (
         <div className={`flex flex-wrap gap-1 ${compact ? 'p-1' : 'p-2'} border-b bg-gray-50`}>
@@ -540,7 +575,14 @@ export default function TextEditor({
       )}
 
       {/* Editor Content */}
-      <div className={resizable ? "resize-y overflow-auto" : ""}>
+      <div 
+        className={resizable ? "resize-y overflow-auto" : ""}
+        onClick={() => {
+          if (compact && editor && !editor.isFocused) {
+            editor.commands.focus('end');
+          }
+        }}
+      >
         <EditorContent editor={editor} />
       </div>
 
