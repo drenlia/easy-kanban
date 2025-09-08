@@ -210,6 +210,68 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
 /**
  * Helper function to generate detailed descriptions for common task changes
  */
+/**
+ * Analyze HTML content to extract images and text content
+ */
+const analyzeHTMLContent = (html) => {
+  if (!html) return { text: '', images: [] };
+  
+  // Extract images (look for img tags with src)
+  const imageRegex = /<img[^>]*src="([^"]*)"[^>]*>/g;
+  const images = [];
+  let match;
+  while ((match = imageRegex.exec(html)) !== null) {
+    images.push(match[1]); // src URL
+  }
+  
+  // Extract text content (remove HTML tags)
+  const textContent = html
+    .replace(/<img[^>]*>/g, '') // Remove img tags
+    .replace(/<[^>]*>/g, '') // Remove all other HTML tags
+    .replace(/&nbsp;/g, ' ') // Replace &nbsp; with spaces
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+  
+  return { text: textContent, images };
+};
+
+/**
+ * Generate intelligent description change details
+ */
+const generateDescriptionChangeDetails = (oldValue, newValue) => {
+  const oldContent = analyzeHTMLContent(oldValue);
+  const newContent = analyzeHTMLContent(newValue);
+  
+  const textChanged = oldContent.text !== newContent.text;
+  const imagesAdded = newContent.images.filter(img => !oldContent.images.includes(img));
+  const imagesRemoved = oldContent.images.filter(img => !newContent.images.includes(img));
+  
+  const actions = [];
+  
+  // Check for text changes
+  if (textChanged) {
+    actions.push('updated description');
+  }
+  
+  // Check for image changes
+  if (imagesAdded.length > 0) {
+    const count = imagesAdded.length;
+    actions.push(`added ${count} attachment${count > 1 ? 's' : ''}`);
+  }
+  
+  if (imagesRemoved.length > 0) {
+    const count = imagesRemoved.length;
+    actions.push(`removed ${count} attachment${count > 1 ? 's' : ''}`);
+  }
+  
+  // If no meaningful changes detected, fall back to generic message
+  if (actions.length === 0) {
+    return 'updated description';
+  }
+  
+  return actions.join(' and ');
+};
+
 export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalContext = '') => {
   const fieldLabels = {
     title: 'title',
@@ -225,6 +287,18 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
   const fieldLabel = fieldLabels[field] || field;
   const context = additionalContext ? ` ${additionalContext}` : '';
 
+  // Special handling for description changes
+  if (field === 'description') {
+    if (oldValue === null || oldValue === undefined || oldValue === '') {
+      return newValue ? 'added description' : 'updated description';
+    } else if (newValue === null || newValue === undefined || newValue === '') {
+      return 'cleared description';
+    } else {
+      return generateDescriptionChangeDetails(oldValue, newValue);
+    }
+  }
+
+  // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
     return `set ${fieldLabel} to "${newValue}"${context}`;
   } else if (newValue === null || newValue === undefined || newValue === '') {
@@ -312,12 +386,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn(`User ${userId} not found for comment activity logging`);
     }
 
-    // Create enhanced details with context
+    // Create clean, user-friendly details without exposing raw comment content
     const actionText = action === 'create_comment' ? 'added comment' : 
                       action === 'update_comment' ? 'updated comment' : 
                       action === 'delete_comment' ? 'deleted comment' : 'modified comment';
     
-    const enhancedDetails = `${actionText}: "${details.replace(/^(added comment|updated comment|deleted comment): "/, '').replace(/"$/, '')}" to task "${taskTitle}" in board "${boardTitle}"`;
+    const enhancedDetails = `${actionText} on task "${taskTitle}" in board "${boardTitle}"`;
 
     console.log('Logging comment activity:', {
       userId,

@@ -262,6 +262,13 @@ export default function TextEditor({
             img.style.borderRadius = '4px';
             img.style.cursor = 'pointer';
             
+            // Make image non-selectable if deletion is not allowed
+            if (!allowImageDelete) {
+              img.style.userSelect = 'none';
+              img.style.pointerEvents = 'none';
+              img.draggable = false;
+            }
+            
             // Apply existing border styles if any
             if (node.attrs['data-border-style']) {
               img.style.border = node.attrs['data-border-style'];
@@ -503,40 +510,41 @@ export default function TextEditor({
       },
       handleKeyDown: (view, event) => {
         // Prevent image deletion via keyboard when allowImageDelete is false
-        if (!allowImageDelete && (event.key === 'Backspace' || event.key === 'Delete')) {
+        if (!allowImageDelete) {
           const { state } = view;
           const { selection } = state;
           const { $from, $to } = selection;
           
-          // Check if we're about to delete an image
-          const nodeAfter = $from.nodeAfter;
-          const nodeBefore = $from.nodeBefore;
-          
-          // For Backspace: check node before cursor
-          if (event.key === 'Backspace' && nodeBefore && nodeBefore.type.name === 'resizableImage') {
-            console.log('🚫 Prevented image deletion via Backspace');
-            event.preventDefault();
-            return true;
+          // For specific deletion keys (Backspace, Delete)
+          if (event.key === 'Backspace' || event.key === 'Delete') {
+            const nodeAfter = $from.nodeAfter;
+            const nodeBefore = $from.nodeBefore;
+            
+            // For Backspace: check node before cursor
+            if (event.key === 'Backspace' && nodeBefore && nodeBefore.type.name === 'resizableImage') {
+              event.preventDefault();
+              return true;
+            }
+            
+            // For Delete: check node after cursor  
+            if (event.key === 'Delete' && nodeAfter && nodeAfter.type.name === 'resizableImage') {
+              event.preventDefault();
+              return true;
+            }
           }
           
-          // For Delete: check node after cursor  
-          if (event.key === 'Delete' && nodeAfter && nodeAfter.type.name === 'resizableImage') {
-            console.log('🚫 Prevented image deletion via Delete key');
-            event.preventDefault();
-            return true;
-          }
-          
-          // Also prevent deletion when image is selected
+          // Prevent ANY key that would replace selected content when image is selected
           if (!selection.empty) {
-            let preventDeletion = false;
+            let hasSelectedImage = false;
             state.doc.nodesBetween(selection.from, selection.to, (node) => {
               if (node.type.name === 'resizableImage') {
-                console.log('🚫 Prevented image deletion via selection');
-                preventDeletion = true;
+                hasSelectedImage = true;
                 return false; // Stop iteration
               }
             });
-            if (preventDeletion) {
+            
+            if (hasSelectedImage) {
+              // Prevent any key that would replace the selection (including Shift+Enter, typing, etc.)
               event.preventDefault();
               return true;
             }
