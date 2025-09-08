@@ -26,6 +26,8 @@ interface BoardTabsProps {
   // Cross-board drag props
   draggedTask?: Task | null;
   onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
+  // Site settings for prefix display
+  siteSettings?: { [key: string]: string };
 }
 
 // Droppable Board Tab Component for cross-board task drops
@@ -359,7 +361,8 @@ export default function BoardTabs({
   getFilteredTaskCount,
   hasActiveFilters = false,
   draggedTask,
-  onTaskDropOnBoard
+  onTaskDropOnBoard,
+  siteSettings
 }: BoardTabsProps) {
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
@@ -572,8 +575,22 @@ export default function BoardTabs({
     };
   }, [showDeleteConfirm]);
 
+  // Get the current board's project identifier
+  const currentBoard = boards.find(board => board.id === selectedBoard);
+  const currentProject = currentBoard?.project;
+  const showPrefixes = siteSettings?.USE_PREFIXES === 'true';
+
   return (
     <div className="mb-6">
+      {/* Project Identifier - discrete display above tabs */}
+      {currentProject && showPrefixes && (
+        <div className="mb-2 flex justify-center">
+          <div className="bg-gray-50 border border-gray-200 px-3 py-1 rounded-md text-xs text-gray-600 font-mono">
+            {currentProject}
+          </div>
+        </div>
+      )}
+      
       <div className="flex items-center justify-between">
         {/* Board Tabs */}
         <div className="flex items-center space-x-2 flex-1 min-w-0">

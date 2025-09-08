@@ -1829,37 +1829,30 @@ export default function App() {
     setIncludeSystem(include);
     updateCurrentUserPreference('includeSystem', include);
     
-    // Refresh members to include/exclude system user
-    try {
-      const loadedMembers = await getMembers(include);
-      console.log(`📋 Loaded ${loadedMembers.length} members (includeSystem=${include}):`, loadedMembers.map(m => `${m.name} (${m.id})`));
-      setMembers(loadedMembers);
-      
-      // Handle SYSTEM user selection logic
-      
-      if (include) {
-        // Checkbox ON: Auto-select SYSTEM user if not already selected
-        setSelectedMembers(prev => {
-          if (!prev.includes(SYSTEM_MEMBER_ID)) {
-            const newSelection = [...prev, SYSTEM_MEMBER_ID];
-            console.log(`✅ Auto-selecting SYSTEM user`);
-            updateCurrentUserPreference('selectedMembers', newSelection);
-            return newSelection;
-          }
-          return prev;
-        });
-      } else {
-        // Checkbox OFF: Auto-deselect SYSTEM user
-        setSelectedMembers(prev => {
-          const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
-          console.log(`❌ Auto-deselecting SYSTEM user`);
+    // Handle SYSTEM user selection logic without reloading members
+    if (include) {
+      // Checkbox ON: Auto-select SYSTEM user if not already selected
+      setSelectedMembers(prev => {
+        if (!prev.includes(SYSTEM_MEMBER_ID)) {
+          const newSelection = [...prev, SYSTEM_MEMBER_ID];
+          console.log(`✅ Auto-selecting SYSTEM user`);
           updateCurrentUserPreference('selectedMembers', newSelection);
           return newSelection;
-        });
-      }
-    } catch (error) {
-      console.error('Failed to refresh members:', error);
+        }
+        return prev;
+      });
+    } else {
+      // Checkbox OFF: Auto-deselect SYSTEM user
+      setSelectedMembers(prev => {
+        const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
+        console.log(`❌ Auto-deselecting SYSTEM user`);
+        updateCurrentUserPreference('selectedMembers', newSelection);
+        return newSelection;
+      });
     }
+    
+    // Let the data polling system handle the members refresh naturally
+    // This prevents the jarring immediate reload and flash
   };
 
   // Enhanced async filtering effect with watchers/collaborators/requesters support
@@ -2145,6 +2138,7 @@ export default function App() {
               currentUser={currentUser} 
         selectedTask={selectedTask}
         adminRefreshKey={adminRefreshKey}
+        siteSettings={siteSettings}
               onUsersChanged={async () => {
                 try {
                   const loadedMembers = await getMembers(includeSystem);

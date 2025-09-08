@@ -126,6 +126,7 @@ const createTables = (db) => {
     CREATE TABLE IF NOT EXISTS boards (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      project TEXT,
       position INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -146,6 +147,7 @@ const createTables = (db) => {
       position INTEGER DEFAULT 0,
       title TEXT NOT NULL,
       description TEXT,
+      ticket TEXT,
       memberId TEXT NOT NULL,
       requesterId TEXT,
       startDate TEXT NOT NULL,
@@ -352,7 +354,11 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
       ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 0, "y": 443}'], // Default activity feed position
       ['DEFAULT_ACTIVITY_FEED_WIDTH', '180'], // Default activity feed width
-      ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'] // Default activity feed height
+      ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
+      // Project and task identification settings
+      ['USE_PREFIXES', 'true'], // Enable project and task identification by default
+      ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
+      ['DEFAULT_TASK_PREFIX', 'TASK-'] // Default task prefix
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

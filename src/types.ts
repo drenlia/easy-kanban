@@ -40,6 +40,7 @@ export interface Task {
   id: string;
   title: string;
   description?: string;
+  ticket?: string;
   columnId: string;
   memberId?: string;
   requesterId?: string;
@@ -79,6 +80,7 @@ export interface Columns {
 export interface Board {
   id: string;
   title: string;
+  project?: string;
   columns: Columns;
   position?: number;
 }
@@ -111,6 +113,7 @@ export interface SearchFilters {
 export interface SiteSettings {
   SITE_NAME: string;
   SITE_URL: string;
+  [key: string]: string;
 }
 
 export interface CurrentUser {
