@@ -361,9 +361,12 @@ app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
 
     // Delete the files from disk
     for (const attachment of attachments) {
-      const filePath = path.join(__dirname, '..', attachment.url);
+      // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
+      const filename = attachment.url.replace('/attachments/', '');
+      const filePath = path.join(__dirname, 'attachments', filename);
       try {
         await fs.promises.unlink(filePath);
+        console.log(`✅ Deleted file: ${filename}`);
       } catch (error) {
         console.error('Error deleting file:', error);
       }
@@ -417,10 +420,11 @@ app.post('/api/upload', attachmentUpload.single('file'), (req, res) => {
   }
 
   res.json({
-    filename: req.file.filename,
-    originalName: req.file.originalname,
-    size: req.file.size,
-    url: `/attachments/${req.file.filename}`
+    id: crypto.randomUUID(),
+    name: req.file.originalname,
+    url: `/attachments/${req.file.filename}`,
+    type: req.file.mimetype,
+    size: req.file.size
   });
 });
 
@@ -1578,6 +1582,113 @@ app.delete('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req
   } catch (error) {
     console.error('Error removing collaborator from task:', error);
     res.status(500).json({ error: 'Failed to remove collaborator from task' });
+  }
+});
+
+// Task-Attachments association endpoints
+app.get('/api/tasks/:taskId/attachments', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const attachments = db.prepare(`
+      SELECT id, name, url, type, size, created_at
+      FROM attachments 
+      WHERE taskId = ?
+      ORDER BY created_at DESC
+    `).all(taskId);
+    
+    res.json(attachments);
+  } catch (error) {
+    console.error('Error fetching task attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch task attachments' });
+  }
+});
+
+app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) => {
+  const { taskId } = req.params;
+  const { attachments } = req.body;
+  const userId = req.user.id;
+  
+  try {
+    // Begin transaction
+    db.prepare('BEGIN').run();
+
+    try {
+      const insertedAttachments = [];
+      
+      if (attachments?.length > 0) {
+        const attachmentStmt = db.prepare(`
+          INSERT INTO attachments (id, taskId, name, url, type, size)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        
+        attachments.forEach(attachment => {
+          attachmentStmt.run(
+            attachment.id,
+            taskId,
+            attachment.name,
+            attachment.url,
+            attachment.type,
+            attachment.size
+          );
+          insertedAttachments.push(attachment);
+        });
+      }
+
+      // Commit transaction
+      db.prepare('COMMIT').run();
+      
+      res.json(insertedAttachments);
+    } catch (error) {
+      // Rollback on error
+      db.prepare('ROLLBACK').run();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error adding task attachments:', error);
+    res.status(500).json({ error: 'Failed to add task attachments' });
+  }
+});
+
+app.delete('/api/attachments/:id', authenticateToken, (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // First, get the attachment info to find the file path
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+    
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found' });
+    }
+    
+    // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
+    const filename = attachment.url.replace('/attachments/', '');
+    const filePath = path.join(__dirname, 'attachments', filename);
+    
+    // Delete the physical file if it exists
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`✅ Deleted file: ${filename}`);
+      } catch (fileError) {
+        console.error('Error deleting file:', fileError);
+        // Continue with database deletion even if file deletion fails
+      }
+    } else {
+      console.log(`⚠️ File not found: ${filename}`);
+    }
+    
+    // Delete the database record
+    const result = db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Attachment record not found' });
+    }
+    
+    res.json({ message: 'Attachment and file deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting attachment:', error);
+    res.status(500).json({ error: 'Failed to delete attachment' });
   }
 });
 

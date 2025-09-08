@@ -209,6 +209,28 @@ export const fetchCommentAttachments = async (commentId: string) => {
   return response.json();
 };
 
+// Task Attachments API
+export const fetchTaskAttachments = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/attachments`);
+  return data;
+};
+
+export const addTaskAttachments = async (taskId: string, attachments: Array<{
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}>) => {
+  const { data } = await api.post(`/tasks/${taskId}/attachments`, { attachments });
+  return data;
+};
+
+export const deleteAttachment = async (attachmentId: string) => {
+  const { data } = await api.delete(`/attachments/${attachmentId}`);
+  return data;
+};
+
 // Admin API
 export const getUsers = async () => {
   const { data } = await api.get('/admin/users');

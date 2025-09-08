@@ -9,7 +9,16 @@ const router = express.Router();
 router.get('/', (req, res) => {
   try {
     const { db } = req.app.locals;
-    const tasks = wrapQuery(db.prepare('SELECT * FROM tasks ORDER BY position ASC'), 'SELECT').all();
+    const tasks = wrapQuery(db.prepare(`
+      SELECT t.*, 
+             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                  ELSE NULL END as attachmentCount
+      FROM tasks t
+      LEFT JOIN attachments a ON a.taskId = t.id
+      GROUP BY t.id
+      ORDER BY t.position ASC
+    `), 'SELECT').all();
     res.json(tasks);
   } catch (error) {
     console.error('Error fetching tasks:', error);
@@ -174,6 +183,31 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    // Get task attachments before deleting the task
+    const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE taskId = ?');
+    const attachments = wrapQuery(attachmentsStmt, 'SELECT').all(id);
+
+    // Delete the attachment files from disk
+    const path = await import('path');
+    const fs = await import('fs');
+    const { fileURLToPath } = await import('url');
+    const { dirname } = await import('path');
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    
+    for (const attachment of attachments) {
+      // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
+      const filename = attachment.url.replace('/attachments/', '');
+      const filePath = path.join(__dirname, '..', 'attachments', filename);
+      try {
+        await fs.promises.unlink(filePath);
+        console.log(`✅ Deleted file: ${filename}`);
+      } catch (error) {
+        console.error('Error deleting file:', error);
+      }
+    }
+    
+    // Delete the task (cascades to attachments and comments)
     wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
     
     // Log deletion activity
@@ -188,7 +222,7 @@ router.delete('/:id', async (req, res) => {
       }
     );
     
-    res.json({ message: 'Task deleted successfully' });
+    res.json({ message: 'Task and attachments deleted successfully' });
   } catch (error) {
     console.error('Error deleting task:', error);
     res.status(500).json({ error: 'Failed to delete task' });
@@ -408,7 +442,17 @@ router.get('/by-board/:boardId', (req, res) => {
   const { boardId } = req.params;
   try {
     const { db } = req.app.locals;
-    const tasks = wrapQuery(db.prepare('SELECT * FROM tasks WHERE boardId = ?'), 'SELECT').all(boardId);
+    const tasks = wrapQuery(db.prepare(`
+      SELECT t.*, 
+             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                  ELSE NULL END as attachmentCount
+      FROM tasks t
+      LEFT JOIN attachments a ON a.taskId = t.id
+      WHERE t.boardId = ?
+      GROUP BY t.id
+      ORDER BY t.position ASC
+    `), 'SELECT').all(boardId);
     res.json(tasks);
   } catch (error) {
     console.error('Error getting tasks by board:', error);

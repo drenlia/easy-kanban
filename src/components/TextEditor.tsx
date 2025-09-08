@@ -36,6 +36,8 @@ interface TextEditorProps {
   onSubmit: (content: string, attachments?: File[]) => Promise<void>;
   onCancel?: () => void;
   onChange?: (content: string) => void;
+  onAttachmentsChange?: (attachments: File[]) => void;
+  onAttachmentDelete?: (attachmentId: string) => Promise<void>;
   initialContent?: string;
   isEditing?: boolean;
   showAttachments?: boolean;
@@ -50,6 +52,16 @@ interface TextEditorProps {
   editorClassName?: string;
   resizable?: boolean;
   compact?: boolean;
+  // New props for attachment context
+  attachmentContext?: 'task' | 'comment';
+  attachmentParentId?: string;
+  existingAttachments?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    size: number;
+  }>;
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -66,6 +78,8 @@ export default function TextEditor({
   onSubmit,
   onCancel,
   onChange,
+  onAttachmentsChange,
+  onAttachmentDelete,
   initialContent = '',
   isEditing = false,
   showAttachments = false,
@@ -79,7 +93,10 @@ export default function TextEditor({
   className = '',
   editorClassName = '',
   resizable = true,
-  compact = false
+  compact = false,
+  attachmentContext = 'comment',
+  attachmentParentId,
+  existingAttachments = []
 }: TextEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -87,9 +104,36 @@ export default function TextEditor({
   const [hasSelectedText, setHasSelectedText] = useState(false);
   const [isEditingExistingLink, setIsEditingExistingLink] = useState(false);
   const [openInNewWindow, setOpenInNewWindow] = useState(true);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  // Handle both new files and existing attachments
+  const [newAttachments, setNewAttachments] = useState<File[]>([]);
+  const [displayedAttachments, setDisplayedAttachments] = useState<Array<{
+    id: string;
+    name: string;
+    url?: string;
+    type: string;
+    size: number;
+    isNew?: boolean;
+    file?: File;
+  }>>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const editorRef = React.useRef<HTMLDivElement>(null);
+
+  // Track previous existingAttachments to prevent infinite updates
+  const prevExistingAttachmentsRef = React.useRef<string>('');
+  
+  // Initialize displayed attachments when existingAttachments changes
+  React.useEffect(() => {
+    const currentKey = JSON.stringify(existingAttachments.map(att => att.id).sort());
+    
+    // Only update if the attachments actually changed
+    if (prevExistingAttachmentsRef.current !== currentKey) {
+      prevExistingAttachmentsRef.current = currentKey;
+      setDisplayedAttachments(prev => [
+        ...existingAttachments.map(att => ({ ...att, isNew: false })),
+        ...prev.filter(att => att.isNew) // Keep new attachments that aren't duplicates
+      ]);
+    }
+  }, [existingAttachments]);
 
   // Merge default toolbar options with provided ones, with compact overrides
   const compactToolbarOptions = compact ? {
@@ -316,7 +360,26 @@ export default function TextEditor({
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files) {
-      setAttachments(prev => [...prev, ...Array.from(files)]);
+      const newFiles = Array.from(files);
+      const updatedAttachments = [...newAttachments, ...newFiles];
+      setNewAttachments(updatedAttachments);
+      
+      // Add to displayed attachments for immediate UI feedback
+      const newDisplayedAttachments = newFiles.map(file => ({
+        id: `temp-${Date.now()}-${Math.random()}`, // Temporary ID
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        isNew: true,
+        file
+      }));
+      
+      setDisplayedAttachments(prev => [...prev, ...newDisplayedAttachments]);
+      
+      // Notify parent component about attachment changes
+      if (onAttachmentsChange) {
+        onAttachmentsChange(updatedAttachments);
+      }
     }
   };
 
@@ -326,11 +389,13 @@ export default function TextEditor({
     const content = editor.getHTML();
     const isEmptyContent = !content || content.replace(/<[^>]*>/g, '').trim() === '';
     
-    if (!isEmptyContent || (showAttachments && attachments.length > 0)) {
+    if (!isEmptyContent || (showAttachments && newAttachments.length > 0)) {
       try {
-        await onSubmit(content, showAttachments ? [...attachments] : undefined);
+        // Only pass new attachments to onSubmit - existing ones are already saved
+        await onSubmit(content, showAttachments ? [...newAttachments] : undefined);
         editor.commands.clearContent();
-        setAttachments([]);
+        setNewAttachments([]);
+        setDisplayedAttachments(existingAttachments.map(att => ({ ...att, isNew: false })));
       } catch (error) {
         console.error('Failed to submit content:', error);
       }
@@ -341,7 +406,8 @@ export default function TextEditor({
     if (editor) {
       editor.commands.clearContent();
     }
-    setAttachments([]);
+    setNewAttachments([]);
+    setDisplayedAttachments(existingAttachments.map(att => ({ ...att, isNew: false })));
     onCancel?.();
   };
 
@@ -587,18 +653,62 @@ export default function TextEditor({
       </div>
 
       {/* Attachments */}
-      {showAttachments && attachments.length > 0 && (
+      {showAttachments && displayedAttachments.length > 0 && (
         <div className="p-2 border-t bg-gray-50">
           <p className="text-sm font-medium text-gray-700 mb-2">Attachments:</p>
           <div className="space-y-1">
-            {attachments.map((file, index) => (
-              <div key={index} className="flex items-center gap-2 text-sm">
+            {displayedAttachments
+              .filter((attachment, index, array) => {
+                // Remove duplicates: keep only the first occurrence of each name
+                // Prioritize existing attachments over new ones
+                const firstIndex = array.findIndex(att => att.name === attachment.name);
+                if (firstIndex !== index) {
+                  // This is a duplicate - keep it only if it's existing and the first occurrence is new
+                  const firstOccurrence = array[firstIndex];
+                  return !attachment.isNew && firstOccurrence.isNew;
+                }
+                return true;
+              })
+              .map((attachment, index) => (
+              <div key={attachment.id} className="flex items-center gap-2 text-sm">
                 <Paperclip size={14} className="text-gray-500" />
-                <span className="text-gray-700">{file.name}</span>
+                <span className="text-gray-700">{attachment.name}</span>
+                {attachment.isNew ? (
+                  <span className="text-xs text-blue-600 bg-blue-100 px-1 rounded">New</span>
+                ) : (
+                  <span className="text-xs text-green-600 bg-green-100 px-1 rounded">Saved</span>
+                )}
                 <button
                   type="button"
-                  onClick={() => setAttachments(prev => prev.filter((_, i) => i !== index))}
+                  onClick={async () => {
+                    if (attachment.isNew) {
+                      // Remove from new attachments and displayed attachments
+                      const updatedNewAttachments = newAttachments.filter(file => file.name !== attachment.name);
+                      setNewAttachments(updatedNewAttachments);
+                      setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
+                      
+                      // Notify parent of attachment changes
+                      if (onAttachmentsChange) {
+                        onAttachmentsChange(updatedNewAttachments);
+                      }
+                    } else {
+                      // For existing attachments, delete immediately from database
+                      if (onAttachmentDelete && !attachment.id.startsWith('pending-')) {
+                        try {
+                          await onAttachmentDelete(attachment.id);
+                          // Remove from displayed attachments after successful deletion
+                          setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
+                        } catch (error) {
+                          console.error('Failed to delete attachment:', error);
+                        }
+                      } else {
+                        // Fallback: just remove from display
+                        setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
+                      }
+                    }
+                  }}
                   className="ml-auto text-gray-500 hover:text-gray-700"
+                  title={attachment.isNew ? "Remove attachment" : "Delete attachment"}
                 >
                   <X size={14} />
                 </button>

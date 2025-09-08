@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
 import { X, Paperclip, ChevronDown, Check, Edit2 } from 'lucide-react';
 import DOMPurify from 'dompurify';
-import CommentEditor from './CommentEditor';
 import TextEditor from './TextEditor';
-import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
+import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, addTaskAttachments, deleteAttachment } from '../api';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
@@ -61,6 +60,16 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+  
+  // Task attachments state
+  const [taskAttachments, setTaskAttachments] = useState<Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    size: number;
+  }>>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
   
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
@@ -384,14 +393,16 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     const loadTaskData = async () => {
       try {
         setIsLoadingTags(true);
-        const [allTags, currentTaskTags, allPriorities] = await Promise.all([
+        const [allTags, currentTaskTags, allPriorities, currentAttachments] = await Promise.all([
           getAllTags(),
           getTaskTags(task.id),
-          getAllPriorities()
+          getAllPriorities(),
+          fetchTaskAttachments(task.id)
         ]);
         setAvailableTags(allTags || []);
         setTaskTags(currentTaskTags || []);
         setAvailablePriorities(allPriorities || []);
+        setTaskAttachments(currentAttachments || []);
         // Update watchers and collaborators from task prop
         setTaskWatchers(task.watchers || []);
         setTaskCollaborators(task.collaborators || []);
@@ -504,7 +515,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     setShowTagsDropdown(!showTagsDropdown);
   };
 
-  const handleAddComment = async (content: string, attachments: File[]) => {
+  const handleAddComment = async (content: string, attachments: File[] = []) => {
     if (isSubmitting) return;
 
     try {
@@ -536,6 +547,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         taskId: editedTask.id,
         attachments: uploadedAttachments
       };
+
+      console.log('Sending comment to backend:', newComment);
 
       // Save comment to server
       const savedComment = await createComment(newComment);
@@ -736,6 +749,81 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     fetchAttachments();
   }, [editedTask.comments]);
 
+  // Auto-save pending attachments after a delay
+  React.useEffect(() => {
+    if (pendingAttachments.length > 0) {
+      const timeoutId = setTimeout(() => {
+        savePendingAttachments();
+      }, 2000); // Save after 2 seconds of no changes
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [pendingAttachments]);
+
+  // Handle attachment changes from TextEditor
+  const handleAttachmentsChange = (attachments: File[]) => {
+    setPendingAttachments(attachments);
+  };
+
+  // Handle immediate attachment deletion
+  const handleAttachmentDelete = async (attachmentId: string) => {
+    try {
+      await deleteAttachment(attachmentId);
+      // Remove from local state
+      setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
+      console.log('✅ Attachment deleted successfully');
+    } catch (error) {
+      console.error('❌ Failed to delete attachment:', error);
+      throw error; // Re-throw to let TextEditor handle the error
+    }
+  };
+
+  // Handle saving pending attachments
+  const savePendingAttachments = async () => {
+    if (pendingAttachments.length > 0) {
+      try {
+        console.log('📎 Uploading', pendingAttachments.length, 'attachments...');
+        
+        // Upload files first
+        const uploadedAttachments = await Promise.all(
+          pendingAttachments.map(async (file) => {
+            const fileData = await uploadFile(file);
+            return {
+              id: fileData.id,
+              name: fileData.name,
+              url: fileData.url,
+              type: fileData.type,
+              size: fileData.size
+            };
+          })
+        );
+
+        // Add attachments to task
+        await addTaskAttachments(task.id, uploadedAttachments);
+        
+        // Update local state
+        setTaskAttachments(prev => [...prev, ...uploadedAttachments]);
+        setPendingAttachments([]);
+        
+        console.log('✅ Attachments saved successfully');
+      } catch (error) {
+        console.error('❌ Failed to save attachments:', error);
+      }
+    }
+  };
+
+  // Combine existing and pending attachments for display
+  const displayAttachments = React.useMemo(() => [
+    ...taskAttachments,
+    ...pendingAttachments.map(file => ({
+      id: `pending-${file.name}-${file.size}`,
+      name: file.name,
+      url: '',
+      type: file.type,
+      size: file.size
+    }))
+  ], [taskAttachments, pendingAttachments]);
+
   return (
     <div 
       className="fixed right-0 bg-white border-l border-gray-200 flex z-30" 
@@ -820,15 +908,22 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               </label>
               <TextEditor
                 onSubmit={async () => {
-                  // No-op since we're using onChange instead
+                  // Save pending attachments when submit is triggered
+                  await savePendingAttachments();
                 }}
                 onChange={(content) => {
                   handleTextUpdate('description', content);
                 }}
+                onAttachmentsChange={handleAttachmentsChange}
+                onAttachmentDelete={handleAttachmentDelete}
                 initialContent={editedTask.description}
                 placeholder="Enter task description..."
                 minHeight="120px"
                 showSubmitButtons={false}
+                showAttachments={true}
+                attachmentContext="task"
+                attachmentParentId={task.id}
+                existingAttachments={displayAttachments}
                 toolbarOptions={{
                   bold: true,
                   italic: true,
@@ -836,11 +931,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   link: true,
                   lists: true,
                   alignment: false,
-                  attachments: false
+                  attachments: true
                 }}
                 className="w-full"
               />
             </div>
+
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -1211,8 +1307,20 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             )}
           </div>
           <div className="mb-4">
-            <CommentEditor 
+            <TextEditor 
               onSubmit={handleAddComment}
+              placeholder="Add a comment..."
+              showAttachments={true}
+              submitButtonText="Add Comment"
+              toolbarOptions={{
+                bold: true,
+                italic: true,
+                underline: true,
+                link: true,
+                lists: true,
+                alignment: false,
+                attachments: true
+              }}
             />
           </div>
 
@@ -1258,14 +1366,26 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     )}
                   </div>
                   {editingCommentId === comment.id ? (
-                    <CommentEditor
+                    <TextEditor
                       initialContent={editingCommentText}
-                      isEditing={true}
                       onSubmit={async (content: string) => {
                         setEditingCommentText(content);
                         await handleSaveEditCommentWithContent(content);
                       }}
                       onCancel={handleCancelEditComment}
+                      placeholder="Edit comment..."
+                      showAttachments={false}
+                      submitButtonText="Save Changes"
+                      cancelButtonText="Cancel"
+                      toolbarOptions={{
+                        bold: true,
+                        italic: true,
+                        underline: true,
+                        link: true,
+                        lists: true,
+                        alignment: false,
+                        attachments: false
+                      }}
                     />
                   ) : (
                     <div

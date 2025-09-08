@@ -16,6 +16,9 @@ router.get('/', (req, res) => {
         SELECT t.id, t.position, t.title, t.description, t.memberId, t.requesterId, 
                t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId,
                t.created_at, t.updated_at,
+               CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                    THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                    ELSE NULL END as attachmentCount,
           json_group_array(
             DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
               'id', c.id,
@@ -64,6 +67,7 @@ router.get('/', (req, res) => {
         LEFT JOIN collaborators col ON col.taskId = t.id
         LEFT JOIN members collaborator ON collaborator.id = col.memberId
         LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
+        LEFT JOIN attachments a ON a.taskId = t.id
         WHERE t.columnId = ?
         GROUP BY t.id
         ORDER BY t.position ASC
