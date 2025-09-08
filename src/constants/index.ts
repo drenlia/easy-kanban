@@ -15,9 +15,9 @@ export const ROUTES = {
   // Pages that don't require authentication
   PUBLIC_PAGES: ['forgot-password', 'reset-password', 'reset-success'],
   // Pages that require authentication
-  PROTECTED_PAGES: ['kanban', 'admin'],
+  PROTECTED_PAGES: ['kanban', 'admin', 'task'],
   // Pages that should skip auto-board-selection
-  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'admin'],
+  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'admin', 'task'],
   // Default routes
   DEFAULT_PAGE: 'kanban',
   DEFAULT_ADMIN_TAB: 'users'

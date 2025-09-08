@@ -8,7 +8,9 @@ export interface ParsedRoute {
   isAdminTab: boolean;
   isBoardId: boolean;
   isProjectRoute: boolean;
+  isTaskRoute: boolean;
   projectId?: string;
+  taskId?: string;
 }
 
 /**
@@ -36,6 +38,44 @@ export const parseProjectRoute = (url: string = window.location.href): { isProje
 };
 
 /**
+ * Parse task route from full URL (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001 formats)
+ */
+export const parseTaskRoute = (url: string = window.location.href): { isTaskRoute: boolean; taskId?: string; projectId?: string } => {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const hash = urlObj.hash;
+    
+    if (!hash) return { isTaskRoute: false };
+    
+    const cleanHash = hash.replace(/^#/, '');
+    const hashParts = cleanHash.split('#');
+    
+    // Handle /task/#TASK-00001 format
+    if (pathname === '/task/' && hashParts.length === 1) {
+      const taskId = hashParts[0];
+      // Validate task ID format (TASK-00000 or similar)
+      if (/^[A-Z]+-\d+$/i.test(taskId)) {
+        return { isTaskRoute: true, taskId };
+      }
+    }
+    
+    // Handle /project/#PROJ-00001/#TASK-00001 format
+    if (pathname === '/project/' && hashParts.length === 2) {
+      const [projectId, taskId] = hashParts;
+      // Validate both IDs
+      if (/^[A-Z]+-\d+$/i.test(projectId) && /^[A-Z]+-\d+$/i.test(taskId)) {
+        return { isTaskRoute: true, taskId, projectId };
+      }
+    }
+    
+    return { isTaskRoute: false };
+  } catch (error) {
+    return { isTaskRoute: false };
+  }
+};
+
+/**
  * CENTRALIZED ROUTE PARSING - Single source of truth
  */
 export const parseUrlHash = (hash: string): ParsedRoute => {
@@ -50,13 +90,14 @@ export const parseUrlHash = (hash: string): ParsedRoute => {
   const [mainRoute, queryString] = mainPart.split('?');
   const queryParams = new URLSearchParams(queryString || '');
   
-  // Check for project route
+  // Check for project and task routes
   const projectRoute = parseProjectRoute();
+  const taskRoute = parseTaskRoute();
   
   // Determine route type
   const isPage = PAGE_IDENTIFIERS.includes(mainRoute);
   const isAdminTab = ADMIN_TABS.includes(mainRoute);
-  const isBoardId = !isPage && !isAdminTab && mainRoute.length > 0 && !projectRoute.isProjectRoute;
+  const isBoardId = !isPage && !isAdminTab && mainRoute.length > 0 && !projectRoute.isProjectRoute && !taskRoute.isTaskRoute;
   
   return {
     mainRoute,
@@ -66,7 +107,9 @@ export const parseUrlHash = (hash: string): ParsedRoute => {
     isAdminTab,
     isBoardId,
     isProjectRoute: projectRoute.isProjectRoute,
-    projectId: projectRoute.projectId
+    isTaskRoute: taskRoute.isTaskRoute,
+    projectId: projectRoute.projectId || taskRoute.projectId,
+    taskId: taskRoute.taskId
   };
 };
 
@@ -101,12 +144,18 @@ export const getInitialSelectedBoard = (): string | null => {
 /**
  * Get the initial page from URL hash
  */
-export const getInitialPage = (): 'kanban' | 'admin' | 'forgot-password' | 'reset-password' | 'reset-success' => {
+export const getInitialPage = (): 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success' => {
   const hash = window.location.hash;
   const parsed = parseUrlHash(hash);
+  const taskRoute = parseTaskRoute();
+  
+  // Handle task routes first
+  if (taskRoute.isTaskRoute) {
+    return 'task';
+  }
   
   if (parsed.isPage) {
-    return parsed.mainRoute as 'kanban' | 'admin' | 'forgot-password' | 'reset-password' | 'reset-success';
+    return parsed.mainRoute as 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success';
   }
   
   // If it's a board ID, default to kanban page

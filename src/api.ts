@@ -114,6 +114,11 @@ export const createTaskAtTop = async (task: Task) => {
 };
 
 // Tasks
+export const getTaskById = async (id: string) => {
+  const { data } = await api.get<Task>(`/tasks/${id}`);
+  return data;
+};
+
 export const createTask = async (task: Task) => {
   const { data } = await api.post<Task>('/tasks', task);
   return data;
