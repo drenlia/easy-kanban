@@ -49,6 +49,7 @@ interface KanbanColumnProps {
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
   siteSettings?: { [key: string]: string };
+  boards?: any[]; // To get project identifier from board
 }
 
 export default function KanbanColumn({
@@ -87,7 +88,8 @@ export default function KanbanColumn({
   onTagRemove,
   onTaskEnterMiniMode,
   onTaskExitMiniMode,
-  siteSettings
+  siteSettings,
+  boards
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -277,6 +279,7 @@ export default function KanbanColumn({
             onTagAdd={onTagAdd ? onTagAdd(task.id) : undefined}
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
             siteSettings={siteSettings}
+            boards={boards}
           />
         </div>
       );

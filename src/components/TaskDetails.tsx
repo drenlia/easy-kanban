@@ -14,11 +14,20 @@ interface TaskDetailsProps {
   currentUser: CurrentUser | null;
   onClose: () => void;
   onUpdate: (updatedTask: Task) => void;
+  siteSettings?: { [key: string]: string };
+  boards?: any[]; // To get project identifier from board
 }
 
-export default function TaskDetails({ task, members, currentUser, onClose, onUpdate }: TaskDetailsProps) {
+export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, siteSettings, boards }: TaskDetailsProps) {
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
+  
+  // Get project identifier from the board this task belongs to
+  const getProjectIdentifier = () => {
+    if (!boards || !task.boardId) return null;
+    const board = boards.find(b => b.id === task.boardId);
+    return board?.project || null;
+  };
   const [isResizing, setIsResizing] = useState(false);
   const [editedTask, setEditedTask] = useState<Task>(() => ({
     ...task,
@@ -874,8 +883,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         {/* Sticky Header */}
         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-10 shadow-sm">
           <div className="flex justify-between items-center mb-2">
-            <div className="w-full">
-              {/* <div className="text-sm text-gray-500 mb-1">Task #{editedTask.id}</div> */}
+            {/* Title - 60% width when prefixes enabled, 100% when disabled */}
+            <div className={siteSettings?.USE_PREFIXES === 'true' ? "w-3/5" : "w-full"}>
               <input
                 type="text"
                 value={editedTask.title}
@@ -884,17 +893,64 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 disabled={isSubmitting}
               />
             </div>
-            <div className="flex items-center gap-2">
-              {isSavingText && (
-                <div className="text-xs text-gray-500 flex items-center gap-1">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                  Auto-saving...
+            
+            {/* Project and Task Links - Right side (only when prefixes enabled) */}
+            {siteSettings?.USE_PREFIXES === 'true' ? (
+              <div className="flex items-center gap-4">
+                {/* Project and Task Identifiers */}
+                {(getProjectIdentifier() || task.ticket) && (
+                  <div className="flex items-center gap-2 font-mono text-sm">
+                    {getProjectIdentifier() && (
+                      <a 
+                        href={`/project/#${getProjectIdentifier()}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                        title={`Go to project ${getProjectIdentifier()}`}
+                      >
+                        {getProjectIdentifier()}
+                      </a>
+                    )}
+                    {getProjectIdentifier() && task.ticket && (
+                      <span className="text-gray-400">→</span>
+                    )}
+                    {task.ticket && (
+                      <a 
+                        href={getProjectIdentifier() ? `/project/#${getProjectIdentifier()}#${task.ticket}` : `#task#${task.ticket}`}
+                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                        title={`Direct link to ${task.ticket}`}
+                      >
+                        {task.ticket}
+                      </a>
+                    )}
+                  </div>
+                )}
+                
+                {/* Save indicator and close button */}
+                <div className="flex items-center gap-2">
+                  {isSavingText && (
+                    <div className="text-xs text-gray-500 flex items-center gap-1">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                      Auto-saving...
+                    </div>
+                  )}
+                  <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
+                    <X size={20} />
+                  </button>
                 </div>
-              )}
-              <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
-                <X size={20} />
-              </button>
-            </div>
+              </div>
+            ) : (
+              /* When prefixes disabled, only show save indicator and close button */
+              <div className="flex items-center gap-2">
+                {isSavingText && (
+                  <div className="text-xs text-gray-500 flex items-center gap-1">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                    Auto-saving...
+                  </div>
+                )}
+                <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
+                  <X size={20} />
+                </button>
+              </div>
+            )}
           </div></div>
 
         {/* Scrollable Content */}

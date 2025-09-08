@@ -56,6 +56,7 @@ interface TaskCardProps {
   onTagAdd?: (tagId: string) => void;
   onTagRemove?: (tagId: string) => void;
   siteSettings?: { [key: string]: string };
+  boards?: any[]; // To get project identifier from board
 }
 
 
@@ -78,7 +79,8 @@ export default function TaskCard({
   availableTags = [],
   onTagAdd,
   onTagRemove,
-  siteSettings
+  siteSettings,
+  boards
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -87,6 +89,13 @@ export default function TaskCard({
   const [showTagRemovalMenu, setShowTagRemovalMenu] = useState(false);
   const [selectedTagForRemoval, setSelectedTagForRemoval] = useState<Tag | null>(null);
   const [tagRemovalPosition, setTagRemovalPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
+  
+  // Get project identifier from the board this task belongs to
+  const getProjectIdentifier = () => {
+    if (!boards || !task.boardId) return null;
+    const board = boards.find(b => b.id === task.boardId);
+    return board?.project || null;
+  };
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
   const [isEditingDate, setIsEditingDate] = useState(false);
@@ -728,7 +737,7 @@ export default function TaskCard({
         {task.ticket && siteSettings?.USE_PREFIXES === 'true' && (
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
-              href={`/task/#${task.ticket}`}
+              href={getProjectIdentifier() ? `/project/#${getProjectIdentifier()}#${task.ticket}` : `#task#${task.ticket}`}
               className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-gray-800 transition-colors cursor-pointer`}
               style={{
                 borderTopLeftRadius: '0.25rem',

@@ -2298,6 +2298,8 @@ export default function App() {
           // Account deleted successfully - handle logout and redirect
           handleLogout();
         }}
+        siteSettings={siteSettings}
+        boards={boards}
       />
 
       {/* Task Delete Confirmation Popup */}
