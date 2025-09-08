@@ -792,14 +792,14 @@ export default function TaskCard({
                     italic: true,
                     underline: false,
                     link: true,
-                    lists: false,
+                    lists: true,
                     alignment: false,
                     attachments: false
                   }}
                   className="w-full"
                 />
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                  <span>Press Enter to save, Shift+Enter for new line, Escape to cancel, or click outside to save</span>
+                  <span>Press Enter to save (or add list items), Shift+Enter for new line, Escape to cancel, or click outside to save</span>
                 </div>
               </div>
             ) : (
