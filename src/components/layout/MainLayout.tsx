@@ -23,6 +23,7 @@ interface MainLayoutProps {
   onSettingsChanged: () => Promise<void>;
   
   // Kanban props
+  siteSettings: { [key: string]: string };
   loading: {
     general: boolean;
     tasks: boolean;

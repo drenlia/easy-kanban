@@ -1134,7 +1134,7 @@ app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requ
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'USE_PREFIXES');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;

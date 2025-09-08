@@ -13,7 +13,7 @@ router.get('/', (req, res) => {
         // Updated query to include tags, watchers, and collaborators
     const tasksStmt = wrapQuery(
       db.prepare(`
-        SELECT t.id, t.position, t.title, t.description, t.memberId, t.requesterId, 
+        SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
                t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId,
                t.created_at, t.updated_at,
                CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 

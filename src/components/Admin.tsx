@@ -8,6 +8,7 @@ import AdminMailTab from './admin/AdminMailTab';
 import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
 import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
+import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
 
 interface AdminProps {
   currentUser: any;
@@ -52,6 +53,9 @@ interface Settings {
   DEFAULT_ACTIVITY_FEED_POSITION?: string;
   DEFAULT_ACTIVITY_FEED_WIDTH?: string;
   DEFAULT_ACTIVITY_FEED_HEIGHT?: string;
+  USE_PREFIXES?: string;
+  DEFAULT_PROJ_PREFIX?: string;
+  DEFAULT_TASK_PREFIX?: string;
   [key: string]: string | undefined;
 }
 
@@ -570,7 +574,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         {/* Tabs */}
         <div className="border-b border-gray-200 mb-6">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -587,6 +591,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'tags' && 'Tags'}
                 {tab === 'priorities' && 'Priorities'}
                 {tab === 'app-settings' && 'App Settings'}
+                {tab === 'project-settings' && 'Project Settings'}
               </button>
             ))}
           </nav>
@@ -695,6 +700,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {activeTab === 'app-settings' && (
             <AdminAppSettingsTab
               settings={settings}
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              successMessage={successMessage}
+              error={error}
+            />
+          )}
+
+          {/* Project Settings Tab */}
+          {activeTab === 'project-settings' && (
+            <AdminProjectSettingsTab
               editingSettings={editingSettings}
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}

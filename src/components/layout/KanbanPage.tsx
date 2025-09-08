@@ -50,6 +50,7 @@ interface KanbanPageProps {
   gridStyle: React.CSSProperties;
   sensors: any;
   collisionDetection: any;
+  siteSettings: { [key: string]: string };
 
   
   // Event handlers
@@ -176,6 +177,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onTaskDrop,
   onSelectTask,
   onTaskDropOnBoard,
+  siteSettings,
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -405,6 +407,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         hasActiveFilters={activeFilters}
         draggedTask={draggedTask}
         onTaskDropOnBoard={onTaskDropOnBoard}
+        siteSettings={siteSettings}
       />
 
       {selectedBoard && (

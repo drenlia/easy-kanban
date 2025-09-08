@@ -385,7 +385,7 @@ export default function KanbanColumn({
                 data-column-title
                 className={`text-lg font-semibold text-gray-700 select-none ${
                   isAdmin && showColumnDeleteConfirm === null
-                    ? 'cursor-move hover:text-gray-900' 
+                    ? 'cursor-pointer hover:text-gray-900' 
                     : 'cursor-default'
                 }`}
                 onClick={() => {
@@ -506,9 +506,6 @@ export default function KanbanColumn({
                   </div>
                 ) : (
                   <div className="text-gray-500 text-center">
-                    <div className="text-3xl mb-2 opacity-50">📋</div>
-                    <div className="text-sm font-medium">No tasks yet</div>
-                    <div className="text-xs opacity-75 mt-1">Drag tasks here</div>
                   </div>
                 )}
             </div>
