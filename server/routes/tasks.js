@@ -26,6 +26,55 @@ router.get('/', (req, res) => {
   }
 });
 
+// Get task by ID or ticket
+router.get('/:id', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { id } = req.params;
+    
+    // Check if the ID looks like a ticket (e.g., TASK-00032) or a UUID
+    const isTicket = /^[A-Z]+-\d+$/i.test(id);
+    
+    // Build the query based on whether we're searching by ticket or UUID
+    const whereClause = isTicket ? 'WHERE t.ticket = ?' : 'WHERE t.id = ?';
+    
+    // Get task with attachment count and comments
+    const task = wrapQuery(db.prepare(`
+      SELECT t.*, 
+             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                  ELSE NULL END as attachmentCount
+      FROM tasks t
+      LEFT JOIN attachments a ON a.taskId = t.id
+      ${whereClause}
+      GROUP BY t.id
+    `), 'SELECT').get(id);
+    
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Get comments for the task
+    const comments = wrapQuery(db.prepare(`
+      SELECT c.*, 
+             m.name as authorName,
+             m.color as authorColor
+      FROM comments c
+      LEFT JOIN members m ON c.authorId = m.id
+      WHERE c.taskId = ?
+      ORDER BY c.createdAt ASC
+    `), 'SELECT').all(task.id); // Always use the actual task.id for comments
+    
+    // Add comments to task
+    task.comments = comments || [];
+    
+    res.json(task);
+  } catch (error) {
+    console.error('Error fetching task:', error);
+    res.status(500).json({ error: 'Failed to fetch task' });
+  }
+});
+
 // Create task
 router.post('/', async (req, res) => {
   const task = req.body;

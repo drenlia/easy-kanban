@@ -20,6 +20,7 @@ import ResetPassword from './components/ResetPassword';
 import ResetPasswordSuccess from './components/ResetPasswordSuccess';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
+import TaskPage from './components/TaskPage';
 import ModalManager from './components/layout/ModalManager';
 import MiniTaskIcon from './components/MiniTaskIcon';
 import TaskCard from './components/TaskCard';
@@ -48,6 +49,7 @@ import {
   getInitialPage,
   parseUrlHash,
   parseProjectRoute,
+  parseTaskRoute,
   findBoardByProjectId,
   shouldSkipAutoBoardSelection
 } from './utils/routingUtils';
@@ -580,7 +582,16 @@ export default function App() {
   // CENTRALIZED ROUTING HANDLER - Single source of truth
   useEffect(() => {
     const handleRouting = () => {
-      // Check for project route first (handles /project/#PROJ-00001)
+      // Check for task route first (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001)
+      const taskRoute = parseTaskRoute();
+      if (taskRoute.isTaskRoute && taskRoute.taskId) {
+        if (currentPage !== 'task') {
+          setCurrentPage('task');
+        }
+        return;
+      }
+      
+      // Check for project route (handles /project/#PROJ-00001)
       const projectRoute = parseProjectRoute();
       if (projectRoute.isProjectRoute && projectRoute.projectId && boards.length > 0) {
         const board = findBoardByProjectId(boards, projectRoute.projectId);
@@ -607,7 +618,7 @@ export default function App() {
       // 1. Handle page routing
       if (route.isPage) {
         if (route.mainRoute !== currentPage) {
-          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success');
+          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'task' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success');
         }
         
         // Handle password reset token
@@ -2099,6 +2110,29 @@ export default function App() {
   
   if (currentPage === 'reset-success') {
     return <ResetPasswordSuccess onBackToLogin={() => window.location.hash = '#kanban'} />;
+  }
+
+  // Handle task page (requires authentication)
+  if (currentPage === 'task') {
+    if (!isAuthenticated) {
+      return (
+        <Login
+          siteSettings={siteSettings}
+          onLogin={handleLogin}
+          onForgotPassword={() => {
+            localStorage.removeItem('authToken');
+            window.location.hash = '#forgot-password';
+          }}
+        />
+      );
+    }
+    
+    return (
+      <TaskPage 
+        currentUser={currentUser}
+        siteSettings={siteSettings}
+      />
+    );
   }
 
   // Show login page if not authenticated
