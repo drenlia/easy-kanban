@@ -415,41 +415,27 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           height: 60, // Fixed height for minimized
         }}
       >
-        {/* Minimized Header */}
-        <div className="flex items-center justify-between p-2 bg-gray-50 rounded">
-          {/* Drag Handle */}
-          <div 
-            className="cursor-grab active:cursor-grabbing flex items-center"
-            onMouseDown={handleDragStart}
-          >
-            <GripVertical className="w-3 h-3 text-gray-400 mr-1" />
-          </div>
-          <div 
-            className="flex items-center space-x-1.5 flex-1 min-w-0 cursor-help"
-            onMouseEnter={latestActivity ? handleMouseEnter : undefined}
-            onMouseLeave={latestActivity ? handleMouseLeave : undefined}
-          >
-            <Activity className="w-3 h-3 text-blue-600 flex-shrink-0" />
-            <div className="min-w-0 flex-1">
-              {latestActivity ? (
-                <div className="text-xs text-gray-700 truncate">
-                  <span className="font-medium text-blue-600">
-                    {latestActivity.member_name || 'Unknown User'}
-                  </span>
-                  {' '}
-                  <span>{latestActivity.details}</span>
-                </div>
-              ) : (
-                <span className="text-xs text-gray-500">No recent activity</span>
-              )}
+        {/* Minimized Header - Same title and pill as maximized */}
+        <div className="flex items-center justify-between p-2 bg-gray-50 rounded-t">
+          {/* Left side - Activity title and unread count */}
+          <div className="flex items-center space-x-2">
+            <div 
+              className="cursor-grab active:cursor-grabbing"
+              onMouseDown={handleDragStart}
+            >
+              <GripVertical className="w-3 h-3 text-gray-400" />
             </div>
+            <Activity className="w-3 h-3 text-blue-600" />
+            <span className="text-xs font-medium text-gray-900">Activity Feed</span>
             {unreadCount > 0 && (
-              <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none ml-1">
+              <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none">
                 {unreadCount}
               </div>
             )}
           </div>
-          <div className="flex items-center space-x-0.5 ml-1">
+
+          {/* Right side - Simple action buttons */}
+          <div className="flex items-center space-x-0.5">
             <button
               onClick={() => handleMinimizedChange(false)}
               className="p-0.5 hover:bg-gray-200 rounded transition-colors"
@@ -464,6 +450,27 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             >
               <X className="w-2.5 h-2.5 text-gray-500" />
             </button>
+          </div>
+        </div>
+        
+        {/* Latest Activity Content */}
+        <div 
+          className="px-2 py-1 bg-white cursor-help flex-1 flex items-center"
+          onMouseEnter={latestActivity ? handleMouseEnter : undefined}
+          onMouseLeave={latestActivity ? handleMouseLeave : undefined}
+        >
+          <div className="min-w-0 flex-1">
+            {latestActivity ? (
+              <div className="text-xs text-gray-700 truncate">
+                <span className="font-medium text-blue-600">
+                  {latestActivity.member_name || 'Unknown User'}
+                </span>
+                {' '}
+                <span>{latestActivity.details}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-gray-500">No recent activity</span>
+            )}
           </div>
         </div>
         
@@ -552,7 +559,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
                 >
                   <ChevronDown className="w-3 h-3 mr-2" />
-                  Minimize in place
+                  In place
                 </button>
                 <button
                   onClick={() => {
@@ -562,7 +569,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
                 >
                   <ChevronDown className="w-3 h-3 mr-2" />
-                  Minimize to bottom
+                  Bottom
                 </button>
               </div>
             )}

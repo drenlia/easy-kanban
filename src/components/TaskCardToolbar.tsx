@@ -195,7 +195,7 @@ export default function TaskCardToolbar({
       <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
         {/* Centered Action Buttons - Absolutely centered */}
         <div className="flex justify-center">
-          <div className="flex gap-1">
+          <div className="flex gap-0.5">
             <button
               onClick={handleCopy}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -229,7 +229,7 @@ export default function TaskCardToolbar({
         </div>
 
         {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
-        <div className="absolute top-1 right-12 flex gap-1">
+        <div className="absolute right-12 flex gap-1 z-30" style={{ top: '7px' }}>
           {task.watchers && task.watchers.length > 0 && (
             <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
               <Eye size={12} className="text-blue-500" />

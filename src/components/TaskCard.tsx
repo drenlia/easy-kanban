@@ -55,6 +55,7 @@ interface TaskCardProps {
   availableTags?: Tag[];
   onTagAdd?: (tagId: string) => void;
   onTagRemove?: (tagId: string) => void;
+  siteSettings?: { [key: string]: string };
 }
 
 
@@ -76,7 +77,8 @@ export default function TaskCard({
   selectedTask = null,
   availableTags = [],
   onTagAdd,
-  onTagRemove
+  onTagRemove,
+  siteSettings
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -700,6 +702,14 @@ export default function TaskCard({
       comment.createdAt
     );
 
+  // Get the card's background color to match the task identifier
+  const getCardBackgroundColor = () => {
+    if (isSelected) return 'bg-gray-100';
+    if (member.id === SYSTEM_MEMBER_ID) return 'bg-yellow-50';
+    if (isOverdue()) return 'bg-red-50';
+    return 'bg-white';
+  };
+
   return (
     <>
       <div
@@ -714,6 +724,30 @@ export default function TaskCard({
         }`}
         {...attributes}
       >
+        {/* Task Identifier Overlay - Top Right Corner */}
+        {task.ticket && siteSettings?.USE_PREFIXES === 'true' && (
+          <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
+            <a 
+              href={`/task/#${task.ticket}`}
+              className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-gray-800 transition-colors cursor-pointer`}
+              style={{
+                borderTopLeftRadius: '0.25rem',
+                borderTopRightRadius: '0.25rem',
+                borderBottomLeftRadius: '0',
+                borderBottomRightRadius: '0',
+                border: 'none',
+                fontSize: '10px',
+                textDecoration: 'none',
+                display: 'inline-block',
+                lineHeight: '1',
+                verticalAlign: 'top'
+              }}
+              title={`Direct link to ${task.ticket}`}
+            >
+              {task.ticket}
+            </a>
+          </div>
+        )}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}

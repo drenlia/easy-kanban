@@ -585,9 +585,13 @@ export default function BoardTabs({
       {/* Project Identifier - discrete display above tabs */}
       {currentProject && showPrefixes && (
         <div className="mb-2 flex justify-center">
-          <div className="bg-gray-50 border border-gray-200 px-3 py-1 rounded-md text-xs text-gray-600 font-mono">
+          <a 
+            href={`/project/#${currentProject}`}
+            className="bg-gray-50 border border-gray-200 px-3 py-1 rounded-md text-xs text-gray-600 font-mono hover:bg-gray-100 hover:border-gray-300 transition-colors cursor-pointer"
+            title={`Direct link to ${currentProject}`}
+          >
             {currentProject}
-          </div>
+          </a>
         </div>
       )}
       

@@ -123,7 +123,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
             <li>• New tasks automatically get ticket identifiers: {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00001, {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00002, etc.</li>
             <li>• Numbers are auto-incremented and zero-padded to 5 digits</li>
             <li>• Identifiers are always generated internally, the "Enable" checkbox only controls UI visibility</li>
-            <li>• Future versions will support multiple projects with different prefixes</li>
+            <li>• Future versions will support multiple projects/tasks with different prefixes</li>
           </ul>
         </div>
       </div>
