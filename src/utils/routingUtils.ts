@@ -7,7 +7,33 @@ export interface ParsedRoute {
   isPage: boolean;
   isAdminTab: boolean;
   isBoardId: boolean;
+  isProjectRoute: boolean;
+  projectId?: string;
 }
+
+/**
+ * Parse project route from full URL (handles /project/#PROJ-00001 format)
+ */
+export const parseProjectRoute = (url: string = window.location.href): { isProjectRoute: boolean; projectId?: string } => {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const hash = urlObj.hash;
+    
+    // Check if path is /project/ and hash contains project ID
+    if (pathname === '/project/' && hash) {
+      const projectId = hash.replace(/^#/, ''); // Remove leading #
+      // Validate project ID format (PROJ-00000 or similar)
+      if (/^[A-Z]+-\d+$/i.test(projectId)) {
+        return { isProjectRoute: true, projectId };
+      }
+    }
+    
+    return { isProjectRoute: false };
+  } catch (error) {
+    return { isProjectRoute: false };
+  }
+};
 
 /**
  * CENTRALIZED ROUTE PARSING - Single source of truth
@@ -24,10 +50,13 @@ export const parseUrlHash = (hash: string): ParsedRoute => {
   const [mainRoute, queryString] = mainPart.split('?');
   const queryParams = new URLSearchParams(queryString || '');
   
+  // Check for project route
+  const projectRoute = parseProjectRoute();
+  
   // Determine route type
   const isPage = PAGE_IDENTIFIERS.includes(mainRoute);
   const isAdminTab = ADMIN_TABS.includes(mainRoute);
-  const isBoardId = !isPage && !isAdminTab && mainRoute.length > 0;
+  const isBoardId = !isPage && !isAdminTab && mainRoute.length > 0 && !projectRoute.isProjectRoute;
   
   return {
     mainRoute,
@@ -35,7 +64,9 @@ export const parseUrlHash = (hash: string): ParsedRoute => {
     queryParams,
     isPage,
     isAdminTab,
-    isBoardId
+    isBoardId,
+    isProjectRoute: projectRoute.isProjectRoute,
+    projectId: projectRoute.projectId
   };
 };
 
@@ -98,6 +129,13 @@ export const isValidAdminTab = (tab: string): boolean => {
  */
 export const shouldSkipAutoBoardSelection = (currentPage: string): boolean => {
   return ROUTES.NO_AUTO_BOARD.includes(currentPage as any);
+};
+
+/**
+ * Find board by project identifier
+ */
+export const findBoardByProjectId = (boards: any[], projectId: string): any | null => {
+  return boards.find(board => board.project === projectId) || null;
 };
 
 /**

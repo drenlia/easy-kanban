@@ -48,6 +48,7 @@ interface KanbanColumnProps {
   onTagRemove?: (taskId: string) => (tagId: string) => Promise<void>;
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
+  siteSettings?: { [key: string]: string };
 }
 
 export default function KanbanColumn({
@@ -85,7 +86,8 @@ export default function KanbanColumn({
   onTagAdd,
   onTagRemove,
   onTaskEnterMiniMode,
-  onTaskExitMiniMode
+  onTaskExitMiniMode,
+  siteSettings
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -274,6 +276,7 @@ export default function KanbanColumn({
             availableTags={availableTags}
             onTagAdd={onTagAdd ? onTagAdd(task.id) : undefined}
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
+            siteSettings={siteSettings}
           />
         </div>
       );

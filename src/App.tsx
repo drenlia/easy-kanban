@@ -47,6 +47,8 @@ import {
   getInitialSelectedBoard, 
   getInitialPage,
   parseUrlHash,
+  parseProjectRoute,
+  findBoardByProjectId,
   shouldSkipAutoBoardSelection
 } from './utils/routingUtils';
 import { 
@@ -578,6 +580,28 @@ export default function App() {
   // CENTRALIZED ROUTING HANDLER - Single source of truth
   useEffect(() => {
     const handleRouting = () => {
+      // Check for project route first (handles /project/#PROJ-00001)
+      const projectRoute = parseProjectRoute();
+      if (projectRoute.isProjectRoute && projectRoute.projectId && boards.length > 0) {
+        const board = findBoardByProjectId(boards, projectRoute.projectId);
+        if (board) {
+          // Redirect to the board using standard routing
+          const newHash = `#kanban#${board.id}`;
+          if (window.location.hash !== newHash) {
+            window.location.hash = newHash;
+            return; // Let the hash change trigger the next routing cycle
+          }
+        } else {
+          // Project ID not found - redirect to kanban with error or message
+          console.warn(`Project ${projectRoute.projectId} not found`);
+          setCurrentPage('kanban');
+          setSelectedBoard(null);
+          window.history.replaceState(null, '', '#kanban');
+          return;
+        }
+      }
+      
+      // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
       
       // 1. Handle page routing

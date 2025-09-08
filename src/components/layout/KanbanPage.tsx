@@ -556,6 +556,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availableTags={availableTags}
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
+                      siteSettings={siteSettings}
                     />
                     ))}
                 </BoardDropArea>
@@ -601,6 +602,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availableTags={availableTags}
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
+                      siteSettings={siteSettings}
                     />
                   ))}
               </BoardDropArea>
