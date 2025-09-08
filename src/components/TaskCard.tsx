@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, MessageCircle, Calendar } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
@@ -1023,9 +1023,19 @@ export default function TaskCard({
             )}
           </div>
 
-          {/* Right side - priority */}
-          <div className="relative priority-container">
-            <button
+          {/* Right side - attachments and priority */}
+          <div className="flex items-center gap-2">
+            {/* Attachments indicator */}
+            {task.attachmentCount && task.attachmentCount > 0 && (
+              <div className="flex items-center gap-0.5 text-gray-500" title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}>
+                <Paperclip size={12} />
+                <span className="text-xs">{task.attachmentCount}</span>
+              </div>
+            )}
+
+            {/* Priority */}
+            <div className="relative priority-container">
+              <button
               ref={priorityButtonRef}
               onClick={(e) => {
                 e.stopPropagation();
@@ -1070,6 +1080,7 @@ export default function TaskCard({
                   ))}
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>

@@ -175,14 +175,17 @@ const createTables = (db) => {
 
     CREATE TABLE IF NOT EXISTS attachments (
       id TEXT PRIMARY KEY,
-      commentId TEXT NOT NULL,
+      taskId TEXT,
+      commentId TEXT,
       name TEXT NOT NULL,
       url TEXT NOT NULL,
       type TEXT NOT NULL,
       size INTEGER NOT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (commentId) REFERENCES comments(id) ON DELETE CASCADE
+      FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (commentId) REFERENCES comments(id) ON DELETE CASCADE,
+      CHECK ((taskId IS NOT NULL AND commentId IS NULL) OR (taskId IS NULL AND commentId IS NOT NULL))
     );
 
     CREATE TABLE IF NOT EXISTS settings (

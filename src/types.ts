@@ -53,6 +53,7 @@ export interface Task {
   tags?: Tag[];
   watchers?: TeamMember[];
   collaborators?: TeamMember[];
+  attachmentCount?: number;
 }
 
 export interface Tag {

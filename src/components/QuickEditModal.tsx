@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ChevronDown, Check } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
-import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask } from '../api';
+import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, addTaskAttachments, uploadFile, deleteAttachment } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 import TextEditor from './TextEditor';
 
@@ -36,6 +36,16 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
   const [watchersDropdownPosition, setWatchersDropdownPosition] = useState<'above' | 'below'>('below');
   const [collaboratorsDropdownPosition, setCollaboratorsDropdownPosition] = useState<'above' | 'below'>('below');
   const [tagsDropdownPosition, setTagsDropdownPosition] = useState<'above' | 'below'>('below');
+  
+  // Task attachments state
+  const [taskAttachments, setTaskAttachments] = useState<Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    size: number;
+  }>>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
 
   // Helper function to calculate optimal dropdown position
   const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
@@ -76,18 +86,21 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     const loadTaskData = async () => {
       try {
         setIsLoadingTags(true);
-        const [allTags, currentTaskTags, allPriorities, currentWatchers, currentCollaborators] = await Promise.all([
+        const [allTags, currentTaskTags, allPriorities, currentWatchers, currentCollaborators, currentAttachments] = await Promise.all([
           getAllTags(),
           getTaskTags(task.id),
           getAllPriorities(),
           getTaskWatchers(task.id),
-          getTaskCollaborators(task.id)
+          getTaskCollaborators(task.id),
+          fetchTaskAttachments(task.id)
         ]);
         setAvailableTags(allTags || []);
         setTaskTags(currentTaskTags || []);
         setAvailablePriorities(allPriorities || []);
         setTaskWatchers(currentWatchers || []);
         setTaskCollaborators(currentCollaborators || []);
+        setTaskAttachments(currentAttachments || []);
+        console.log('✅ Loaded', currentAttachments?.length || 0, 'attachments for task', task.id);
       } catch (error) {
         console.error('Failed to load task data:', error);
       } finally {
@@ -197,11 +210,42 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     setShowTagsDropdown(!showTagsDropdown);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Include current tags in the saved task
-    onSave({ ...editedTask, tags: taskTags });
-    onClose();
+    
+    try {
+      // Process pending attachments if any
+      if (pendingAttachments.length > 0) {
+        console.log('📎 Uploading', pendingAttachments.length, 'attachments...');
+        
+        // Upload files first
+        const uploadedAttachments = await Promise.all(
+          pendingAttachments.map(async (file) => {
+            const fileData = await uploadFile(file);
+            return {
+              id: fileData.id,
+              name: fileData.name,
+              url: fileData.url,
+              type: fileData.type,
+              size: fileData.size
+            };
+          })
+        );
+
+        // Add attachments to task
+        await addTaskAttachments(task.id, uploadedAttachments);
+        console.log('✅ Attachments saved successfully');
+      }
+      
+      // Include current tags in the saved task
+      onSave({ ...editedTask, tags: taskTags });
+      onClose();
+    } catch (error) {
+      console.error('❌ Failed to save task with attachments:', error);
+      // Still save the task even if attachments fail
+      onSave({ ...editedTask, tags: taskTags });
+      onClose();
+    }
   };
 
   const handleDueDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,6 +264,36 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     if (!dateString) return '';
     return dateString.split(' ')[0]; // This will take only the date part
   };
+
+  // Handle attachment changes from TextEditor
+  const handleAttachmentsChange = (attachments: File[]) => {
+    setPendingAttachments(attachments);
+  };
+
+  // Handle immediate attachment deletion
+  const handleAttachmentDelete = async (attachmentId: string) => {
+    try {
+      await deleteAttachment(attachmentId);
+      // Remove from local state
+      setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
+      console.log('✅ Attachment deleted successfully');
+    } catch (error) {
+      console.error('❌ Failed to delete attachment:', error);
+      throw error; // Re-throw to let TextEditor handle the error
+    }
+  };
+
+  // Combine existing and pending attachments for display (memoized to prevent excessive re-renders)
+  const displayAttachments = useMemo(() => [
+    ...taskAttachments,
+    ...pendingAttachments.map(file => ({
+      id: `pending-${file.name}-${file.size}`,
+      name: file.name,
+      url: '',
+      type: file.type,
+      size: file.size
+    }))
+  ], [taskAttachments, pendingAttachments]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -257,15 +331,21 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             </label>
             <TextEditor
               onSubmit={async () => {
-                // No-op since we're using onChange instead
+                // No-op since we're using onChange and onAttachmentsChange instead
               }}
               onChange={(content) => {
                 setEditedTask(prev => ({ ...prev, description: content }));
               }}
+              onAttachmentsChange={handleAttachmentsChange}
+              onAttachmentDelete={handleAttachmentDelete}
               initialContent={editedTask.description}
               placeholder="Enter task description..."
               minHeight="150px"
               showSubmitButtons={false}
+              showAttachments={true}
+              attachmentContext="task"
+              attachmentParentId={task.id}
+              existingAttachments={displayAttachments}
               toolbarOptions={{
                 bold: true,
                 italic: true,
@@ -273,7 +353,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 link: true,
                 lists: true,
                 alignment: false,
-                attachments: false
+                attachments: true
               }}
               className="w-full"
             />
