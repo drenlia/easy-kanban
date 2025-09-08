@@ -109,16 +109,9 @@ export default function TaskCard({
         return; // Only fetch if description has images
       }
       
-      console.log('🔄 TaskCard: Fetching attachments for task', task.id);
       
       try {
         const attachments = await fetchTaskAttachments(task.id);
-        console.log('✅ TaskCard: API response for task', task.id, ':', attachments);
-        console.log('✅ TaskCard: Response length:', attachments?.length || 0);
-        if (!attachments || attachments.length === 0) {
-          console.log('⚠️ TaskCard: No attachments found in database for task', task.id);
-          console.log('⚠️ TaskCard: But description contains img-u1yxth.png - attachment may be missing from DB');
-        }
         setTaskAttachments(attachments || []);
         setAttachmentsLoaded(true);
       } catch (error) {
@@ -148,26 +141,14 @@ export default function TaskCard({
   const getFixedDescription = () => {
     if (!task.description) return task.description;
     
-    // Debug: Log what we're working with
-    if (task.description.includes('img-') || task.description.includes('blob:')) {
-      console.log('🖼️ TaskCard fixing description for task:', task.id);
-      console.log('🖼️ Original description:', task.description.substring(0, 200) + '...');
-      console.log('🖼️ Available attachments:', taskAttachments);
-      console.log('🖼️ Attachments loaded:', attachmentsLoaded);
-    }
-    
     // If attachments are still loading and we have images, show original content for now
     if (!attachmentsLoaded && task.description.includes('img-')) {
-      console.log('⏳ TaskCard: Still loading attachments, showing original content');
       return task.description;
     }
     
     // Use the exact same function as comments
     const fixedContent = fixImageUrls(task.description, taskAttachments);
     
-    if (task.description !== fixedContent) {
-      console.log('🖼️ Fixed description:', fixedContent.substring(0, 200) + '...');
-    }
     
     return fixedContent;
   };
@@ -198,9 +179,6 @@ export default function TaskCard({
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
     if (isEditingDescription) {
-      // Add a flag to prevent polling/refreshes while editing
-      console.log('🚫 Preventing refresh while editing description');
-      
       return () => {
         // Cleanup if needed
       };
@@ -831,8 +809,8 @@ export default function TaskCard({
             >
               {task.ticket}
             </a>
-          </div>
-        )}
+                </div>
+              )}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}
@@ -1244,89 +1222,89 @@ export default function TaskCard({
             left: `${tooltipPosition.left}px`,
             top: `${tooltipPosition.top}px`
           }}
-          onMouseEnter={handleCommentTooltipShow}
-          onMouseLeave={handleCommentTooltipHide}
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Scrollable comments area */}
-          <div className="p-3 overflow-y-auto flex-1">
-            {validComments
-              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-              .map((comment, index) => {
-                const author = members.find(m => m.id === comment.authorId);
-                
-                // Function to render HTML content with safe link handling
-                const renderCommentHTML = (htmlText: string) => {
-                  // Create a temporary div to parse the HTML
-                  const tempDiv = document.createElement('div');
-                  tempDiv.innerHTML = htmlText;
-                  
-                  // Find all links and update their attributes for safety
-                  const links = tempDiv.querySelectorAll('a');
-                  links.forEach(link => {
-                    link.setAttribute('target', '_blank');
-                    link.setAttribute('rel', 'noopener noreferrer');
-                    link.style.color = '#60a5fa'; // text-blue-400
-                    link.style.textDecoration = 'underline';
-                    link.style.wordBreak = 'break-all';
-                    link.style.cursor = 'pointer';
-                    
-                    // Add click handler
-                    link.addEventListener('click', (e) => {
-                      e.stopPropagation();
-                      window.open(link.href, '_blank', 'noopener,noreferrer');
-                    });
-                    
-                    link.addEventListener('mousedown', (e) => {
-                      e.stopPropagation();
-                    });
-                  });
-                  
-                  return (
-                    <span 
-                      dangerouslySetInnerHTML={{ __html: tempDiv.innerHTML }}
-                      className="select-text"
-                    />
-                  );
-                };
+                      onMouseEnter={handleCommentTooltipShow}
+                      onMouseLeave={handleCommentTooltipHide}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onTouchStart={(e) => e.stopPropagation()}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {/* Scrollable comments area */}
+                      <div className="p-3 overflow-y-auto flex-1">
+                    {validComments
+                      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .map((comment, index) => {
+                        const author = members.find(m => m.id === comment.authorId);
+                        
+                        // Function to render HTML content with safe link handling
+                        const renderCommentHTML = (htmlText: string) => {
+                          // Create a temporary div to parse the HTML
+                          const tempDiv = document.createElement('div');
+                          tempDiv.innerHTML = htmlText;
+                          
+                          // Find all links and update their attributes for safety
+                          const links = tempDiv.querySelectorAll('a');
+                          links.forEach(link => {
+                            link.setAttribute('target', '_blank');
+                            link.setAttribute('rel', 'noopener noreferrer');
+                            link.style.color = '#60a5fa'; // text-blue-400
+                            link.style.textDecoration = 'underline';
+                            link.style.wordBreak = 'break-all';
+                            link.style.cursor = 'pointer';
+                            
+                            // Add click handler
+                            link.addEventListener('click', (e) => {
+                              e.stopPropagation();
+                              window.open(link.href, '_blank', 'noopener,noreferrer');
+                            });
+                            
+                            link.addEventListener('mousedown', (e) => {
+                              e.stopPropagation();
+                            });
+                          });
+                          
+                          return (
+                            <span 
+                              dangerouslySetInnerHTML={{ __html: tempDiv.innerHTML }}
+                              className="select-text"
+                            />
+                          );
+                        };
 
-                return (
-                  <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <div 
-                        className="w-2 h-2 rounded-full flex-shrink-0" 
-                        style={{ backgroundColor: author?.color || '#6B7280' }} 
-                      />
-                      <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
-                      <span className="text-gray-400 text-xs">
-                        {formatDateTime(comment.createdAt)}
-                      </span>
-                    </div>
-                    <div className="text-gray-300 text-xs leading-relaxed select-text">
-                      {renderCommentHTML(comment.text)}
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
-          
-          {/* Sticky footer */}
-          <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
-            <span className="text-gray-300 font-medium">
-              Comments ({validComments.length})
-            </span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(task);
-              }}
-              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
-            >
-              Open
-            </button>
-          </div>
+                        return (
+                          <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <div 
+                                className="w-2 h-2 rounded-full flex-shrink-0" 
+                                style={{ backgroundColor: author?.color || '#6B7280' }} 
+                              />
+                              <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
+                              <span className="text-gray-400 text-xs">
+                                {formatDateTime(comment.createdAt)}
+                              </span>
+                            </div>
+                            <div className="text-gray-300 text-xs leading-relaxed select-text">
+                              {renderCommentHTML(comment.text)}
+                            </div>
+                          </div>
+                        );
+                        })}
+                      </div>
+                      
+                      {/* Sticky footer */}
+                      <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
+                        <span className="text-gray-300 font-medium">
+                          Comments ({validComments.length})
+                        </span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelect(task);
+                          }}
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                        >
+                          Open
+                        </button>
+                      </div>
         </div>,
         document.body
       )}
@@ -1344,10 +1322,10 @@ export default function TaskCard({
         >
           <div className="text-sm font-medium text-gray-800 mb-2">
             Remove Tag
-          </div>
+                    </div>
           <div className="text-xs text-gray-600 mb-3">
             Remove "{selectedTagForRemoval.tag}" from this task?
-          </div>
+              </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleConfirmTagRemoval}
@@ -1355,13 +1333,13 @@ export default function TaskCard({
             >
               Remove
             </button>
-            <button
+                    <button
               onClick={handleCancelTagRemoval}
               className="flex-1 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition-colors"
             >
               Cancel
-            </button>
-          </div>
+                    </button>
+              </div>
         </div>,
         document.body
       )}

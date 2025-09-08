@@ -68,6 +68,42 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     setIsMinimized(initialIsMinimized);
   }, [initialIsMinimized]);
 
+  // Utility function to ensure ActivityFeed stays within viewport and above dev tools
+  const constrainToViewport = (pos: { x: number; y: number }, dims: { width: number; height: number }) => {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    // Add margin from edges to ensure visibility
+    const margin = 10;
+    
+    // Constrain X position
+    const constrainedX = Math.max(margin, Math.min(viewportWidth - dims.width - margin, pos.x));
+    
+    // Constrain Y position - be more aggressive about keeping it visible
+    // If dev tools are open (detected by reduced viewport height), adjust accordingly
+    const minY = 66; // Header height + margin
+    const maxY = viewportHeight - dims.height - margin;
+    const constrainedY = Math.max(minY, Math.min(maxY, pos.y));
+    
+    return { x: constrainedX, y: constrainedY };
+  };
+
+  // Ensure ActivityFeed stays visible when viewport changes (dev tools open/close)
+  useEffect(() => {
+    const handleResize = () => {
+      const currentDims = isMinimized ? { width: dimensions.width, height: 60 } : dimensions;
+      const constrainedPosition = constrainToViewport(position, currentDims);
+      
+      // Only update if position actually changed to avoid infinite loops
+      if (constrainedPosition.x !== position.x || constrainedPosition.y !== position.y) {
+        onPositionChange?.(constrainedPosition);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [position, dimensions, isMinimized, onPositionChange]);
+
   // Handle minimize/expand with user setting persistence
   const handleMinimizeInPlace = async () => {
     await handleMinimizedChange(true, false);
@@ -164,14 +200,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     const newX = e.clientX - dragOffset.x;
     const newY = e.clientY - dragOffset.y;
     
-    // Constrain to viewport using dynamic dimensions
-    const feedWidth = isMinimized ? dimensions.width : dimensions.width;
-    const feedHeight = isMinimized ? 60 : dimensions.height;
-    
-    const constrainedX = Math.max(0, Math.min(window.innerWidth - feedWidth, newX));
-    const constrainedY = Math.max(0, Math.min(window.innerHeight - feedHeight, newY));
-    
-    const newPosition = { x: constrainedX, y: constrainedY };
+    // Constrain to viewport using the new utility function
+    const feedDims = isMinimized ? { width: dimensions.width, height: 60 } : dimensions;
+    const newPosition = constrainToViewport({ x: newX, y: newY }, feedDims);
     currentDragPositionRef.current = newPosition;
     onPositionChange?.(newPosition);
   };
@@ -407,7 +438,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return (
       <div 
         ref={feedRef}
-        className={`fixed bg-white shadow-lg rounded border border-gray-200 z-40 ${isDragging ? 'cursor-grabbing' : ''}`}
+        className={`fixed bg-white shadow-lg rounded border border-gray-200 z-[9999] ${isDragging ? 'cursor-grabbing' : ''}`}
         style={{
           left: position.x,
           top: position.y,
@@ -478,7 +509,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         {showTooltip && latestActivity && tooltipPosition && createPortal(
           <div
             ref={tooltipRef}
-            className="fixed z-50 max-w-sm p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg pointer-events-none"
+            className="fixed z-[10000] max-w-sm p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg pointer-events-none"
             style={{
               top: tooltipPosition.top,
               left: tooltipPosition.left,
@@ -511,7 +542,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   return (
     <div 
       ref={feedRef}
-      className={`fixed bg-white shadow-xl rounded border border-gray-200 z-40 flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
+      className={`fixed bg-white shadow-xl rounded border border-gray-200 z-[9999] flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
       style={{
         left: position.x,
         top: position.y,
@@ -550,7 +581,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             </button>
             
             {showMinimizeDropdown && (
-              <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1 min-w-[140px]">
+              <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]">
                 <button
                   onClick={() => {
                     handleMinimizeInPlace();
