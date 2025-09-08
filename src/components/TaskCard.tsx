@@ -7,7 +7,7 @@ import QuickEditModal from './QuickEditModal';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
-import { createComment } from '../api';
+import { createComment, fetchTaskAttachments } from '../api';
 import { generateUUID } from '../utils/uuid';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -95,6 +95,81 @@ export default function TaskCard({
     if (!boards || !task.boardId) return null;
     const board = boards.find(b => b.id === task.boardId);
     return board?.project || null;
+  };
+
+  // State for task attachments
+  const [taskAttachments, setTaskAttachments] = useState<any[]>([]);
+  const [attachmentsLoaded, setAttachmentsLoaded] = useState(false);
+
+  // Fetch task attachments when component mounts or task changes
+  useEffect(() => {
+    const fetchAttachments = async () => {
+      if (!task.description?.includes('img-')) {
+        setAttachmentsLoaded(true);
+        return; // Only fetch if description has images
+      }
+      
+      console.log('🔄 TaskCard: Fetching attachments for task', task.id);
+      
+      try {
+        const attachments = await fetchTaskAttachments(task.id);
+        console.log('✅ TaskCard: API response for task', task.id, ':', attachments);
+        console.log('✅ TaskCard: Response length:', attachments?.length || 0);
+        if (!attachments || attachments.length === 0) {
+          console.log('⚠️ TaskCard: No attachments found in database for task', task.id);
+          console.log('⚠️ TaskCard: But description contains img-u1yxth.png - attachment may be missing from DB');
+        }
+        setTaskAttachments(attachments || []);
+        setAttachmentsLoaded(true);
+      } catch (error) {
+        console.error('❌ TaskCard: Failed to fetch task attachments:', error);
+        setTaskAttachments([]);
+        setAttachmentsLoaded(true);
+      }
+    };
+
+    setAttachmentsLoaded(false);
+    fetchAttachments();
+  }, [task.id, task.description]);
+
+  // Fix blob URLs in task description - using EXACT same logic as comments
+  const fixImageUrls = (htmlContent: string, attachments: any[]) => {
+    let fixedContent = htmlContent;
+    attachments.forEach(attachment => {
+      if (attachment.name.startsWith('img-')) {
+        // Replace blob URLs with server URLs
+        const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+        fixedContent = fixedContent.replace(blobPattern, attachment.url);
+      }
+    });
+    return fixedContent;
+  };
+
+  const getFixedDescription = () => {
+    if (!task.description) return task.description;
+    
+    // Debug: Log what we're working with
+    if (task.description.includes('img-') || task.description.includes('blob:')) {
+      console.log('🖼️ TaskCard fixing description for task:', task.id);
+      console.log('🖼️ Original description:', task.description.substring(0, 200) + '...');
+      console.log('🖼️ Available attachments:', taskAttachments);
+      console.log('🖼️ Attachments loaded:', attachmentsLoaded);
+    }
+    
+    // If attachments are still loading and we have images, show original content for now
+    if (!attachmentsLoaded && task.description.includes('img-')) {
+      console.log('⏳ TaskCard: Still loading attachments, showing original content');
+      return task.description;
+    }
+    
+    // Use the exact same function as comments
+    const fixedContent = fixImageUrls(task.description, taskAttachments);
+    
+    if (task.description !== fixedContent) {
+      console.log('🖼️ Fixed description:', fixedContent.substring(0, 200) + '...');
+    }
+    
+    return fixedContent;
   };
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
@@ -352,7 +427,8 @@ export default function TaskCard({
     // Store both X and Y positions for later use
     setClickPositionDescription({ x: clickX, y: clickY });
     setIsEditingDescription(true);
-    setEditedDescription(task.description || '');
+    // Use fixed description with proper image URLs for editing
+    setEditedDescription(getFixedDescription() || '');
   };
 
   const handleDescriptionInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
@@ -829,7 +905,7 @@ export default function TaskCard({
                   placeholder="Enter task description..."
                   compact={true}
                   showSubmitButtons={false}
-                  resizable={false}
+                  resizable={true}
                   toolbarOptions={{
                     bold: true,
                     italic: true,
@@ -839,6 +915,11 @@ export default function TaskCard({
                     alignment: false,
                     attachments: false
                   }}
+                  // Image behavior: read-only mode for TaskCard
+                  allowImagePaste={false}    // ❌ No pasting new images
+                  allowImageDelete={false}   // ❌ No delete button on images
+                  allowImageResize={true}    // ✅ Allow resizing for layout
+                  imageDisplayMode="compact" // 📏 Smaller images in TaskCard
                   className="w-full"
                 />
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
@@ -847,14 +928,19 @@ export default function TaskCard({
               </div>
             ) : (
               <div
-                className={`text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
+                className={`task-card-description text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
                   taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
                 }`}
                 onClick={handleDescriptionClick}
                 title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : "Click to edit description"}
                 dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(task.description || '')
+                  __html: DOMPurify.sanitize(getFixedDescription() || '')
                 }}
+                style={{
+                  // Ensure images fit nicely in task cards
+                  '--tw-prose-body': '1rem',
+                  '--tw-prose-headings': '1rem',
+                } as React.CSSProperties}
               />
             )}
           </>

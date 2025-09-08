@@ -62,7 +62,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isSavingText, setIsSavingText] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const textSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
@@ -70,15 +70,22 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   
-  // Task attachments state
-  const [taskAttachments, setTaskAttachments] = useState<Array<{
+  // Task attachments state with logging
+  const [taskAttachments, setTaskAttachmentsInternal] = useState<Array<{
     id: string;
     name: string;
     url: string;
     type: string;
     size: number;
   }>>([]);
+  
+  // Clean wrapper for taskAttachments setter
+  const setTaskAttachments = setTaskAttachmentsInternal;
   const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
+  const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
+  const [lastSavedDescription, setLastSavedDescription] = useState(task.description || '');
   
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
@@ -101,6 +108,39 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [editingCommentText, setEditingCommentText] = useState<string>('');
   const [showRefreshIndicator, setShowRefreshIndicator] = useState(false);
   const [isInitialTaskLoad, setIsInitialTaskLoad] = useState(true);
+
+  // Reset component state when switching to a different task
+  useEffect(() => {
+    
+    // Reset attachment-related state
+    setTaskAttachments([]);
+    setPendingAttachments([]);
+    setIsUploadingAttachments(false);
+    setIsDeletingAttachment(false);
+    recentlyDeletedAttachmentsRef.current.clear();
+    
+    // Reset watchers and collaborators
+    setTaskWatchers(task.watchers || []);
+    setTaskCollaborators(task.collaborators || []);
+    
+    // Reset dropdown states
+    setShowWatchersDropdown(false);
+    setShowCollaboratorsDropdown(false);
+    setShowTagsDropdown(false);
+    
+    // Reset comment editing state
+    setEditingCommentId(null);
+    setEditingCommentText('');
+    
+    // Reset other UI states
+    setIsSubmitting(false);
+    setIsSavingText(false);
+    setIsInitialTaskLoad(true);
+    setShowRefreshIndicator(false);
+    
+    // Clear comment attachments for new task
+    setCommentAttachments({});
+  }, [task.id]); // Only depend on task.id to trigger when switching tasks
 
   // Auto-refresh comments when task prop updates (from polling)
   useEffect(() => {
@@ -159,12 +199,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         ...task,
         // Preserve unsaved text changes to avoid losing user input
         title: prev.title !== task.title && isSavingText ? prev.title : task.title,
-        description: prev.description !== task.description && isSavingText ? prev.description : task.description,
+        description: prev.description !== task.description && (isSavingText || isUploadingAttachments) ? prev.description : task.description,
         // Update comments with processed data
         comments: processedComments
       };
     });
-  }, [task, isSavingText, editingCommentId]);
+  }, [task, isSavingText, editingCommentId, isUploadingAttachments]);
 
   // Helper function to calculate optimal dropdown position
   const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
@@ -253,33 +293,35 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
-  // Separate function for text field updates (local only)
-  const handleTextUpdate = async (field: 'title' | 'description', value: string) => {
+  // Separate function for text field updates with immediate save
+  const handleTextUpdate = (field: 'title' | 'description', value: string) => {
     const updatedTask = { ...editedTask, [field]: value };
     setEditedTask(updatedTask);
     
-    // Schedule auto-save in 3 seconds
-    scheduleAutoSave(updatedTask);
-  };
-
-  // Function to schedule auto-save
-  const scheduleAutoSave = useCallback((updatedTask: Task) => {
-    // Clear existing timeout
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
+    // Debounce text saves to prevent spam (but keep attachments immediate)
+    if (textSaveTimeoutRef.current) {
+      clearTimeout(textSaveTimeoutRef.current);
     }
     
-    // Set new timeout for 3 seconds
-    autoSaveTimeoutRef.current = setTimeout(async () => {
-      try {
-        setIsSavingText(true);
-        await onUpdate(updatedTask);
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-      } finally {
-        setIsSavingText(false);
+    textSaveTimeoutRef.current = setTimeout(async () => {
+      await saveImmediately(updatedTask);
+    }, 1500); // 1.5 second debounce for text
+  };
+
+  // Function to save immediately
+  const saveImmediately = useCallback(async (updatedTask: Task) => {
+    try {
+      setIsSavingText(true);
+      await onUpdate(updatedTask);
+      // Update last saved description after successful save
+      if (updatedTask.description) {
+        setLastSavedDescription(updatedTask.description);
       }
-    }, 3000);
+    } catch (error) {
+      console.error('❌ Immediate save failed:', error);
+    } finally {
+      setIsSavingText(false);
+    }
   }, [onUpdate]);
 
   // Function to save changes immediately
@@ -296,30 +338,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     }
   };
 
-  // Handle click outside to save changes
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Element;
-      if (resizeRef.current && !resizeRef.current.contains(target)) {
-        // Check if click is outside the TaskDetails panel
-        const taskDetailsPanel = document.querySelector('[data-task-details]');
-        if (taskDetailsPanel && !taskDetailsPanel.contains(target)) {
-          saveChanges();
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [editedTask.title, editedTask.description, task.title, task.description]);
-
-  // Cleanup auto-save timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
+      if (textSaveTimeoutRef.current) {
+        clearTimeout(textSaveTimeoutRef.current);
       }
     };
   }, []);
@@ -411,7 +434,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         setAvailableTags(allTags || []);
         setTaskTags(currentTaskTags || []);
         setAvailablePriorities(allPriorities || []);
-        setTaskAttachments(currentAttachments || []);
+        
+        // Filter out recently deleted attachments and only update if not uploading
+        if (!isUploadingAttachments) {
+          const filteredAttachments = (currentAttachments || []).filter(att => 
+            !recentlyDeletedAttachmentsRef.current.has(att.name)
+          );
+          setTaskAttachments(filteredAttachments);
+        }
         // Update watchers and collaborators from task prop
         setTaskWatchers(task.watchers || []);
         setTaskCollaborators(task.collaborators || []);
@@ -561,6 +591,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
       // Save comment to server
       const savedComment = await createComment(newComment);
+
+      // Update commentAttachments state with new attachments
+      if (uploadedAttachments.length > 0) {
+        setCommentAttachments(prev => ({
+          ...prev,
+          [savedComment.id]: uploadedAttachments
+        }));
+      }
 
       // Update task with new comment
       const updatedTask = {
@@ -758,14 +796,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     fetchAttachments();
   }, [editedTask.comments]);
 
-  // Auto-save pending attachments after a delay
+  // Save attachments immediately to prevent blob URL issues
   React.useEffect(() => {
     if (pendingAttachments.length > 0) {
-      const timeoutId = setTimeout(() => {
-        savePendingAttachments();
-      }, 2000); // Save after 2 seconds of no changes
-
-      return () => clearTimeout(timeoutId);
+      savePendingAttachments();
     }
   }, [pendingAttachments]);
 
@@ -778,20 +812,69 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const handleAttachmentDelete = async (attachmentId: string) => {
     try {
       await deleteAttachment(attachmentId);
-      // Remove from local state
-      setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
-      console.log('✅ Attachment deleted successfully');
+      
+      // Find the attachment to get its filename
+      const attachmentToDelete = taskAttachments.find(att => att.id === attachmentId) || 
+                                 displayAttachments.find(att => att.id === attachmentId);
+      
+      if (attachmentToDelete) {
+        // Remove from ALL local state (just like image X button does)
+        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId && att.name !== attachmentToDelete.name));
+        setPendingAttachments(prev => prev.filter(att => att.name !== attachmentToDelete.name));
+      } else {
+        // Fallback: just remove by ID
+        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
+      }
     } catch (error) {
       console.error('❌ Failed to delete attachment:', error);
       throw error; // Re-throw to let TextEditor handle the error
     }
   };
 
+  // Handle image removal from TextEditor - remove from server if saved, clean local state
+  const handleImageRemoval = async (filename: string) => {
+    // Track this attachment as recently deleted
+    recentlyDeletedAttachmentsRef.current.add(filename);
+    
+    // Check if this file exists in server-saved attachments
+    const serverAttachment = taskAttachments.find(att => att.name === filename);
+    
+    if (serverAttachment) {
+      try {
+        await deleteAttachment(serverAttachment.id);
+      } catch (error) {
+        console.error('Failed to delete server attachment:', error);
+        // Continue with local cleanup even if server deletion fails
+      }
+    } else {
+      // Also try to delete from server by making a request to get fresh attachments and delete
+      try {
+        const freshAttachments = await fetchTaskAttachments(task.id);
+        const freshServerAttachment = freshAttachments.find(att => att.name === filename);
+        
+        if (freshServerAttachment) {
+          await deleteAttachment(freshServerAttachment.id);
+        }
+      } catch (error) {
+        console.error('Failed to fetch/delete fresh attachment:', error);
+      }
+    }
+    
+    // Remove from ALL local state immediately
+    setPendingAttachments(prev => prev.filter(att => att.name !== filename));
+    setTaskAttachments(prev => prev.filter(att => att.name !== filename));
+    
+    // Clear the recently deleted flag after a longer delay
+    setTimeout(() => {
+      recentlyDeletedAttachmentsRef.current.delete(filename);
+    }, 5000); // 5 seconds should be enough for any polling cycles
+  };
+
   // Handle saving pending attachments
   const savePendingAttachments = async () => {
     if (pendingAttachments.length > 0) {
       try {
-        console.log('📎 Uploading', pendingAttachments.length, 'attachments...');
+        setIsUploadingAttachments(true);
         
         // Upload files first
         const uploadedAttachments = await Promise.all(
@@ -810,28 +893,40 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         // Add attachments to task
         await addTaskAttachments(task.id, uploadedAttachments);
         
-        // Update local state
-        setTaskAttachments(prev => [...prev, ...uploadedAttachments]);
+        // Update local state - but only add attachments that weren't deleted during upload
+        setTaskAttachments(prev => {
+          const currentAttachmentNames = prev.map(att => att.name);
+          const newAttachments = uploadedAttachments.filter(uploaded => 
+            !currentAttachmentNames.includes(uploaded.name) // Don't re-add if already deleted
+          );
+          return [...prev, ...newAttachments];
+        });
         setPendingAttachments([]);
         
-        console.log('✅ Attachments saved successfully');
+        // Update the task description with server URLs immediately
+        let updatedDescription = editedTask.description;
+        uploadedAttachments.forEach(attachment => {
+          if (attachment.name.startsWith('img-')) {
+            // Replace blob URLs with server URLs
+            const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+            updatedDescription = updatedDescription.replace(blobPattern, attachment.url);
+          }
+        });
+        
+        // Always update the description to replace blob URLs
+        const updatedTask = { ...editedTask, description: updatedDescription };
+        setEditedTask(updatedTask);
+        await saveImmediately(updatedTask);
       } catch (error) {
         console.error('❌ Failed to save attachments:', error);
+      } finally {
+        setIsUploadingAttachments(false);
       }
     }
   };
 
-  // Combine existing and pending attachments for display
-  const displayAttachments = React.useMemo(() => [
-    ...taskAttachments,
-    ...pendingAttachments.map(file => ({
-      id: `pending-${file.name}-${file.size}`,
-      name: file.name,
-      url: '',
-      type: file.type,
-      size: file.size
-    }))
-  ], [taskAttachments, pendingAttachments]);
+  // Only show saved attachments - no pending ones to avoid state sync issues
+  const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
 
   return (
     <div 
@@ -972,6 +1067,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 }}
                 onAttachmentsChange={handleAttachmentsChange}
                 onAttachmentDelete={handleAttachmentDelete}
+                onImageRemovalNeeded={handleImageRemoval}
                 initialContent={editedTask.description}
                 placeholder="Enter task description..."
                 minHeight="120px"
@@ -979,7 +1075,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 showAttachments={true}
                 attachmentContext="task"
                 attachmentParentId={task.id}
-                existingAttachments={displayAttachments}
+                existingAttachments={taskAttachments}
                 toolbarOptions={{
                   bold: true,
                   italic: true,
@@ -1365,9 +1461,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           <div className="mb-4">
             <TextEditor 
               onSubmit={handleAddComment}
+              onCancel={() => {
+                // The TextEditor handles clearing its own content and attachments
+                // No additional action needed here
+              }}
               placeholder="Add a comment..."
               showAttachments={true}
               submitButtonText="Add Comment"
+              cancelButtonText="Cancel"
               toolbarOptions={{
                 bold: true,
                 italic: true,
@@ -1386,6 +1487,21 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               if (!author) return null;
 
               const attachments = commentAttachments[comment.id] || [];
+
+              // Fix blob URLs in comment text by replacing them with server URLs
+              const fixImageUrls = (htmlContent: string, attachments: Attachment[]) => {
+                let fixedContent = htmlContent;
+                attachments.forEach(attachment => {
+                  if (attachment.name.startsWith('img-')) {
+                    // Replace blob URLs with server URLs
+                    const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+                    fixedContent = fixedContent.replace(blobPattern, attachment.url);
+                  }
+                });
+                return fixedContent;
+              };
+
+              const displayContent = fixImageUrls(comment.text, attachments);
 
               return (
                 <div key={comment.id} className="border-b border-gray-200 pb-6">
@@ -1430,9 +1546,42 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       }}
                       onCancel={handleCancelEditComment}
                       placeholder="Edit comment..."
-                      showAttachments={false}
+                      showAttachments={true}
                       submitButtonText="Save Changes"
                       cancelButtonText="Cancel"
+                      existingAttachments={attachments}
+                      onAttachmentDelete={async (attachmentId: string) => {
+                        try {
+                          // Find the attachment to get its name before deleting
+                          const attachmentToDelete = attachments.find(att => att.id === attachmentId);
+                          
+                          // Delete from server
+                          await deleteAttachment(attachmentId);
+                          
+                          // Remove from local commentAttachments state
+                          setCommentAttachments(prev => ({
+                            ...prev,
+                            [comment.id]: prev[comment.id]?.filter(att => att.id !== attachmentId) || []
+                          }));
+
+                          // Also remove the image from the editor if it's an image attachment
+                          if (attachmentToDelete && attachmentToDelete.name.startsWith('img-') && window.textEditorRemoveImage) {
+                            window.textEditorRemoveImage(attachmentToDelete.name);
+                          }
+                        } catch (error) {
+                          console.error('Failed to delete comment attachment:', error);
+                          throw error;
+                        }
+                      }}
+                      onImageRemovalNeeded={(attachmentName: string) => {
+                        // Remove from local commentAttachments state by name
+                        setCommentAttachments(prev => ({
+                          ...prev,
+                          [comment.id]: prev[comment.id]?.filter(att => att.name !== attachmentName) || []
+                        }));
+                      }}
+                      attachmentContext="comment"
+                      attachmentParentId={comment.id}
                       toolbarOptions={{
                         bold: true,
                         italic: true,
@@ -1440,18 +1589,18 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         link: true,
                         lists: true,
                         alignment: false,
-                        attachments: false
+                        attachments: true
                       }}
                     />
                   ) : (
                     <div
                       className="prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.text) }}
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(displayContent) }}
                     />
                   )}
-                  {attachments.length > 0 && (
+                  {attachments.filter(att => !att.name.startsWith('img-')).length > 0 && (
                     <div className="mt-3 space-y-1">
-                      {attachments.map(attachment => (
+                      {attachments.filter(att => !att.name.startsWith('img-')).map(attachment => (
                         <div
                           key={attachment.id}
                           className="flex items-center gap-2 text-sm text-gray-600"

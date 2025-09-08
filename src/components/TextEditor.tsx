@@ -7,6 +7,7 @@ import TextAlign from '@tiptap/extension-text-align';
 import BulletList from '@tiptap/extension-bullet-list';
 import OrderedList from '@tiptap/extension-ordered-list';
 import ListItem from '@tiptap/extension-list-item';
+import Image from '@tiptap/extension-image';
 import { 
   Bold, 
   Italic, 
@@ -38,6 +39,7 @@ interface TextEditorProps {
   onChange?: (content: string) => void;
   onAttachmentsChange?: (attachments: File[]) => void;
   onAttachmentDelete?: (attachmentId: string) => Promise<void>;
+  onImageRemovalNeeded?: (attachmentName: string) => void; // Called when image is removed to sync attachments
   initialContent?: string;
   isEditing?: boolean;
   showAttachments?: boolean;
@@ -62,6 +64,11 @@ interface TextEditorProps {
     type: string;
     size: number;
   }>;
+  // Image behavior control props
+  allowImagePaste?: boolean;   // Allow pasting new images (default: true)
+  allowImageDelete?: boolean;  // Show delete button on images (default: true)
+  allowImageResize?: boolean;  // Allow resizing images (default: true)
+  imageDisplayMode?: 'full' | 'compact'; // Image display size (default: 'full')
 }
 
 const defaultToolbarOptions: ToolbarOptions = {
@@ -80,6 +87,7 @@ export default function TextEditor({
   onChange,
   onAttachmentsChange,
   onAttachmentDelete,
+  onImageRemovalNeeded,
   initialContent = '',
   isEditing = false,
   showAttachments = false,
@@ -96,7 +104,12 @@ export default function TextEditor({
   compact = false,
   attachmentContext = 'comment',
   attachmentParentId,
-  existingAttachments = []
+  existingAttachments = [],
+  // Image behavior control props with defaults
+  allowImagePaste = true,
+  allowImageDelete = true,
+  allowImageResize = true,
+  imageDisplayMode = 'full'
 }: TextEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
@@ -125,13 +138,36 @@ export default function TextEditor({
   React.useEffect(() => {
     const currentKey = JSON.stringify(existingAttachments.map(att => att.id).sort());
     
+    console.log('🔄 TextEditor: existingAttachments changed');
+    console.log('🔄 Previous key:', prevExistingAttachmentsRef.current);
+    console.log('🔄 Current key:', currentKey);
+    console.log('🔄 existingAttachments:', existingAttachments.map(att => ({id: att.id, name: att.name})));
+    
     // Only update if the attachments actually changed
     if (prevExistingAttachmentsRef.current !== currentKey) {
       prevExistingAttachmentsRef.current = currentKey;
-      setDisplayedAttachments(prev => [
-        ...existingAttachments.map(att => ({ ...att, isNew: false })),
-        ...prev.filter(att => att.isNew) // Keep new attachments that aren't duplicates
-      ]);
+      console.log('🔄 TextEditor: Updating displayedAttachments');
+      setDisplayedAttachments(prev => {
+        console.log('🔄 Previous displayedAttachments:', prev.map(att => ({id: att.id, name: att.name, isNew: att.isNew})));
+        
+        // When parent attachments change, trust the parent's state completely
+        // Only keep "New" attachments if they're truly new and not represented in parent
+        const existingNames = existingAttachments.map(att => att.name);
+        const newAttachmentsToKeep = prev.filter(att => 
+          att.isNew && 
+          !existingNames.includes(att.name) &&
+          att.file // Only keep if it's actually a new file being uploaded
+        );
+        
+        const newDisplayed = [
+          ...existingAttachments.map(att => ({ ...att, isNew: false })),
+          ...newAttachmentsToKeep
+        ];
+        console.log('🔄 TextEditor: New displayedAttachments:', newDisplayed.map(att => ({id: att.id, name: att.name, isNew: att.isNew})));
+        return newDisplayed;
+      });
+    } else {
+      console.log('🔄 TextEditor: No change detected, skipping update');
     }
   }, [existingAttachments]);
 
@@ -151,6 +187,17 @@ export default function TextEditor({
   // Compact styling
   const buttonClass = compact ? 'p-1' : 'p-2';
   const iconSize = compact ? 14 : 16;
+
+  // Generate unique filename for pasted images
+  const generateImageFilename = React.useCallback((file: File): string => {
+    const randomId = Math.random().toString(36).substring(2, 8);
+    const extension = file.type.includes('png') ? 'png' : 
+                     file.type.includes('jpg') || file.type.includes('jpeg') ? 'jpg' :
+                     file.type.includes('gif') ? 'gif' :
+                     file.type.includes('webp') ? 'webp' : 'png';
+    return `img-${randomId}.${extension}`;
+  }, []);
+
 
   const editor = useEditor({
     autofocus: compact ? 'end' : false,
@@ -194,6 +241,226 @@ export default function TextEditor({
       }),
       TextAlign.configure({
         types: ['heading', 'paragraph']
+      }),
+      Image.extend({
+        name: 'resizableImage',
+        addNodeView() {
+          return ({ node, updateAttributes, getPos, editor }) => {
+            // Access the outer component's state through a closure
+            const container = document.createElement('div');
+            container.className = 'tiptap-image-container relative inline-block';
+            
+            const img = document.createElement('img');
+            img.src = node.attrs.src;
+            img.className = 'tiptap-image block';
+            // Add compact data attribute for CSS styling
+            if (imageDisplayMode === 'compact') {
+              img.setAttribute('data-compact', 'true');
+            }
+            img.style.width = node.attrs.width || (imageDisplayMode === 'compact' ? '150px' : '300px');
+            img.style.height = 'auto';
+            img.style.borderRadius = '4px';
+            img.style.cursor = 'pointer';
+            
+            // Apply existing border styles if any
+            if (node.attrs['data-border-style']) {
+              img.style.border = node.attrs['data-border-style'];
+            }
+            
+            // Border options popup
+            const createBorderOptions = () => {
+              // Remove any existing popup
+              const existingPopup = document.querySelector('.border-options-popup');
+              if (existingPopup) {
+                existingPopup.remove();
+              }
+              
+              const popup = document.createElement('div');
+              popup.className = 'border-options-popup absolute z-20 bg-white border border-gray-300 rounded-md shadow-lg p-2';
+              popup.style.cssText = 'top: 100%; left: 0; min-width: 200px; margin-top: 4px;';
+              
+              const borderOptions = [
+                { label: 'No Border', value: 'none' },
+                { label: 'Thin Black', value: '1px solid #000' },
+                { label: 'Thick Black', value: '3px solid #000' },
+                { label: 'Thin Gray', value: '1px solid #666' },
+                { label: 'Thin Blue', value: '2px solid #3b82f6' },
+                { label: 'Dashed Gray', value: '2px dashed #666' },
+                { label: 'Dotted Blue', value: '2px dotted #3b82f6' }
+              ];
+              
+              borderOptions.forEach(option => {
+                const button = document.createElement('button');
+                button.textContent = option.label;
+                button.className = 'block w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded';
+                button.onclick = (e) => {
+                  e.stopPropagation();
+                  
+                  // Update the image border
+                  const borderStyle = option.value === 'none' ? '' : option.value;
+                  img.style.border = borderStyle;
+                  
+                  // Update the node attributes
+                  if (updateAttributes && typeof updateAttributes === 'function') {
+                    updateAttributes({ 
+                      'data-border-style': borderStyle || null 
+                    });
+                  } else {
+                    console.warn('updateAttributes not available');
+                  }
+                  
+                  popup.remove();
+                };
+                popup.appendChild(button);
+              });
+              
+              // Close popup when clicking outside
+              const closePopup = (e: Event) => {
+                if (!popup.contains(e.target as Node)) {
+                  popup.remove();
+                  document.removeEventListener('click', closePopup);
+                }
+              };
+              
+              setTimeout(() => {
+                document.addEventListener('click', closePopup);
+              }, 100);
+              
+              container.appendChild(popup);
+            };
+            
+            // Click handler for border options
+            img.onclick = (e) => {
+              e.stopPropagation();
+              createBorderOptions();
+            };
+            
+            // Delete button (only if deletion is allowed)
+            let deleteBtn: HTMLButtonElement | null = null;
+            if (allowImageDelete) {
+              deleteBtn = document.createElement('button');
+              deleteBtn.innerHTML = '×';
+              deleteBtn.className = 'absolute bg-red-500 text-white rounded-full text-xs hover:bg-red-600 flex items-center justify-center z-10';
+              deleteBtn.style.cssText = 'display: none; width: 18px; height: 18px; top: -6px; right: -6px; font-size: 12px; line-height: 1;';
+              deleteBtn.onclick = (e) => {
+                e.preventDefault();
+                console.log('🔴 Image X clicked - removing image immediately');
+                
+                // STEP 1: Remove image from editor immediately
+                const pos = getPos();
+                if (typeof pos === 'number') {
+                  editor.commands.deleteRange({ from: pos, to: pos + 1 });
+                  console.log('✅ Image removed from editor');
+                }
+                
+                // STEP 2: Extract filename for deletion
+                const imageFilename = node.attrs['data-filename'] || node.attrs.alt;
+                if (imageFilename) {
+                  console.log('🔍 Found filename for cleanup:', imageFilename);
+                  
+                  // STEP 3: Clean up local state immediately
+                  setNewAttachments(prev => prev.filter(att => att.name !== imageFilename));
+                  setDisplayedAttachments(prev => prev.filter(att => att.name !== imageFilename));
+                  
+                  // STEP 4: Use the global cleanup function to handle server deletion
+                  if (onImageRemovalNeeded) {
+                    console.log('🧹 Calling global cleanup for:', imageFilename);
+                    onImageRemovalNeeded(imageFilename);
+                  }
+                }
+              };
+            }
+            
+            // Resize handle (only if resizing is allowed)
+            let resizeHandle: HTMLDivElement | null = null;
+            let isResizing = false;
+            let startX = 0;
+            let startWidth = 0;
+            let handleMouseMove: ((e: MouseEvent) => void) | null = null;
+            let handleMouseUp: (() => void) | null = null;
+            
+            if (allowImageResize) {
+              resizeHandle = document.createElement('div');
+              resizeHandle.className = 'absolute bg-blue-500 cursor-se-resize rounded-tl-md z-10';
+              resizeHandle.style.cssText = 'display: none; width: 12px; height: 12px; bottom: -2px; right: -2px;';
+              
+              // Define the event handlers outside so they can be cleaned up
+              handleMouseMove = (e: MouseEvent) => {
+                if (!isResizing) return;
+                const width = startWidth + (e.clientX - startX);
+                const newWidth = Math.max(100, Math.min(800, width));
+                img.style.width = newWidth + 'px';
+                
+                // Safety check for updateAttributes function
+                if (updateAttributes && typeof updateAttributes === 'function') {
+                  try {
+                    updateAttributes({ width: newWidth + 'px' });
+                  } catch (error) {
+                    console.warn('⚠️ Failed to update image attributes during resize:', error);
+                  }
+                } else {
+                  console.warn('⚠️ updateAttributes function is not available during resize');
+                }
+              };
+              
+              handleMouseUp = () => {
+                isResizing = false;
+                if (handleMouseMove) document.removeEventListener('mousemove', handleMouseMove);
+                if (handleMouseUp) document.removeEventListener('mouseup', handleMouseUp);
+              };
+              
+              resizeHandle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                isResizing = true;
+                startX = e.clientX;
+                startWidth = parseInt(window.getComputedStyle(img).width, 10);
+                
+                if (handleMouseMove) document.addEventListener('mousemove', handleMouseMove);
+                if (handleMouseUp) document.addEventListener('mouseup', handleMouseUp);
+              });
+            }
+            
+            // Show/hide controls on hover
+            container.addEventListener('mouseenter', () => {
+              if (deleteBtn) deleteBtn.style.display = 'flex';
+              if (resizeHandle) resizeHandle.style.display = 'block';
+            });
+            
+            container.addEventListener('mouseleave', () => {
+              if (!isResizing) {
+                if (deleteBtn) deleteBtn.style.display = 'none';
+                if (resizeHandle) resizeHandle.style.display = 'none';
+              }
+            });
+            
+            container.appendChild(img);
+            if (deleteBtn) container.appendChild(deleteBtn);
+            if (resizeHandle) container.appendChild(resizeHandle);
+            
+            return {
+              dom: container,
+              update: (updatedNode) => {
+                if (updatedNode.type.name !== 'resizableImage') return false;
+                img.src = updatedNode.attrs.src;
+                img.style.width = updatedNode.attrs.width || '300px';
+                return true;
+              },
+              destroy: () => {
+                // Clean up event listeners when the node is destroyed
+                if (isResizing) {
+                  if (handleMouseMove) document.removeEventListener('mousemove', handleMouseMove);
+                  if (handleMouseUp) document.removeEventListener('mouseup', handleMouseUp);
+                  isResizing = false;
+                }
+              }
+            };
+          };
+        }
+      }).configure({
+        HTMLAttributes: {
+          class: 'tiptap-image',
+        },
+        allowBase64: false,
       })
     ],
     content: initialContent,
@@ -235,6 +502,47 @@ export default function TextEditor({
         return false; // Not handled, let editor handle normally
       },
       handleKeyDown: (view, event) => {
+        // Prevent image deletion via keyboard when allowImageDelete is false
+        if (!allowImageDelete && (event.key === 'Backspace' || event.key === 'Delete')) {
+          const { state } = view;
+          const { selection } = state;
+          const { $from, $to } = selection;
+          
+          // Check if we're about to delete an image
+          const nodeAfter = $from.nodeAfter;
+          const nodeBefore = $from.nodeBefore;
+          
+          // For Backspace: check node before cursor
+          if (event.key === 'Backspace' && nodeBefore && nodeBefore.type.name === 'resizableImage') {
+            console.log('🚫 Prevented image deletion via Backspace');
+            event.preventDefault();
+            return true;
+          }
+          
+          // For Delete: check node after cursor  
+          if (event.key === 'Delete' && nodeAfter && nodeAfter.type.name === 'resizableImage') {
+            console.log('🚫 Prevented image deletion via Delete key');
+            event.preventDefault();
+            return true;
+          }
+          
+          // Also prevent deletion when image is selected
+          if (!selection.empty) {
+            let preventDeletion = false;
+            state.doc.nodesBetween(selection.from, selection.to, (node) => {
+              if (node.type.name === 'resizableImage') {
+                console.log('🚫 Prevented image deletion via selection');
+                preventDeletion = true;
+                return false; // Stop iteration
+              }
+            });
+            if (preventDeletion) {
+              event.preventDefault();
+              return true;
+            }
+          }
+        }
+        
         // Handle Escape key for compact mode
         if (compact && event.key === 'Escape' && onCancel) {
           event.preventDefault();
@@ -261,6 +569,207 @@ export default function TextEditor({
       }
     }
   });
+
+  // Update editor content when initialContent prop changes
+  React.useEffect(() => {
+    if (editor && initialContent !== undefined) {
+      const currentContent = editor.getHTML();
+      if (currentContent !== initialContent) {
+        console.log('🔄 TextEditor: initialContent changed, updating editor content');
+        console.log('🔄 From:', currentContent.substring(0, 100) + '...');
+        console.log('🔄 To:', initialContent.substring(0, 100) + '...');
+        editor.commands.setContent(initialContent);
+      }
+    }
+  }, [editor, initialContent]);
+
+  // Handle pasted images
+  const handleImagePaste = React.useCallback(async (file: File): Promise<void> => {
+    // Check if image pasting is allowed
+    if (!allowImagePaste) {
+      console.log('🚫 Image pasting disabled in this editor mode');
+      return;
+    }
+    
+    try {
+      // Generate unique filename and attachment ID
+      const filename = generateImageFilename(file);
+      const attachmentId = `temp-${Date.now()}-${Math.random()}`;
+      
+      // Create a temporary blob URL for immediate display
+      const tempUrl = URL.createObjectURL(file);
+      
+      if (!editor) {
+        console.error('❌ Editor not available');
+        return;
+      }
+      
+      // Add the image to the editor immediately with temp URL
+      // Store filename in the URL itself to survive content updates
+      const urlWithFilename = `${tempUrl}#${filename}`;
+      editor.chain().focus().insertContent({
+        type: 'resizableImage',
+        attrs: {
+          src: urlWithFilename,
+          'data-filename': filename,
+          'data-attachment-id': attachmentId,
+          'data-temp': 'true',
+          width: imageDisplayMode === 'compact' ? '150px' : '300px',
+          alt: filename // Also store in alt attribute as backup
+        }
+      }).run();
+      
+      console.log('✅ Image pasted:', filename);
+      
+      // Create a new File object with the generated filename to avoid "image.png" duplication
+      const renamedFile = new File([file], filename, { type: file.type });
+      
+      // Add to attachments for later upload
+      const updatedAttachments = [...newAttachments, renamedFile];
+      setNewAttachments(updatedAttachments);
+      
+      // Add to displayed attachments
+      const newDisplayedAttachment = {
+        id: attachmentId,
+        name: filename,
+        type: file.type,
+        size: file.size,
+        isNew: true,
+        file: renamedFile
+      };
+      
+      setDisplayedAttachments(prev => [...prev, newDisplayedAttachment]);
+      
+      // Notify parent component
+      if (onAttachmentsChange) {
+        onAttachmentsChange(updatedAttachments);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error handling pasted image:', error);
+    }
+  }, [editor, generateImageFilename]);
+
+  // Function to remove images from editor when attachments are deleted
+  const removeImageByAttachment = React.useCallback((attachmentName: string) => {
+    if (!editor) {
+      console.log('❌ removeImageByAttachment: Editor not available');
+      return;
+    }
+    
+    console.log('🔍 removeImageByAttachment: Looking for images with filename:', attachmentName);
+    
+    // Find and remove images with matching filename
+    const { doc } = editor.state;
+    const ranges: { from: number; to: number }[] = [];
+    
+    doc.descendants((node, pos) => {
+      if (node.type.name === 'resizableImage') {
+        const nodeFilename = node.attrs['data-filename'];
+        const nodeAlt = node.attrs.alt;
+        const nodeSrc = node.attrs.src;
+        
+        console.log('🔍 Found image:', {
+          nodeFilename,
+          nodeAlt,
+          nodeSrc: nodeSrc?.substring(0, 100) + '...',
+          lookingFor: attachmentName
+        });
+        
+        // Check multiple sources for filename match
+        const matches = 
+          nodeFilename === attachmentName ||
+          nodeAlt === attachmentName ||
+          (nodeSrc && nodeSrc.includes(`#${attachmentName}`)) ||
+          (nodeSrc && nodeSrc.includes(attachmentName));
+          
+        if (matches) {
+          console.log('✅ Image matches, will remove');
+          ranges.push({ from: pos, to: pos + node.nodeSize });
+        }
+      }
+    });
+    
+    // Remove images in reverse order to maintain positions
+    ranges.reverse().forEach(range => {
+      editor.commands.deleteRange(range);
+    });
+    
+    if (ranges.length === 0) {
+      console.log(`❌ removeImageByAttachment: No images found to remove for: ${attachmentName}`);
+    } else {
+      console.log(`🗑️ removeImageByAttachment: Removed ${ranges.length} image(s) for attachment: ${attachmentName}`);
+    }
+  }, [editor]);
+
+  // Provide removeImageByAttachment function globally for parent to call
+  React.useEffect(() => {
+    (window as any).textEditorRemoveImage = removeImageByAttachment;
+    return () => {
+      delete (window as any).textEditorRemoveImage;
+    };
+  }, [removeImageByAttachment]);
+
+  // Handle paste events for images
+  React.useEffect(() => {
+    if (!editor) return;
+
+    const handlePaste = (event: ClipboardEvent) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          console.log('🖼️ Image paste detected:', item.type);
+          event.preventDefault();
+          const file = item.getAsFile();
+          if (file) {
+            handleImagePaste(file);
+          }
+        }
+      }
+    };
+
+    const editorElement = editor.view.dom;
+    editorElement.addEventListener('paste', handlePaste);
+    console.log('📋 Paste event listener added to editor');
+
+    return () => {
+      editorElement.removeEventListener('paste', handlePaste);
+      console.log('📋 Paste event listener removed');
+    };
+  }, [editor, handleImagePaste]);
+
+  // Handle clicks in empty space to move cursor to end
+  const handleEditorContainerClick = React.useCallback((event: React.MouseEvent) => {
+    if (!editor) return;
+    
+    const target = event.target as HTMLElement;
+    const clickY = event.clientY;
+    
+    // Check if we're clicking in the editor area
+    const editorElement = editor.view.dom;
+    if (!editorElement.contains(target)) return;
+    
+    // Get the bounds of the actual content
+    const children = editorElement.children;
+    
+    if (children.length > 0) {
+      const lastChild = children[children.length - 1] as HTMLElement;
+      const lastChildRect = lastChild.getBoundingClientRect();
+      
+      // If clicking below the last content element (with some tolerance), move cursor to end
+      if (clickY > lastChildRect.bottom + 5) {
+        event.preventDefault();
+        editor.commands.focus('end');
+        console.log('📍 Moved cursor to end due to empty space click');
+      }
+    } else {
+      // If no content at all, always move to end
+      editor.commands.focus('end');
+    }
+  }, [editor]);
 
   // Handle outside clicks for compact mode (moved after useEditor)
   React.useEffect(() => {
@@ -509,7 +1018,7 @@ export default function TextEditor({
                       }
                       
                       // Select the entire link for editing
-                      editor.chain().focus().setTextSelection(linkStart, linkEnd).run();
+                      editor.chain().focus().setTextSelection({ from: linkStart, to: linkEnd }).run();
                       
                       // Get the link text and URL
                       const linkText = doc.textBetween(linkStart, linkEnd);
@@ -643,10 +1152,12 @@ export default function TextEditor({
       {/* Editor Content */}
       <div 
         className={resizable ? "resize-y overflow-auto" : ""}
-        onClick={() => {
+        onClick={(e) => {
           if (compact && editor && !editor.isFocused) {
             editor.commands.focus('end');
           }
+          // Handle clicks in empty space
+          handleEditorContainerClick(e);
         }}
       >
         <EditorContent editor={editor} />
@@ -681,29 +1192,75 @@ export default function TextEditor({
                 <button
                   type="button"
                   onClick={async () => {
+                    console.log('🖱️ Attachment X clicked:', {
+                      name: attachment.name,
+                      id: attachment.id,
+                      isNew: attachment.isNew,
+                      type: attachment.type,
+                      startsWithPending: attachment.id.startsWith('pending-'),
+                      buttonType: attachment.isNew ? 'new' : 'existing'
+                    });
+                    
                     if (attachment.isNew) {
+                      console.log('🆕 Processing NEW attachment deletion');
+                      
                       // Remove from new attachments and displayed attachments
                       const updatedNewAttachments = newAttachments.filter(file => file.name !== attachment.name);
+                      console.log('🔄 Filtered newAttachments:', {
+                        before: newAttachments.length,
+                        after: updatedNewAttachments.length,
+                        removedName: attachment.name
+                      });
+                      
                       setNewAttachments(updatedNewAttachments);
                       setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
                       
                       // Notify parent of attachment changes
                       if (onAttachmentsChange) {
+                        console.log('📞 Calling onAttachmentsChange with updated attachments');
                         onAttachmentsChange(updatedNewAttachments);
+                      } else {
+                        console.log('⚠️ No onAttachmentsChange handler provided');
                       }
+                      
+                      // CRITICAL: Also remove the image from the editor content!
+                      console.log('🖼️ Removing image from editor for new attachment:', attachment.name);
+                      removeImageByAttachment(attachment.name);
                     } else {
                       // For existing attachments, delete immediately from database
                       if (onAttachmentDelete && !attachment.id.startsWith('pending-')) {
                         try {
                           await onAttachmentDelete(attachment.id);
-                          // Remove from displayed attachments after successful deletion
-                          setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
+                          // Don't modify local state - let parent handle updates via existingAttachments
+                          
+                          // Also remove corresponding image from editor if it exists
+                          console.log('🔄 Attachment deleted, removing image from editor:', attachment.name);
+                          removeImageByAttachment(attachment.name);
                         } catch (error) {
                           console.error('Failed to delete attachment:', error);
                         }
                       } else {
-                        // Fallback: just remove from display
+                        // For new attachments, remove from display and newAttachments
                         setDisplayedAttachments(prev => prev.filter((_, i) => i !== index));
+                        
+                        // Update newAttachments and notify parent
+                        setNewAttachments(prev => {
+                          const updated = prev.filter(att => att.name !== attachment.name);
+                          if (onAttachmentsChange) {
+                            onAttachmentsChange(updated);
+                          }
+                          return updated;
+                        });
+                        
+                        // Also remove corresponding image from editor if it exists
+                        console.log('🔄 New attachment removed, removing image from editor:', attachment.name);
+                        console.log('🔍 Attachment details:', {
+                          name: attachment.name,
+                          id: attachment.id,
+                          isNew: attachment.isNew,
+                          type: attachment.type
+                        });
+                        removeImageByAttachment(attachment.name);
                       }
                     }
                   }}
@@ -893,6 +1450,25 @@ export default function TextEditor({
           onChange={handleFileUpload}
         />
       )}
+
+      {/* Styles for TipTap images */}
+      <style>{`
+        .tiptap-image {
+          max-width: 100%;
+          height: auto;
+          border-radius: 4px;
+          cursor: pointer;
+          display: block;
+          margin: 8px 0;
+        }
+        .tiptap-image:hover {
+          outline: 2px solid #3b82f6;
+          outline-offset: 2px;
+        }
+        .tiptap-image[data-temp="true"] {
+          opacity: 0.8;
+        }
+      `}</style>
     </div>
   );
 }
