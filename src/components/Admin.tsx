@@ -374,6 +374,33 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  // Auto-save function for immediate saving of individual settings
+  const handleAutoSaveSetting = async (key: string, value: string) => {
+    try {
+      setError(null);
+      
+      // Save the setting immediately
+      await api.put('/admin/settings', { key, value });
+      
+      // Update the settings state
+      setSettings(prev => ({ ...prev, [key]: value }));
+      
+      // Update the parent component's site settings immediately
+      if (onSettingsChanged) {
+        onSettingsChanged();
+      }
+      
+      // Show brief success message for auto-save
+      setSuccessMessage(`✅ ${key} setting saved automatically!`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      
+    } catch (err) {
+      setError(`Failed to save ${key} setting`);
+      console.error(err);
+      throw err; // Re-throw so the component can handle the error
+    }
+  };
+
   const handleReloadOAuth = async () => {
     try {
       await api.post('/auth/reload-oauth');
@@ -716,6 +743,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
+              onAutoSave={handleAutoSaveSetting}
               successMessage={successMessage}
               error={error}
             />

@@ -24,6 +24,8 @@ interface ModalManagerProps {
   onProfileEditingChange: (isEditing: boolean) => void;
   onActivityFeedToggle?: (enabled: boolean) => void;
   onAccountDeleted?: () => void;
+  siteSettings?: { [key: string]: string };
+  boards?: any[];
 }
 
 const ModalManager: React.FC<ModalManagerProps> = ({
@@ -41,6 +43,8 @@ const ModalManager: React.FC<ModalManagerProps> = ({
   onProfileEditingChange,
   onActivityFeedToggle,
   onAccountDeleted,
+  siteSettings,
+  boards,
 }) => {
   return (
     <>
@@ -52,6 +56,8 @@ const ModalManager: React.FC<ModalManagerProps> = ({
           currentUser={currentUser}
           onClose={onTaskClose}
           onUpdate={onTaskUpdate}
+          siteSettings={siteSettings}
+          boards={boards}
         />
       )}
 

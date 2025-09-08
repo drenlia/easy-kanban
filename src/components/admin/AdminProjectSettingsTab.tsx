@@ -5,6 +5,7 @@ interface AdminProjectSettingsTabProps {
   onSettingsChange: (settings: { [key: string]: string }) => void;
   onSave: () => Promise<void>;
   onCancel: () => void;
+  onAutoSave?: (key: string, value: string) => Promise<void>; // For immediate saving of specific settings
   successMessage?: string;
   error?: string;
 }
@@ -14,6 +15,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   onSettingsChange,
   onSave,
   onCancel,
+  onAutoSave,
   successMessage,
   error
 }) => {
@@ -24,11 +26,28 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
     });
   };
 
-  const handleCheckboxChange = (key: string, checked: boolean) => {
+  const handleCheckboxChange = async (key: string, checked: boolean) => {
+    const value = checked ? 'true' : 'false';
+    
+    // Update local state first
     onSettingsChange({
       ...editingSettings,
-      [key]: checked ? 'true' : 'false'
+      [key]: value
     });
+    
+    // For USE_PREFIXES, auto-save immediately for better UX
+    if (key === 'USE_PREFIXES' && onAutoSave) {
+      try {
+        await onAutoSave(key, value);
+      } catch (error) {
+        console.error('Failed to auto-save USE_PREFIXES setting:', error);
+        // Revert the change on error
+        onSettingsChange({
+          ...editingSettings,
+          [key]: !checked ? 'true' : 'false'
+        });
+      }
+    }
   };
 
   return (

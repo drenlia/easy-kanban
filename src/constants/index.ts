@@ -7,7 +7,7 @@ export const DEFAULT_COLUMNS = [
 ];
 
 // Page and navigation constants
-export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'forgot-password', 'reset-password', 'reset-success'];
+export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'task', 'forgot-password', 'reset-password', 'reset-success'];
 export const ADMIN_TABS = ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'];
 
 // Routing configuration

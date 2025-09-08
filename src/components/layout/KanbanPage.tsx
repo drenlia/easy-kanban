@@ -557,6 +557,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
                       siteSettings={siteSettings}
+                      boards={boards}
                     />
                     ))}
                 </BoardDropArea>
@@ -603,6 +604,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
                       siteSettings={siteSettings}
+                      boards={boards}
                     />
                   ))}
               </BoardDropArea>
