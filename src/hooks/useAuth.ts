@@ -145,24 +145,25 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   useEffect(() => {
     // Check for token in URL hash (for OAuth callback)
     const hash = window.location.hash;
-    
-    // Skip password reset tokens - only handle OAuth tokens
-    if (hash.includes('token=') && !hash.includes('reset-password')) {
+      
+    // Skip password reset and account activation tokens - only handle OAuth tokens
+    if (hash.includes('token=') && !hash.includes('reset-password') && !hash.includes('activate-account')) {
       const tokenMatch = hash.match(/token=([^&]+)/);
       const errorMatch = hash.match(/error=([^&]+)/);
       
       if (tokenMatch) {
         const token = tokenMatch[1];
         
-        // Store the token
+        // Clear any activation context (no longer needed with simplified flow)
+        localStorage.removeItem('activationContext');
+        
+        // Store the OAuth token
         localStorage.setItem('authToken', token);
         
-        // Clear the URL hash and let the routing logic handle the destination
-        // The routing will automatically select the first board if no specific board is specified
+        // Clear the URL hash and redirect to kanban
         window.location.hash = '#kanban';
         
         // Force authentication check by triggering a state change
-        // This ensures the auth effect runs with the new token
         setIsAuthenticated(false);
         
         // Fetch current user data immediately after OAuth
@@ -170,6 +171,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           .then(response => {
             setCurrentUser(response.user);
             setIsAuthenticated(true);
+            console.log('✅ Google OAuth complete for:', response.user.email, 'auth_provider:', response.user.authProvider || 'google');
           })
           .catch(() => {
             // Fallback: just set authenticated and let the auth effect handle it

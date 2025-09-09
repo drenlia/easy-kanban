@@ -226,54 +226,27 @@ router.get('/google/callback', async (req, res) => {
     });
     
     if (!user) {
-      console.log('🔐 [GOOGLE SSO] Creating new user account...');
-      // Create new user
-      const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      console.log('🔐 [GOOGLE SSO] Generated user ID:', userId);
-      
-      // Generate a dummy password hash for Google users (they don't have passwords)
-      const dummyPasswordHash = await bcrypt.hash('google-oauth-user', 10);
-      const userStmt = db.prepare(`
-        INSERT INTO users (id, email, first_name, last_name, auth_provider, google_avatar_url, password_hash) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      
-      try {
-        userStmt.run(userId, userInfo.email, userInfo.given_name || '', userInfo.family_name || '', 'google', userInfo.picture, dummyPasswordHash);
-        console.log('🔐 [GOOGLE SSO] ✅ User created in database');
-      } catch (error) {
-        console.error('🔐 [GOOGLE SSO] ❌ Failed to create user:', error);
-        return res.redirect('/?error=user_creation_failed');
-      }
-      
-      // Assign user role
-      console.log('🔐 [GOOGLE SSO] Assigning user role...');
-      try {
-        const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
-        const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
-        userRoleStmt.run(userId, userRoleId);
-        console.log('🔐 [GOOGLE SSO] ✅ User role assigned');
-      } catch (error) {
-        console.error('🔐 [GOOGLE SSO] ❌ Failed to assign user role:', error);
-      }
-      
-      // Create team member
-      console.log('🔐 [GOOGLE SSO] Creating team member...');
-      try {
-        const memberName = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim();
-        const memberColor = '#' + Math.floor(Math.random()*16777215).toString(16);
-        const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
-        memberStmt.run(userId, memberName, memberColor, userId);
-        console.log('🔐 [GOOGLE SSO] ✅ Team member created:', { memberName, memberColor });
-      } catch (error) {
-        console.error('🔐 [GOOGLE SSO] ❌ Failed to create team member:', error);
-      }
-      
-      user = { id: userId, email: userInfo.email, firstName: userInfo.given_name, lastName: userInfo.family_name };
-      isNewUser = true;
-      console.log('🔐 [GOOGLE SSO] ✅ New user setup complete');
+      console.log('🔐 [GOOGLE SSO] ❌ User not found in system:', userInfo.email);
+      debugLog(settingsObj, '🔐 [GOOGLE SSO] User must be invited first before using Google OAuth');
+      return res.redirect('/?error=user_not_invited');
     } else {
       console.log('🔐 [GOOGLE SSO] ✅ Existing user found, proceeding with login');
+      
+      // Always update auth_provider to 'google' and store Google avatar
+      console.log('🔐 [GOOGLE SSO] Updating user auth_provider to google...');
+      try {
+        db.prepare(`
+          UPDATE users 
+          SET auth_provider = 'google', 
+              google_avatar_url = ?,
+              is_active = 1,
+              updated_at = datetime('now')
+          WHERE id = ?
+        `).run(userInfo.picture, user.id);
+        console.log('🔐 [GOOGLE SSO] ✅ User auth_provider updated to google');
+      } catch (error) {
+        console.error('🔐 [GOOGLE SSO] ❌ Failed to update auth_provider:', error);
+      }
     }
     
     // Get user roles from database (for both new and existing users)

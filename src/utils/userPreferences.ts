@@ -39,6 +39,16 @@ export interface UserPreferences {
     taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
     showActivityFeed?: boolean; // User override for system SHOW_ACTIVITY_FEED setting
   };
+  notifications: {
+    newTaskAssigned: boolean; // Notify when a new task is assigned to me
+    myTaskUpdated: boolean; // Notify when my task is updated
+    watchedTaskUpdated: boolean; // Notify when a task I'm watching is updated
+    addedAsCollaborator: boolean; // Notify when I'm added as a collaborator on a task
+    collaboratingTaskUpdated: boolean; // Notify when a task I'm collaborating in is updated
+    commentAdded: boolean; // Notify when a comment is added to a task I'm involved in
+    requesterTaskCreated: boolean; // Notify when a task is created and I'm the requester
+    requesterTaskUpdated: boolean; // Notify when a task is updated where I'm the requester
+  };
   activityFeed: {
     isMinimized: boolean;
     position: { x: number; y: number };
@@ -103,6 +113,16 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   appSettings: {
     // taskDeleteConfirm: undefined - let it inherit from system setting by default
     // showActivityFeed: undefined - let it inherit from system setting by default
+  },
+  notifications: {
+    newTaskAssigned: true,
+    myTaskUpdated: true,
+    watchedTaskUpdated: true,
+    addedAsCollaborator: true,
+    collaboratingTaskUpdated: true,
+    commentAdded: true,
+    requesterTaskCreated: true,
+    requesterTaskUpdated: true
   },
   activityFeed: {
     isMinimized: false,
@@ -187,6 +207,10 @@ export const getDefaultPreferences = (): UserPreferences => {
     appSettings: {
       ...BASE_DEFAULT_PREFERENCES.appSettings,
       ...ADMIN_DEFAULT_PREFERENCES.appSettings
+    },
+    notifications: {
+      ...BASE_DEFAULT_PREFERENCES.notifications,
+      ...ADMIN_DEFAULT_PREFERENCES.notifications
     },
     activityFeed: {
       ...BASE_DEFAULT_PREFERENCES.activityFeed,
@@ -320,6 +344,10 @@ export const loadUserPreferences = (userId: string | null = null): UserPreferenc
         appSettings: {
           ...defaults.appSettings,
           ...loadedPrefs.appSettings
+        },
+        notifications: {
+          ...defaults.notifications,
+          ...loadedPrefs.notifications
         },
         activityFeed: {
           ...defaults.activityFeed,

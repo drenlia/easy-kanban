@@ -16,9 +16,9 @@ interface ProfileProps {
 }
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
-  const [activeTab, setActiveTab] = useState<'profile' | 'app-settings'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
-  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string; MAIL_ENABLED?: string }>({});
   const [userSettings, setUserSettings] = useState<{ showActivityFeed?: boolean }>({});
   const [userPrefs, setUserPrefs] = useState(loadUserPreferences(currentUser?.id));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -45,6 +45,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       const loadSystemSettings = async () => {
         try {
           const response = await api.get('/settings');
+          console.log('Profile: Loaded system settings:', response.data);
+          console.log('Profile: MAIL_ENABLED value:', response.data?.MAIL_ENABLED, 'Type:', typeof response.data?.MAIL_ENABLED);
           setSystemSettings(response.data || {});
         } catch (error) {
           console.error('Failed to load system settings:', error);
@@ -401,6 +403,16 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               >
                 App Settings
               </button>
+              <button
+                onClick={() => setActiveTab('notifications')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'notifications'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Notifications
+              </button>
             </nav>
           </div>
 
@@ -675,6 +687,271 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
               <div className="text-sm text-gray-500 italic">
                 Changes are saved automatically
+              </div>
+            </div>
+          )}
+
+          {/* Notifications Tab Content */}
+          {activeTab === 'notifications' && (
+            <div className="space-y-6">
+              <div>
+                <h4 className="text-lg font-medium text-gray-900 mb-4">Email Notifications</h4>
+                <p className="text-sm text-gray-600 mb-6">
+                  Choose when you'd like to receive email notifications about task activities.
+                </p>
+
+                {/* Check if email is enabled */}
+                {systemSettings.MAIL_ENABLED !== 'true' ? (
+                  <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-md p-4">
+                    <div className="flex">
+                      <div className="flex-shrink-0">
+                        <svg className="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-yellow-800">Email Server Disabled</h3>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Email notifications are not available because the email server is disabled. 
+                          Contact your administrator to enable email functionality.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Notification Settings */}
+                <div className={`space-y-4 ${systemSettings.MAIL_ENABLED !== 'true' ? 'opacity-50 pointer-events-none' : ''}`}>
+                  <div className="text-sm font-medium text-gray-700 mb-3">Notify me when:</div>
+                  
+                  {/* New Task Assigned */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A new task is assigned to me</label>
+                      <p className="text-xs text-gray-500">Get notified when someone assigns a task to you</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.newTaskAssigned || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              newTaskAssigned: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* My Task Updated */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">My task is updated</label>
+                      <p className="text-xs text-gray-500">Get notified when tasks assigned to you are modified</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.myTaskUpdated || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              myTaskUpdated: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Watched Task Updated */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A task I'm watching is updated</label>
+                      <p className="text-xs text-gray-500">Get notified when tasks you're watching are modified</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.watchedTaskUpdated || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              watchedTaskUpdated: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Added as Collaborator */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">I'm added as a collaborator on a task</label>
+                      <p className="text-xs text-gray-500">Get notified when someone adds you as a collaborator</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.addedAsCollaborator || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              addedAsCollaborator: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Collaborating Task Updated */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A task I'm collaborating in is updated</label>
+                      <p className="text-xs text-gray-500">Get notified when tasks you're collaborating on are modified</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.collaboratingTaskUpdated || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              collaboratingTaskUpdated: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Comment Added */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A comment is added to a task I'm involved in</label>
+                      <p className="text-xs text-gray-500">Get notified when comments are added to tasks you're assigned, watching, or collaborating on</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.commentAdded || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              commentAdded: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Requester Task Created */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A task is created and I'm the requester</label>
+                      <p className="text-xs text-gray-500">Get notified when tasks you requested are created</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.requesterTaskCreated || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              requesterTaskCreated: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Requester Task Updated */}
+                  <div className="flex items-center justify-between py-2">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">A task is updated where I'm the requester</label>
+                      <p className="text-xs text-gray-500">Get notified when tasks you requested are modified</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={userPrefs.notifications?.requesterTaskUpdated || false}
+                        onChange={(e) => {
+                          const newPrefs = {
+                            ...userPrefs,
+                            notifications: {
+                              ...userPrefs.notifications,
+                              requesterTaskUpdated: e.target.checked
+                            }
+                          };
+                          setUserPrefs(newPrefs);
+                          updateUserPreference('notifications', newPrefs.notifications, currentUser?.id);
+                        }}
+                        className="sr-only peer"
+                        disabled={systemSettings.MAIL_ENABLED !== 'true'}
+                      />
+                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="text-sm text-gray-500 italic mt-6">
+                  Changes are saved automatically
+                </div>
               </div>
             </div>
           )}

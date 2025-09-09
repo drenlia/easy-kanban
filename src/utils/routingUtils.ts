@@ -144,7 +144,7 @@ export const getInitialSelectedBoard = (): string | null => {
 /**
  * Get the initial page from URL hash
  */
-export const getInitialPage = (): 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success' => {
+export const getInitialPage = (): 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account' => {
   const hash = window.location.hash;
   const parsed = parseUrlHash(hash);
   const taskRoute = parseTaskRoute();
@@ -155,7 +155,7 @@ export const getInitialPage = (): 'kanban' | 'admin' | 'task' | 'forgot-password
   }
   
   if (parsed.isPage) {
-    return parsed.mainRoute as 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success';
+    return parsed.mainRoute as 'kanban' | 'admin' | 'task' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account';
   }
   
   // If it's a board ID, default to kanban page

@@ -15,6 +15,7 @@ import { attachmentUpload, avatarUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
+import { initNotificationService, getNotificationService } from './services/notificationService.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
@@ -30,8 +31,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Initialize database using extracted module
 const db = initializeDatabase();
 
-// Initialize activity logger with database instance
+// Initialize activity logger and notification service with database instance
 initActivityLogger(db);
+initNotificationService(db);
 
 const app = express();
 
@@ -45,6 +47,16 @@ app.use(express.json());
 // Serve static files
 app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
 app.use('/avatars', express.static(path.join(__dirname, 'avatars')));
+
+// ================================
+// DEBUG ENDPOINTS
+// ================================
+
+app.post('/api/debug/log', (req, res) => {
+  const { message, data } = req.body;
+  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  res.status(200).json({ success: true });
+});
 
 // ================================
 // AUTHENTICATION ENDPOINTS
@@ -109,6 +121,83 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Account activation endpoint
+app.post('/api/auth/activate-account', async (req, res) => {
+  const { token, email, newPassword } = req.body;
+  
+  if (!token || !email || !newPassword) {
+    return res.status(400).json({ error: 'Token, email, and new password are required' });
+  }
+  
+  try {
+    // Find the invitation token
+    const invitation = wrapQuery(db.prepare(`
+      SELECT ui.*, u.id as user_id, u.email, u.first_name, u.last_name, u.is_active 
+      FROM user_invitations ui
+      JOIN users u ON ui.user_id = u.id
+      WHERE ui.token = ? AND u.email = ? AND ui.used_at IS NULL
+    `), 'SELECT').get(token, email);
+    
+    if (!invitation) {
+      return res.status(400).json({ error: 'Invalid or expired invitation token' });
+    }
+    
+    // Check if token has expired
+    const tokenExpiry = new Date(invitation.expires_at);
+    if (tokenExpiry < new Date()) {
+      return res.status(400).json({ error: 'Invitation token has expired' });
+    }
+    
+    // Check if user is already active
+    if (invitation.is_active) {
+      return res.status(400).json({ error: 'Account is already active' });
+    }
+    
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    
+    // Activate user and update password
+    wrapQuery(db.prepare(`
+      UPDATE users 
+      SET is_active = 1, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `), 'UPDATE').run(passwordHash, invitation.user_id);
+    
+    // Mark invitation as used
+    wrapQuery(db.prepare(`
+      UPDATE user_invitations 
+      SET used_at = datetime('now')
+      WHERE id = ?
+    `), 'UPDATE').run(invitation.id);
+    
+    // Log activation activity
+    wrapQuery(db.prepare(`
+      INSERT INTO activity (action, details, userId, created_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      'account_activated',
+      `User ${invitation.first_name} ${invitation.last_name} (${invitation.email}) activated their account`,
+      invitation.user_id
+    );
+    
+    console.log('✅ Account activated successfully for:', invitation.email);
+    
+    res.json({ 
+      message: 'Account activated successfully. You can now log in.',
+      user: {
+        id: invitation.user_id,
+        email: invitation.email,
+        firstName: invitation.first_name,
+        lastName: invitation.last_name
+      }
+    });
+    
+  } catch (error) {
+    console.error('Account activation error:', error);
+    res.status(500).json({ error: 'Failed to activate account' });
   }
 });
 
@@ -213,7 +302,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 app.get('/api/auth/check-default-admin', (req, res) => {
   try {
     const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@example.com');
-    res.json({ hasDefaultAdmin: !!defaultAdmin });
+    res.json({ exists: !!defaultAdmin });
   } catch (error) {
     console.error('Error checking default admin:', error);
     res.status(500).json({ error: 'Failed to check default admin' });
@@ -288,7 +377,8 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
         COMMENT_ACTIONS.CREATE,
         comment.id,
         comment.taskId,
-        `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`
+        `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
+        { commentContent: comment.text }
       );
       
       res.json(comment);
@@ -720,7 +810,7 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
 
 // Create new user
 app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role, displayName } = req.body;
+  const { email, password, firstName, lastName, role, displayName, baseUrl } = req.body;
   
   if (!email || !password || !firstName || !lastName || !role) {
     return res.status(400).json({ error: 'All fields are required' });
@@ -739,11 +829,11 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user
+    // Create user (inactive by default for local accounts - they need to activate via email)
     wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name) 
-      VALUES (?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName);
+      INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, auth_provider) 
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, 0, 'local');
     
     // Assign role
     const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
@@ -765,14 +855,117 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
     
+    // Generate invitation token for email verification
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Store invitation token
+    wrapQuery(db.prepare(`
+      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      crypto.randomUUID(),
+      userId,
+      inviteToken,
+      tokenExpiry.toISOString()
+    );
+    
+    // Get admin user info for email
+    const adminUser = wrapQuery(
+      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(req.user.userId);
+    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+    
+    // Send invitation email
+    try {
+      const notificationService = getNotificationService();
+      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      console.log('✅ Invitation email sent for new user:', email);
+    } catch (emailError) {
+      console.warn('⚠️ Failed to send invitation email:', emailError.message);
+      // Don't fail user creation if email fails
+    }
+    
     res.json({ 
-      message: 'User created successfully',
-      user: { id: userId, email, firstName, lastName, role }
+      message: 'User created successfully. An invitation email has been sent.',
+      user: { id: userId, email, firstName, lastName, role, isActive: false }
     });
     
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// Resend user invitation
+app.post('/api/admin/users/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { userId } = req.params;
+  const { baseUrl } = req.body;
+  
+  try {
+    // Get user details
+    const user = wrapQuery(
+      db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Only allow resending for inactive local users
+    if (user.auth_provider !== 'local') {
+      return res.status(400).json({ error: 'Cannot resend invitation for non-local accounts' });
+    }
+
+    if (user.is_active) {
+      return res.status(400).json({ error: 'User account is already active' });
+    }
+
+    // Delete any existing invitation tokens for this user
+    wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+
+    // Generate new invitation token
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Store new invitation token
+    wrapQuery(db.prepare(`
+      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      crypto.randomUUID(),
+      userId,
+      inviteToken,
+      tokenExpiry.toISOString()
+    );
+    
+    // Get admin user info for email
+    const adminUser = wrapQuery(
+      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(req.user.userId);
+    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+    
+    // Send invitation email
+    try {
+      const notificationService = getNotificationService();
+      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      console.log('✅ Invitation resent successfully for user:', user.email);
+      
+      res.json({ 
+        message: 'Invitation email sent successfully',
+        email: user.email
+      });
+    } catch (emailError) {
+      console.error('⚠️ Failed to send invitation email:', emailError.message);
+      res.status(500).json({ error: 'Failed to send invitation email' });
+    }
+    
+  } catch (error) {
+    console.error('Resend invitation error:', error);
+    res.status(500).json({ error: 'Failed to resend invitation' });
   }
 });
 
@@ -1134,7 +1327,7 @@ app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requ
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'USE_PREFIXES');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;

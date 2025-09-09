@@ -260,6 +260,18 @@ router.put('/:id', async (req, res) => {
     // Log activity if there were changes
     if (changes.length > 0) {
       const details = changes.length === 1 ? changes[0] : `updated task: ${changes.join(', ')}`;
+      
+      // For single field changes, pass old and new values for better email templates
+      let oldValue, newValue;
+      if (changes.length === 1) {
+        // Find which field changed
+        const changedField = fieldsToTrack.find(field => currentTask[field] !== task[field]);
+        if (changedField) {
+          oldValue = currentTask[changedField];
+          newValue = task[changedField];
+        }
+      }
+      
       await logTaskActivity(
         userId,
         TASK_ACTIONS.UPDATE,
@@ -267,7 +279,9 @@ router.put('/:id', async (req, res) => {
         details,
         {
           columnId: task.columnId,
-          boardId: task.boardId
+          boardId: task.boardId,
+          oldValue,
+          newValue
         }
       );
     }
