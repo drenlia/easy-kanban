@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTaskDetails } from '../hooks/useTaskDetails';
-import { Task, TeamMember, CurrentUser } from '../types';
-import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip } from 'lucide-react';
+import { Task, TeamMember, CurrentUser, Attachment } from '../types';
+import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
-import { getTaskById, getMembers, getBoards } from '../api';
+import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments } from '../api';
 import TextEditor from './TextEditor';
 import DOMPurify from 'dompurify';
 
@@ -22,6 +22,7 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
   // Parse the task route to get task ID
   const taskRoute = parseTaskRoute();
   const taskId = taskRoute.taskId;
+  
 
   // Load task data
   useEffect(() => {
@@ -35,23 +36,50 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
       try {
         setIsLoading(true);
         
+        console.log('🚀 [TaskPage] Starting data load for taskId:', taskId);
+        
         // Load task, members, and boards in parallel
+        console.log('📡 [TaskPage] Making API calls...');
         const [taskData, membersData, boardsData] = await Promise.all([
           getTaskById(taskId),
           getMembers(),
           getBoards()
         ]);
 
+        console.log('📥 [TaskPage] API responses received:');
+        console.log('  📄 Task data:', {
+          id: taskData?.id,
+          title: taskData?.title,
+          priority: taskData?.priority,
+          priorityId: taskData?.priorityId,
+          status: taskData?.status,
+          watchers: taskData?.watchers?.length || 0,
+          collaborators: taskData?.collaborators?.length || 0,
+          tags: taskData?.tags?.length || 0,
+          comments: taskData?.comments?.length || 0
+        });
+        console.log('  👥 Members data:', { count: membersData?.length, first: membersData?.[0] });
+        console.log('  📋 Boards data:', { count: boardsData?.length });
+
         if (!taskData) {
+          console.log('❌ [TaskPage] No task data received');
           setError('Task not found');
           return;
         }
 
+        console.log('✅ [TaskPage] Setting state with loaded data');
         setTask(taskData);
         setMembers(membersData);
         setBoards(boardsData);
       } catch (error) {
-        console.error('Error loading task page data:', error);
+        console.error('❌ [TaskPage] Error loading task page data:', error);
+        console.error('❌ [TaskPage] Error details:', {
+          message: error.message,
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          url: error.config?.url,
+          data: error.response?.data
+        });
         setError(`Failed to load task data: ${error.response?.status || error.message}`);
       } finally {
         setIsLoading(false);
@@ -97,15 +125,326 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
     lastSaved,
     availableTags,
     taskTags,
+    taskWatchers,
+    taskCollaborators,
     availablePriorities,
-    taskAttachments,
     getProjectIdentifier,
     handleTaskUpdate,
-    handleAttachmentChange,
-    handleImageRemoval,
-    handleAttachmentDelete,
+    handleAddWatcher,
+    handleRemoveWatcher,
+    handleAddCollaborator,
+    handleRemoveCollaborator,
+    handleAddTag,
+    handleRemoveTag,
+    handleAddComment,
+    handleDeleteComment,
+    handleUpdateComment,
     saveImmediately
   } = taskDetailsHook;
+
+  // Direct attachment management (matching TaskDetails exactly)
+  const [taskAttachments, setTaskAttachments] = useState<Array<{
+    id: string;
+    name: string;
+    url: string;
+    type: string;
+    size: number;
+  }>>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
+  const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
+  const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
+
+  // Comment editing state
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState<string>('');
+
+  // Helper function to check if user can edit/delete a comment
+  const canModifyComment = (comment: any): boolean => {
+    if (!currentUser) return false;
+    
+    // Admin can modify any comment
+    if (currentUser.roles?.includes('admin')) return true;
+    
+    // User can modify their own comments
+    const currentMember = members.find(m => m.user_id === currentUser.id);
+    return currentMember?.id === comment.authorId;
+  };
+
+  const handleEditComment = (comment: any) => {
+    setEditingCommentId(comment.id);
+    setEditingCommentText(comment.text);
+  };
+
+  const handleSaveEditComment = async (content: string, attachments: File[] = []) => {
+    if (!editingCommentId || !content.trim()) return;
+    
+    try {
+      // If there are attachments, handle them like adding a comment
+      if (attachments.length > 0) {
+        // Upload attachments first
+        const uploadedAttachments = await Promise.all(
+          attachments.map(async (file) => {
+            const fileData = await uploadFile(file);
+            return {
+              id: fileData.id,
+              name: fileData.name,
+              url: fileData.url,
+              type: fileData.type,
+              size: fileData.size
+            };
+          })
+        );
+
+        // Replace blob URLs with server URLs in comment content
+        let finalContent = content;
+        uploadedAttachments.forEach(attachment => {
+          if (attachment.name.startsWith('img-')) {
+            // Replace blob URLs with server URLs
+            const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+            finalContent = finalContent.replace(blobPattern, attachment.url);
+          }
+        });
+
+        await handleUpdateComment(editingCommentId, finalContent.trim());
+      } else {
+        await handleUpdateComment(editingCommentId, content.trim());
+      }
+      
+      setEditingCommentId(null);
+      setEditingCommentText('');
+    } catch (error) {
+      console.error('Error saving comment edit:', error);
+    }
+  };
+
+  const handleCancelEditComment = () => {
+    setEditingCommentId(null);
+    setEditingCommentText('');
+  };
+
+  const handleDeleteCommentClick = async (commentId: string) => {
+    if (!currentUser) return;
+    
+    try {
+      // Use hook's delete function which handles both server and state
+      await handleDeleteComment(commentId);
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+    }
+  };
+
+  // Direct attachment management functions (matching TaskDetails exactly)
+  const handleAttachmentsChange = useCallback((attachments: File[]) => {
+    setPendingAttachments(attachments);
+  }, []);
+
+  const handleAttachmentDelete = useCallback(async (attachmentId: string) => {
+    try {
+      await deleteAttachment(attachmentId);
+      
+      // Find the attachment to get its filename
+      const attachmentToDelete = taskAttachments.find(att => att.id === attachmentId) || 
+                                 displayAttachments.find(att => att.id === attachmentId);
+      
+      if (attachmentToDelete) {
+        // Remove from ALL local state (just like image X button does)
+        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId && att.name !== attachmentToDelete.name));
+        setPendingAttachments(prev => prev.filter(att => att.name !== attachmentToDelete.name));
+      } else {
+        // Fallback: just remove by ID
+        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
+      }
+    } catch (error) {
+      console.error('Error deleting attachment:', error);
+      throw error; // Re-throw to let TextEditor handle the error
+    }
+  }, [taskAttachments]);
+
+  const handleImageRemoval = useCallback(async (filename: string) => {
+    // Track this attachment as recently deleted
+    recentlyDeletedAttachmentsRef.current.add(filename);
+    
+    // Check if this file exists in server-saved attachments
+    const serverAttachment = taskAttachments.find(att => att.name === filename);
+    
+    if (serverAttachment) {
+      try {
+        await deleteAttachment(serverAttachment.id);
+      } catch (error) {
+        console.error('Failed to delete server attachment:', error);
+        // Continue with local cleanup even if server deletion fails
+      }
+    } else {
+      // Also try to delete from server by making a request to get fresh attachments and delete
+      try {
+        const freshAttachments = await fetchTaskAttachments(task?.id || '');
+        const freshServerAttachment = freshAttachments.find(att => att.name === filename);
+        
+        if (freshServerAttachment) {
+          await deleteAttachment(freshServerAttachment.id);
+        }
+      } catch (error) {
+        console.error('Failed to fetch/delete fresh attachment:', error);
+      }
+    }
+    
+    // Remove from ALL local state immediately
+    setPendingAttachments(prev => prev.filter(att => att.name !== filename));
+    setTaskAttachments(prev => prev.filter(att => att.name !== filename));
+    
+    // Clear the recently deleted flag after a longer delay
+    setTimeout(() => {
+      recentlyDeletedAttachmentsRef.current.delete(filename);
+    }, 5000); // 5 seconds should be enough for any polling cycles
+  }, [taskAttachments, task?.id]);
+
+  const savePendingAttachments = useCallback(async () => {
+    if (pendingAttachments.length > 0) {
+      try {
+        setIsUploadingAttachments(true);
+        
+        // Upload files first
+        const uploadedAttachments = await Promise.all(
+          pendingAttachments.map(async (file) => {
+            const fileData = await uploadFile(file);
+            return {
+              id: fileData.id,
+              name: fileData.name,
+              url: fileData.url,
+              type: fileData.type,
+              size: fileData.size
+            };
+          })
+        );
+
+        // Add attachments to task
+        await addTaskAttachments(task?.id || '', uploadedAttachments);
+        
+        // Update local state - but only add attachments that weren't deleted during upload
+        setTaskAttachments(prev => {
+          const currentAttachmentNames = prev.map(att => att.name);
+          const newAttachments = uploadedAttachments.filter(uploaded => 
+            !currentAttachmentNames.includes(uploaded.name) // Don't re-add if already deleted
+          );
+          return [...prev, ...newAttachments];
+        });
+        setPendingAttachments([]);
+        
+        // Update the task description with server URLs immediately
+        let updatedDescription = editedTask.description;
+        uploadedAttachments.forEach(attachment => {
+          if (attachment.name.startsWith('img-')) {
+            // Replace blob URLs with server URLs
+            const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+            updatedDescription = updatedDescription.replace(blobPattern, attachment.url);
+          }
+        });
+        
+        // Always update the description to replace blob URLs
+        if (updatedDescription !== editedTask.description) {
+          // Update task description directly via hook (which will handle the save)
+          handleTaskUpdate({ description: updatedDescription });
+        }
+      } catch (error) {
+        console.error('❌ Failed to save attachments:', error);
+      } finally {
+        setIsUploadingAttachments(false);
+      }
+    }
+  }, [pendingAttachments, task?.id, editedTask, handleTaskUpdate, saveImmediately]);
+
+  // Only show saved attachments - no pending ones to avoid state sync issues
+  const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
+
+  // Text save timeout ref for debouncing
+  const textSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Separate function for text field updates with immediate save (matching TaskDetails)
+  const handleTextUpdate = useCallback((field: 'title' | 'description', value: string) => {
+    // Update hook state immediately
+    handleTaskUpdate({ [field]: value });
+    
+    // Debounce text saves to prevent spam (but keep attachments immediate)
+    if (textSaveTimeoutRef.current) {
+      clearTimeout(textSaveTimeoutRef.current);
+    }
+    
+    textSaveTimeoutRef.current = setTimeout(() => {
+      // The hook's debounced save will handle this
+      console.log(`💾 Debounced save triggered for ${field}:`, value.substring(0, 50) + '...');
+    }, 1000);
+  }, [handleTaskUpdate]);
+
+  // Auto-upload pending attachments (matching TaskDetails)
+  useEffect(() => {
+    if (pendingAttachments.length > 0) {
+      savePendingAttachments();
+    }
+  }, [pendingAttachments, savePendingAttachments]);
+
+  // Load task attachments when task changes
+  useEffect(() => {
+    const loadAttachments = async () => {
+      if (task?.id) {
+        try {
+          const attachments = await fetchTaskAttachments(task.id);
+          // Filter out recently deleted attachments and only update if not uploading
+          if (!isUploadingAttachments) {
+            const filteredAttachments = (attachments || []).filter((att: any) => 
+              !recentlyDeletedAttachmentsRef.current.has(att.name)
+            );
+            setTaskAttachments(filteredAttachments);
+          }
+        } catch (error) {
+          console.error('Error loading task attachments:', error);
+        }
+      }
+    };
+
+    loadAttachments();
+  }, [task?.id, isUploadingAttachments]);
+
+  // Load comment attachments (matching TaskDetails)
+  useEffect(() => {
+    const fetchAttachments = async () => {
+      if (!editedTask?.comments) return;
+      
+      const attachmentsMap: Record<string, Attachment[]> = {};
+      
+      // Only fetch for valid comments
+      const validComments = editedTask.comments.filter(
+        comment => comment && comment.id && comment.text
+      );
+
+      // Fetch attachments for each comment
+      await Promise.all(
+        validComments.map(async (comment) => {
+          try {
+            const attachments = await fetchCommentAttachments(comment.id);
+            attachmentsMap[comment.id] = attachments;
+          } catch (error) {
+            console.error(`Failed to fetch attachments for comment ${comment.id}:`, error);
+            attachmentsMap[comment.id] = [];
+          }
+        })
+      );
+
+      setCommentAttachments(attachmentsMap);
+    };
+
+    fetchAttachments();
+  }, [editedTask?.comments]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (textSaveTimeoutRef.current) {
+        clearTimeout(textSaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleBack = () => {
     // Navigate back to the kanban board
@@ -172,7 +511,7 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
               <button
@@ -216,7 +555,7 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
           {/* Left Column - Main Content */}
@@ -238,39 +577,46 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
             <div className="bg-white rounded-lg shadow-sm p-6">
               <label className="block text-sm font-medium text-gray-700 mb-4">Description</label>
               <TextEditor
-                initialContent={editedTask.description || ''}
-                onChange={(content) => handleTaskUpdate({ description: content })}
-                onAttachmentChange={handleAttachmentChange}
+                onSubmit={async () => {
+                  // Save pending attachments when submit is triggered
+                  await savePendingAttachments();
+                }}
+                onChange={(content) => handleTextUpdate('description', content)}
+                onAttachmentsChange={handleAttachmentsChange}
+                onAttachmentDelete={handleAttachmentDelete}
                 onImageRemovalNeeded={handleImageRemoval}
-                existingAttachments={taskAttachments}
+                initialContent={editedTask.description || ''}
                 placeholder="Enter task description..."
+                minHeight="120px"
+                showSubmitButtons={false}
+                showAttachments={true}
+                attachmentContext="task"
+                attachmentParentId={task?.id}
+                existingAttachments={displayAttachments}
                 compact={false}
                 resizable={true}
                 className="min-h-[300px]"
-                allowImagePaste={true}
-                allowImageDelete={true}
-                allowImageResize={true}
                 toolbarOptions={{
                   bold: true,
                   italic: true,
                   underline: true,
                   link: true,
                   lists: true,
-                  alignment: true,
+                  alignment: false,
                   attachments: true
                 }}
               />
             </div>
 
             {/* Attachments */}
-            {taskAttachments.length > 0 && (
+            {displayAttachments.length > 0 && (
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
                   <Paperclip className="h-4 w-4 mr-2" />
-                  Attachments ({taskAttachments.length})
+                  Attachments ({displayAttachments.length})
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {taskAttachments.map((attachment) => (
+                  {displayAttachments.map((attachment) => (
                     <div key={attachment.id} className="flex items-center p-3 border border-gray-200 rounded-md">
                       <Paperclip className="h-4 w-4 text-gray-400 mr-3 flex-shrink-0" />
                       <div className="flex-1 min-w-0">
@@ -289,7 +635,7 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
                           View
                         </a>
                         <button
-                          onClick={() => handleAttachmentDelete(attachment)}
+                          onClick={() => handleAttachmentDelete(attachment.id)}
                           className="text-red-600 hover:text-red-800 text-sm"
                         >
                           Delete
@@ -300,6 +646,167 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
                 </div>
               </div>
             )}
+
+            {/* Comments */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
+                <Users className="h-4 w-4 mr-2" />
+                Comments ({(editedTask.comments || []).filter(comment => 
+                  comment && 
+                  comment.id && 
+                  comment.text && 
+                  comment.text.trim() !== '' && 
+                  comment.authorId && 
+                  comment.createdAt
+                ).length})
+              </h3>
+              {/* Add Comment Section */}
+              <div className="mb-6">
+                <TextEditor 
+                  onSubmit={async (content: string, attachments: File[] = []) => {
+                    try {
+                      await handleAddComment(content, attachments);
+                    } catch (error) {
+                      console.error('Error adding comment:', error);
+                    }
+                  }}
+                  onCancel={() => {
+                    // The TextEditor handles clearing its own content and attachments
+                    // No additional action needed here
+                  }}
+                  placeholder="Add a comment..."
+                  showAttachments={true}
+                  submitButtonText="Add Comment"
+                  cancelButtonText="Cancel"
+                  attachmentContext="comment"
+                  allowImagePaste={true}
+                  allowImageDelete={true}
+                  allowImageResize={true}
+                  toolbarOptions={{
+                    bold: true,
+                    italic: true,
+                    underline: true,
+                    link: true,
+                    lists: true,
+                    alignment: false,
+                    attachments: true
+                  }}
+                />
+              </div>
+
+              <div className="space-y-4">
+                {(() => {
+                  // Sort comments newest first (matching TaskDetails)
+                  const sortedComments = (editedTask.comments || [])
+                    .filter(comment => 
+                      comment && 
+                      comment.id && 
+                      comment.text && 
+                      comment.text.trim() !== '' && 
+                      comment.authorId && 
+                      comment.createdAt
+                    )
+                    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                  
+                  return sortedComments;
+                })().map((comment) => {
+                  const author = members.find(m => m.id === comment.authorId);
+                  
+                  return (
+                    <div key={comment.id} className="border border-gray-200 rounded-md p-4">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-center space-x-2">
+                          <div 
+                            className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                            style={{ backgroundColor: author?.color || '#6b7280' }}
+                          >
+                            {author?.name?.[0] || 'U'}
+                          </div>
+                          <span className="text-sm font-medium text-gray-900">{author?.name || 'Unknown'}</span>
+                          <span className="text-xs text-gray-500">
+                            {new Date(comment.createdAt).toLocaleDateString()} {new Date(comment.createdAt).toLocaleTimeString()}
+                          </span>
+                        </div>
+                        {canModifyComment(comment) && editingCommentId !== comment.id && (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleEditComment(comment)}
+                              className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
+                              title="Edit comment"
+                            >
+                              <Edit2 size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCommentClick(comment.id)}
+                              className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
+                              title="Delete comment"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {editingCommentId === comment.id ? (
+                        <TextEditor
+                          initialContent={editingCommentText}
+                          onSubmit={handleSaveEditComment}
+                          onCancel={handleCancelEditComment}
+                          placeholder="Edit comment..."
+                          minHeight="80px"
+                          showToolbar={true}
+                          showSubmitButtons={true}
+                          submitButtonText="Save Changes"
+                          cancelButtonText="Cancel"
+                          className="border rounded"
+                          showAttachments={true}
+                          attachmentContext="comment"
+                          attachmentParentId={comment.id}
+                          allowImagePaste={true}
+                          allowImageDelete={true}
+                          allowImageResize={true}
+                          toolbarOptions={{
+                            bold: true,
+                            italic: true,
+                            underline: true,
+                            link: true,
+                            lists: true,
+                            alignment: false,
+                            attachments: true
+                          }}
+                        />
+                      ) : (
+                        <div 
+                          className="text-sm text-gray-700 prose prose-sm max-w-none"
+                          dangerouslySetInnerHTML={{ 
+                            __html: DOMPurify.sanitize(
+                              (() => {
+                                // Fix blob URLs in comment text by replacing them with server URLs (matching TaskDetails)
+                                const attachments = commentAttachments[comment.id] || [];
+                                let fixedContent = comment.text;
+                                
+                                attachments.forEach(attachment => {
+                                  if (attachment.name.startsWith('img-')) {
+                                    // Replace blob URLs with server URLs
+                                    const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+                                    fixedContent = fixedContent.replace(blobPattern, attachment.url);
+                                  }
+                                });
+                                
+                                return fixedContent;
+                              })()
+                            ) 
+                          }}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+                
+                {(!editedTask.comments || editedTask.comments.length === 0) && (
+                  <p className="text-sm text-gray-500 text-center py-4">No comments yet</p>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Right Column - Metadata */}
@@ -341,6 +848,110 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
                     ))}
                   </select>
                 </div>
+                
+                {/* Watchers */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Watchers</label>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1">
+                      {taskWatchers.map((watcher) => (
+                        <span
+                          key={watcher.id}
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                        >
+                          {watcher.name}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await handleRemoveWatcher(watcher.id);
+                              } catch (error) {
+                                console.error('Error removing watcher:', error);
+                              }
+                            }}
+                            className="ml-1 h-3 w-3 rounded-full bg-blue-200 hover:bg-blue-300 flex items-center justify-center"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <select
+                      onChange={async (e) => {
+                        if (e.target.value) {
+                          try {
+                            await handleAddWatcher(e.target.value);
+                            e.target.value = '';
+                          } catch (error) {
+                            console.error('Error adding watcher:', error);
+                          }
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    >
+                      <option value="">Add watcher...</option>
+                      {members
+                        .filter(member => !taskWatchers.some(w => w.id === member.id))
+                        .map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Collaborators */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Collaborators</label>
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-1">
+                      {taskCollaborators.map((collaborator) => (
+                        <span
+                          key={collaborator.id}
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800"
+                        >
+                          {collaborator.name}
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              try {
+                                await handleRemoveCollaborator(collaborator.id);
+                              } catch (error) {
+                                console.error('Error removing collaborator:', error);
+                              }
+                            }}
+                            className="ml-1 h-3 w-3 rounded-full bg-green-200 hover:bg-green-300 flex items-center justify-center"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                    <select
+                      onChange={async (e) => {
+                        if (e.target.value) {
+                          try {
+                            await handleAddCollaborator(e.target.value);
+                            e.target.value = '';
+                          } catch (error) {
+                            console.error('Error adding collaborator:', error);
+                          }
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    >
+                      <option value="">Add collaborator...</option>
+                      {members
+                        .filter(member => !taskCollaborators.some(c => c.id === member.id))
+                        .map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -355,13 +966,20 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
                   <label className="block text-xs font-medium text-gray-600 mb-1">Priority</label>
                   <select
                     value={editedTask.priorityId || ''}
-                    onChange={(e) => handleTaskUpdate({ priorityId: e.target.value || null })}
+                    onChange={(e) => {
+                      const priorityId = e.target.value ? parseInt(e.target.value) : null;
+                      const priority = priorityId ? availablePriorities.find(p => p.id === priorityId) : null;
+                      handleTaskUpdate({ 
+                        priorityId: priorityId,
+                        priority: priority?.priority || null 
+                      });
+                    }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">No Priority</option>
                     {availablePriorities.map((priority) => (
                       <option key={priority.id} value={priority.id}>
-                        {priority.name}
+                        {priority.priority}
                       </option>
                     ))}
                   </select>
@@ -403,31 +1021,68 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
             </div>
 
             {/* Tags */}
-            {availableTags.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
-                  <Tag className="h-4 w-4 mr-2" />
-                  Tags
-                </h3>
-                <div className="space-y-2">
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
+                <Tag className="h-4 w-4 mr-2" />
+                Tags
+              </h3>
+              <div className="space-y-3">
+                <div className="flex flex-wrap gap-1">
                   {taskTags.map((tag) => (
-                    <div
+                    <span
                       key={tag.id}
-                      className="inline-block px-2 py-1 rounded-full text-xs font-medium mr-2 mb-2"
+                      className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
                       style={{
                         backgroundColor: tag.color || '#6b7280',
                         color: 'white'
                       }}
                     >
-                      {tag.name}
-                    </div>
+                      {tag.tag}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await handleRemoveTag(tag.id);
+                          } catch (error) {
+                            console.error('Error removing tag:', error);
+                          }
+                        }}
+                        className="ml-1 h-3 w-3 rounded-full bg-black bg-opacity-20 hover:bg-opacity-30 flex items-center justify-center"
+                      >
+                        ×
+                      </button>
+                    </span>
                   ))}
                   {taskTags.length === 0 && (
                     <p className="text-sm text-gray-500">No tags assigned</p>
                   )}
                 </div>
+                {availableTags.length > 0 && (
+                  <select
+                    onChange={async (e) => {
+                      if (e.target.value) {
+                        try {
+                          await handleAddTag(parseInt(e.target.value));
+                          e.target.value = '';
+                        } catch (error) {
+                          console.error('Error adding tag:', error);
+                        }
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  >
+                    <option value="">Add tag...</option>
+                    {availableTags
+                      .filter(tag => !taskTags.some(t => t.id === tag.id))
+                      .map((tag) => (
+                        <option key={tag.id} value={tag.id}>
+                          {tag.tag}
+                        </option>
+                      ))}
+                  </select>
+                )}
               </div>
-            )}
+            </div>
 
             {/* Task Info */}
             <div className="bg-white rounded-lg shadow-sm p-6">
@@ -445,19 +1100,21 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
                 )}
                 <div className="flex justify-between">
                   <span className="text-gray-600">Status:</span>
-                  <span className="capitalize text-gray-900">{editedTask.status}</span>
+                  <span className="capitalize text-gray-900">{editedTask.status || 'Unknown'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Created:</span>
                   <span className="text-gray-900">
-                    {new Date(editedTask.createdAt).toLocaleDateString()}
+                    {editedTask.created_at ? new Date(editedTask.created_at).toLocaleDateString() : 
+                     editedTask.createdAt ? new Date(editedTask.createdAt).toLocaleDateString() : 'Unknown'}
                   </span>
                 </div>
-                {editedTask.updatedAt && (
+                {(editedTask.updated_at || editedTask.updatedAt) && (
                   <div className="flex justify-between">
                     <span className="text-gray-600">Updated:</span>
                     <span className="text-gray-900">
-                      {new Date(editedTask.updatedAt).toLocaleDateString()}
+                      {editedTask.updated_at ? new Date(editedTask.updated_at).toLocaleDateString() :
+                       editedTask.updatedAt ? new Date(editedTask.updatedAt).toLocaleDateString() : 'Unknown'}
                     </span>
                   </div>
                 )}

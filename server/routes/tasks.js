@@ -32,27 +32,45 @@ router.get('/:id', (req, res) => {
     const { db } = req.app.locals;
     const { id } = req.params;
     
+    console.log('🔍 [TASK API] Getting task by ID:', { id, url: req.url });
+    
     // Check if the ID looks like a ticket (e.g., TASK-00032) or a UUID
     const isTicket = /^[A-Z]+-\d+$/i.test(id);
+    console.log('🔍 [TASK API] ID type detection:', { id, isTicket });
     
     // Build the query based on whether we're searching by ticket or UUID
     const whereClause = isTicket ? 'WHERE t.ticket = ?' : 'WHERE t.id = ?';
+    console.log('🔍 [TASK API] Using where clause:', whereClause);
     
-    // Get task with attachment count and comments
+    // Get task with attachment count and priority info
     const task = wrapQuery(db.prepare(`
       SELECT t.*, 
+             p.id as priorityId,
+             p.priority as priorityName,
+             p.color as priorityColor,
+             c.title as status,
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                   THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
                   ELSE NULL END as attachmentCount
       FROM tasks t
       LEFT JOIN attachments a ON a.taskId = t.id
+      LEFT JOIN priorities p ON p.priority = t.priority
+      LEFT JOIN columns c ON c.id = t.columnId
       ${whereClause}
-      GROUP BY t.id
+      GROUP BY t.id, p.id, c.id
     `), 'SELECT').get(id);
     
     if (!task) {
+      console.log('❌ [TASK API] Task not found for ID:', id);
       return res.status(404).json({ error: 'Task not found' });
     }
+    
+    console.log('✅ [TASK API] Found task:', { 
+      id: task.id, 
+      title: task.title, 
+      priorityId: task.priorityId,
+      status: task.status 
+    });
     
     // Get comments for the task
     const comments = wrapQuery(db.prepare(`
@@ -63,10 +81,53 @@ router.get('/:id', (req, res) => {
       LEFT JOIN members m ON c.authorId = m.id
       WHERE c.taskId = ?
       ORDER BY c.createdAt ASC
-    `), 'SELECT').all(task.id); // Always use the actual task.id for comments
+    `), 'SELECT').all(task.id);
+    console.log('📝 [TASK API] Found comments:', comments.length);
     
-    // Add comments to task
+    // Get watchers for the task
+    const watchers = wrapQuery(db.prepare(`
+      SELECT m.* 
+      FROM watchers w
+      JOIN members m ON w.memberId = m.id
+      WHERE w.taskId = ?
+    `), 'SELECT').all(task.id);
+    console.log('👀 [TASK API] Found watchers:', watchers.length);
+    
+    // Get collaborators for the task
+    const collaborators = wrapQuery(db.prepare(`
+      SELECT m.* 
+      FROM collaborators c
+      JOIN members m ON c.memberId = m.id
+      WHERE c.taskId = ?
+    `), 'SELECT').all(task.id);
+    console.log('🤝 [TASK API] Found collaborators:', collaborators.length);
+    
+    // Get tags for the task
+    const tags = wrapQuery(db.prepare(`
+      SELECT t.* 
+      FROM task_tags tt
+      JOIN tags t ON tt.tagId = t.id
+      WHERE tt.taskId = ?
+    `), 'SELECT').all(task.id);
+    console.log('🏷️ [TASK API] Found tags:', tags.length);
+    
+    // Add all related data to task
     task.comments = comments || [];
+    task.watchers = watchers || [];
+    task.collaborators = collaborators || [];
+    task.tags = tags || [];
+    
+    console.log('📦 [TASK API] Final task data:', {
+      id: task.id,
+      title: task.title,
+      commentsCount: task.comments.length,
+      watchersCount: task.watchers.length,
+      collaboratorsCount: task.collaborators.length,
+      tagsCount: task.tags.length,
+      priority: task.priority,
+      priorityId: task.priorityId,
+      status: task.status
+    });
     
     res.json(task);
   } catch (error) {
@@ -508,5 +569,76 @@ router.get('/by-board/:boardId', (req, res) => {
     res.status(500).json({ error: 'Failed to get tasks' });
   }
 });
+
+// Add watcher to task
+router.post('/:taskId/watchers/:memberId', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId, memberId } = req.params;
+    
+    wrapQuery(db.prepare(`
+      INSERT OR IGNORE INTO watchers (taskId, memberId, createdAt)
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding watcher:', error);
+    res.status(500).json({ error: 'Failed to add watcher' });
+  }
+});
+
+// Remove watcher from task
+router.delete('/:taskId/watchers/:memberId', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId, memberId } = req.params;
+    
+    wrapQuery(db.prepare(`
+      DELETE FROM watchers WHERE taskId = ? AND memberId = ?
+    `), 'DELETE').run(taskId, memberId);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing watcher:', error);
+    res.status(500).json({ error: 'Failed to remove watcher' });
+  }
+});
+
+// Add collaborator to task
+router.post('/:taskId/collaborators/:memberId', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId, memberId } = req.params;
+    
+    wrapQuery(db.prepare(`
+      INSERT OR IGNORE INTO collaborators (taskId, memberId, createdAt)
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error adding collaborator:', error);
+    res.status(500).json({ error: 'Failed to add collaborator' });
+  }
+});
+
+// Remove collaborator from task
+router.delete('/:taskId/collaborators/:memberId', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId, memberId } = req.params;
+    
+    wrapQuery(db.prepare(`
+      DELETE FROM collaborators WHERE taskId = ? AND memberId = ?
+    `), 'DELETE').run(taskId, memberId);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing collaborator:', error);
+    res.status(500).json({ error: 'Failed to remove collaborator' });
+  }
+});
+
 
 export default router;

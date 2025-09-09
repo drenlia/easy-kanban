@@ -39,7 +39,7 @@ const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
-      <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex justify-between items-center">
+      <div className="w-4/5 mx-auto px-6 py-2.5 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <a 
             href={siteSettings.SITE_URL || '#'} 

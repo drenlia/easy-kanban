@@ -38,7 +38,7 @@ interface KanbanColumnProps {
   onTaskDragStart: (task: Task) => void;
   onTaskDragEnd: () => void;
   onTaskDragOver: (e: React.DragEvent, columnId: string, index: number) => void;
-  onSelectTask: (task: Task | null) => void;
+  onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDrop: (columnId: string, index: number) => void;
   isAdmin?: boolean;
   taskViewMode?: TaskViewMode;

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical } from 'lucide-react';
+import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical, Search } from 'lucide-react';
 import { updateActivityFeedPreference } from '../utils/userPreferences';
+import DOMPurify from 'dompurify';
+import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 
 interface ActivityItem {
   id: number;
@@ -62,11 +64,34 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const currentDragDimensionsRef = useRef<{ width: number; height: number } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  
+  // Filter state
+  const [filterText, setFilterText] = useState('');
 
   // Sync with prop changes
   useEffect(() => {
     setIsMinimized(initialIsMinimized);
   }, [initialIsMinimized]);
+
+  // Load saved filter preference on mount
+  useEffect(() => {
+    const loadFilterPreference = async () => {
+      if (userId) {
+        try {
+          // Import the loadUserPreferences function to access saved filter
+          const { loadUserPreferences } = await import('../utils/userPreferences');
+          const userPrefs = loadUserPreferences(userId);
+          if (userPrefs.activityFeed.filterText) {
+            setFilterText(userPrefs.activityFeed.filterText);
+          }
+        } catch (error) {
+          console.error('Failed to load activity filter preference:', error);
+        }
+      }
+    };
+
+    loadFilterPreference();
+  }, [userId]);
 
   // Utility function to ensure ActivityFeed stays within viewport and above dev tools
   const constrainToViewport = (pos: { x: number; y: number }, dims: { width: number; height: number }) => {
@@ -392,6 +417,32 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       description += ` in ${board_title}`;
     }
 
+    // Convert project and task identifiers to clickable links
+    // Look for patterns like (PROJ-XXX/TASK-XXX) or (PROJ-XXX) or (TASK-XXX)
+    description = description.replace(/\(([^)]+)\)$/, (_match, identifiers) => {
+      const parts = identifiers.split('/');
+      
+      // Find project identifier
+      const projectId = parts.find((part: string) => /^[A-Z]+-/.test(part.trim()) && !part.trim().startsWith('TASK-'));
+      
+      const clickableParts = parts.map((identifier: string) => {
+        identifier = identifier.trim();
+        
+        // Check if it looks like a project identifier (contains letters before dash)
+        if (/^[A-Z]+-/.test(identifier) && !identifier.startsWith('TASK-')) {
+          return `<a href="${generateProjectUrl(identifier)}" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Go to project ${identifier}">${identifier}</a>`;
+        }
+        // Check if it looks like a task identifier
+        else if (identifier.startsWith('TASK-') || /^[A-Z]+-\d+$/.test(identifier)) {
+          return `<a href="${generateTaskUrl(identifier, projectId)}" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Go to task ${identifier}">${identifier}</a>`;
+        }
+        
+        return identifier;
+      });
+      
+      return `(${clickableParts.join('/')})`;
+    });
+
     return { name, description };
   };
 
@@ -403,17 +454,60 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return '📝';
   };
 
+  // Filter activities based on text input
+  const filterActivities = (activities: ActivityItem[], filterText: string): ActivityItem[] => {
+    if (!filterText.trim()) return activities;
+    
+    const searchTerm = filterText.toLowerCase().trim();
+    return activities.filter(activity => {
+      // Search in multiple fields
+      const searchableText = [
+        activity.member_name || '',
+        activity.details || '',
+        activity.action || '',
+        activity.board_title || '',
+        activity.column_title || ''
+      ].join(' ').toLowerCase();
+      
+      return searchableText.includes(searchTerm);
+    });
+  };
+
+  // Handle filter input change
+  const handleFilterChange = (value: string) => {
+    setFilterText(value);
+    // Save filter preference
+    if (userId) {
+      updateActivityFeedPreference('filterText', value, userId).catch(error => {
+        console.error('Failed to save activity filter preference:', error);
+      });
+    }
+  };
+
+  // Clear filter
+  const clearFilter = () => {
+    setFilterText('');
+    if (userId) {
+      updateActivityFeedPreference('filterText', '', userId).catch(error => {
+        console.error('Failed to clear activity filter preference:', error);
+      });
+    }
+  };
+
   if (!isVisible) return null;
 
   // Step 1: Filter activities based on clear point (what user can see at all)
   const visibleActivities = activities.filter(activity => activity.id > clearActivityId);
   
-  // Step 2: Within visible activities, determine which are "unread"
-  const unreadActivities = visibleActivities.filter(activity => activity.id > lastSeenActivityId);
+  // Step 2: Apply text filter to visible activities
+  const filteredActivities = filterActivities(visibleActivities, filterText);
+  
+  // Step 3: Within filtered activities, determine which are "unread"
+  const unreadActivities = filteredActivities.filter(activity => activity.id > lastSeenActivityId);
   const unreadCount = unreadActivities.length;
   
-  // Use visible activities for display
-  const displayActivities = visibleActivities;
+  // Use filtered activities for display
+  const displayActivities = filteredActivities;
   
   // Get latest activity for minimized view (could be read or unread)
   const latestActivity = activities.length > 0 ? activities[0] : null;
@@ -616,6 +710,36 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         </div>
       </div>
 
+      {/* Filter Input */}
+      <div className="border-b border-gray-200 p-2 bg-white">
+        <div className="relative">
+          <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+            <Search className="h-3 w-3 text-gray-400" />
+          </div>
+          <input
+            type="text"
+            placeholder="Filter activities..."
+            value={filterText}
+            onChange={(e) => handleFilterChange(e.target.value)}
+            className="block w-full pl-7 pr-7 py-1.5 text-xs border border-gray-300 rounded-md leading-4 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          />
+          {filterText && (
+            <button
+              onClick={clearFilter}
+              className="absolute inset-y-0 right-0 pr-2 flex items-center"
+              title="Clear filter"
+            >
+              <X className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+            </button>
+          )}
+        </div>
+        {filterText && (
+          <div className="mt-1 text-xs text-gray-500">
+            {displayActivities.length} of {visibleActivities.length} activities shown
+          </div>
+        )}
+      </div>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-2">
         {loading && activities.length === 0 && (
@@ -656,7 +780,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   <div className="text-xs text-gray-900 leading-tight">
                     <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>{name}</span>
                     {' '}
-                    <span className="text-gray-700">{description}</span>
+                    <span 
+                      className="text-gray-700"
+                      dangerouslySetInnerHTML={{ 
+                        __html: DOMPurify.sanitize(description, {
+                          ALLOWED_TAGS: ['a'],
+                          ALLOWED_ATTR: ['href', 'class', 'title']
+                        })
+                      }}
+                    />
                   </div>
                   <div className="flex items-center space-x-1 mt-0.5">
                     <Clock className="w-2 h-2 text-gray-400" />

@@ -1745,6 +1745,21 @@ app.get('/health', (req, res) => {
 });
 
 // ================================
+// SPA FALLBACK FOR CLIENT-SIDE ROUTING
+// ================================
+
+// Serve the React app for all non-API routes
+app.get('*', (req, res) => {
+  // Skip API routes
+  if (req.path.startsWith('/api/') || req.path.startsWith('/attachments/') || req.path.startsWith('/avatars/') || req.path === '/health') {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+  
+  // For all other routes (including /project/, /task/, etc.), serve the React app
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
+
+// ================================
 // START SERVER
 // ================================
 

@@ -4,7 +4,7 @@ import { getTaskWatchers, getTaskCollaborators } from '../api';
 /**
  * Filter tasks based on search criteria
  */
-export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[]): Task[] => {
+export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Task[] => {
   if (!isSearchActive) return tasks;
 
   return tasks.filter(task => {
@@ -87,6 +87,23 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
       }
     }
 
+    // Project identifier filter
+    if (searchFilters.projectId) {
+      if (!boards || !task.boardId) return false;
+      const board = boards.find(b => b.id === task.boardId);
+      const projectId = board?.project;
+      if (!projectId || !projectId.toLowerCase().includes(searchFilters.projectId.toLowerCase())) {
+        return false;
+      }
+    }
+
+    // Task identifier filter
+    if (searchFilters.taskId) {
+      if (!task.ticket || !task.ticket.toLowerCase().includes(searchFilters.taskId.toLowerCase())) {
+        return false;
+      }
+    }
+
     return true;
   });
 };
@@ -94,14 +111,14 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
 /**
  * Get filtered columns for display
  */
-export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[]): Columns => {
+export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Columns => {
   if (!isSearchActive) return columns;
 
   const filteredColumns: Columns = {};
   Object.entries(columns).forEach(([columnId, column]) => {
     filteredColumns[columnId] = {
       ...column,
-      tasks: filterTasks(column.tasks, searchFilters, isSearchActive, members)
+      tasks: filterTasks(column.tasks, searchFilters, isSearchActive, members, boards)
     };
   });
   return filteredColumns;
@@ -110,7 +127,7 @@ export const getFilteredColumns = (columns: Columns, searchFilters: SearchFilter
 /**
  * Get filtered columns for display (async version with watchers/collaborators search)
  */
-export const getFilteredColumnsAsync = async (columns: Columns, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[]): Promise<Columns> => {
+export const getFilteredColumnsAsync = async (columns: Columns, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Promise<Columns> => {
   if (!isSearchActive) return columns;
 
   const filteredColumns: Columns = {};
@@ -118,7 +135,7 @@ export const getFilteredColumnsAsync = async (columns: Columns, searchFilters: S
   for (const [columnId, column] of Object.entries(columns)) {
     filteredColumns[columnId] = {
       ...column,
-      tasks: await filterTasksAsync(column.tasks, searchFilters, isSearchActive, members)
+      tasks: await filterTasksAsync(column.tasks, searchFilters, isSearchActive, members, boards)
     };
   }
   
@@ -128,7 +145,7 @@ export const getFilteredColumnsAsync = async (columns: Columns, searchFilters: S
 /**
  * Enhanced async filter with watchers and collaborators search
  */
-export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[]): Promise<Task[]> => {
+export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Promise<Task[]> => {
   if (!isSearchActive) return tasks;
 
   const filteredTasks: Task[] = [];
@@ -248,6 +265,26 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
         }
       }
     }
+
+    // Project identifier filter
+    if (includeTask && searchFilters.projectId) {
+      if (!boards || !task.boardId) {
+        includeTask = false;
+      } else {
+        const board = boards.find(b => b.id === task.boardId);
+        const projectId = board?.project;
+        if (!projectId || !projectId.toLowerCase().includes(searchFilters.projectId.toLowerCase())) {
+          includeTask = false;
+        }
+      }
+    }
+
+    // Task identifier filter
+    if (includeTask && searchFilters.taskId) {
+      if (!task.ticket || !task.ticket.toLowerCase().includes(searchFilters.taskId.toLowerCase())) {
+        includeTask = false;
+      }
+    }
     
     if (includeTask) {
       filteredTasks.push(task);
@@ -260,7 +297,7 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
 /**
  * Get filtered task count for a board (for tab pills)
  */
-export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, isSearchActive: boolean): number => {
+export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): number => {
   if (!isSearchActive) {
     // Return total task count when no filters are active
     let totalCount = 0;
@@ -272,7 +309,7 @@ export const getFilteredTaskCountForBoard = (board: Board, searchFilters: Search
   
   let totalCount = 0;
   Object.values(board.columns || {}).forEach(column => {
-    totalCount += filterTasks(column.tasks, searchFilters, isSearchActive).length;
+    totalCount += filterTasks(column.tasks, searchFilters, isSearchActive, members, boards).length;
   });
   return totalCount;
 };
@@ -289,7 +326,9 @@ export const hasActiveFilters = (searchFilters: SearchFilters, isSearchActive: b
     searchFilters.dueDateTo || 
     searchFilters.selectedMembers.length > 0 || 
     searchFilters.selectedPriorities.length > 0 || 
-    searchFilters.selectedTags.length > 0
+    searchFilters.selectedTags.length > 0 ||
+    searchFilters.projectId ||
+    searchFilters.taskId
   );
 };
 
