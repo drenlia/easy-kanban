@@ -250,7 +250,10 @@ export const createUser = async (userData: {
   displayName?: string;
   role: string;
 }) => {
-  const { data } = await api.post('/admin/users', userData);
+  const { data } = await api.post('/admin/users', {
+    ...userData,
+    baseUrl: window.location.origin // Send the current browser origin
+  });
   return data;
 };
 
@@ -281,6 +284,14 @@ export const deleteUser = async (userId: string) => {
   const { data } = await api.delete(`/admin/users/${userId}`);
   return data;
 };
+
+export const resendUserInvitation = async (userId: string) => {
+  const { data } = await api.post(`/admin/users/${userId}/resend-invitation`, {
+    baseUrl: window.location.origin // Send the current browser origin
+  });
+  return data;
+};
+
 
 export const getUserTaskCount = async (userId: string) => {
   const { data } = await api.get(`/admin/users/${userId}/task-count`);

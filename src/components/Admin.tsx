@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser, getUserTaskCount, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
+import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
@@ -422,6 +422,20 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  const handleResendInvitation = async (userId: string) => {
+    try {
+      setError(null);
+      const result = await resendUserInvitation(userId);
+      setSuccessMessage(`Invitation email sent successfully to ${result.email}`);
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Failed to resend invitation:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to send invitation email';
+      setError(errorMessage);
+    }
+  };
+
   const handleEditUser = (_user: User) => {
     // This will be handled by the AdminUsersTab component
   };
@@ -643,6 +657,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSaveUser={handleSaveUser}
               onColorChange={handleUserColorChange}
               onRemoveAvatar={handleUserRemoveAvatar}
+              onResendInvitation={handleResendInvitation}
               successMessage={successMessage}
               error={error}
             />

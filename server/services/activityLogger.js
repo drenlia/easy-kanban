@@ -1,4 +1,5 @@
 import { isValidAction } from '../constants/activityActions.js';
+import { getNotificationService } from './notificationService.js';
 
 /**
  * Activity Logger Service
@@ -166,6 +167,24 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     );
 
     console.log(`📝 Activity logged: User ${userId} performed ${action} on task ${taskId} - ${enhancedDetails}`);
+    
+    // Send notification email if service is available
+    try {
+      const notificationService = getNotificationService();
+      if (notificationService) {
+        await notificationService.sendTaskNotification({
+          userId,
+          action,
+          taskId,
+          details: enhancedDetails,
+          oldValue: additionalData.oldValue,
+          newValue: additionalData.newValue
+        });
+      }
+    } catch (notificationError) {
+      console.error('❌ Error sending notification:', notificationError);
+      // Don't throw - notification errors should never break the main functionality
+    }
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -514,6 +533,23 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     );
 
     console.log('Comment activity logged successfully');
+    
+    // Send notification email for comment activities if service is available
+    try {
+      const notificationService = getNotificationService();
+      if (notificationService) {
+        await notificationService.sendCommentNotification({
+          userId,
+          action,
+          taskId,
+          commentContent: additionalData.commentContent
+        });
+      }
+    } catch (notificationError) {
+      console.error('❌ Error sending comment notification:', notificationError);
+      // Don't throw - notification errors should never break the main functionality
+    }
+    
   } catch (error) {
     console.error('Failed to log comment activity:', error);
   }

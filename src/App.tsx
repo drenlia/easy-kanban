@@ -18,6 +18,7 @@ import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import ResetPasswordSuccess from './components/ResetPasswordSuccess';
+import ActivateAccount from './components/ActivateAccount';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
 import TaskPage from './components/TaskPage';
@@ -28,7 +29,7 @@ import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -208,8 +209,11 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success'>(getInitialPage);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
   const [resetToken, setResetToken] = useState<string>('');
+  const [activationToken, setActivationToken] = useState<string>('');
+  const [activationEmail, setActivationEmail] = useState<string>('');
+  const [activationParsed, setActivationParsed] = useState<boolean>(false);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
@@ -512,6 +516,35 @@ export default function App() {
     updateCurrentUserPreference('lastSelectedBoard', boardId);
   };
 
+  // Invite user handler
+  const handleInviteUser = async (email: string) => {
+    try {
+      // Generate names from email (before @ symbol)
+      const emailPrefix = email.split('@')[0];
+      const nameParts = emailPrefix.split(/[._-]/);
+      
+      // Capitalize first letter of each part
+      const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
+      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : '';
+      
+      // Generate a temporary password (user will change it during activation)
+      const tempPassword = crypto.randomUUID().substring(0, 12);
+      
+      await createUser({
+        email,
+        password: tempPassword,
+        firstName,
+        lastName,
+        role: 'user'
+      });
+      // Refresh members list to show the new user
+      await handleRefreshData();
+    } catch (error) {
+      console.error('Failed to invite user:', error);
+      throw error;
+    }
+  };
+
   // Header event handlers
   const handlePageChange = (page: 'kanban' | 'admin' | 'test') => {
     setCurrentPage(page);
@@ -624,10 +657,20 @@ export default function App() {
       // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
       
+      // Debug to server console
+      fetch('/api/debug/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message: '🔍 Route parsing', 
+          data: { hash: window.location.hash, route } 
+        })
+      }).catch(() => {}); // Silent fail
+      
       // 1. Handle page routing
       if (route.isPage) {
         if (route.mainRoute !== currentPage) {
-          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'task' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success');
+          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'task' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account');
         }
         
         // Handle password reset token
@@ -636,6 +679,50 @@ export default function App() {
           if (token) {
             setResetToken(token);
           }
+        }
+        
+        // Handle account activation token and email
+        if (route.mainRoute === 'activate-account') {
+          const token = route.queryParams.get('token');
+          const email = route.queryParams.get('email');
+          
+          // Debug to server console
+          fetch('/api/debug/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              message: '🔍 Activation route detected', 
+              data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
+            })
+          }).catch(() => {});
+          
+          if (token && email) {
+            setActivationToken(token);
+            setActivationEmail(email);
+            
+            // Debug success to server console
+            fetch('/api/debug/log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: '✅ Activation token and email set', 
+                data: { token: token.substring(0, 10) + '...', email } 
+              })
+            }).catch(() => {});
+          } else {
+            // Debug failure to server console
+            fetch('/api/debug/log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: '❌ Missing activation token or email', 
+                data: { hasToken: !!token, hasEmail: !!email } 
+              })
+            }).catch(() => {});
+          }
+          
+          // Mark activation parsing as complete
+          setActivationParsed(true);
         }
         
         // Handle kanban board sub-routes
@@ -2127,6 +2214,25 @@ export default function App() {
   if (currentPage === 'reset-success') {
     return <ResetPasswordSuccess onBackToLogin={() => window.location.hash = '#kanban'} />;
   }
+  
+  if (currentPage === 'activate-account') {
+    return (
+      <ActivateAccount 
+        token={activationToken}
+        email={activationEmail}
+        onBackToLogin={() => window.location.hash = '#kanban'}
+        isLoading={!activationParsed}
+        onAutoLogin={(user, token) => {
+          // Automatically log the user in
+          handleLogin(user, token);
+          // Small delay to allow auth state to propagate, then navigate
+          setTimeout(() => {
+            window.location.hash = '#kanban';
+          }, 100);
+        }}
+      />
+    );
+  }
 
   // Handle task page (requires authentication)
   if (currentPage === 'task') {
@@ -2205,6 +2311,7 @@ export default function App() {
         onPageChange={handlePageChange}
         onRefresh={handleRefreshData}
         onHelpClick={() => setShowHelpModal(true)}
+        onInviteUser={handleInviteUser}
       />
 
       <MainLayout

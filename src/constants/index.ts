@@ -7,17 +7,17 @@ export const DEFAULT_COLUMNS = [
 ];
 
 // Page and navigation constants
-export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'task', 'forgot-password', 'reset-password', 'reset-success'];
+export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'task', 'forgot-password', 'reset-password', 'reset-success', 'activate-account'];
 export const ADMIN_TABS = ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'];
 
 // Routing configuration
 export const ROUTES = {
   // Pages that don't require authentication
-  PUBLIC_PAGES: ['forgot-password', 'reset-password', 'reset-success'],
+  PUBLIC_PAGES: ['forgot-password', 'reset-password', 'reset-success', 'activate-account'],
   // Pages that require authentication
   PROTECTED_PAGES: ['kanban', 'admin', 'task'],
   // Pages that should skip auto-board-selection
-  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'admin', 'task'],
+  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'activate-account', 'admin', 'task'],
   // Default routes
   DEFAULT_PAGE: 'kanban',
   DEFAULT_ADMIN_TAB: 'users'

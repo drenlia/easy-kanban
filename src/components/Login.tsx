@@ -20,8 +20,10 @@ export default function Login({ onLogin, hasDefaultAdmin = true, onForgotPasswor
       try {
         const response = await fetch('/api/settings');
         if (response.ok) {
-                  const settings = await response.json();
-        setGoogleOAuthEnabled(!!(settings.GOOGLE_CLIENT_ID && settings.GOOGLE_CLIENT_SECRET && settings.GOOGLE_CALLBACK_URL));
+          const settings = await response.json();
+          // Only check for GOOGLE_CLIENT_ID (which is safe to be public)
+          // The server will validate the complete OAuth config when actually used
+          setGoogleOAuthEnabled(!!settings.GOOGLE_CLIENT_ID);
         }
       } catch (error) {
         console.warn('Could not check Google OAuth status:', error);

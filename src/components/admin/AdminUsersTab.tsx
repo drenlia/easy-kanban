@@ -33,6 +33,7 @@ interface AdminUsersTabProps {
   onSaveUser: (userData: any) => Promise<void>;
   onColorChange: (userId: string, color: string) => Promise<void>;
   onRemoveAvatar: (userId: string) => Promise<void>;
+  onResendInvitation: (userId: string) => Promise<void>;
   successMessage: string | null;
   error: string | null;
 }
@@ -52,6 +53,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   onSaveUser,
   onColorChange,
   onRemoveAvatar,
+  onResendInvitation,
   successMessage,
   error,
 }) => {
@@ -61,6 +63,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [editingColor, setEditingColor] = useState<string>('#4ECDC4');
   const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isResendingInvitation, setIsResendingInvitation] = useState<boolean>(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
   
@@ -229,6 +232,23 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     });
   };
 
+  const handleResendInvitation = async () => {
+    try {
+      setIsResendingInvitation(true);
+      setLocalError(null);
+      await onResendInvitation(editingUserData.id);
+      setLocalSuccessMessage('Invitation email sent successfully!');
+      // Clear success message after 3 seconds
+      setTimeout(() => setLocalSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Failed to resend invitation:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to send invitation email';
+      setLocalError(errorMessage);
+    } finally {
+      setIsResendingInvitation(false);
+    }
+  };
+
   const handleCancelAddUser = () => {
     setShowAddUserForm(false);
     setNewUser({
@@ -313,6 +333,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Avatar</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Name</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Email</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">DISPLAY NAME</th>
@@ -344,6 +365,15 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         </div>
                       )}
                     </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap w-20">
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      user.isActive 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {user.isActive ? 'Active' : 'Inactive'}
+                    </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-32">
                     <div className="text-sm font-medium text-gray-900">
@@ -572,7 +602,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   onClick={handleAddUser}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  Create User
+                  Invitehe User
                 </button>
                 <button
                   onClick={handleCancelAddUser}
@@ -699,6 +729,38 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   </div>
                 </div>
               </div>
+              {/* Show resend invitation button for inactive local users */}
+              {editingUserData.authProvider === 'local' && !editingUserData.isActive && (
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-amber-800">Account Pending Activation</p>
+                      <p className="text-xs text-amber-600">This user hasn't activated their account yet.</p>
+                    </div>
+                    <button
+                      onClick={handleResendInvitation}
+                      disabled={isResendingInvitation || isSubmitting}
+                      className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isResendingInvitation ? 'Sending...' : 'Resend Invitation'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Local success/error messages */}
+              {localSuccessMessage && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                  <p className="text-sm text-green-800">{localSuccessMessage}</p>
+                </div>
+              )}
+              
+              {localError && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-sm text-red-800">{localError}</p>
+                </div>
+              )}
+
               <div className="flex space-x-3 mt-6">
                 <button
                   onClick={handleSaveUser}

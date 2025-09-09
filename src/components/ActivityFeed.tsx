@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { X, Activity, Clock, ChevronDown, ChevronUp, GripVertical, Search } from 'lucide-react';
 import { updateActivityFeedPreference } from '../utils/userPreferences';
 import DOMPurify from 'dompurify';
-import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 
 interface ActivityItem {
   id: number;
@@ -417,30 +416,10 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       description += ` in ${board_title}`;
     }
 
-    // Convert project and task identifiers to clickable links
-    // Look for patterns like (PROJ-XXX/TASK-XXX) or (PROJ-XXX) or (TASK-XXX)
+    // Simple identifier formatting without clickable links
+    // This could be enhanced later with proper routing functions
     description = description.replace(/\(([^)]+)\)$/, (_match, identifiers) => {
-      const parts = identifiers.split('/');
-      
-      // Find project identifier
-      const projectId = parts.find((part: string) => /^[A-Z]+-/.test(part.trim()) && !part.trim().startsWith('TASK-'));
-      
-      const clickableParts = parts.map((identifier: string) => {
-        identifier = identifier.trim();
-        
-        // Check if it looks like a project identifier (contains letters before dash)
-        if (/^[A-Z]+-/.test(identifier) && !identifier.startsWith('TASK-')) {
-          return `<a href="${generateProjectUrl(identifier)}" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Go to project ${identifier}">${identifier}</a>`;
-        }
-        // Check if it looks like a task identifier
-        else if (identifier.startsWith('TASK-') || /^[A-Z]+-\d+$/.test(identifier)) {
-          return `<a href="${generateTaskUrl(identifier, projectId)}" class="text-blue-600 hover:text-blue-800 hover:underline transition-colors font-medium" title="Go to task ${identifier}">${identifier}</a>`;
-        }
-        
-        return identifier;
-      });
-      
-      return `(${clickableParts.join('/')})`;
+      return `(${identifiers})`;
     });
 
     return { name, description };
@@ -492,6 +471,46 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         console.error('Failed to clear activity filter preference:', error);
       });
     }
+  };
+
+  // Highlight search terms in text - returns HTML string for dangerouslySetInnerHTML
+  const highlightTextHTML = (text: string, searchTerm: string): string => {
+    if (!searchTerm.trim() || !text) {
+      return text;
+    }
+
+    const escapedTerm = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapedTerm})`, 'gi');
+    
+    return text.replace(regex, '<span class="bg-yellow-200 text-yellow-900 px-0.5 rounded font-medium">$1</span>');
+  };
+
+  // Highlight search terms in text - returns React components for regular display
+  const highlightText = (text: string, searchTerm: string): React.ReactNode => {
+    if (!searchTerm.trim() || !text) {
+      return text;
+    }
+
+    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const parts = text.split(regex);
+    
+    return parts.map((part, index) => {
+      const isMatch = regex.test(part);
+      // Reset regex lastIndex to avoid issues with global flag
+      regex.lastIndex = 0;
+      
+      if (isMatch) {
+        return (
+          <span 
+            key={index} 
+            className="bg-yellow-200 text-yellow-900 px-0.5 rounded font-medium"
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
   };
 
   if (!isVisible) return null;
@@ -588,10 +607,10 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             {latestActivity ? (
               <div className="text-xs text-gray-700 truncate">
                 <span className="font-medium text-blue-600">
-                  {latestActivity.member_name || 'Unknown User'}
+                  {highlightText(latestActivity.member_name || 'Unknown User', filterText)}
                 </span>
                 {' '}
-                <span>{latestActivity.details}</span>
+                <span>{highlightText(latestActivity.details, filterText)}</span>
               </div>
             ) : (
               <span className="text-xs text-gray-500">No recent activity</span>
@@ -613,11 +632,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             <div className="space-y-1">
               <div className="flex items-center space-x-1">
                 {getActionIcon(latestActivity.action)}
-                <span className="font-medium">{latestActivity.member_name || 'Unknown User'}</span>
+                <span className="font-medium">{highlightText(latestActivity.member_name || 'Unknown User', filterText)}</span>
               </div>
-              <div className="text-gray-300">{latestActivity.details}</div>
+              <div className="text-gray-300">{highlightText(latestActivity.details, filterText)}</div>
               {latestActivity.board_title && (
-                <div className="text-gray-400">in {latestActivity.board_title}</div>
+                <div className="text-gray-400">in {highlightText(latestActivity.board_title, filterText)}</div>
               )}
               <div className="flex items-center space-x-1 text-gray-400">
                 <Clock className="w-2 h-2" />
@@ -778,13 +797,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs text-gray-900 leading-tight">
-                    <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>{name}</span>
+                    <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
+                      {highlightText(name, filterText)}
+                    </span>
                     {' '}
                     <span 
                       className="text-gray-700"
                       dangerouslySetInnerHTML={{ 
-                        __html: DOMPurify.sanitize(description, {
-                          ALLOWED_TAGS: ['a'],
+                        __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
+                          ALLOWED_TAGS: ['a', 'span'],
                           ALLOWED_ATTR: ['href', 'class', 'title']
                         })
                       }}
