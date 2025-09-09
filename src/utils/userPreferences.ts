@@ -32,6 +32,8 @@ export interface UserPreferences {
     selectedMembers: string[];
     selectedPriorities: Priority[];
     selectedTags: string[];
+    projectId: string;
+    taskId: string;
   };
   appSettings: {
     taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
@@ -44,6 +46,7 @@ export interface UserPreferences {
     height: number;
     lastSeenActivityId: number;
     clearActivityId: number;
+    filterText: string;
   };
 }
 
@@ -75,6 +78,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
+    ticket: true,
     title: true,
     priority: true,
     assignee: true,
@@ -92,7 +96,9 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     dueDateTo: '',
     selectedMembers: [],
     selectedPriorities: [],
-    selectedTags: []
+    selectedTags: [],
+    projectId: '',
+    taskId: ''
   },
   appSettings: {
     // taskDeleteConfirm: undefined - let it inherit from system setting by default
@@ -104,7 +110,8 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     width: 208, // Default width (w-52 = 208px)
     height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400, // Dynamic default height
     lastSeenActivityId: 0,
-    clearActivityId: 0
+    clearActivityId: 0,
+    filterText: ''
   }
 };
 
@@ -250,6 +257,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('activityFeedHeight', preferences.activityFeed.height),
           saveIfDefined('lastSeenActivityId', preferences.activityFeed.lastSeenActivityId),
           saveIfDefined('clearActivityId', preferences.activityFeed.clearActivityId),
+          saveIfDefined('activityFilterText', preferences.activityFeed.filterText),
           
           // List View Column Visibility
           saveIfDefined('listViewColumnVisibility', JSON.stringify(preferences.listViewColumnVisibility)),
@@ -304,7 +312,10 @@ export const loadUserPreferences = (userId: string | null = null): UserPreferenc
           ...defaults.searchFilters,
           ...loadedPrefs.searchFilters,
           // Ensure text is never null
-          text: loadedPrefs.searchFilters?.text || ''
+          text: loadedPrefs.searchFilters?.text || '',
+          // Ensure identifiers are never null
+          projectId: loadedPrefs.searchFilters?.projectId || '',
+          taskId: loadedPrefs.searchFilters?.taskId || ''
         },
         appSettings: {
           ...defaults.appSettings,
@@ -412,6 +423,7 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           height: smartMerge(preferences.activityFeed.height, dbSettings.activityFeedHeight, defaults.activityFeed.height),
           lastSeenActivityId: smartMerge(preferences.activityFeed.lastSeenActivityId, dbSettings.lastSeenActivityId, defaults.activityFeed.lastSeenActivityId),
           clearActivityId: smartMerge(preferences.activityFeed.clearActivityId, dbSettings.clearActivityId, defaults.activityFeed.clearActivityId),
+          filterText: smartMerge(preferences.activityFeed.filterText, dbSettings.activityFilterText, defaults.activityFeed.filterText),
         }
       };
       

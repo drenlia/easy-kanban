@@ -94,7 +94,7 @@ interface MainLayoutProps {
   onTaskDragStart: (task: Task) => void;
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
-  onSelectTask: (task: Task | null) => void;
+  onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDropOnBoard: (taskId: string, targetBoardId: string) => Promise<void>;
   animateCopiedTaskId?: string | null;
   showColumnDeleteConfirm?: string | null;

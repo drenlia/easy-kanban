@@ -7,6 +7,7 @@ import Profile from '../Profile';
 interface ModalManagerProps {
   // Task Details Modal
   selectedTask: Task | null;
+  taskDetailsOptions?: { scrollToComments?: boolean };
   members: TeamMember[];
   onTaskClose: () => void;
   onTaskUpdate: (task: Task) => Promise<void>;
@@ -30,6 +31,7 @@ interface ModalManagerProps {
 
 const ModalManager: React.FC<ModalManagerProps> = ({
   selectedTask,
+  taskDetailsOptions,
   members,
   onTaskClose,
   onTaskUpdate,
@@ -58,6 +60,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
           onUpdate={onTaskUpdate}
           siteSettings={siteSettings}
           boards={boards}
+          scrollToComments={taskDetailsOptions?.scrollToComments}
         />
       )}
 

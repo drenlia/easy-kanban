@@ -60,8 +60,8 @@ export const parseTaskRoute = (url: string = window.location.href): { isTaskRout
       }
     }
     
-    // Handle /project/#PROJ-00001/#TASK-00001 format
-    if (pathname === '/project/' && hashParts.length === 2) {
+    // Handle /project/#PROJ-00001/#TASK-00001 format (with or without trailing slash)
+    if ((pathname === '/project/' || pathname === '/project') && hashParts.length === 2) {
       const [projectId, taskId] = hashParts;
       // Validate both IDs
       if (/^[A-Z]+-\d+$/i.test(projectId) && /^[A-Z]+-\d+$/i.test(taskId)) {
@@ -203,4 +203,37 @@ export const buildHash = (mainRoute: string, subRoute?: string, queryParams?: Re
   }
   
   return hash;
+};
+
+/**
+ * STANDARDIZED TASK URL GENERATION
+ * Single source of truth for generating task URLs
+ * 
+ * @param taskId - Task identifier (e.g., TASK-00023)
+ * @param projectId - Optional project identifier (e.g., PROJ-00001)
+ * @returns Properly formatted task URL
+ */
+export const generateTaskUrl = (taskId: string, projectId?: string): string => {
+  if (!taskId) {
+    return '#';
+  }
+  
+  // If project ID is provided, use the project-task hierarchy format
+  if (projectId) {
+    return `/project/#${projectId}#${taskId}`;
+  }
+  
+  // Fallback to simple task format (though this should be avoided when possible)
+  return `#task#${taskId}`;
+};
+
+/**
+ * Generate project URL
+ */
+export const generateProjectUrl = (projectId: string): string => {
+  if (!projectId) {
+    return '#';
+  }
+  
+  return `/project/#${projectId}`;
 };

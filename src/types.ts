@@ -31,6 +31,8 @@ export interface Comment {
   id: string;
   text: string;
   authorId: string;
+  authorName?: string;
+  authorColor?: string;
   createdAt: string;
   taskId: string;
   attachments: Attachment[];
@@ -48,6 +50,10 @@ export interface Task {
   dueDate?: string;
   effort: number;
   priority: Priority;
+  priorityId?: number;
+  priorityName?: string;
+  priorityColor?: string;
+  status?: string;
   comments: Comment[];
   position?: number;
   boardId?: string;
@@ -55,6 +61,10 @@ export interface Task {
   watchers?: TeamMember[];
   collaborators?: TeamMember[];
   attachmentCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Tag {

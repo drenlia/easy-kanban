@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
-import { Task, TeamMember, Priority, Tag, Columns } from '../types';
+import { Task, TeamMember, Priority, Tag, Columns, Board } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 import DOMPurify from 'dompurify';
+import { generateTaskUrl } from '../utils/routingUtils';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -30,9 +31,10 @@ interface ListViewProps {
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   animateCopiedTaskId?: string | null; // Task ID to animate (set by parent after copy)
   onScrollControlsChange?: (controls: ListViewScrollControls) => void; // Expose scroll controls to parent
+  boards?: Board[]; // To get project identifier from board
 }
 
-type SortField = 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
+type SortField = 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
 type SortDirection = 'asc' | 'desc';
 
 interface ColumnConfig {
@@ -43,6 +45,7 @@ interface ColumnConfig {
 }
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
+  { key: 'ticket', label: 'ID', visible: true, width: 100 },
   { key: 'title', label: 'Task', visible: true, width: 300 },
   { key: 'assignee', label: 'Assignee', visible: true, width: 120 },
   { key: 'priority', label: 'Priority', visible: true, width: 120 },
@@ -68,10 +71,18 @@ export default function ListView({
   onCopyTask,
   onMoveTaskToColumn,
   animateCopiedTaskId,
-  onScrollControlsChange
+  onScrollControlsChange,
+  boards
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  
+  // Get project identifier from the board
+  const getProjectIdentifier = (boardId: string) => {
+    if (!boards || !boardId) return null;
+    const board = boards.find(b => b.id === boardId);
+    return board?.project || null;
+  };
   
   // Initialize columns from user preferences
   const userPrefs = loadUserPreferences();
@@ -292,6 +303,13 @@ export default function ListView({
         let aValue: any, bValue: any;
 
         switch (sortField) {
+          case 'ticket':
+            // Extract last 5 digits for numeric sorting (e.g., TASK-00023 → 23, PROJ-00001 → 1)
+            const aTicketMatch = a.ticket?.match(/(\d{1,5})$/);
+            const bTicketMatch = b.ticket?.match(/(\d{1,5})$/);
+            aValue = aTicketMatch ? parseInt(aTicketMatch[1], 10) : 0;
+            bValue = bTicketMatch ? parseInt(bTicketMatch[1], 10) : 0;
+            break;
           case 'title':
             aValue = a.title.toLowerCase();
             bValue = b.title.toLowerCase();
@@ -1062,6 +1080,22 @@ export default function ListView({
                                 }}
                               />
                             )
+                          )}
+                        </div>
+                      )}
+                      {column.key === 'ticket' && (
+                        <div className="text-sm text-gray-600 font-mono">
+                          {task.ticket ? (
+                            <a
+                              href={generateTaskUrl(task.ticket, getProjectIdentifier(task.boardId || ''))}
+                              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
+                              title={`Go to task ${task.ticket}`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {task.ticket}
+                            </a>
+                          ) : (
+                            '-'
                           )}
                         </div>
                       )}

@@ -13,18 +13,22 @@ interface SearchFilters {
   selectedMembers: string[];
   selectedPriorities: Priority[];
   selectedTags: string[];
+  projectId: string;
+  taskId: string;
 }
 
 interface SearchInterfaceProps {
   filters: SearchFilters;
   availablePriorities: PriorityOption[];
   onFiltersChange: (filters: SearchFilters) => void;
+  siteSettings?: { [key: string]: string };
 }
 
 export default function SearchInterface({
   filters,
   availablePriorities,
-  onFiltersChange
+  onFiltersChange,
+  siteSettings
 }: SearchInterfaceProps) {
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
@@ -158,9 +162,58 @@ export default function SearchInterface({
               </button>
             )}
           </div>
+
+          {/* Project and Task Identifier Search Fields */}
+          {siteSettings?.USE_PREFIXES === 'true' && (
+            <>
+              <div className="flex items-center gap-1">
+                <label className="text-xs font-medium text-gray-700">Project id:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="PROJ-00001"
+                    value={filters.projectId}
+                    onChange={(e) => updateFilter('projectId', e.target.value)}
+                    className={`w-[85px] pr-6 ${getInputClassName(!!filters.projectId)}`}
+                  />
+                  {filters.projectId && (
+                    <button
+                      onClick={() => updateFilter('projectId', '')}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                      title="Clear project id"
+                    >
+                      <X size={10} className="text-gray-400 hover:text-gray-600" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <label className="text-xs font-medium text-gray-700">Task id:</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="TASK-00001"
+                    value={filters.taskId}
+                    onChange={(e) => updateFilter('taskId', e.target.value)}
+                    className={`w-[85px] pr-6 ${getInputClassName(!!filters.taskId)}`}
+                  />
+                  {filters.taskId && (
+                    <button
+                      onClick={() => updateFilter('taskId', '')}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
+                      title="Clear task id"
+                    >
+                      <X size={10} className="text-gray-400 hover:text-gray-600" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
           
           {/* Active Filters Indicator */}
-          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
+          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId) && (
             <button
               onClick={handleToggleCollapse}
               className="text-red-600 text-xs font-medium hover:text-red-700 hover:underline cursor-pointer transition-colors"
@@ -171,7 +224,7 @@ export default function SearchInterface({
           )}
           
           {/* Clear All Filters Button */}
-          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0) && (
+          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId) && (
             <button
               onClick={() => onFiltersChange({
                 text: '',
@@ -181,7 +234,9 @@ export default function SearchInterface({
                 dueDateTo: '',
                 selectedMembers: [], // Keep for compatibility but not used in UI
                 selectedPriorities: [],
-                selectedTags: []
+                selectedTags: [],
+                projectId: '',
+                taskId: ''
               })}
               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
               title="Clear all filters"

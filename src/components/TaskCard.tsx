@@ -8,6 +8,7 @@ import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { createComment, fetchTaskAttachments } from '../api';
+import { generateTaskUrl } from '../utils/routingUtils';
 import { generateUUID } from '../utils/uuid';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
@@ -47,7 +48,7 @@ interface TaskCardProps {
   onCopy: (task: Task) => void;
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
-  onSelect: (task: Task) => void;
+  onSelect: (task: Task, options?: { scrollToComments?: boolean }) => void;
   isDragDisabled?: boolean;
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
@@ -791,8 +792,8 @@ export default function TaskCard({
         {task.ticket && siteSettings?.USE_PREFIXES === 'true' && (
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
-              href={getProjectIdentifier() ? `/project/#${getProjectIdentifier()}#${task.ticket}` : `#task#${task.ticket}`}
-              className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-gray-800 transition-colors cursor-pointer`}
+              href={generateTaskUrl(task.ticket, getProjectIdentifier())}
+              className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
               style={{
                 borderTopLeftRadius: '0.25rem',
                 borderTopRightRadius: '0.25rem',
@@ -1235,11 +1236,19 @@ export default function TaskCard({
                       .map((comment, index) => {
                         const author = members.find(m => m.id === comment.authorId);
                         
-                        // Function to render HTML content with safe link handling
+                        // Function to render HTML content with safe link handling and blob URL fixing
                         const renderCommentHTML = (htmlText: string) => {
+                          // First, fix blob URLs by replacing them with server URLs (matching TaskDetails/TaskPage)
+                          let fixedContent = htmlText;
+                          const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+                          fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
+                            // Convert blob URL to server URL
+                            return `/uploads/${filename}`;
+                          });
+                          
                           // Create a temporary div to parse the HTML
                           const tempDiv = document.createElement('div');
-                          tempDiv.innerHTML = htmlText;
+                          tempDiv.innerHTML = fixedContent;
                           
                           // Find all links and update their attributes for safety
                           const links = tempDiv.querySelectorAll('a');
@@ -1298,7 +1307,7 @@ export default function TaskCard({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onSelect(task);
+                            onSelect(task, { scrollToComments: true });
                           }}
                           className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                         >

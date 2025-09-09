@@ -7,6 +7,7 @@ import { createComment, uploadFile, updateTask, deleteComment, updateComment, fe
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
+import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 
 interface TaskDetailsProps {
   task: Task;
@@ -16,9 +17,10 @@ interface TaskDetailsProps {
   onUpdate: (updatedTask: Task) => void;
   siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
+  scrollToComments?: boolean;
 }
 
-export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, siteSettings, boards }: TaskDetailsProps) {
+export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, siteSettings, boards, scrollToComments }: TaskDetailsProps) {
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
   
@@ -63,6 +65,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const resizeRef = useRef<HTMLDivElement>(null);
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
   const textSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const commentsRef = useRef<HTMLDivElement>(null);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
@@ -437,7 +440,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         
         // Filter out recently deleted attachments and only update if not uploading
         if (!isUploadingAttachments) {
-          const filteredAttachments = (currentAttachments || []).filter(att => 
+          const filteredAttachments = (currentAttachments || []).filter((att: any) => 
             !recentlyDeletedAttachmentsRef.current.has(att.name)
           );
           setTaskAttachments(filteredAttachments);
@@ -454,6 +457,27 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     
     loadTaskData();
   }, [task.id, task.watchers, task.collaborators]);
+
+  // Sync taskTags with task.tags when task prop changes
+  useEffect(() => {
+    if (task.tags && Array.isArray(task.tags)) {
+      setTaskTags(task.tags);
+    }
+  }, [task.tags]);
+
+  // Sync taskWatchers with task.watchers when task prop changes
+  useEffect(() => {
+    if (task.watchers && Array.isArray(task.watchers)) {
+      setTaskWatchers(task.watchers);
+    }
+  }, [task.watchers]);
+
+  // Sync taskCollaborators with task.collaborators when task prop changes
+  useEffect(() => {
+    if (task.collaborators && Array.isArray(task.collaborators)) {
+      setTaskCollaborators(task.collaborators);
+    }
+  }, [task.collaborators]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -480,11 +504,23 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       if (isSelected) {
         // Remove tag
         await removeTagFromTask(task.id, tag.id);
-        setTaskTags(prev => prev.filter(t => t.id !== tag.id));
+        const newTaskTags = taskTags.filter(t => t.id !== tag.id);
+        setTaskTags(newTaskTags);
+        
+        // Update parent task with new tags
+        const updatedTask = { ...editedTask, tags: newTaskTags };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       } else {
         // Add tag
         await addTagToTask(task.id, tag.id);
-        setTaskTags(prev => [...prev, tag]);
+        const newTaskTags = [...taskTags, tag];
+        setTaskTags(newTaskTags);
+        
+        // Update parent task with new tags
+        const updatedTask = { ...editedTask, tags: newTaskTags };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       }
     } catch (error) {
       console.error('Failed to toggle tag:', error);
@@ -498,11 +534,23 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       if (isWatching) {
         // Remove watcher
         await removeWatcherFromTask(task.id, member.id);
-        setTaskWatchers(prev => prev.filter(w => w.id !== member.id));
+        const newWatchers = taskWatchers.filter(w => w.id !== member.id);
+        setTaskWatchers(newWatchers);
+        
+        // Update parent task with new watchers
+        const updatedTask = { ...editedTask, watchers: newWatchers };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       } else {
         // Add watcher
         await addWatcherToTask(task.id, member.id);
-        setTaskWatchers(prev => [...prev, member]);
+        const newWatchers = [...taskWatchers, member];
+        setTaskWatchers(newWatchers);
+        
+        // Update parent task with new watchers
+        const updatedTask = { ...editedTask, watchers: newWatchers };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       }
     } catch (error) {
       console.error('Failed to toggle watcher:', error);
@@ -516,11 +564,23 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       if (isCollaborating) {
         // Remove collaborator
         await removeCollaboratorFromTask(task.id, member.id);
-        setTaskCollaborators(prev => prev.filter(c => c.id !== member.id));
+        const newCollaborators = taskCollaborators.filter(c => c.id !== member.id);
+        setTaskCollaborators(newCollaborators);
+        
+        // Update parent task with new collaborators
+        const updatedTask = { ...editedTask, collaborators: newCollaborators };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       } else {
         // Add collaborator
         await addCollaboratorToTask(task.id, member.id);
-        setTaskCollaborators(prev => [...prev, member]);
+        const newCollaborators = [...taskCollaborators, member];
+        setTaskCollaborators(newCollaborators);
+        
+        // Update parent task with new collaborators
+        const updatedTask = { ...editedTask, collaborators: newCollaborators };
+        setEditedTask(updatedTask);
+        onUpdate(updatedTask);
       }
     } catch (error) {
       console.error('Failed to toggle collaborator:', error);
@@ -732,6 +792,19 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     setEditingCommentId(null);
     setEditingCommentText('');
   };
+
+  // Scroll to comments when requested (e.g., from TaskCard tooltip)
+  useEffect(() => {
+    if (scrollToComments && commentsRef.current) {
+      // Small delay to ensure the component is fully rendered
+      setTimeout(() => {
+        commentsRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+      }, 100);
+    }
+  }, [task.id, scrollToComments]);
 
   const sortedComments = (editedTask.comments || [])
     .filter(comment => 
@@ -997,7 +1070,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   <div className="flex items-center gap-2 font-mono text-sm">
                     {getProjectIdentifier() && (
                       <a 
-                        href={`/project/#${getProjectIdentifier()}`}
+                        href={generateProjectUrl(getProjectIdentifier())}
                         className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
                         title={`Go to project ${getProjectIdentifier()}`}
                       >
@@ -1009,7 +1082,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     )}
                     {task.ticket && (
                       <a 
-                        href={getProjectIdentifier() ? `/project/#${getProjectIdentifier()}#${task.ticket}` : `#task#${task.ticket}`}
+                        href={generateTaskUrl(task.ticket, getProjectIdentifier())}
                         className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
                         title={`Direct link to ${task.ticket}`}
                       >
@@ -1441,7 +1514,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           </div>
         </div>
 
-        <div className="p-6 border-t border-gray-200">
+        <div ref={commentsRef} className="p-6 border-t border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">
               Comments ({sortedComments.length})

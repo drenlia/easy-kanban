@@ -84,6 +84,26 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       return;
     }
 
+    // Get project identifier and task ticket for enhanced context
+    let projectIdentifier = null;
+    let taskTicket = null;
+    
+    try {
+      const taskDetails = db.prepare(
+        `SELECT t.ticket, b.project 
+         FROM tasks t 
+         LEFT JOIN boards b ON t.boardId = b.id 
+         WHERE t.id = ?`
+      ).get(taskId);
+      
+      if (taskDetails) {
+        projectIdentifier = taskDetails.project;
+        taskTicket = taskDetails.ticket;
+      }
+    } catch (prefixError) {
+      console.warn('Failed to get project/task identifiers:', prefixError.message);
+    }
+
     // Create enhanced details with context for specific actions
     let enhancedDetails = details;
     if (action === 'create_task') {
@@ -94,6 +114,24 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       enhancedDetails = `${details} in board "${boardTitle}"`;
     } else if (action === 'update_task') {
       enhancedDetails = `${details} in task "${taskTitle}" in board "${boardTitle}"`;
+    }
+
+    // Append project and task identifiers when USE_PREFIXES is enabled
+    try {
+      const usePrefixes = db.prepare(`SELECT value FROM settings WHERE key = 'USE_PREFIXES'`).get();
+      console.log('🔍 USE_PREFIXES setting:', usePrefixes?.value, 'Project:', projectIdentifier, 'Ticket:', taskTicket);
+      
+      if (usePrefixes?.value === 'true' && (projectIdentifier || taskTicket)) {
+        const identifiers = [];
+        if (projectIdentifier) identifiers.push(projectIdentifier);
+        if (taskTicket) identifiers.push(taskTicket);
+        if (identifiers.length > 0) {
+          enhancedDetails += ` (${identifiers.join('/')})`;
+          console.log('✅ Added prefixes to activity:', identifiers.join('/'));
+        }
+      }
+    } catch (settingsError) {
+      console.warn('Failed to check USE_PREFIXES setting:', settingsError.message);
     }
 
     // Debug logging
@@ -281,6 +319,7 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
     effort: 'effort',
     priorityId: 'priority',
     memberId: 'assignee',
+    requesterId: 'requester',
     columnId: 'status'
   };
 
@@ -295,6 +334,36 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
       return 'cleared description';
     } else {
       return generateDescriptionChangeDetails(oldValue, newValue);
+    }
+  }
+
+  // Special handling for memberId and requesterId changes - resolve user IDs to member names
+  if (field === 'memberId' || field === 'requesterId') {
+    const getMemberName = (userId) => {
+      if (!userId || !db) return 'Unassigned';
+      try {
+        const member = db.prepare(`
+          SELECT m.name 
+          FROM members m 
+          JOIN users u ON m.user_id = u.id 
+          WHERE u.id = ?
+        `).get(userId);
+        return member?.name || 'Unknown User';
+      } catch (error) {
+        console.warn('Failed to resolve member name for user ID:', userId, error.message);
+        return 'Unknown User';
+      }
+    };
+
+    const oldName = getMemberName(oldValue);
+    const newName = getMemberName(newValue);
+
+    if (oldValue === null || oldValue === undefined || oldValue === '') {
+      return `set ${fieldLabel} to "${newName}"${context}`;
+    } else if (newValue === null || newValue === undefined || newValue === '') {
+      return `cleared ${fieldLabel} (was "${oldName}")${context}`;
+    } else {
+      return `changed ${fieldLabel} from "${oldName}" to "${newName}"${context}`;
     }
   }
 
@@ -391,7 +460,31 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
                       action === 'update_comment' ? 'updated comment' : 
                       action === 'delete_comment' ? 'deleted comment' : 'modified comment';
     
-    const enhancedDetails = `${actionText} on task "${taskTitle}" in board "${boardTitle}"`;
+    let enhancedDetails = `${actionText} on task "${taskTitle}" in board "${boardTitle}"`;
+
+    // Get project identifier and task ticket for enhanced context
+    try {
+      const taskDetails = db.prepare(
+        `SELECT t.ticket, b.project 
+         FROM tasks t 
+         LEFT JOIN boards b ON t.boardId = b.id 
+         WHERE t.id = ?`
+      ).get(taskId);
+      
+      const usePrefixes = db.prepare(`SELECT value FROM settings WHERE key = 'USE_PREFIXES'`).get();
+      
+      if (usePrefixes?.value === 'true' && taskDetails && (taskDetails.project || taskDetails.ticket)) {
+        const identifiers = [];
+        if (taskDetails.project) identifiers.push(taskDetails.project);
+        if (taskDetails.ticket) identifiers.push(taskDetails.ticket);
+        if (identifiers.length > 0) {
+          enhancedDetails += ` (${identifiers.join('/')})`;
+          console.log('✅ Added prefixes to comment activity:', identifiers.join('/'));
+        }
+      }
+    } catch (prefixError) {
+      console.warn('Failed to get project/task identifiers for comment activity:', prefixError.message);
+    }
 
     console.log('Logging comment activity:', {
       userId,

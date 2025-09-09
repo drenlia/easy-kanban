@@ -103,6 +103,7 @@ export default function App() {
   const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
   const dragStartedRef = useRef<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
 
   // Helper function to update user preferences with current user ID
   const updateCurrentUserPreference = <K extends keyof UserPreferences>(
@@ -126,9 +127,16 @@ export default function App() {
   };
 
   // Enhanced setSelectedTask that also updates user preferences
-  const handleSelectTask = (task: Task | null) => {
+  const handleSelectTask = (task: Task | null, options?: { scrollToComments?: boolean }) => {
     setSelectedTask(task);
     updateCurrentUserPreference('selectedTaskId', task?.id || null);
+    
+    // Store scroll options for TaskDetails
+    if (task && options?.scrollToComments) {
+      setTaskDetailsOptions({ scrollToComments: true });
+    } else {
+      setTaskDetailsOptions({});
+    }
   };
 
   // Task deletion handler with confirmation
@@ -584,6 +592,7 @@ export default function App() {
     const handleRouting = () => {
       // Check for task route first (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001)
       const taskRoute = parseTaskRoute();
+      
       if (taskRoute.isTaskRoute && taskRoute.taskId) {
         if (currentPage !== 'task') {
           setCurrentPage('task');
@@ -1994,7 +2003,7 @@ export default function App() {
             selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
           } : effectiveFilters;
           
-          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members);
+          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members, boards);
         }
         
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
@@ -2040,10 +2049,17 @@ export default function App() {
     }
     
     // Apply search filters using the utility function
-    let searchFilteredCount = getFilteredTaskCountForBoard(board, searchFilters, isSearchActive);
+    let searchFilteredCount = getFilteredTaskCountForBoard(board, searchFilters, isSearchActive, members, boards);
     
-    // If no member filtering is needed, return the search-filtered count
-    if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+    // If no member filtering is needed (no members selected AND no member-specific checkboxes enabled)
+    // OR if we're only doing search filtering (text, dates, tags, project/task identifiers)
+    const hasMemberFiltering = selectedMembers.length > 0 || 
+      (includeAssignees && selectedMembers.length > 0) || 
+      (includeWatchers && selectedMembers.length > 0) || 
+      (includeCollaborators && selectedMembers.length > 0) || 
+      (includeRequesters && selectedMembers.length > 0);
+    
+    if (!hasMemberFiltering) {
       return searchFilteredCount;
     }
     
@@ -2057,7 +2073,7 @@ export default function App() {
         
         // First apply search filters using the same logic as performFiltering
         if (isSearchActive) {
-          const searchFiltered = filterTasks([task], searchFilters, isSearchActive);
+          const searchFiltered = filterTasks([task], searchFilters, isSearchActive, members, boards);
           if (searchFiltered.length === 0) return false;
         }
         
@@ -2313,6 +2329,7 @@ export default function App() {
 
       <ModalManager
         selectedTask={selectedTask}
+        taskDetailsOptions={taskDetailsOptions}
                                 members={members}
         onTaskClose={() => handleSelectTask(null)}
         onTaskUpdate={handleEditTask}

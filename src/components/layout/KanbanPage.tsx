@@ -101,7 +101,7 @@ interface KanbanPageProps {
   onTaskDragStart: (task: Task) => void;
   onTaskDragOver: (e: React.DragEvent) => void;
   onTaskDrop: () => Promise<void>;
-  onSelectTask: (task: Task | null) => void;
+  onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
 }
 
@@ -313,8 +313,24 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
-        return; // Don't interfere with form inputs
+      // Check if user is editing text - includes input, textarea, and contenteditable elements
+      const target = event.target as HTMLElement;
+      const isTextEditing = target instanceof HTMLInputElement || 
+                           target instanceof HTMLTextAreaElement ||
+                           target.isContentEditable ||
+                           target.closest('[contenteditable="true"]') ||
+                           target.closest('.ProseMirror') ||
+                           target.closest('.tiptap');
+      
+      if (isTextEditing) {
+        return; // Don't interfere with text editing
+      }
+      
+      // Only handle arrow keys without modifiers for board navigation
+      // Let cmd/ctrl + arrow keys work normally for text editing
+      if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && 
+          (event.metaKey || event.ctrlKey)) {
+        return; // Let text editing handle cmd/ctrl + arrow keys
       }
       
       if (event.key === 'ArrowLeft' && canScrollLeft) {
@@ -390,6 +406,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           filters={searchFilters}
           availablePriorities={availablePriorities}
           onFiltersChange={onSearchFiltersChange}
+          siteSettings={siteSettings}
         />
       )}
 
@@ -457,6 +474,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 onMoveTaskToColumn={onMoveTaskToColumn}
                 animateCopiedTaskId={animateCopiedTaskId}
                 onScrollControlsChange={setListViewScrollControls}
+                boards={boards}
               />
             </div>
           ) : viewMode === 'gantt' ? (
