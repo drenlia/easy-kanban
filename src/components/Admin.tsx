@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser } from '../api';
-import { Edit, Trash2, Crown, User as UserIcon, Eye, EyeOff } from 'lucide-react';
+import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
+import { ADMIN_TABS, ROUTES } from '../constants';
+import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
+import AdminSSOTab from './admin/AdminSSOTab';
+import AdminTagsTab from './admin/AdminTagsTab';
+import AdminMailTab from './admin/AdminMailTab';
+import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
+import AdminUsersTab from './admin/AdminUsersTab';
+import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
+import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
 
 interface AdminProps {
   currentUser: any;
@@ -38,14 +46,24 @@ interface Settings {
   SMTP_FROM_NAME?: string;
   SMTP_SECURE?: string;
   MAIL_ENABLED?: string;
+  TASK_DELETE_CONFIRM?: string;
+  SHOW_ACTIVITY_FEED?: string;
+  DEFAULT_VIEW_MODE?: string;
+  DEFAULT_TASK_VIEW_MODE?: string;
+  DEFAULT_ACTIVITY_FEED_POSITION?: string;
+  DEFAULT_ACTIVITY_FEED_WIDTH?: string;
+  DEFAULT_ACTIVITY_FEED_HEIGHT?: string;
+  USE_PREFIXES?: string;
+  DEFAULT_PROJ_PREFIX?: string;
+  DEFAULT_TASK_PREFIX?: string;
   [key: string]: string | undefined;
 }
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const [activeTab, setActiveTab] = useState(() => {
-    // Get tab from URL hash, fallback to 'users'
+    // Get tab from URL hash, fallback to default
     const hash = window.location.hash.replace('#', '');
-    return ['users', 'site-settings', 'sso', 'mail-server'].includes(hash) ? hash : 'users';
+    return ADMIN_TABS.includes(hash) ? hash : ROUTES.DEFAULT_ADMIN_TAB;
   });
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
@@ -53,48 +71,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
+  const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
+  const [testEmailError, setTestEmailError] = useState<string>('');
   const [isTestingEmail, setIsTestingEmail] = useState(false);
-  const [editingUser, setEditingUser] = useState<string | null>(null);
   const [editingSettings, setEditingSettings] = useState<Settings>({});
-  const [showAddUserForm, setShowAddUserForm] = useState(false);
-  const [showEditUserForm, setShowEditUserForm] = useState(false);
-  const [editingUserData, setEditingUserData] = useState({
-    id: '',
-    email: '',
-    firstName: '',
-    lastName: '',
-    displayName: '',
-    isActive: true,
-    avatarUrl: '',
-    memberColor: '#4ECDC4',
-    selectedFile: null as File | null,
-    authProvider: ''
-  });
-  const [newUser, setNewUser] = useState({
-    email: '',
-    password: '',
-    firstName: '',
-    lastName: '',
-    displayName: '',
-    role: 'user'
-  });
-  const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
-  const [editingColor, setEditingColor] = useState<string>('#4ECDC4');
-  const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [userTaskCounts, setUserTaskCounts] = useState<{ [userId: string]: number }>({});
+  const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState<number | null>(null);
+  const [tagUsageCounts, setTagUsageCounts] = useState<{ [tagId: number]: number }>({});
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
-  
-  // Preset colors for easy selection
-  const presetColors = [
-    '#FF3B30', '#007AFF', '#4CD964', '#FF9500', '#5856D6',
-    '#FF2D55', '#00C7BE', '#FFD60A', '#BF5AF2', '#34C759',
-    '#FF6B6B', '#1C7ED6', '#845EF7', '#F76707', '#20C997',
-    '#E599F7', '#40C057', '#F59F00', '#0CA678', '#FA5252'
-  ];
-  
-
+  const [tags, setTags] = useState<any[]>([]);
+  const [priorities, setPriorities] = useState<any[]>([]);
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
@@ -110,7 +98,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const hashParts = fullHash.split('#');
       const tabHash = hashParts[hashParts.length - 1]; // Get the last part
       
-      if (['users', 'site-settings', 'sso', 'mail-server'].includes(tabHash) && tabHash !== activeTab) {
+      if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
         // Clear messages when switching tabs
         setSuccessMessage(null);
@@ -123,7 +111,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const hashParts = fullHash.split('#');
     const tabHash = hashParts[hashParts.length - 1]; // Get the last part
     
-    if (['users', 'site-settings', 'sso', 'mail-server'].includes(tabHash) && tabHash !== activeTab) {
+    if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
       // Clear messages when switching tabs
       setSuccessMessage(null);
@@ -137,14 +125,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersResponse, settingsResponse] = await Promise.all([
+      const [usersResponse, settingsResponse, tagsResponse, prioritiesResponse] = await Promise.all([
         api.get('/admin/users'),
-        api.get('/admin/settings')
+        api.get('/admin/settings'),
+        getTags(),
+        getPriorities()
       ]);
       
       setUsers(usersResponse.data || []);
-      setSettings(settingsResponse.data || {});
-      setEditingSettings(settingsResponse.data || {});
+      
+      // Ensure default values for settings
+      const loadedSettings = settingsResponse.data || {};
+      const settingsWithDefaults = {
+        ...loadedSettings,
+        TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+      };
+      
+      setSettings(settingsWithDefaults);
+      setEditingSettings(settingsWithDefaults);
+      setTags(tagsResponse || []);
+      setPriorities(prioritiesResponse || []);
       
       // Check if default admin account still exists
       const defaultAdminExists = usersResponse.data?.some((user: any) => 
@@ -161,7 +161,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleRoleChange = async (userId: string, action: 'promote' | 'demote') => {
     try {
-      await api.put(`/admin/users/${userId}/role`, { action });
+      const role = action === 'promote' ? 'admin' : 'user';
+      await api.put(`/admin/users/${userId}/role`, { role });
       await loadData(); // Reload users
     } catch (err) {
       setError(`Failed to ${action} user`);
@@ -176,8 +177,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       return;
     }
 
-    // Show confirmation menu
-    setShowDeleteConfirm(userId);
+    try {
+      // Fetch task count for this user
+      const taskCountData = await getUserTaskCount(userId);
+      setUserTaskCounts(prev => ({ ...prev, [userId]: taskCountData.count }));
+      setShowDeleteConfirm(userId);
+    } catch (error) {
+      console.error('Failed to get task count:', error);
+      // Still show confirmation even if task count fails
+      setUserTaskCounts(prev => ({ ...prev, [userId]: 0 }));
+      setShowDeleteConfirm(userId);
+    }
   };
 
   const confirmDeleteUser = async (userId: string) => {
@@ -198,76 +208,110 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     setShowDeleteConfirm(null);
   };
 
-  // Close confirmation menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showDeleteConfirm && !(event.target as Element).closest('.delete-confirmation')) {
-        setShowDeleteConfirm(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showDeleteConfirm]);
-
-  const handleColorChange = (userId: string, currentColor: string) => {
-    setShowColorPicker(userId);
-    setEditingColor(currentColor);
-    setOriginalColor(currentColor);
-  };
-
-  const handleSaveColor = async (userId: string) => {
+  const handleDeleteTag = async (tagId: number) => {
     try {
-      await api.put(`/admin/users/${userId}/color`, { color: editingColor });
-      setShowColorPicker(null);
-      await loadData(); // Reload users
-      if (onUsersChanged) {
-        onUsersChanged();
-      }
-      setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update member color');
-      console.error(err);
+      // Fetch usage count for this tag
+      const usageData = await getTagUsage(tagId);
+      setTagUsageCounts(prev => ({ ...prev, [tagId]: usageData.count }));
+      setShowDeleteTagConfirm(tagId);
+    } catch (error) {
+      console.error('Failed to get tag usage:', error);
+      // Still show confirmation even if usage count fails
+      setTagUsageCounts(prev => ({ ...prev, [tagId]: 0 }));
+      setShowDeleteTagConfirm(tagId);
     }
   };
 
-  const handleCancelColor = () => {
-    setShowColorPicker(null);
-    setEditingColor(originalColor);
-    setError(null);
+  const confirmDeleteTag = async (tagId: number) => {
+    try {
+      await deleteTag(tagId);
+      const updatedTags = await getTags();
+      setTags(updatedTags);
+      setShowDeleteTagConfirm(null);
+      setSuccessMessage('Tag and all associations deleted successfully');
+    } catch (error: any) {
+      setError(error.response?.data?.error || 'Failed to delete tag');
+    }
   };
 
-  // Handle user avatar file selection
-  const handleUserAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError('Please select an image file');
-        return;
-      }
+  const cancelDeleteTag = () => {
+    setShowDeleteTagConfirm(null);
+  };
+
+  const handleAddTag = async (tagData: { tag: string; description: string; color: string }) => {
+    await createTag(tagData);
+    const updatedTags = await getTags();
+    setTags(updatedTags);
+    setSuccessMessage('Tag created successfully');
+  };
+
+  const handleUpdateTag = async (tagId: number, updates: { tag: string; description: string; color: string }) => {
+    await updateTag(tagId, updates);
+    const updatedTags = await getTags();
+    setTags(updatedTags);
+    setSuccessMessage('Tag updated successfully');
+  };
+
+  const handleAddPriority = async (priorityData: { priority: string; color: string }) => {
+    await createPriority(priorityData);
+    const updatedPriorities = await getPriorities();
+    setPriorities(updatedPriorities);
+    setSuccessMessage('Priority created successfully');
+  };
+
+  const handleUpdatePriority = async (priorityId: string, updates: { priority: string; color: string }) => {
+    await updatePriority(Number(priorityId), updates);
+    const updatedPriorities = await getPriorities();
+    setPriorities(updatedPriorities);
+    setSuccessMessage('Priority updated successfully');
+  };
+
+  const handleDeletePriority = async (priorityId: string) => {
+    await deletePriority(Number(priorityId));
+    const updatedPriorities = await getPriorities();
+    setPriorities(updatedPriorities);
+    setSuccessMessage('Priority deleted successfully');
+  };
+
+  const handleReorderPriorities = async (reorderedPriorities: any[]) => {
+    setPriorities(reorderedPriorities);
+    try {
+      await reorderPriorities(reorderedPriorities);
+      setSuccessMessage('Priorities reordered successfully');
+    } catch (error: any) {
+      // Revert on error
+      const currentPriorities = await getPriorities();
+      setPriorities(currentPriorities);
+      setError(error.response?.data?.error || 'Failed to reorder priorities');
+    }
+  };
+
+  const handleSetDefaultPriority = async (priorityId: string) => {
+    try {
+      await setDefaultPriority(Number(priorityId));
+      const updatedPriorities = await getPriorities();
+      setPriorities(updatedPriorities);
+      setSuccessMessage('Default priority updated successfully');
       
-      // Validate file size (2MB limit)
-      if (file.size > 2 * 1024 * 1024) {
-        setError('Image size must be less than 2MB');
-        return;
-      }
-
-      setEditingUserData(prev => ({ ...prev, selectedFile: file }));
-      setError(null);
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (error: any) {
+      console.error('Failed to set default priority:', error);
+      setError(error?.response?.data?.error || 'Failed to set default priority');
     }
   };
 
-  // Handle removing user avatar
-  const handleRemoveUserAvatar = async (userId: string) => {
+  const handleUserColorChange = async (userId: string, color: string) => {
+    await api.put(`/admin/users/${userId}/color`, { color });
+    await loadData(); // Reload users
+    if (onUsersChanged) {
+      onUsersChanged();
+    }
+  };
+
+  const handleUserRemoveAvatar = async (userId: string) => {
     try {
-      setIsSubmitting(true);
       await api.delete(`/admin/users/${userId}/avatar`);
-      
-      // Update local state
-      setEditingUserData(prev => ({ ...prev, avatarUrl: '' }));
-      
-      // Refresh data
       await loadData();
       if (onUsersChanged) {
         onUsersChanged();
@@ -275,10 +319,23 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     } catch (error) {
       console.error('Failed to remove user avatar:', error);
       setError('Failed to remove avatar');
-    } finally {
-      setIsSubmitting(false);
     }
-    }
+  };
+
+  // Close confirmation menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteConfirm && !(event.target as Element).closest('.delete-confirmation')) {
+        setShowDeleteConfirm(null);
+      }
+      if (showDeleteTagConfirm && !(event.target as Element).closest('.delete-confirmation')) {
+        setShowDeleteTagConfirm(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDeleteConfirm, showDeleteTagConfirm]);
 
   const handleSaveSettings = async () => {
     try {
@@ -317,121 +374,108 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     }
   };
 
+  // Auto-save function for immediate saving of individual settings
+  const handleAutoSaveSetting = async (key: string, value: string) => {
+    try {
+      setError(null);
+      
+      // Save the setting immediately
+      await api.put('/admin/settings', { key, value });
+      
+      // Update the settings state
+      setSettings(prev => ({ ...prev, [key]: value }));
+      
+      // Update the parent component's site settings immediately
+      if (onSettingsChanged) {
+        onSettingsChanged();
+      }
+      
+      // Show brief success message for auto-save
+      setSuccessMessage(`✅ ${key} setting saved automatically!`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      
+    } catch (err) {
+      setError(`Failed to save ${key} setting`);
+      console.error(err);
+      throw err; // Re-throw so the component can handle the error
+    }
+  };
+
   const handleReloadOAuth = async () => {
     try {
-      await api.post('/admin/reload-oauth');
-      alert('✅ OAuth configuration reloaded successfully!');
+      await api.post('/auth/reload-oauth');
+      setSuccessMessage('✅ OAuth configuration reloaded successfully!');
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       setError('Failed to reload OAuth configuration');
       console.error(err);
     }
   };
 
-  const handleAddUser = async () => {
-    try {
-      await createUser(newUser);
-      setShowAddUserForm(false);
-      setNewUser({
-        email: '',
-        password: '',
-        firstName: '',
-        lastName: '',
-        displayName: '',
-        role: 'user'
-      });
-      await loadData(); // Reload users
-      setError(null);
-      // Notify parent component that users have changed
-      if (onUsersChanged) {
-        onUsersChanged();
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to create user');
-      console.error(err);
-    }
-  };
-
-  const handleEditUser = (user: User) => {
-    setEditingUserData({
-      id: user.id,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      displayName: user.displayName || `${user.firstName} ${user.lastName}`,
-      isActive: user.isActive,
-      avatarUrl: user.avatarUrl || '',
-      memberColor: user.memberColor || '#4ECDC4',
-      selectedFile: null,
-      authProvider: user.authProvider || ''
-    });
-    setShowEditUserForm(true);
-  };
-
-  const handleSaveUser = async () => {
-    try {
-      setIsSubmitting(true);
-      setError(null);
-
-      // Update user basic info
-      await updateUser(editingUserData.id, editingUserData);
-      
-      // Update display name in members table
-      if (editingUserData.displayName) {
-        await api.put(`/admin/users/${editingUserData.id}/member-name`, { 
-          displayName: editingUserData.displayName.trim() 
-        });
-      }
-      
-      // Upload avatar if selected
-      if (editingUserData.selectedFile) {
-        const formData = new FormData();
-        formData.append('avatar', editingUserData.selectedFile);
-        await api.post(`/admin/users/${editingUserData.id}/avatar`, formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        });
-      }
-      
-      setShowEditUserForm(false);
-      await loadData(); // Reload users
-      if (onUsersChanged) {
-        onUsersChanged();
-      }
-      setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update user');
-      console.error(err);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleCancelEditUser = () => {
-    setShowEditUserForm(false);
-    setEditingUserData({
-      id: '',
-      email: '',
-      firstName: '',
-      lastName: '',
-      displayName: '',
-      isActive: true,
-      avatarUrl: '',
-      memberColor: '#4ECDC4',
-      selectedFile: null,
-      authProvider: ''
-    });
+  const handleAddUser = async (userData: any) => {
+    await createUser(userData);
+    await loadData(); // Reload users
     setError(null);
+    // Notify parent component that users have changed
+    if (onUsersChanged) {
+      onUsersChanged();
+    }
   };
 
-  const handleCancelAddUser = () => {
-    setShowAddUserForm(false);
-    setNewUser({
-      email: '',
-      password: '',
-      firstName: '',
-      lastName: '',
-      displayName: '',
-      role: 'user'
-    });
+  const handleResendInvitation = async (userId: string) => {
+    try {
+      setError(null);
+      const result = await resendUserInvitation(userId);
+      setSuccessMessage(`Invitation email sent successfully to ${result.email}`);
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Failed to resend invitation:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to send invitation email';
+      setError(errorMessage);
+    }
+  };
+
+  const handleEditUser = (_user: User) => {
+    // This will be handled by the AdminUsersTab component
+  };
+
+  const handleSaveUser = async (userData: any) => {
+    console.log('👤 Admin saving user:', userData.id, 'displayName:', userData.displayName);
+    
+    // Update user basic info
+    console.log('📝 Updating user basic info...');
+    await updateUser(userData.id, userData);
+    console.log('✅ User basic info updated');
+    
+    // Update display name in members table
+    if (userData.displayName) {
+      console.log('🏷️ Updating member display name to:', userData.displayName.trim());
+      await api.put(`/admin/users/${userData.id}/member-name`, { 
+        displayName: userData.displayName.trim() 
+      });
+      console.log('✅ Member display name updated');
+    }
+    
+    // Upload avatar if selected
+    if (userData.selectedFile) {
+      console.log('📷 Uploading avatar...');
+      const formData = new FormData();
+      formData.append('avatar', userData.selectedFile);
+      await api.post(`/admin/users/${userData.id}/avatar`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      console.log('✅ Avatar uploaded');
+    }
+    
+    console.log('🔄 Reloading admin data...');
+    await loadData(); // Reload users
+    console.log('✅ Admin data reloaded');
+    
+    if (onUsersChanged) {
+      console.log('🔄 Triggering main app members refresh...');
+      onUsersChanged();
+    }
     setError(null);
   };
 
@@ -470,8 +514,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setShowTestEmailModal(true);
       
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error || 'Failed to test email configuration';
-      setError(errorMessage);
+      // Capture the full error details for debugging
+      const errorDetails = {
+        message: err.message || 'Unknown error',
+        status: err.response?.status || 'No status',
+        statusText: err.response?.statusText || 'No status text',
+        data: err.response?.data || 'No response data',
+        url: err.config?.url || '/admin/test-email',
+        method: err.config?.method || 'POST'
+      };
+      
+      setTestEmailError(JSON.stringify(errorDetails, null, 2));
+      setShowTestEmailErrorModal(true);
     } finally {
       setIsTestingEmail(false);
     }
@@ -488,7 +542,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">Access Denied</h1>
-          <p className="text-gray-600">You don't have permission to access this page.</p>
+          <p className="text-gray-600 mb-6">You don't have permission to access this page.</p>
+          <a
+            href="/"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          >
+            ← Go back home
+          </a>
         </div>
       </div>
     );
@@ -506,8 +566,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+    <div className="bg-gray-50 py-6 px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
@@ -553,9 +612,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         )}
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
+        <div className="sticky top-16 z-40 bg-gray-50 border-b border-gray-200 mb-6 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -569,6 +628,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'site-settings' && 'Site Settings'}
                 {tab === 'sso' && 'Single Sign-On'}
                 {tab === 'mail-server' && 'Mail Server'}
+                {tab === 'tags' && 'Tags'}
+                {tab === 'priorities' && 'Priorities'}
+                {tab === 'app-settings' && 'App Settings'}
+                {tab === 'project-settings' && 'Project Settings'}
               </button>
             ))}
           </nav>
@@ -578,953 +641,128 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         <div className="bg-white shadow rounded-lg">
           {/* Users Tab */}
           {activeTab === 'users' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Users</h2>
-                    <p className="text-gray-600">
-                      Manage user accounts and permissions. Regular users can only manage their own profile information, 
-                      while administrators have full access to manage all content, users, and site settings.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowAddUserForm(true)}
-                    className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-2"
-                  >
-                    <UserIcon size={16} />
-                    Add User
-                  </button>
-                </div>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Avatar</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Email</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">DISPLAY NAME</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Role</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">AUTH TYPE</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Color</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">Joined</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {Array.isArray(users) && users.length > 0 ? (
-                      users.map((user) => (
-                      <tr key={user.id}>
-                        <td className="px-6 py-4 whitespace-nowrap w-16">
-                          <div className="flex-shrink-0 h-10 w-10">
-                            {user.avatarUrl ? (
-                              <img
-                                src={user.avatarUrl}
-                                alt={`${user.firstName} ${user.lastName}`}
-                                className="h-10 w-10 rounded-full object-cover border-2 border-gray-200"
-                              />
-                            ) : (
-                              <div 
-                                className="h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium text-white"
-                                style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
-                              >
-                                {user.firstName?.[0]}{user.lastName?.[0]}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap w-32">
-                          <div className="text-sm font-medium text-gray-900">
-                            {user.firstName} {user.lastName}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-48">
-                          {user.email}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-32">
-                          {user.displayName || `${user.firstName} ${user.lastName}`}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap w-20">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.roles.includes('admin') 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {user.roles.includes('admin') ? 'Admin' : 'User'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-24">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.authProvider === 'google' 
-                              ? 'bg-blue-100 text-blue-800' 
-                              : 'bg-gray-100 text-gray-800'
-                          }`}>
-                            {user.authProvider === 'google' ? 'Google' : 'Local'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap w-20">
-                          {showColorPicker === user.id ? (
-                            <div className="relative">
-                              <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-lg border border-gray-200">
-                                <input
-                                  type="color"
-                                  value={editingColor}
-                                  onChange={(e) => setEditingColor(e.target.value)}
-                                  className="w-8 h-8 rounded border border-gray-300 cursor-pointer"
-                                />
-                                <div className="flex flex-col space-y-1">
-                                  <button
-                                    onClick={() => handleSaveColor(user.id)}
-                                    className="px-2 py-1 text-xs text-green-600 hover:text-green-800 hover:bg-green-50 rounded transition-colors font-medium"
-                                  >
-                                    Apply
-                                  </button>
-                                  <button
-                                    onClick={handleCancelColor}
-                                    className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded transition-colors"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div 
-                              className="w-6 h-6 rounded-full border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
-                              style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
-                              onClick={() => handleColorChange(user.id, user.memberColor || '#4ECDC4')}
-                              title="Click to change color"
-                            />
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-28">
-                          {user.joined}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
-                          <div className="flex items-center space-x-2">
-                            {user.roles.includes('admin') ? (
-                              <button
-                                onClick={() => handleRoleChange(user.id, 'demote')}
-                                disabled={user.id === currentUser?.id}
-                                className={`p-1.5 rounded transition-colors group relative ${
-                                  user.id === currentUser?.id
-                                    ? 'text-gray-400 cursor-not-allowed'
-                                    : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                                }`}
-                                title={user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
-                              >
-                                <UserIcon size={16} />
-                                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                  {user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
-                                </span>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleRoleChange(user.id, 'promote')}
-                                className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-50 rounded transition-colors group relative"
-                                title="Promote to admin"
-                              >
-                                <Crown size={16} />
-                                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                                  Promote to admin
-                                </span>
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => handleEditUser(user)}
-                              className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
-                              title="Edit user"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <div className="relative">
-                              <button
-                                onClick={() => handleDeleteUser(user.id)}
-                                disabled={user.id === currentUser?.id}
-                                className={`p-1.5 rounded transition-colors ${
-                                  user.id === currentUser?.id
-                                    ? 'text-gray-400 cursor-not-allowed'
-                                    : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                                }`}
-                                title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                              
-                              {/* Delete Confirmation Menu */}
-                              {showDeleteConfirm === user.id && (
-                                <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-10 min-w-[120px]">
-                                  <div className="text-sm text-gray-700 mb-2">Are you sure?</div>
-                                  <div className="flex space-x-2">
-                                    <button
-                                      onClick={() => confirmDeleteUser(user.id)}
-                                      className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                                    >
-                                      Yes
-                                    </button>
-                                    <button
-                                      onClick={cancelDeleteUser}
-                                      className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
-                                    >
-                                      No
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
-                          {loading ? 'Loading users...' : 'No users found'}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* Add User Modal */}
-              {showAddUserForm && (
-                <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-                  <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-                    <div className="mt-3">
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Add New User</h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                          <input
-                            type="email"
-                            value={newUser.email}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, email: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="user@example.com"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                          <input
-                            type="password"
-                            value={newUser.password}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Enter password"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                          <input
-                            type="text"
-                            value={newUser.firstName}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, firstName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="First Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                          <input
-                            type="text"
-                            value={newUser.lastName}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, lastName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Last Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
-                          <input
-                            type="text"
-                            value={newUser.displayName || `${newUser.firstName} ${newUser.lastName}`}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, displayName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Display Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                          <select
-                            value={newUser.role}
-                            onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value="user">User</option>
-                            <option value="admin">Admin</option>
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex space-x-3 mt-6">
-                        <button
-                          onClick={handleAddUser}
-                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        >
-                          Create User
-                        </button>
-                        <button
-                          onClick={handleCancelAddUser}
-                          className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Edit User Modal */}
-              {showEditUserForm && (
-                <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-                  <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-                    <div className="mt-3">
-                      <h3 className="text-lg font-medium text-gray-900 mb-4">Edit User</h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
-                          <input
-                            type="text"
-                            value={editingUserData.firstName}
-                            onChange={(e) => setEditingUserData(prev => ({ ...prev, firstName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="First Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
-                          <input
-                            type="text"
-                            value={editingUserData.lastName}
-                            onChange={(e) => setEditingUserData(prev => ({ ...prev, lastName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Last Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
-                          <input
-                            type="text"
-                            value={editingUserData.displayName}
-                            onChange={(e) => setEditingUserData(prev => ({ ...prev, displayName: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Display Name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                          <input
-                            type="email"
-                            value={editingUserData.email}
-                            onChange={(e) => setEditingUserData(prev => ({ ...prev, email: e.target.value }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="user@example.com"
-                          />
-                        </div>
-                        <div>
-                          <label className="flex items-center">
-                            <input
-                              type="checkbox"
-                              checked={editingUserData.isActive}
-                              onChange={(e) => setEditingUserData(prev => ({ ...prev, isActive: e.target.checked }))}
-                              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                            />
-                            <span className="ml-2 text-sm text-gray-700">Active</span>
-                          </label>
-                        </div>
-                        
-                        {/* Avatar Section */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Avatar</label>
-                          <div className="flex items-center space-x-3">
-                            {/* Current Avatar Display */}
-                            <div className="flex-shrink-0">
-                              {editingUserData.avatarUrl ? (
-                                <img
-                                  src={editingUserData.avatarUrl}
-                                  alt="User avatar"
-                                  className="w-12 h-12 rounded-full border-2 border-gray-200"
-                                />
-                              ) : (
-                                <div 
-                                  className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg"
-                                  style={{ backgroundColor: editingUserData.memberColor || '#4ECDC4' }}
-                                >
-                                  {editingUserData.firstName?.charAt(0)}{editingUserData.lastName?.charAt(0)}
-                                </div>
-                              )}
-                            </div>
-                            
-                            {/* Avatar Upload Controls - Only for local users */}
-                            {editingUserData.authProvider === 'local' ? (
-                              <div className="flex-1 space-y-2">
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  onChange={handleUserAvatarSelect}
-                                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                                />
-                                {editingUserData.avatarUrl && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveUserAvatar(editingUserData.id)}
-                                    className="text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
-                                  >
-                                    Remove Avatar
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="flex-1">
-                                <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
-                                  <p className="text-blue-800 font-medium">Google Account</p>
-                                  <p className="text-blue-700 text-xs mt-1">
-                                    Avatar managed by Google account
-                                  </p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex space-x-3 mt-6">
-                        <button
-                          onClick={handleSaveUser}
-                          disabled={isSubmitting}
-                          className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {isSubmitting ? 'Saving...' : 'Save Changes'}
-                        </button>
-                        <button
-                          onClick={handleCancelEditUser}
-                          disabled={isSubmitting}
-                          className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdminUsersTab
+              users={users}
+              loading={loading}
+              currentUser={currentUser}
+              showDeleteConfirm={showDeleteConfirm}
+              userTaskCounts={userTaskCounts}
+              onRoleChange={handleRoleChange}
+              onDeleteUser={handleDeleteUser}
+              onConfirmDeleteUser={confirmDeleteUser}
+              onCancelDeleteUser={cancelDeleteUser}
+              onAddUser={handleAddUser}
+              onEditUser={handleEditUser}
+              onSaveUser={handleSaveUser}
+              onColorChange={handleUserColorChange}
+              onRemoveAvatar={handleUserRemoveAvatar}
+              onResendInvitation={handleResendInvitation}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
 
           {/* Site Settings Tab */}
           {activeTab === 'site-settings' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Site Settings</h2>
-                <p className="text-gray-600">
-                  Configure basic site information that appears throughout the application.
-                </p>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Site Name
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.SITE_NAME || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, SITE_NAME: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter site name"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Site URL
-                  </label>
-                  <input
-                    type="url"
-                    value={editingSettings.SITE_URL || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, SITE_URL: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="https://example.com"
-                  />
-                </div>
-                
-                {/* Success and Error Messages for Site Settings */}
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-red-800">{error}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Save Changes
-                  </button>
-                  <button
-                    onClick={handleCancelSettings}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
+            <AdminSiteSettingsTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
 
           {/* Single Sign-On Tab */}
           {activeTab === 'sso' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Single Sign-On Configuration</h2>
-                <p className="text-gray-600">
-                  Configure Google OAuth authentication. Changes are applied immediately without requiring a restart.
-                </p>
-              </div>
-              
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Client ID
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.GOOGLE_CLIENT_ID || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CLIENT_ID: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter Google OAuth Client ID"
-                  />
-                                      <p className="mt-1 text-sm text-gray-500">
-                      Found in your Google Cloud Console under APIs & Services &gt; Credentials
-                    </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Client Secret
-                  </label>
-                  <input
-                    type="password"
-                    value={editingSettings.GOOGLE_CLIENT_SECRET || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CLIENT_SECRET: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter Google OAuth Client Secret"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    Keep this secret secure. Changes are applied immediately.
-                  </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Google Callback URL
-                  </label>
-                  <input
-                    type="text"
-                    value={editingSettings.GOOGLE_CALLBACK_URL || ''}
-                    onChange={(e) => setEditingSettings(prev => ({ ...prev, GOOGLE_CALLBACK_URL: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="e.g., https://yourdomain.com/auth/google/callback"
-                  />
-                  <p className="mt-1 text-sm text-gray-500">
-                    This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol.
-                  </p>
-                </div>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-blue-800">Hot Reload Enabled</h3>
-                      <div className="mt-2 text-sm text-blue-700">
-                        <p>
-                          Google OAuth settings are automatically reloaded when you save changes. 
-                          No application restart is required.
-                        </p>
-                        <p className="mt-1">
-                          <strong>Tip:</strong> Use the "Reload OAuth Config" button if you need to force a reload.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Success and Error Messages for SSO */}
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-red-800">{error}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Save Configuration
-                  </button>
-                  <button
-                    onClick={handleReloadOAuth}
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                  >
-                    🔄 Reload OAuth Config
-                  </button>
-                  <button
-                    onClick={handleCancelSettings}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
+            <AdminSSOTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              onReloadOAuth={handleReloadOAuth}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
 
           {/* Mail Server Tab */}
           {activeTab === 'mail-server' && (
-            <div className="p-6">
-              <div className="mb-6">
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">Mail Server Configuration</h2>
-                <p className="text-gray-600">
-                  Configure SMTP settings for sending emails. Changes are applied immediately.
-                </p>
-              </div>
-              
-              <div className="max-w-4xl">
-                {/* Mail Server Enable/Disable */}
-                <div className="mb-6">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={editingSettings.MAIL_ENABLED === 'true'}
-                      onChange={(e) => setEditingSettings(prev => ({ 
-                        ...prev, 
-                        MAIL_ENABLED: e.target.checked ? 'true' : 'false' 
-                      }))}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-sm font-medium text-gray-700">Enable Mail Server</span>
-                  </label>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Check this to enable email functionality. Uncheck to disable all email features.
-                  </p>
-                </div>
+            <AdminMailTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              onTestEmail={handleTestEmail}
+              successMessage={successMessage}
+              error={error}
+              isTestingEmail={isTestingEmail}
+              showTestEmailModal={showTestEmailModal}
+              testEmailResult={testEmailResult}
+              onCloseTestModal={() => setShowTestEmailModal(false)}
+              showTestEmailErrorModal={showTestEmailErrorModal}
+              testEmailError={testEmailError}
+              onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
+            />
+          )}
 
-                {/* Two-column layout for SMTP settings */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  {/* Left Column */}
-                  <div className="space-y-4">
-                    {/* SMTP Host */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        SMTP Host
-                      </label>
-                      <input
-                        type="text"
-                        value={editingSettings.SMTP_HOST || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_HOST: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="smtp.gmail.com"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Hostname or IP of your SMTP server
-                      </p>
-                    </div>
+          {/* Tags Tab */}
+          {activeTab === 'tags' && (
+            <AdminTagsTab
+              tags={tags}
+              loading={loading}
+              onAddTag={handleAddTag}
+              onUpdateTag={handleUpdateTag}
+              onDeleteTag={handleDeleteTag}
+              onConfirmDeleteTag={confirmDeleteTag}
+              onCancelDeleteTag={cancelDeleteTag}
+              showDeleteTagConfirm={showDeleteTagConfirm}
+              tagUsageCounts={tagUsageCounts}
+            />
+          )}
 
-                    {/* SMTP Port */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        SMTP Port
-                      </label>
-                      <input
-                        type="number"
-                        value={editingSettings.SMTP_PORT || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_PORT: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="587"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        587 (TLS), 465 (SSL), 25 (plain)
-                      </p>
-                    </div>
+          {/* Priorities Tab */}
+          {activeTab === 'priorities' && (
+            <AdminPrioritiesTab
+              priorities={priorities}
+              loading={loading}
+              onAddPriority={handleAddPriority}
+              onUpdatePriority={handleUpdatePriority}
+              onDeletePriority={handleDeletePriority}
+              onReorderPriorities={handleReorderPriorities}
+              onSetDefaultPriority={handleSetDefaultPriority}
+              successMessage={successMessage}
+              error={error}
+            />
+          )}
 
-                    {/* SMTP Username */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        SMTP Username
-                      </label>
-                      <input
-                        type="text"
-                        value={editingSettings.SMTP_USERNAME || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_USERNAME: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="admin@example.com"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Usually your email address
-                      </p>
-                    </div>
+          {/* App Settings Tab */}
+          {activeTab === 'app-settings' && (
+            <AdminAppSettingsTab
+              settings={settings}
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              successMessage={successMessage}
+              error={error}
+            />
+          )}
 
-                    {/* SMTP Password */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        SMTP Password
-                      </label>
-                      <input
-                        type="password"
-                        value={editingSettings.SMTP_PASSWORD || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_PASSWORD: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Enter your SMTP password"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Use App Password for Gmail
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Right Column */}
-                  <div className="space-y-4">
-                    {/* From Email */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        From Email
-                      </label>
-                      <input
-                        type="email"
-                        value={editingSettings.SMTP_FROM_EMAIL || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_FROM_EMAIL: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="admin@example.com"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Email address that appears as sender
-                      </p>
-                    </div>
-
-                    {/* From Name */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        From Name
-                      </label>
-                      <input
-                        type="text"
-                        value={editingSettings.SMTP_FROM_NAME || ''}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_FROM_NAME: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        placeholder="Kanban Admin"
-                      />
-                      <p className="mt-1 text-xs text-gray-500">
-                        Display name that appears as sender
-                      </p>
-                    </div>
-
-                    {/* SMTP Security */}
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        SMTP Security
-                      </label>
-                      <select
-                        value={editingSettings.SMTP_SECURE || 'tls'}
-                        onChange={(e) => setEditingSettings(prev => ({ ...prev, SMTP_SECURE: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value="tls">TLS (Recommended)</option>
-                        <option value="ssl">SSL</option>
-                        <option value="none">None (Plain)</option>
-                      </select>
-                      <p className="mt-1 text-xs text-gray-500">
-                        TLS recommended for modern servers
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Test Configuration Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
-                  <div className="flex">
-                    <div className="flex-shrink-0">
-                      <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-blue-800">Test Configuration</h3>
-                      <div className="mt-2 text-sm text-blue-700">
-                        <p>
-                          Use the test button below to verify your mail server configuration works correctly.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Success and Error Messages for Mail Server */}
-                {successMessage && (
-                  <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-green-800">{successMessage}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                {error && (
-                  <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                    <div className="flex">
-                      <div className="flex-shrink-0">
-                        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                      <div className="ml-3">
-                        <p className="text-sm font-medium text-red-800">{error}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="flex space-x-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  >
-                    Save Configuration
-                  </button>
-                  <button
-                    onClick={handleCancelSettings}
-                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleTestEmail}
-                    disabled={isTestingEmail}
-                    className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                      isTestingEmail 
-                        ? 'bg-gray-400 cursor-not-allowed' 
-                        : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
-                    }`}
-                  >
-                    {isTestingEmail ? (
-                      <>
-                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Testing...
-                      </>
-                    ) : (
-                      'Test Email'
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
+          {/* Project Settings Tab */}
+          {activeTab === 'project-settings' && (
+            <AdminProjectSettingsTab
+              editingSettings={editingSettings}
+              onSettingsChange={setEditingSettings}
+              onSave={handleSaveSettings}
+              onCancel={handleCancelSettings}
+              onAutoSave={handleAutoSaveSetting}
+              successMessage={successMessage}
+              error={error}
+            />
           )}
         </div>
-      </div>
-      
-      {/* Test Email Success Modal */}
-      {showTestEmailModal && testEmailResult && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
-                <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-              </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
-                ✅ Email Sent Successfully!
-              </h3>
-              <div className="mt-4 px-2 py-3 bg-gray-50 rounded-lg">
-                <div className="text-sm text-gray-600 space-y-2">
-                  <p><strong>Message:</strong> {testEmailResult.message}</p>
-                  <p><strong>To:</strong> {testEmailResult.settings.to}</p>
-                  <p><strong>Message ID:</strong> {testEmailResult.messageId}</p>
-                  <div className="border-t pt-2 mt-2">
-                    <p className="font-medium text-gray-700 mb-1">Configuration Used:</p>
-                    <p><strong>Host:</strong> {testEmailResult.settings.host}</p>
-                    <p><strong>Port:</strong> {testEmailResult.settings.port}</p>
-                    <p><strong>Secure:</strong> {testEmailResult.settings.secure}</p>
-                    <p><strong>From:</strong> {testEmailResult.settings.from}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="items-center px-4 py-3">
-                <button
-                  onClick={() => setShowTestEmailModal(false)}
-                  className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

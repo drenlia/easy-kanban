@@ -1,265 +1,775 @@
-import React, { useState, useEffect } from 'react';
-import { TeamMember, Task, Column, Columns, Priority, Board } from './types';
-import TeamMembers from './components/TeamMembers';
-import KanbanColumn from './components/Column';
-import TaskCard from './components/TaskCard';
-import TaskDetails from './components/TaskDetails';
-import BoardTabs from './components/BoardTabs';
-import HelpModal from './components/HelpModal';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { 
+  TeamMember, 
+  Task, 
+  Column, 
+  Columns, 
+  Board, 
+  PriorityOption, 
+  Tag,
+  QueryLog, 
+  DragPreview 
+} from './types';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
-import LoadingSpinner from './components/LoadingSpinner';
-import { Github, HelpCircle, LogOut, User, RefreshCw } from 'lucide-react';
+
 import Login from './components/Login';
-import Admin from './components/Admin';
-import Profile from './components/Profile';
-import * as api from './api';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
+import ResetPasswordSuccess from './components/ResetPasswordSuccess';
+import ActivateAccount from './components/ActivateAccount';
+import Header from './components/layout/Header';
+import MainLayout from './components/layout/MainLayout';
+import TaskPage from './components/TaskPage';
+import ModalManager from './components/layout/ModalManager';
+import MiniTaskIcon from './components/MiniTaskIcon';
+import TaskCard from './components/TaskCard';
+import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
+import ActivityFeed from './components/ActivityFeed';
+import TaskLinkingOverlay from './components/TaskLinkingOverlay';
+import Test from './components/Test';
+import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
+import { useDebug } from './hooks/useDebug';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useAuth } from './hooks/useAuth';
+import { useDataPolling } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { DndContext, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay, pointerWithin } from '@dnd-kit/core';
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
+import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode } from './utils/userPreferences';
+import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
+import { 
+  DEFAULT_COLUMNS, 
+  DRAG_COOLDOWN_DURATION, 
+  TASK_CREATION_PAUSE_DURATION, 
+  BOARD_CREATION_PAUSE_DURATION,
+  DND_ACTIVATION_DISTANCE 
+} from './constants';
+import { 
+  getInitialSelectedBoard, 
+  getInitialPage,
+  parseUrlHash,
+  parseProjectRoute,
+  parseTaskRoute,
+  findBoardByProjectId,
+  shouldSkipAutoBoardSelection
+} from './utils/routingUtils';
+import { 
+  filterTasks,
+  getFilteredTaskCountForBoard, 
+  hasActiveFilters,
+  wouldTaskBeFilteredOut 
+} from './utils/taskUtils';
+import { moveTaskToBoard } from './api';
+import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
+import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
+import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
+import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
 
-interface QueryLog {
-  id: string;
-  type: 'INSERT' | 'UPDATE' | 'DELETE' | 'ERROR';
-  query: string;
-  timestamp: string;
-  error?: string;
-}
+// System user member ID constant
+const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
-const DEFAULT_COLUMNS = [
-  { id: 'todo', title: 'To Do' },
-  { id: 'progress', title: 'In Progress' },
-  { id: 'testing', title: 'Testing' },
-  { id: 'completed', title: 'Completed' }
-];
+
 
 export default function App() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState<string | null>(() => {
-    // Get board from URL hash, but only if it's not a page identifier or admin tab
-    const hash = window.location.hash.replace('#', '');
-    // Don't treat as board ID if it's a page identifier or admin tab
-    const pageIdentifiers = ['kanban', 'admin'];
-    const adminTabs = ['users', 'site-settings', 'sso'];
-    const isPageOrTab = pageIdentifiers.includes(hash) || adminTabs.includes(hash);
-    
-    return hash && !isPageOrTab ? hash : null;
-  });
+  const [selectedBoard, setSelectedBoard] = useState<string | null>(null); // Initialize as null, will be set after auth
   const [columns, setColumns] = useState<Columns>({});
-  const [selectedMember, setSelectedMember] = useState<string | null>(null);
+  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  
+  // Activity Feed state
+  const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
+  const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
+  const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
+    x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
+    y: 66 
+  });
+  const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
+    width: 208,
+    height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400
+  });
+  const [activities, setActivities] = useState<any[]>([]);
+  const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
+  const [clearActivityId, setClearActivityId] = useState<number>(0);
+  
+  // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
-  const [activeColumnId, setActiveColumnId] = useState<string | null>(null);
-  const [dragPreview, setDragPreview] = useState<{
-    targetColumnId: string;
-    insertIndex: number;
-  } | null>(null);
+  const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
+  const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
+  const dragStartedRef = useRef<boolean>(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
+
+  // Helper function to update user preferences with current user ID
+  const updateCurrentUserPreference = <K extends keyof UserPreferences>(
+    key: K,
+    value: UserPreferences[K]
+  ) => {
+    updateUserPreference(key, value, currentUser?.id || null);
+  };
+
+  // Helper function to get initial selected board with user preference fallback
+  const getInitialSelectedBoardWithPreferences = (userId: string | null): string | null => {
+    // First, check URL hash
+    const boardFromUrl = getInitialSelectedBoard();
+    if (boardFromUrl) {
+      return boardFromUrl;
+    }
+
+    // If no URL hash, check user preferences
+    const userPrefs = loadUserPreferences(userId);
+    return userPrefs.lastSelectedBoard;
+  };
+
+  // Enhanced setSelectedTask that also updates user preferences
+  const handleSelectTask = (task: Task | null, options?: { scrollToComments?: boolean }) => {
+    setSelectedTask(task);
+    updateCurrentUserPreference('selectedTaskId', task?.id || null);
+    
+    // Store scroll options for TaskDetails
+    if (task && options?.scrollToComments) {
+      setTaskDetailsOptions({ scrollToComments: true });
+    } else {
+      setTaskDetailsOptions({});
+    }
+  };
+
+  // Task deletion handler with confirmation
+  const handleTaskDelete = async (taskId: string) => {
+    try {
+      await deleteTask(taskId);
+      
+      // Remove task from local state
+      const updatedColumns = { ...columns };
+      Object.keys(updatedColumns).forEach(columnId => {
+        updatedColumns[columnId] = {
+          ...updatedColumns[columnId],
+          tasks: updatedColumns[columnId].tasks.filter(task => task.id !== taskId)
+        };
+      });
+      setColumns(updatedColumns);
+      
+      // Refresh board data to ensure consistent state
+      await refreshBoardData();
+      await fetchQueryLogs();
+    } catch (error) {
+      console.error('Failed to delete task:', error);
+      throw error; // Re-throw so the hook can handle the error state
+    }
+  };
+
+  // This will be defined later after the hooks are initialized
+  let handleRemoveTask: (taskId: string, clickEvent?: React.MouseEvent) => Promise<void>;
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([]);
   const [dragCooldown, setDragCooldown] = useState(false);
   const [taskCreationPause, setTaskCreationPause] = useState(false);
+  const [boardCreationPause, setBoardCreationPause] = useState(false);
+  const [animateCopiedTaskId, setAnimateCopiedTaskId] = useState<string | null>(null);
+  const [pendingCopyAnimation, setPendingCopyAnimation] = useState<{
+    title: string;
+    columnId: string;
+    originalPosition: number;
+    originalTaskId: string;
+  } | null>(null);
+  // Load user preferences from cookies (will be updated when user is authenticated)
+  const [userPrefs] = useState(() => loadUserPreferences());
+  const [selectedMembers, setSelectedMembers] = useState<string[]>(userPrefs.selectedMembers);
+  const [includeAssignees, setIncludeAssignees] = useState(userPrefs.includeAssignees);
+  const [includeWatchers, setIncludeWatchers] = useState(userPrefs.includeWatchers);
+  const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
+  const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
+  const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
+  
+  // Computed: Check if we're in "All" mode (all members selected + all main checkboxes checked)
+  const isAllModeActive = useMemo(() => {
+    const allMemberIds = members.map(m => m.id);
+    const allMembersSelected = allMemberIds.length > 0 && 
+      allMemberIds.every(id => selectedMembers.includes(id)) &&
+      selectedMembers.length === allMemberIds.length;
+    const allMainCheckboxesChecked = includeAssignees && includeWatchers && 
+      includeCollaborators && includeRequesters;
+    
+    return allMembersSelected && allMainCheckboxesChecked;
+  }, [members, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
+  const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
+  const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
+  const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
+  const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
+  const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
+  const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
+  const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
+  const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [isOAuthProcessing, setIsOAuthProcessing] = useState(false);
-  
-
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin'>(() => {
-    // Get page from URL hash, fallback to 'kanban'
-    const hash = window.location.hash.replace('#', '');
-    return (['kanban', 'admin'] as const).includes(hash as 'kanban' | 'admin') ? (hash as 'kanban' | 'admin') : 'kanban';
-  });
-  const [siteSettings, setSiteSettings] = useState({ SITE_NAME: 'Easy Kanban', SITE_URL: 'http://localhost:3000' });
-  const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
+  const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+  const [resetToken, setResetToken] = useState<string>('');
+  const [activationToken, setActivationToken] = useState<string>('');
+  const [activationEmail, setActivationEmail] = useState<string>('');
+  const [activationParsed, setActivationParsed] = useState<boolean>(false);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
-  const [intendedDestination, setIntendedDestination] = useState<string | null>(null);
+  const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+  const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
+  
+  // Task linking state
+  const [isLinkingMode, setIsLinkingMode] = useState(false);
+  const [linkingSourceTask, setLinkingSourceTask] = useState<Task | null>(null);
+  const [linkingLine, setLinkingLine] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [linkingFeedbackMessage, setLinkingFeedbackMessage] = useState<string | null>(null);
+  
+  // Hover highlighting for relationships
+  const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
+  const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
+  
+  // Debug showColumnDeleteConfirm changes
+  useEffect(() => {
+    if (showColumnDeleteConfirm) {
+      console.log(`📋 showColumnDeleteConfirm changed to: ${showColumnDeleteConfirm}`);
+    } else {
+      console.log(`📋 showColumnDeleteConfirm cleared`);
+    }
+  }, [showColumnDeleteConfirm]);
+
+  // Sync selectedMembers when members list changes (e.g., user deletion)
+  useEffect(() => {
+    if (members.length > 0) {
+      const currentMemberIds = new Set(members.map(m => m.id));
+      const validSelectedMembers = selectedMembers.filter(id => currentMemberIds.has(id));
+      
+      // Only sync if there's a difference (remove deleted members)
+      if (validSelectedMembers.length !== selectedMembers.length) {
+        console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
+        setSelectedMembers(validSelectedMembers);
+        updateCurrentUserPreference('selectedMembers', validSelectedMembers);
+      }
+    }
+  }, [members]); // Only depend on members, not selectedMembers to avoid loops
+
+  // Helper function to get default priority name
+  const getDefaultPriorityName = (): string => {
+    // Find priority with initial = true (or 1 from SQLite)
+    const defaultPriority = availablePriorities.find(p => !!p.initial);
+    if (defaultPriority) {
+      return defaultPriority.priority;
+    }
+    
+    // Fallback to lowest ID (first priority created) if no default set
+    const lowestId = availablePriorities.sort((a, b) => a.id - b.id)[0];
+    if (lowestId) {
+      return lowestId.priority;
+    }
+    
+    // Ultimate fallback
+    return 'medium';
+  };
+
+  // Authentication hook
+  const {
+    isAuthenticated,
+    currentUser,
+    siteSettings,
+    hasDefaultAdmin,
+    intendedDestination,
+    justRedirected,
+    handleLogin,
+    handleLogout,
+    handleProfileUpdated,
+    refreshSiteSettings,
+    setSiteSettings,
+  } = useAuth({
+    onDataClear: () => {
+    setMembers([]);
+    setBoards([]);
+    setColumns({});
+    setSelectedBoard(null);
+    setSelectedMembers([]);
+    },
+    onAdminRefresh: () => {
+      setAdminRefreshKey(prev => prev + 1);
+    },
+    onPageChange: setCurrentPage,
+    onMembersRefresh: async () => {
+      const loadedMembers = await getMembers(includeSystem);
+      setMembers(loadedMembers);
+    },
+  });
   const { loading, withLoading } = useLoadingState();
   
-  // Online users tracking removed (using polling instead of Socket.IO)
-
-
-
-  // Simple polling for real-time collaboration
-  const [isPolling, setIsPolling] = useState(false);
-  const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
+  // Custom hooks
+  const showDebug = useDebug();
+  useKeyboardShortcuts(() => setShowHelpModal(true));
   
-  // Simple polling effect
-  useEffect(() => {
-    if (!isAuthenticated || currentPage !== 'kanban' || !selectedBoard) {
-      setIsPolling(false);
-      return;
+  // Initialize task deletion confirmation hook
+  const taskDeleteConfirmation = useTaskDeleteConfirmation({
+    currentUser,
+    systemSettings,
+    onDelete: handleTaskDelete
+  });
+
+  // Now define the handleRemoveTask function
+  handleRemoveTask = async (taskId: string, clickEvent?: React.MouseEvent) => {
+    // If the task being deleted is currently open in TaskDetails, close it first
+    if (selectedTask && selectedTask.id === taskId) {
+      handleSelectTask(null);
     }
-    
-    // Don't poll during drag operations, cooldown, or task creation
-    if (draggedTask || draggedColumn || dragCooldown || taskCreationPause) {
-      setIsPolling(false);
-      return;
-    }
-    
-    setIsPolling(true);
-    
-    const pollForUpdates = async () => {
-      try {
-        const loadedBoards = await api.getBoards();
-        const currentBoard = loadedBoards.find(b => b.id === selectedBoard);
-        
-        if (currentBoard) {
-          const currentColumnsString = JSON.stringify(columns);
-          const newColumnsString = JSON.stringify(currentBoard.columns);
-          
-          if (currentColumnsString !== newColumnsString) {
-            setColumns(currentBoard.columns || {});
-          }
-        }
-        
-        setLastPollTime(new Date());
-      } catch (error) {
-        // Silent error handling for polling
+
+    // Find the full task object from the columns
+    let taskToDelete: Task | null = null;
+    Object.values(columns).forEach(column => {
+      const foundTask = column.tasks.find(task => task.id === taskId);
+      if (foundTask) {
+        taskToDelete = foundTask;
       }
+    });
+
+    if (taskToDelete) {
+      await taskDeleteConfirmation.deleteTask(taskToDelete, clickEvent);
+    } else {
+      // If task not found in local state, create minimal object and delete
+      await taskDeleteConfirmation.deleteTask({ id: taskId } as Task, clickEvent);
+    }
+  };
+  
+  // Close task delete confirmation when clicking outside
+  useEffect(() => {
+    if (!taskDeleteConfirmation.confirmationTask) return;
+    
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      // Don't close if clicking on the delete confirmation popup or its children
+      if (target.closest('.delete-confirmation')) {
+        return;
+      }
+      taskDeleteConfirmation.cancelDelete();
     };
-    
-    // Initial poll
-    pollForUpdates();
-    
-    // Set up interval
-    const interval = setInterval(pollForUpdates, 3000); // 3 seconds
+
+    // Use a small delay to avoid interfering with the initial click
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 10);
     
     return () => {
-      clearInterval(interval);
-      setIsPolling(false);
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause]);
+  }, [taskDeleteConfirmation.confirmationTask, taskDeleteConfirmation.cancelDelete]);
 
-  // Mock socket object for compatibility with existing UI
-  const socket = {
-    isConnected: isPolling,
-    joinBoard: () => {},
-    leaveBoard: () => {},
-    on: () => {},
-    off: () => {},
-    emit: () => {}
-  };
+  // Load user settings for activity feed
+  useEffect(() => {
+    const loadUserSettings = async () => {
+      if (currentUser?.id) {
+        try {
+          const settings = await getUserSettings();
+          // Use system default if user hasn't set a preference
+          const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false'; // Default to true unless system says false
+          setShowActivityFeed(settings.showActivityFeed !== undefined ? settings.showActivityFeed : defaultFromSystem);
+          setActivityFeedMinimized(settings.activityFeedMinimized || false); // Default to expanded
+          setLastSeenActivityId(settings.lastSeenActivityId || 0); // Default to 0 (show all as unread)
+          setClearActivityId(settings.clearActivityId || 0); // Default to 0 (show all)
+          
+          // Load saved position or use default
+          if (settings.activityFeedPosition) {
+            try {
+              console.log('Loading saved activity feed position:', settings.activityFeedPosition);
+              const savedPosition = JSON.parse(settings.activityFeedPosition);
+              console.log('Parsed position:', savedPosition);
+              setActivityFeedPosition(savedPosition);
+            } catch (error) {
+              console.warn('Failed to parse saved activity feed position:', error);
+            }
+          } else {
+            console.log('No saved activity feed position found, using default');
+          }
 
-  // Authentication handlers
-  const handleLogin = (userData: any, token: string) => {
-    localStorage.setItem('authToken', token);
-    setCurrentUser(userData);
-    setIsAuthenticated(true);
-    
-    // Redirect to intended destination if available
-    if (intendedDestination) {
-      window.location.hash = intendedDestination;
-      setIntendedDestination(null); // Clear the intended destination
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('authToken');
-    setCurrentUser(null);
-    setIsAuthenticated(false);
-    setCurrentPage('kanban'); // Reset to kanban page
-    setMembers([]);
-    setBoards([]);
-    setColumns({});
-    setSelectedBoard(null);
-    window.location.hash = ''; // Clear URL hash
-    setSelectedMember(null);
-  };
-
-  const handleAuthError = () => {
-    // Clear all authentication data and reset state
-    localStorage.removeItem('authToken');
-    setCurrentUser(null);
-    setIsAuthenticated(false);
-    setCurrentPage('kanban');
-    setMembers([]);
-    setBoards([]);
-    setColumns({});
-    setSelectedBoard(null);
-    window.location.hash = ''; // Clear URL hash
-    setSelectedMember(null);
-  };
-
-  const handleProfileUpdated = async () => {
-    try {
-      // Refresh current user data to get updated avatar
-      const response = await api.getCurrentUser();
-      setCurrentUser(response.user);
-      
-      // Also refresh members to get updated display names
-      const loadedMembers = await api.getMembers();
-      setMembers(loadedMembers);
-      
-      // If current user is admin, also refresh admin data to show updated display names
-      if (response.user.roles?.includes('admin')) {
-        // Force a re-render of the admin component by updating a key
-        // This will cause the admin component to reload its data
-        setAdminRefreshKey(prev => prev + 1);
+          // Load saved dimensions or use default
+          if (settings.activityFeedWidth || settings.activityFeedHeight) {
+            const savedDimensions = {
+              width: settings.activityFeedWidth || 208,
+              height: settings.activityFeedHeight || (typeof window !== 'undefined' ? window.innerHeight - 200 : 400)
+            };
+            console.log('Loading saved activity feed dimensions:', savedDimensions);
+            setActivityFeedDimensions(savedDimensions);
+          } else {
+            console.log('No saved activity feed dimensions found, using default');
+          }
+        } catch (error) {
+          console.error('Failed to load user settings:', error);
+        }
       }
+    };
+    
+    loadUserSettings();
+  }, [currentUser?.id, systemSettings]);
+
+  // Load admin defaults for new user preferences
+  useEffect(() => {
+    const initializeAdminDefaults = async () => {
+      try {
+        await loadAdminDefaults();
+        console.log('Admin defaults loaded for new users');
+      } catch (error) {
+        console.warn('Failed to load admin defaults:', error);
+      }
+    };
+    
+    initializeAdminDefaults();
+  }, []); // Run once on mount
+
+  // Activity feed toggle handler
+  const handleActivityFeedToggle = (enabled: boolean) => {
+    setShowActivityFeed(enabled);
+  };
+
+  // Activity feed minimized state handler
+  const handleActivityFeedMinimizedChange = (minimized: boolean) => {
+    setActivityFeedMinimized(minimized);
+  };
+
+
+  // Activity feed mark as read handler
+  const handleActivityFeedMarkAsRead = async (activityId: number) => {
+    try {
+      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
+      setLastSeenActivityId(activityId);
     } catch (error) {
-      console.error('Failed to refresh profile data:', error);
+      console.error('Failed to mark activities as read:', error);
     }
   };
 
-  // Handle board selection with URL hash persistence
+  // Activity feed clear all handler
+  const handleActivityFeedClearAll = async (activityId: number) => {
+    try {
+      // Set both clear point and read point to the same value
+      // This ensures new activities after clear will show as unread
+      await updateActivityFeedPreference('clearActivityId', activityId, currentUser?.id || null);
+      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
+      setClearActivityId(activityId);
+      setLastSeenActivityId(activityId);
+    } catch (error) {
+      console.error('Failed to clear activities:', error);
+    }
+  };
+  
+  // Data polling for real-time collaboration
+  const { isPolling, lastPollTime } = useDataPolling({
+    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
+    selectedBoard,
+    currentBoards: boards,
+    currentMembers: members,
+    currentColumns: columns,
+    currentSiteSettings: siteSettings,
+    currentPriorities: availablePriorities,
+    currentActivities: activities,
+    includeSystem,
+    onBoardsUpdate: setBoards,
+    onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
+    onColumnsUpdate: setColumns,
+    onSiteSettingsUpdate: setSiteSettings,
+    onPrioritiesUpdate: setAvailablePriorities,
+    onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
+  });
+
+  // Restore selected task from preferences when tasks are loaded
+  useEffect(() => {
+    // Load fresh preferences to get the most up-to-date selectedTaskId
+    const freshPrefs = loadUserPreferences();
+    const savedTaskId = freshPrefs.selectedTaskId;
+    
+    if (savedTaskId && !selectedTask && Object.keys(columns).length > 0) {
+      // Find the task in all columns
+      for (const column of Object.values(columns)) {
+        const foundTask = column.tasks.find(task => task.id === savedTaskId);
+        if (foundTask) {
+          setSelectedTask(foundTask);
+          break;
+        }
+      }
+    }
+  }, [columns, selectedTask]);
+
+  // Update selectedTask when columns data is refreshed (for auto-refresh comments)
+  useEffect(() => {
+    if (selectedTask && Object.keys(columns).length > 0) {
+      // Find the updated version of the selected task in the refreshed data
+      for (const column of Object.values(columns)) {
+        const updatedTask = column.tasks.find(task => task.id === selectedTask.id);
+        if (updatedTask) {
+          // Only update if the task data has actually changed
+          if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
+            console.log('🔄 Auto-updating selectedTask with fresh data from polling', {
+              taskId: updatedTask.id,
+              commentCount: updatedTask.comments?.length || 0
+            });
+            setSelectedTask(updatedTask);
+          }
+          break;
+        }
+      }
+    }
+  }, [columns]); // Remove selectedTask from deps to avoid infinite loops
+
+
+  // Mock socket object for compatibility with existing UI (removed unused variable)
+
+
+
+  // Handle board selection with URL hash persistence and user preference saving
   const handleBoardSelection = (boardId: string) => {
     setSelectedBoard(boardId);
     window.location.hash = boardId;
+    // Save the selected board to user preferences for future sessions
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
   };
 
-  // Custom collision detection that prioritizes empty columns over tasks
-  const customCollisionDetection = (args: any) => {
-    // If we're dragging a column, use normal collision detection but filter for columns only
-    if (draggedColumn) {
-      const defaultCollisions = closestCorners(args);
+  // Invite user handler
+  const handleInviteUser = async (email: string) => {
+    try {
+      // Generate names from email (before @ symbol)
+      const emailPrefix = email.split('@')[0];
+      const nameParts = emailPrefix.split(/[._-]/);
       
-      // Filter to only include column collisions (not tasks)
-      const columnCollisions = defaultCollisions.filter((collision: any) => {
-        const id = collision.id;
-        // Check if this ID corresponds to a column (not a task)
-        return Object.values(columns).some(col => col.id === id);
+      // Capitalize first letter of each part
+      const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
+      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : '';
+      
+      // Generate a temporary password (user will change it during activation)
+      const tempPassword = crypto.randomUUID().substring(0, 12);
+      
+      await createUser({
+        email,
+        password: tempPassword,
+        firstName,
+        lastName,
+        role: 'user'
       });
-      
-
-      
-      return columnCollisions.length > 0 ? columnCollisions : defaultCollisions;
+      // Refresh members list to show the new user
+      await handleRefreshData();
+    } catch (error) {
+      console.error('Failed to invite user:', error);
+      throw error;
     }
-    
-    // If we're dragging a task, check for empty column prioritization
-    if (draggedTask) {
-      // Get all possible collisions
-      const defaultCollisions = closestCorners(args);
-      const pointerCollisions = pointerWithin(args);
-      
-      // Check if any pointer collisions are empty columns from different source
-      const emptyColumnCollisions = pointerCollisions.filter((collision: any) => {
-        const columnId = collision.id;
-        const column = Object.values(columns).find(col => col.id === columnId);
-        // Only prioritize if it's an empty column AND from a different source column
-        return column && column.tasks.length === 0 && draggedTask.columnId !== columnId;
-      });
-      
-      // If we found empty column collisions, prioritize them
-      if (emptyColumnCollisions.length > 0) {
-        return emptyColumnCollisions;
+  };
+
+  // Header event handlers
+  const handlePageChange = (page: 'kanban' | 'admin' | 'test') => {
+    setCurrentPage(page);
+    if (page === 'kanban') {
+      // If there was a previously selected board, restore it
+      if (selectedBoard) {
+        window.location.hash = `kanban#${selectedBoard}`;
+      } else {
+        window.location.hash = 'kanban';
       }
+    } else {
+      window.location.hash = 'admin';
+    }
+  };
+
+  const handleRefreshData = async () => {
+    await refreshBoardData();
+  };
+
+  // Task linking handlers
+  const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
+    console.log('🔗 handleStartLinking called:', {
+      taskTicket: task.ticket,
+      taskId: task.id,
+      startPosition
+    });
+    setIsLinkingMode(true);
+    setLinkingSourceTask(task);
+    setLinkingLine({
+      startX: startPosition.x,
+      startY: startPosition.y,
+      endX: startPosition.x,
+      endY: startPosition.y
+    });
+    console.log('✅ Linking mode activated');
+  };
+
+  const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
+    if (linkingLine) {
+      setLinkingLine({
+        ...linkingLine,
+        endX: endPosition.x,
+        endY: endPosition.y
+      });
+    }
+  };
+
+  const handleFinishLinking = async (targetTask: Task | null, relationshipType: 'parent' | 'child' | 'related' = 'parent') => {
+    console.log('🔗 handleFinishLinking called:', { 
+      linkingSourceTask: linkingSourceTask?.ticket, 
+      targetTask: targetTask?.ticket, 
+      relationshipType 
+    });
+    
+    if (linkingSourceTask && targetTask && linkingSourceTask.id !== targetTask.id) {
+      try {
+        console.log('🚀 Making API call to create relationship...');
+        const token = localStorage.getItem('authToken');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        
+        const response = await fetch(`/api/tasks/${linkingSourceTask.id}/relationships`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            relationship: relationshipType,
+            toTaskId: targetTask.id
+          })
+        });
+        
+        console.log('📡 API Response status:', response.status);
+        
+        if (!response.ok) {
+          let errorMessage = 'Failed to create task relationship';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+          } catch (parseError) {
+            // If JSON parsing fails, try text
+            try {
+              const errorText = await response.text();
+              errorMessage = errorText || errorMessage;
+            } catch (textError) {
+              // Keep default message
+            }
+          }
+          
+          console.error('❌ API Error response:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorMessage
+          });
+          throw new Error(errorMessage);
+        }
+        
+        const result = await response.json();
+        console.log('✅ API Success result:', result);
+        console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
+        
+        // Set success feedback message
+        setLinkingFeedbackMessage(`${linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
+      } catch (error) {
+        console.error('❌ Error creating task relationship:', error);
+        // Set specific error feedback message
+        const errorMessage = error instanceof Error ? error.message : 'Failed to create task relationship';
+        setLinkingFeedbackMessage(errorMessage);
+      }
+    } else {
+      console.log('⚠️ Relationship creation skipped:', {
+        hasSource: !!linkingSourceTask,
+        hasTarget: !!targetTask,
+        sameTask: linkingSourceTask?.id === targetTask?.id
+      });
       
-      // Otherwise use default collisions for task moves
-      return defaultCollisions;
+      // Set cancellation feedback message
+      setLinkingFeedbackMessage('Task link cancelled');
     }
     
-    // Fallback to normal collision detection
-    return closestCorners(args);
+    // Reset linking state (but keep feedback message visible)
+    console.log('🔄 Resetting linking state...');
+    setIsLinkingMode(false);
+    setLinkingSourceTask(null);
+    setLinkingLine(null);
+    
+    // Clear feedback message after 3 seconds
+    setTimeout(() => {
+      setLinkingFeedbackMessage(null);
+    }, 3000);
   };
+
+  const handleCancelLinking = () => {
+    setIsLinkingMode(false);
+    setLinkingSourceTask(null);
+    setLinkingLine(null);
+    setLinkingFeedbackMessage('Task link cancelled');
+    
+    // Clear feedback message after 3 seconds
+    setTimeout(() => {
+      setLinkingFeedbackMessage(null);
+    }, 3000);
+  };
+
+  // Hover highlighting handlers
+  // When user hovers over a link tool button, highlight all related tasks with color-coded borders:
+  // - Green: Parent tasks (tasks that this one depends on)
+  // - Purple: Child tasks (tasks that depend on this one)  
+  // - Yellow: Related tasks (loosely connected tasks)
+  const handleLinkToolHover = async (task: Task) => {
+    setHoveredLinkTask(task);
+    
+    // Load relationships for this task if not already loaded
+    if (!taskRelationships[task.id]) {
+      try {
+        const relationships = await api.get(`/tasks/${task.id}/relationships`);
+        setTaskRelationships(prev => ({
+          ...prev,
+          [task.id]: relationships.data || []
+        }));
+      } catch (error) {
+        console.error('Failed to load task relationships for hover:', error);
+      }
+    }
+  };
+
+  const handleLinkToolHoverEnd = () => {
+    setHoveredLinkTask(null);
+  };
+
+  // Helper function to check if a task is related to the hovered task
+  const getTaskRelationshipType = (taskId: string): 'parent' | 'child' | 'related' | null => {
+    if (!hoveredLinkTask || !taskRelationships[hoveredLinkTask.id]) return null;
+    
+    const relationships = taskRelationships[hoveredLinkTask.id];
+    
+    // Check if the task is a parent of the hovered task
+    const parentRel = relationships.find(rel => 
+      rel.relationship === 'child' && 
+      rel.task_id === hoveredLinkTask.id && 
+      rel.to_task_id === taskId
+    );
+    if (parentRel) return 'parent';
+    
+    // Check if the task is a child of the hovered task
+    const childRel = relationships.find(rel => 
+      rel.relationship === 'parent' && 
+      rel.task_id === hoveredLinkTask.id && 
+      rel.to_task_id === taskId
+    );
+    if (childRel) return 'child';
+    
+    // Check if the task has a 'related' relationship
+    const relatedRel = relationships.find(rel => 
+      rel.relationship === 'related' && 
+      ((rel.task_id === hoveredLinkTask.id && rel.to_task_id === taskId) ||
+       (rel.task_id === taskId && rel.to_task_id === hoveredLinkTask.id))
+    );
+    if (relatedRel) return 'related';
+    
+    return null;
+  };
+
+  // Use the extracted collision detection function
+  const collisionDetection = (args: any) => customCollisionDetection(args, draggedColumn, draggedTask, columns);
 
   // DnD sensors for both columns and tasks - optimized for smooth UX
   const sensors = useSensors(
     useSensor(PointerSensor, {
+      // Make drag activation very permissive for better UX
       activationConstraint: {
-        distance: 3, // Back to 3px for responsive drag start
+        distance: 1, // Very low threshold
       },
     }),
     useSensor(KeyboardSensor, {
@@ -267,275 +777,255 @@ export default function App() {
     })
   );
 
-  // Check authentication on app load
-  useEffect(() => {
-    const token = localStorage.getItem('authToken');
-    if (token) {
-      // Verify token and get current user
-      api.getCurrentUser()
-        .then(response => {
-          setCurrentUser(response.user);
-          setIsAuthenticated(true);
-        })
-        .catch(() => {
-          // Clear all authentication data on error
-          localStorage.removeItem('authToken');
-          setIsAuthenticated(false);
-          setCurrentUser(null);
-          // Reset to kanban page to avoid admin page issues
-          setCurrentPage('kanban');
-        });
-    }
-  }, []);
 
-  // Load site settings
-  useEffect(() => {
-    const loadSiteSettings = async () => {
-      try {
-        const settings = await api.getPublicSettings();
-        setSiteSettings(settings);
-      } catch (error) {
-        console.error('Failed to load site settings:', error);
-      }
-    };
-    
-    loadSiteSettings();
-  }, []);
-
-  // Check if default admin account exists
-  useEffect(() => {
-    const checkDefaultAdmin = async () => {
-      try {
-        // Check if default admin account exists using dedicated endpoint
-        const response = await fetch('/api/auth/check-default-admin');
-        
-        if (response.ok) {
-          const data = await response.json();
-          setHasDefaultAdmin(data.exists);
-        } else {
-          // If we can't check, assume it exists for safety
-          setHasDefaultAdmin(true);
-        }
-      } catch (error) {
-        // Network or other errors - assume it exists for safety
-        console.warn('Could not check default admin status, assuming exists for safety:', error);
-        setHasDefaultAdmin(true);
-      }
-    };
-    
-    checkDefaultAdmin();
-  }, []);
 
   // Handle authentication state changes
   useEffect(() => {
     // Only change page if we're definitely not authenticated (not during auth check)
     // Don't change page during the initial auth check when isAuthenticated is false
-    if (!isAuthenticated && currentPage === 'admin' && !localStorage.getItem('authToken')) {
-      // Store the intended destination before redirecting to login
-      const currentHash = window.location.hash;
-      if (currentHash) {
-        setIntendedDestination(currentHash);
-      }
+    if (!isAuthenticated && (currentPage === 'admin' || currentPage === 'test') && !localStorage.getItem('authToken')) {
       setCurrentPage('kanban');
     }
   }, [isAuthenticated, currentPage]);
 
-  // Handle URL hash changes with PROPER ROUTING
+  // Load user-specific preferences when authenticated
   useEffect(() => {
-    const handleHashChange = () => {
-      const fullHash = window.location.hash;
-      const hash = fullHash.replace('#', '');
+    if (isAuthenticated && currentUser?.id) {
+      const userSpecificPrefs = loadUserPreferences(currentUser.id);
       
-      // Store intended destination if user is not authenticated
-      if (!isAuthenticated && fullHash && fullHash !== '#login') {
-        setIntendedDestination(fullHash);
+      // Update all preference-based state with user-specific values
+      setSelectedMembers(userSpecificPrefs.selectedMembers);
+      setIncludeAssignees(userSpecificPrefs.includeAssignees);
+      setIncludeWatchers(userSpecificPrefs.includeWatchers);
+      setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
+      setIncludeRequesters(userSpecificPrefs.includeRequesters);
+      console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
+      setIncludeSystem(userSpecificPrefs.includeSystem);
+      setTaskViewMode(userSpecificPrefs.taskViewMode);
+      setViewMode(userSpecificPrefs.viewMode);
+      setIsSearchActive(userSpecificPrefs.isSearchActive);
+      setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
+      setSearchFilters(userSpecificPrefs.searchFilters);
+      
+      // Set initial selected board with preference fallback
+      if (!selectedBoard) {
+        const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
+        if (initialBoard) {
+          setSelectedBoard(initialBoard);
+        }
+      }
+    }
+  }, [isAuthenticated, currentUser?.id, selectedBoard]);
+
+  // CENTRALIZED ROUTING HANDLER - Single source of truth
+  useEffect(() => {
+    const handleRouting = () => {
+      // Check for task route first (handles /task/#TASK-00001 and /project/#PROJ-00001/#TASK-00001)
+      const taskRoute = parseTaskRoute();
+      
+      if (taskRoute.isTaskRoute && taskRoute.taskId) {
+        if (currentPage !== 'task') {
+          setCurrentPage('task');
+        }
+        return;
       }
       
-      // Parse the hash to determine routing
-      const routeParts = hash.split('#');
-      const mainRoute = routeParts[0];
-      const subRoute = routeParts[1];
+      // Check for project route (handles /project/#PROJ-00001)
+      const projectRoute = parseProjectRoute();
+      if (projectRoute.isProjectRoute && projectRoute.projectId && boards.length > 0) {
+        const board = findBoardByProjectId(boards, projectRoute.projectId);
+        if (board) {
+          // Redirect to the board using standard routing
+          const newHash = `#kanban#${board.id}`;
+          if (window.location.hash !== newHash) {
+            window.location.hash = newHash;
+            return; // Let the hash change trigger the next routing cycle
+          }
+        } else {
+          // Project ID not found - redirect to kanban with error or message
+          console.warn(`Project ${projectRoute.projectId} not found`);
+          setCurrentPage('kanban');
+          setSelectedBoard(null);
+          window.history.replaceState(null, '', '#kanban');
+          return;
+        }
+      }
       
-      // Handle main page routing
-      if (['kanban', 'admin'].includes(mainRoute)) {
-        if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin');
+      // Standard hash-based routing
+      const route = parseUrlHash(window.location.hash);
+      
+      // Debug to server console
+      fetch('/api/debug/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message: '🔍 Route parsing', 
+          data: { hash: window.location.hash, route } 
+        })
+      }).catch(() => {}); // Silent fail
+      
+      // 1. Handle page routing
+      if (route.isPage) {
+        if (route.mainRoute !== currentPage) {
+          setCurrentPage(route.mainRoute as 'kanban' | 'admin' | 'task' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account');
         }
         
-        // Handle admin sub-routes
-        if (mainRoute === 'admin' && subRoute) {
-          const validAdminTabs = ['users', 'site-settings', 'sso'];
-          if (validAdminTabs.includes(subRoute)) {
-            // The Admin component will handle this via its own hash handling
+        // Handle password reset token
+        if (route.mainRoute === 'reset-password') {
+          const token = route.queryParams.get('token');
+          if (token) {
+            setResetToken(token);
           }
+        }
+        
+        // Handle account activation token and email
+        if (route.mainRoute === 'activate-account') {
+          const token = route.queryParams.get('token');
+          const email = route.queryParams.get('email');
+          
+          // Debug to server console
+          fetch('/api/debug/log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              message: '🔍 Activation route detected', 
+              data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
+            })
+          }).catch(() => {});
+          
+          if (token && email) {
+            setActivationToken(token);
+            setActivationEmail(email);
+            
+            // Debug success to server console
+            fetch('/api/debug/log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: '✅ Activation token and email set', 
+                data: { token: token.substring(0, 10) + '...', email } 
+              })
+            }).catch(() => {});
+          } else {
+            // Debug failure to server console
+            fetch('/api/debug/log', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                message: '❌ Missing activation token or email', 
+                data: { hasToken: !!token, hasEmail: !!email } 
+              })
+            }).catch(() => {});
+          }
+          
+          // Mark activation parsing as complete
+          setActivationParsed(true);
         }
         
         // Handle kanban board sub-routes
-        if (mainRoute === 'kanban' && subRoute) {
-          // Check if this is a valid board ID
-          if (boards.length > 0) {
-            const board = boards.find(b => b.id === subRoute);
-            if (board) {
-              setSelectedBoard(board.id);
-            } else {
-              setSelectedBoard(null);
-            }
-          }
+        if (route.mainRoute === 'kanban' && route.subRoute && boards.length > 0) {
+          const board = boards.find(b => b.id === route.subRoute);
+          setSelectedBoard(board ? board.id : null);
         }
-      } else if (mainRoute && boards.length > 0) {
-        // Check if this is a valid board ID
-        const board = boards.find(b => b.id === mainRoute);
+        
+      } else if (route.isBoardId && boards.length > 0) {
+        // 2. Handle direct board access (legacy format)
+        const board = boards.find(b => b.id === route.mainRoute);
         if (board) {
+          setCurrentPage('kanban');
           setSelectedBoard(board.id);
         } else {
+          // Invalid board ID - redirect to kanban
           setCurrentPage('kanban');
           setSelectedBoard(null);
         }
-      } else if (mainRoute) {
-        // Unknown route, redirect to kanban page
+        
+      } else if (route.mainRoute) {
+        // 3. Handle unknown routes
         setCurrentPage('kanban');
         setSelectedBoard(null);
       }
     };
 
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    // Handle both hash changes and initial load
+    handleRouting();
+    window.addEventListener('hashchange', handleRouting);
+    return () => window.removeEventListener('hashchange', handleRouting);
   }, [currentPage, boards, isAuthenticated]);
 
-  // Handle initial routing when app loads
+  // AUTO-BOARD-SELECTION LOGIC - Clean and predictable with user preference support
   useEffect(() => {
-    const hash = window.location.hash.replace('#', '');
-    
-    if (hash) {
-      // Parse the initial hash to determine routing
-      const routeParts = hash.split('#');
-      const mainRoute = routeParts[0];
-      const subRoute = routeParts[1];
+    // Only auto-select if:
+    // 1. We're on kanban page
+    // 2. No board is currently selected
+    // 3. We have boards available
+    // 4. We're not on pages that should skip auto-selection
+    // 5. Not during board creation (to avoid race conditions)
+    // 6. User is authenticated (so we can access preferences)
+    // 7. No intended destination (don't override redirect after login)
+    // 8. Not just redirected (prevent overriding intended destination redirect)
+    if (
+      currentPage === 'kanban' && 
+      !selectedBoard && 
+      boards.length > 0 && 
+      !boardCreationPause &&
+      !shouldSkipAutoBoardSelection(currentPage) &&
+      isAuthenticated && currentUser?.id &&
+      !intendedDestination &&
+      !justRedirected
+    ) {
+      // Try to use the user's last selected board if it exists in current boards
+      const userPrefs = loadUserPreferences(currentUser.id);
+      const lastBoard = userPrefs.lastSelectedBoard;
       
-      // Handle main page routing
-      if (['kanban', 'admin'].includes(mainRoute)) {
-        if (mainRoute !== currentPage) {
-          setCurrentPage(mainRoute as 'kanban' | 'admin');
-        }
-        
-        // Handle admin sub-routes
-        if (mainRoute === 'admin' && subRoute) {
-          const validAdminTabs = ['users', 'site-settings', 'sso'];
-          if (validAdminTabs.includes(subRoute)) {
-            // The Admin component will handle this via its own hash handling
-          }
-        }
-        
-        // Handle kanban board sub-routes
-        if (mainRoute === 'kanban' && subRoute) {
-          // Check if this is a valid board ID
-          if (boards.length > 0) {
-            const board = boards.find(b => b.id === subRoute);
-            if (board) {
-              setSelectedBoard(board.id);
-            } else {
-              setSelectedBoard(null);
-            }
-          }
-        }
-      } else if (mainRoute && boards.length > 0) {
-        // Check if this is a valid board ID
-        const board = boards.find(b => b.id === mainRoute);
-        if (board) {
-          setSelectedBoard(board.id);
-        } else {
-          setCurrentPage('kanban');
-          setSelectedBoard(null);
-        }
-      } else if (mainRoute) {
-        // Unknown route, redirect to kanban page
-        setCurrentPage('kanban');
-        setSelectedBoard(null);
-      }
-    } else {
-      // No hash - apply the simple rule: select default board if on kanban page
-      if (currentPage === 'kanban' && !selectedBoard && boards.length > 0) {
-        handleBoardSelection(boards[0].id);
-      }
-    }
-  }, [boards, currentPage, selectedBoard]);
-
-  // Ensure default board is selected when on kanban page with no specific board
-  useEffect(() => {
-    if (currentPage === 'kanban' && boards.length > 0 && !selectedBoard) {
-      // If no board is selected and we're on kanban page, select the first board
-      const firstBoard = boards[0];
-      if (firstBoard) {
-        setSelectedBoard(firstBoard.id);
-        // Update URL to reflect the selected board
-        window.location.hash = `#kanban#${firstBoard.id}`;
-      }
-    }
-  }, [currentPage, boards, selectedBoard]);
-
-  // Handle Google OAuth callback with token - MUST run before routing
-  useEffect(() => {
-    // Check for token in URL hash (for OAuth callback)
-    const hash = window.location.hash;
-    if (hash.includes('token=')) {
-      const tokenMatch = hash.match(/token=([^&]+)/);
-      const errorMatch = hash.match(/error=([^&]+)/);
-      const newUserMatch = hash.match(/newUser=([^&]+)/);
+      let boardToSelect: string | null = null;
       
-      if (tokenMatch) {
-        const token = tokenMatch[1];
-        const isNewUser = newUserMatch && newUserMatch[1] === 'true';
-
-        
-        // Store the token
-        localStorage.setItem('authToken', token);
-        
-        // Clear the URL hash and let the routing logic handle the destination
-        // The routing will automatically select the first board if no specific board is specified
-        window.location.hash = '#kanban';
-        
-        // Force authentication check by triggering a state change
-        // This ensures the auth effect runs with the new token
-        setIsAuthenticated(false);
-        
-        // Fetch current user data immediately after OAuth
-        api.getCurrentUser()
-          .then(response => {
-            setCurrentUser(response.user);
-            setIsAuthenticated(true);
-          })
-          .catch(error => {
-            // Fallback: just set authenticated and let the auth effect handle it
-            setIsAuthenticated(true);
-          });
-        
-        return; // Exit early to prevent routing conflicts
-      } else if (errorMatch) {
-        // Handle OAuth errors
-        console.error('OAuth error:', errorMatch[1]);
-        // Clear the URL hash and redirect to login
-        window.location.hash = '#login';
-        return; // Exit early to prevent routing conflicts
+      if (lastBoard && boards.some(board => board.id === lastBoard)) {
+        // User's preferred board exists, use it
+        boardToSelect = lastBoard;
+      } else {
+        // Fall back to first board
+        boardToSelect = boards[0]?.id || null;
+      }
+      
+      if (boardToSelect) {
+        setSelectedBoard(boardToSelect);
+        // Update URL to reflect the selected board (only if no hash exists)
+        if (!window.location.hash || window.location.hash === '#') {
+          window.location.hash = `#kanban#${boardToSelect}`;
+        }
       }
     }
-  }, []);
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected]);
+
+
+
 
   // Load initial data
   useEffect(() => {
-    if (!isAuthenticated) return;
+    // Only load data if authenticated and user preferences have been loaded (currentUser.id exists)
+    if (!isAuthenticated || !currentUser?.id) return;
     
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-          const [loadedMembers, loadedBoards] = await Promise.all([
-            api.getMembers(),
-            api.getBoards()
-          ]);
+          console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
+          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+            getMembers(includeSystem),
+          getBoards(),
+          getAllPriorities(),
+          getAllTags(),
+          api.get('/settings')
+        ]);
           
 
           
+          console.log(`📋 Loaded ${loadedMembers.length} members with includeSystem=${includeSystem}`);
           setMembers(loadedMembers);
           setBoards(loadedBoards);
+          setAvailablePriorities(loadedPriorities || []);
+          setAvailableTags(loadedTags || []);
+          setSystemSettings(settingsResponse.data || {});
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -554,7 +1044,7 @@ export default function App() {
     };
 
     loadInitialData();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, includeSystem, currentUser?.id]);
 
   // Update columns when selected board changes
   useEffect(() => {
@@ -573,24 +1063,40 @@ export default function App() {
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
-    if (members.length > 0 && currentUser && !selectedMember) {
-      // Default to current user if they exist in members, otherwise first member
-      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+    if (members.length > 0 && currentUser && selectedMembers.length === 0) {
+      // Default to ALL members for better first-time experience
+      const allMemberIds = members.map(m => m.id);
+      console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
+      setSelectedMembers(allMemberIds);
+      updateCurrentUserPreference('selectedMembers', allMemberIds);
+    }
+  }, [members, currentUser, selectedMembers]);
+
+  // Watch for copied task to trigger animation
+  useEffect(() => {
+    if (pendingCopyAnimation && columns[pendingCopyAnimation.columnId]) {
+      const columnTasks = columns[pendingCopyAnimation.columnId]?.tasks || [];
+      const copiedTask = columnTasks.find(t => 
+        t.title === pendingCopyAnimation.title && 
+        t.id !== pendingCopyAnimation.originalTaskId && // Not the original task
+        Math.abs((t.position || 0) - pendingCopyAnimation.originalPosition) <= 1 // Within 1 position of original
+      );
       
-      if (currentUserMember) {
-        setSelectedMember(currentUserMember.id);
-      } else {
-        setSelectedMember(members[0].id);
+      if (copiedTask) {
+        setAnimateCopiedTaskId(copiedTask.id);
+        setPendingCopyAnimation(null); // Clear pending animation
+        // Clear the animation trigger after a brief delay
+        setTimeout(() => setAnimateCopiedTaskId(null), 100);
       }
     }
-  }, [members, currentUser, selectedMember]);
+  }, [columns, pendingCopyAnimation]);
 
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = async () => {
     try {
-      const loadedBoards = await api.getBoards();
+      const loadedBoards = await getBoards();
       setBoards(loadedBoards);
       
       if (loadedBoards.length > 0) {
@@ -613,7 +1119,7 @@ export default function App() {
 
   const fetchQueryLogs = async () => {
     try {
-      const logs = await api.getQueryLogs();
+      const logs = await getQueryLogs();
       setQueryLogs(logs);
     } catch (error) {
       console.error('Failed to fetch query logs:', error);
@@ -624,25 +1130,42 @@ export default function App() {
 
   const handleAddBoard = async () => {
     try {
+      // Pause polling to prevent race conditions
+      setBoardCreationPause(true);
+      
+      // Generate a unique numbered board name
+      const generateUniqueBoardName = (): string => {
+        let counter = 1;
+        let proposedName = `New Board ${counter}`;
+        
+        while (boards.some(board => board.title.toLowerCase() === proposedName.toLowerCase())) {
+          counter++;
+          proposedName = `New Board ${counter}`;
+        }
+        
+        return proposedName;
+      };
+      
       const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
-        title: 'New Board',
+        title: generateUniqueBoardName(),
         columns: {}
       };
 
       // Create the board first
-      const createdBoard = await api.createBoard(newBoard);
+      await createBoard(newBoard);
 
       // Create default columns for the new board
-      const columnPromises = DEFAULT_COLUMNS.map(async col => {
+      const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
         const column: Column = {
           id: `${col.id}-${boardId}`,
           title: col.title,
           tasks: [],
-          boardId: boardId
+          boardId: boardId,
+          position: index
         };
-        return api.createColumn(column);
+        return createColumn(column);
       });
 
       await Promise.all(columnPromises);
@@ -650,18 +1173,28 @@ export default function App() {
       // Refresh board data to get the complete structure
       await refreshBoardData();
       
-      // Set the new board as selected
+
+      
+      // Set the new board as selected and update URL
       setSelectedBoard(boardId);
+      window.location.hash = boardId;
       
       await fetchQueryLogs();
+      
+      // Resume polling after brief delay
+      setTimeout(() => {
+        setBoardCreationPause(false);
+      }, BOARD_CREATION_PAUSE_DURATION);
+      
     } catch (error) {
       console.error('Failed to add board:', error);
+      setBoardCreationPause(false); // Resume polling even on error
     }
   };
 
   const handleEditBoard = async (boardId: string, title: string) => {
     try {
-      await api.updateBoard(boardId, title);
+      await updateBoard(boardId, title);
       setBoards(prev => prev.map(b => 
         b.id === boardId ? { ...b, title } : b
       ));
@@ -675,7 +1208,7 @@ export default function App() {
     try {
       // Optimistic update - reorder boards immediately in frontend
       const oldIndex = boards.findIndex(board => board.id === boardId);
-      console.log('Board reorder:', { boardId, oldIndex, newPosition, boardsLength: boards.length });
+
       
       if (oldIndex !== -1 && oldIndex !== newPosition) {
         const newBoards = [...boards];
@@ -688,12 +1221,12 @@ export default function App() {
           position: index
         }));
         
-        console.log('Updated boards order:', updatedBoards.map(b => ({ id: b.id, title: b.title, position: b.position })));
+
         setBoards(updatedBoards);
       }
       
       // Update backend
-      await api.reorderBoards(boardId, newPosition);
+      await reorderBoards(boardId, newPosition);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to reorder boards:', error);
@@ -709,7 +1242,7 @@ export default function App() {
     }
 
     try {
-      await api.deleteBoard(boardId);
+      await deleteBoard(boardId);
       const newBoards = boards.filter(b => b.id !== boardId);
       setBoards(newBoards);
       
@@ -725,19 +1258,26 @@ export default function App() {
   };
 
   const handleAddTask = async (columnId: string) => {
-    if (!selectedMember || !selectedBoard) return;
-
+    if (!selectedBoard || !currentUser) return;
+    
+    // Always assign new tasks to the logged-in user, not the filtered selection
+    const currentUserMember = members.find(m => m.user_id === currentUser.id);
+    if (!currentUserMember) {
+      console.error('Current user not found in members list');
+      return;
+    }
+    
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
-      description: 'Task description',
-      memberId: selectedMember,
+      description: '',
+      memberId: currentUserMember.id,
       startDate: new Date().toISOString().split('T')[0],
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
-      priority: 'medium' as Priority,
-      requesterId: selectedMember,
+      priority: getDefaultPriorityName(), // Use frontend default priority
+      requesterId: currentUserMember.id,
       boardId: selectedBoard,
       comments: []
     };
@@ -754,23 +1294,47 @@ export default function App() {
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
-    
+
     try {
       await withLoading('tasks', async () => {
         // Let backend handle positioning and shifting
-        await api.createTaskAtTop(newTask);
-
+        await createTaskAtTop(newTask);
         
         // Refresh to get clean state from backend
         await refreshBoardData();
-
       });
+      
+      // Check if the new task would be filtered out and show warning
+      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive);
+      const wouldBeFilteredByMembers = (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) && (() => {
+        // Check if task matches member filtering criteria
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+          return false; // No member filters active
+        }
+        
+        const memberIds = new Set(selectedMembers);
+        let hasMatchingMember = false;
+        
+        if (includeAssignees && newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
+        if (includeRequesters && newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
+        if (includeWatchers && newTask.watchers && Array.isArray(newTask.watchers) && newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+        if (includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators) && newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+        
+        return !hasMatchingMember; // Return true if would be filtered out
+      })();
+      
+      if (wouldBeFilteredBySearch || wouldBeFilteredByMembers) {
+        setColumnWarnings(prev => ({
+          ...prev,
+          [columnId]: 'Task created but hidden by active filters.\n**Tip:** Click "All" to see all tasks and disable relevant filters.'
+        }));
+      }
       
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
 
-      }, 1000);
+      }, TASK_CREATION_PAUSE_DURATION);
       
     } catch (error) {
       console.error('Failed to create task at top:', error);
@@ -796,23 +1360,13 @@ export default function App() {
     
     try {
       await withLoading('tasks', async () => {
-        await api.updateTask(task);
+        await updateTask(task);
         await fetchQueryLogs();
       });
     } catch (error) {
       // Rollback on error
       setColumns(previousColumns);
       console.error('Failed to update task:', error);
-    }
-  };
-
-  const handleRemoveTask = async (taskId: string) => {
-    try {
-      await api.deleteTask(taskId);
-      await refreshBoardData(); // Refresh to ensure consistent state
-      await fetchQueryLogs();
-    } catch (error) {
-      console.error('Failed to remove task:', error);
     }
   };
 
@@ -827,10 +1381,14 @@ export default function App() {
     // New task will be inserted right after the original (position + 0.5 as intermediate)
     const newPosition = originalPosition + 0.5;
     
+    // Generate unique title for tracking
+    const copyTitle = `${task.title} (Copy)`;
+    const tempId = generateUUID();
+    
     const newTask: Task = {
       ...task,
-      id: generateUUID(),
-      title: `${task.title} (Copy)`,
+      id: tempId,
+      title: copyTitle,
       comments: [],
       position: newPosition
     };
@@ -857,7 +1415,7 @@ export default function App() {
     try {
       await withLoading('tasks', async () => {
         // Create task with specific position
-        await api.createTask(newTask);
+        await createTask(newTask);
             
         // Now fix all positions to be sequential
         const allColumnTasks = [...columnTasks, newTask]
@@ -866,7 +1424,7 @@ export default function App() {
         // Update all positions to be sequential: 0, 1, 2, 3...
         const updatePromises = allColumnTasks.map((t, index) => {
           if (t.position !== index) {
-            return api.updateTask({ ...t, position: index });
+            return updateTask({ ...t, position: index });
           }
           return Promise.resolve();
         }).filter(p => p);
@@ -878,17 +1436,47 @@ export default function App() {
 
       });
       
+      // Set up pending animation - useEffect will trigger when columns update
+      setPendingCopyAnimation({
+        title: copyTitle,
+        columnId: task.columnId,
+        originalPosition,
+        originalTaskId: task.id
+      });
+      
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
 
-      }, 1000);
+      }, TASK_CREATION_PAUSE_DURATION);
       
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
       await refreshBoardData();
+    }
+  };
+
+  const handleTagAdd = (taskId: string) => async (tagId: string) => {
+    try {
+      const numericTagId = parseInt(tagId);
+      await addTagToTask(taskId, numericTagId);
+      // Refresh the task data to show the new tag
+      await refreshBoardData();
+    } catch (error) {
+      console.error('Failed to add tag to task:', error);
+    }
+  };
+
+  const handleTagRemove = (taskId: string) => async (tagId: string) => {
+    try {
+      const numericTagId = parseInt(tagId);
+      await removeTagFromTask(taskId, numericTagId);
+      // Refresh the task data to remove the tag
+      await refreshBoardData();
+    } catch (error) {
+      console.error('Failed to remove tag from task:', error);
     }
   };
 
@@ -899,28 +1487,86 @@ export default function App() {
 
   // Old handleTaskDragEnd removed - replaced with unified version below
 
-  const handleTaskDragOver = (e: React.DragEvent, columnId: string, index: number) => {
+  const handleTaskDragOver = (e: React.DragEvent) => {
     e.preventDefault();
   };
 
   // Legacy wrapper for old HTML5 drag (still used by some components)
-  const handleTaskDrop = async (columnId: string, index: number) => {
+  const handleTaskDrop = async () => {
+  };
+
+  // Show both mouse pointer and square icon with mouse precisely centered
+  const setCustomTaskCursor = (task: Task, members: TeamMember[]) => {
+    // Create a 32x32 SVG with a blue square and a white arrow pointer in the center
+    const svg = `
+      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+        <!-- Blue square background -->
+        <rect width="24" height="24" x="4" y="4" fill="#3B82F6" stroke="#FFFFFF" stroke-width="2" rx="3"/>
+        <!-- White mouse pointer arrow in the exact center -->
+        <path d="M 16 12 L 16 20 L 18 18 L 20 20 L 22 18 L 18 16 L 20 16 Z" fill="#FFFFFF" stroke="#000000" stroke-width="0.5"/>
+      </svg>
+    `;
+    
+    // Convert SVG to data URL
+    const dataURL = `data:image/svg+xml;base64,${btoa(svg)}`;
+    
+    // Set cursor with hotspot at exact center (16,16) where the arrow tip is
+    document.body.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
+    document.documentElement.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
+    
+    dragStartedRef.current = true;
+    console.log('🎯 Mouse + square cursor set for task:', task.title);
+  };
+  
+  // Clear custom cursor
+  const clearCustomCursor = () => {
+    if (dragStartedRef.current) {
+      // Remove direct styles
+      document.body.style.removeProperty('cursor');
+      document.documentElement.style.removeProperty('cursor');
+      
+      dragStartedRef.current = false;
+      console.log('🎯 Custom cursor cleared');
+    }
   };
 
   // Unified task drag handler for both vertical and horizontal moves
   const handleUnifiedTaskDragEnd = (event: DragEndEvent) => {
+    // Clean up hover timeout and reset state
+    if (boardTabHoverTimeoutRef.current) {
+      clearTimeout(boardTabHoverTimeoutRef.current);
+      boardTabHoverTimeoutRef.current = null;
+    }
+    setIsHoveringBoardTab(false);
+    
+    // Clear drag preview
+    setDragPreview(null);
+    
     // Set cooldown and clear dragged task state
     setDraggedTask(null);
     setDragCooldown(true);
     
     setTimeout(() => {
       setDragCooldown(false);
-      }, 5000); // Increased to 5 seconds to ensure DB updates complete
+        }, DRAG_COOLDOWN_DURATION);
     const { active, over } = event;
     
     
     if (!over) {
         return;
+    }
+
+    // Check if dropping on a board tab for cross-board move
+    if (over.data?.current?.type === 'board') {
+      const targetBoardId = over.data.current.boardId;
+      console.log('🎯 Board drop detected:', { targetBoardId, selectedBoard, overData: over.data.current });
+      if (targetBoardId && targetBoardId !== selectedBoard) {
+        console.log('🚀 Cross-board move initiated:', active.id, '→', targetBoardId);
+        handleTaskDropOnBoard(active.id as string, targetBoardId);
+        return;
+      } else {
+        console.log('❌ Cross-board move blocked:', { targetBoardId, selectedBoard, same: targetBoardId === selectedBoard });
+      }
     }
 
     // Find the dragged task
@@ -953,25 +1599,37 @@ export default function App() {
         if (targetTask) {
           targetColumnId = colId;
           
-          // For cross-column moves, calculate the insertion index based on target column's task order
           if (sourceColumnId !== colId) {
-            // Get target column tasks sorted by position
+            // Cross-column move: insert at target task position
             const targetColumnTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
             const targetTaskIndex = targetColumnTasks.findIndex(t => t.id === over.id);
-            targetIndex = targetTaskIndex; // Insert at the target task's index position
+            targetIndex = targetTaskIndex;
+          } else {
+            // Same column: use array-based reordering like Test page
+            const sourceTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+            const oldIndex = sourceTasks.findIndex(t => t.id === draggedTaskId);
+            const newIndex = sourceTasks.findIndex(t => t.id === over.id);
             
-                  } else {
-            // Same column reordering - use the target task's actual position
-            targetIndex = targetTask.position || 0;
-            
-                  }
+            if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+              // Use simple array move logic for same-column reordering
+              handleSameColumnReorder(draggedTask, sourceColumnId, newIndex);
+            }
+            return; // Exit early for same-column moves
+          }
         }
       });
-    } else if (over.data?.current?.type === 'column') {
-      // Dropping on column (add to end)
+    } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-top' || over.data?.current?.type === 'column-bottom') {
+      // Dropping on column area
       targetColumnId = over.data.current.columnId as string;
       const columnTasks = columns[targetColumnId]?.tasks || [];
-      targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
+      
+      if (over.data?.current?.type === 'column-top') {
+        // Drop at position 0 (very top)
+        targetIndex = 0;
+      } else {
+        // Drop at end for regular column or column-bottom
+        targetIndex = columnTasks.length > 0 ? Math.max(...columnTasks.map(t => t.position || 0)) + 1 : 0;
+      }
       
       } else {
       // Fallback: try using over.id as column ID
@@ -1005,6 +1663,8 @@ export default function App() {
         targetIndex = dragPreview.insertIndex;
           }
     }
+
+
 
 
     // Handle the move
@@ -1047,19 +1707,56 @@ export default function App() {
     // Let backend handle all position calculations
     try {
       // Send the target position (not array index) to backend
-      await api.reorderTasks(task.id, newIndex, columnId);
+      await reorderTasks(task.id, newIndex, columnId);
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
-          }, 2000);
+          }, DRAG_COOLDOWN_DURATION);
       
       // Refresh to get clean state from backend
       await refreshBoardData();
     } catch (error) {
       console.error('❌ Failed to reorder tasks:', error);
       await refreshBoardData();
+    }
+  };
+
+  // Handle moving task to different column via ListView dropdown or drag & drop
+  const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string, position?: number) => {
+    // Find the task and its current column
+    let sourceTask: Task | null = null;
+    let sourceColumnId: string | null = null;
+    
+    Object.entries(columns).forEach(([colId, column]) => {
+      const task = column.tasks.find(t => t.id === taskId);
+      if (task) {
+        sourceTask = task;
+        sourceColumnId = colId;
+      }
+    });
+
+    if (!sourceTask || !sourceColumnId) {
+      return; // Task not found
+    }
+
+    const targetColumn = columns[targetColumnId];
+    if (!targetColumn) {
+      console.error('Target column not found:', targetColumnId);
+      return;
+    }
+
+    // If no position specified, move to end of target column
+    const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
+    
+    // Check if this is a same-column reorder or cross-column move
+    if (sourceColumnId === targetColumnId) {
+      // Same column - use reorder logic
+      await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
+    } else {
+      // Different columns - use cross-column move logic
+    await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
@@ -1074,9 +1771,13 @@ export default function App() {
     const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
     
 
+    
+
 
     // Remove from source
     const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
+    
+
     
     // Insert into target at the specified index position
     const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
@@ -1085,8 +1786,10 @@ export default function App() {
 
 
     // Update positions for both columns - use simple sequential indices
-    const updatedSourceTasks = sourceTasks.map((task, idx) => ({
-      ...task,
+    // First sort the source tasks by their current position, then assign new sequential positions
+    const sortedSourceTasks = [...sourceTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+    const updatedSourceTasks = sortedSourceTasks.map((task, idx) => ({
+        ...task,
       position: idx
     }));
     
@@ -1094,6 +1797,8 @@ export default function App() {
       ...task,
       position: idx
     }));
+
+
     
 
 
@@ -1119,16 +1824,16 @@ export default function App() {
       }
       
       // Step 1: Update the moved task to new column and position
-        await api.updateTask(finalMovedTask);
+        await updateTask(finalMovedTask);
         
       // Step 2: Update all source column tasks (sequential positions)
       for (const task of updatedSourceTasks) {
-        await api.updateTask(task);
+        await updateTask(task);
       }
         
       // Step 3: Update all target column tasks (except the moved one)
       for (const task of updatedTargetTasks.filter(t => t.id !== updatedTask.id)) {
-        await api.updateTask(task);
+        await updateTask(task);
       }
         
         
@@ -1142,7 +1847,7 @@ export default function App() {
 
   const handleEditColumn = async (columnId: string, title: string) => {
     try {
-      await api.updateColumn(columnId, title);
+      await updateColumn(columnId, title);
       setColumns(prev => ({
         ...prev,
         [columnId]: { ...prev[columnId], title }
@@ -1153,30 +1858,113 @@ export default function App() {
     }
   };
 
+  // Helper function to count tasks in a column
+  const getColumnTaskCount = (columnId: string): number => {
+    return columns[columnId]?.tasks?.length || 0;
+  };
+
+  // Show column delete confirmation (or delete immediately if no tasks)
   const handleRemoveColumn = async (columnId: string) => {
+    const taskCount = getColumnTaskCount(columnId);
+    console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
+    
+    if (taskCount === 0) {
+      // No tasks - delete immediately without confirmation
+      console.log(`🗑️ Deleting empty column immediately`);
+      await handleConfirmColumnDelete(columnId);
+    } else {
+      // Has tasks - show confirmation dialog
+      console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
+      console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
+      setShowColumnDeleteConfirm(columnId);
+    }
+  };
+
+  // Confirm column deletion
+  const handleConfirmColumnDelete = async (columnId: string) => {
+    console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
-      await api.deleteColumn(columnId);
+      await deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
       setColumns(remainingColumns);
+      setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to delete column:', error);
     }
   };
 
-  const handleAddColumn = async () => {
+  // Cancel column deletion
+  const handleCancelColumnDelete = () => {
+    console.log(`❌ Cancelling column deletion`);
+    setShowColumnDeleteConfirm(null);
+  };
+
+  // Handle cross-board task drop
+  const handleTaskDropOnBoard = async (taskId: string, targetBoardId: string) => {
+    try {
+      console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
+      await moveTaskToBoard(taskId, targetBoardId);
+      
+      // Refresh both boards to reflect the change
+      await refreshBoardData();
+      
+      // Show success message
+      console.log(`✅ Task moved successfully to ${targetBoardId}`);
+      
+    } catch (error) {
+      console.error('Failed to move task to board:', error);
+      // You could add a toast notification here
+    }
+  };
+
+  // Mini mode handlers (now unused - keeping for compatibility)
+  const handleTaskEnterMiniMode = () => {
+    // No-op - mini mode is now automatic
+  };
+
+  const handleTaskExitMiniMode = () => {
+    // No-op - mini mode is now automatic
+  };
+
+  // Always use mini mode when dragging tasks for simplicity
+  useEffect(() => {
+    // Set mini mode whenever we have a dragged task
+    setIsTaskMiniMode(!!draggedTask);
+    
+    // Only clear cursor if drag ends (draggedTask becomes null)
+    if (!draggedTask && dragStartedRef.current) {
+      clearCustomCursor();
+    }
+  }, [draggedTask]);
+
+  const handleAddColumn = async (afterColumnId: string) => {
     if (!selectedBoard) return;
+
+    // Generate auto-numbered column name
+    const existingColumnTitles = Object.values(columns).map(col => col.title);
+    let columnNumber = 1;
+    let newTitle = `New Column ${columnNumber}`;
+    while (existingColumnTitles.includes(newTitle)) {
+      columnNumber++;
+      newTitle = `New Column ${columnNumber}`;
+    }
+
+    // Get the position of the column we want to insert after
+    const afterColumn = columns[afterColumnId];
+    const afterPosition = afterColumn?.position || 0;
 
     const columnId = generateUUID();
     const newColumn: Column = {
       id: columnId,
-      title: 'New Column',
+      title: newTitle,
       tasks: [],
-      boardId: selectedBoard
+      boardId: selectedBoard,
+      position: afterPosition + 0.5 // Insert between current and next column
     };
 
     try {
-      const createdColumn = await api.createColumn(newColumn);
+      await createColumn(newColumn);
       await refreshBoardData(); // Refresh to ensure consistent state
       await fetchQueryLogs();
     } catch (error) {
@@ -1186,17 +1974,15 @@ export default function App() {
 
   const handleColumnDragStart = (event: DragStartEvent) => {
     const { active } = event;
-    setActiveColumnId(active.id as string);
     const draggedColumn = Object.values(columns).find(col => col.id === active.id);
     if (draggedColumn) {
       setDraggedColumn(draggedColumn);
-      }
+    }
   };
 
   const handleColumnDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     
-    setActiveColumnId(null);
     setDraggedColumn(null);
     
     if (!over || active.id === over.id || !selectedBoard) return;
@@ -1208,7 +1994,7 @@ export default function App() {
       
       if (oldIndex === -1 || newIndex === -1) return;
       
-      console.log(`Column reorder: ${active.id} from ${oldIndex} to ${newIndex}`);
+
       
       // Reorder columns using arrayMove
       const reorderedColumns = arrayMove(columnArray, oldIndex, newIndex);
@@ -1227,7 +2013,7 @@ export default function App() {
       setColumns(newColumnsObj);
       
       // Update database
-      await api.reorderColumns(active.id as string, newIndex, selectedBoard);
+      await reorderColumns(active.id as string, newIndex, selectedBoard);
       await fetchQueryLogs();
     } catch (error) {
       console.error('Failed to reorder columns:', error);
@@ -1238,303 +2024,569 @@ export default function App() {
 
   // Calculate grid columns based on number of columns
   const columnCount = Object.keys(columns).length;
-  const gridCols = columnCount <= 4 ? 4 : Math.min(6, columnCount);
-  const gridStyle: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: `repeat(${gridCols}, minmax(300px, 1fr))`,
-    gap: '1.5rem',
-    width: '100%',
-    overflowX: 'auto'
-  };
+  const gridStyle = calculateGridStyle(columnCount);
 
   const clearQueryLogs = async () => {
     setQueryLogs([]);
   };
 
-  // Get debug parameter from URL
-  const showDebug = new URLSearchParams(window.location.search).get('debug') === 'true';
 
-  // Keyboard shortcut for help (F1)
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'F1') {
-        event.preventDefault();
-        setShowHelpModal(true);
+
+  const handleToggleTaskViewMode = () => {
+    const modes: TaskViewMode[] = ['compact', 'shrink', 'expand'];
+    const currentIndex = modes.indexOf(taskViewMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    const newMode = modes[nextIndex];
+    
+    setTaskViewMode(newMode);
+    updateCurrentUserPreference('taskViewMode', newMode);
+  };
+
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    updateCurrentUserPreference('viewMode', mode);
+  };
+
+  const handleToggleSearch = () => {
+    const newValue = !isSearchActive;
+    setIsSearchActive(newValue);
+    updateCurrentUserPreference('isSearchActive', newValue);
+  };
+
+  const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
+    setSearchFilters(newFilters);
+    updateCurrentUserPreference('searchFilters', newFilters);
+  };
+
+  // Handle member toggle selection
+  const handleMemberToggle = (memberId: string) => {
+    const newSelectedMembers = selectedMembers.includes(memberId) 
+      ? selectedMembers.filter(id => id !== memberId)
+      : [...selectedMembers, memberId];
+    
+    setSelectedMembers(newSelectedMembers);
+    updateCurrentUserPreference('selectedMembers', newSelectedMembers);
+  };
+
+  // Handle clearing all member selections and reverting to current user
+  const handleClearMemberSelections = () => {
+    if (currentUser) {
+      // Find current user's member record
+      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+      if (currentUserMember) {
+        // Set selections to just the current user
+        setSelectedMembers([currentUserMember.id]);
+        updateCurrentUserPreference('selectedMembers', [currentUserMember.id]);
+      } else {
+        // Fallback: clear all selections
+        setSelectedMembers([]);
+        updateCurrentUserPreference('selectedMembers', []);
       }
+    } else {
+      // No current user, just clear all
+      setSelectedMembers([]);
+      updateCurrentUserPreference('selectedMembers', []);
+    }
+  };
+
+  // Handle selecting all members
+  // Handle dismissing column warnings
+  const handleDismissColumnWarning = (columnId: string) => {
+    setColumnWarnings(prev => {
+      const { [columnId]: removed, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const handleSelectAllMembers = () => {
+    if (isAllModeActive) {
+      // Currently in "All" mode, switch to "None" mode
+      // None mode: only assignees checkbox + current user selected
+      const currentUserMemberId = currentUser?.id ? 
+        members.find(m => m.user_id === currentUser.id)?.id : null;
+      
+      setSelectedMembers(currentUserMemberId ? [currentUserMemberId] : []);
+      setIncludeAssignees(true);
+      setIncludeWatchers(false);
+      setIncludeCollaborators(false);
+      setIncludeRequesters(false);
+      setIncludeSystem(false);
+      
+      updateCurrentUserPreference('selectedMembers', currentUserMemberId ? [currentUserMemberId] : []);
+      updateCurrentUserPreference('includeAssignees', true);
+      updateCurrentUserPreference('includeWatchers', false);
+      updateCurrentUserPreference('includeCollaborators', false);
+      updateCurrentUserPreference('includeRequesters', false);
+      updateCurrentUserPreference('includeSystem', false);
+    } else {
+      // Currently in "None" mode, switch to "All" mode
+    const allMemberIds = members.map(m => m.id);
+    setSelectedMembers(allMemberIds);
+    setIncludeAssignees(true);
+    setIncludeWatchers(true);
+    setIncludeCollaborators(true);
+    setIncludeRequesters(true);
+      
+      updateCurrentUserPreference('selectedMembers', allMemberIds);
+      updateCurrentUserPreference('includeAssignees', true);
+      updateCurrentUserPreference('includeWatchers', true);
+      updateCurrentUserPreference('includeCollaborators', true);
+      updateCurrentUserPreference('includeRequesters', true);
+    }
+  };
+
+  // Handle toggling filter options
+  const handleToggleAssignees = (include: boolean) => {
+    setIncludeAssignees(include);
+    updateCurrentUserPreference('includeAssignees', include);
+  };
+
+  const handleToggleWatchers = (include: boolean) => {
+    setIncludeWatchers(include);
+    updateCurrentUserPreference('includeWatchers', include);
+  };
+
+  const handleToggleCollaborators = (include: boolean) => {
+    setIncludeCollaborators(include);
+    updateCurrentUserPreference('includeCollaborators', include);
+  };
+
+  const handleToggleRequesters = (include: boolean) => {
+    setIncludeRequesters(include);
+    updateCurrentUserPreference('includeRequesters', include);
+  };
+
+  const handleToggleSystem = async (include: boolean) => {
+    console.log(`🔄 Toggling system user: ${include}`);
+    setIncludeSystem(include);
+    updateCurrentUserPreference('includeSystem', include);
+    
+    // Handle SYSTEM user selection logic without reloading members
+    if (include) {
+      // Checkbox ON: Auto-select SYSTEM user if not already selected
+      setSelectedMembers(prev => {
+        if (!prev.includes(SYSTEM_MEMBER_ID)) {
+          const newSelection = [...prev, SYSTEM_MEMBER_ID];
+          console.log(`✅ Auto-selecting SYSTEM user`);
+          updateCurrentUserPreference('selectedMembers', newSelection);
+          return newSelection;
+        }
+        return prev;
+      });
+    } else {
+      // Checkbox OFF: Auto-deselect SYSTEM user
+      setSelectedMembers(prev => {
+        const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
+        console.log(`❌ Auto-deselecting SYSTEM user`);
+        updateCurrentUserPreference('selectedMembers', newSelection);
+        return newSelection;
+      });
+    }
+    
+    // Let the data polling system handle the members refresh naturally
+    // This prevents the jarring immediate reload and flash
+  };
+
+  // Enhanced async filtering effect with watchers/collaborators/requesters support
+  useEffect(() => {
+    const performFiltering = async () => {
+      // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
+      const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+      
+
+      
+      if (!isFiltering) {
+
+        setFilteredColumns(columns);
+        return;
+      }
+
+      // Create custom filtering function that includes watchers/collaborators/requesters
+      const customFilterTasks = async (tasks: any[]) => {
+
+        
+        // If no members selected and no checkboxes enabled, return all tasks
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+
+          return tasks;
+        }
+        
+        const filteredTasks = [];
+        
+        for (const task of tasks) {
+          let includeTask = false;
+          // const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
+          // const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
+          
+
+          
+          // Check if task is assigned to selected members (only if assignees checkbox is enabled)
+          if (selectedMembers.length > 0 && includeAssignees) {
+            const isAssigned = selectedMembers.includes(task.memberId);
+            if (isAssigned) {
+              includeTask = true;
+
+            }
+          }
+          
+          // Check watchers if checkbox is enabled
+          if (!includeTask && includeWatchers && selectedMembers.length > 0) {
+            try {
+              const watchers = await getTaskWatchers(task.id);
+              if (watchers && watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
+                includeTask = true;
+              }
+        } catch (error) {
+              console.error('Error checking task watchers:', error);
+            }
+          }
+          
+          // Check collaborators if checkbox is enabled
+          if (!includeTask && includeCollaborators && selectedMembers.length > 0) {
+            try {
+              const collaborators = await getTaskCollaborators(task.id);
+              if (collaborators && collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
+                includeTask = true;
+              }
+            } catch (error) {
+              console.error('Error checking task collaborators:', error);
+            }
+          }
+          
+          // Check requesters if checkbox is enabled
+          if (!includeTask && includeRequesters && selectedMembers.length > 0 && task.requesterId && selectedMembers.includes(task.requesterId)) {
+            includeTask = true;
+
+          }
+          
+          
+          if (includeTask) {
+            filteredTasks.push(task);
+          }
+        }
+        
+
+        return filteredTasks;
+      };
+
+      // Create effective filters with member filtering 
+      const effectiveFilters = {
+        ...searchFilters,
+        selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
+      };
+
+
+
+      const filteredColumns: any = {};
+      
+      for (const [columnId, column] of Object.entries(columns)) {
+        let columnTasks = column.tasks;
+
+        
+        // Apply search filters first, but skip member filtering if we have checkboxes enabled
+        if (isSearchActive) {
+          // Create filters without member filtering if we have checkboxes enabled
+          const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
+            ...effectiveFilters,
+            selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
+          } : effectiveFilters;
+          
+          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members, boards);
+        }
+        
+        // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
+        if (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
+          columnTasks = await customFilterTasks(columnTasks);
+        }
+        
+        filteredColumns[columnId] = {
+          ...column,
+          tasks: columnTasks
+        };
+      }
+      
+      setFilteredColumns(filteredColumns);
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, []);
+    performFiltering();
+  }, [columns, searchFilters, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards]);
+
+  // Use filtered columns state
+  const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+  const getTaskCountForBoard = (board: Board) => {
+    // For the currently selected board, use the actual filtered columns data
+    // This ensures the count matches exactly what's displayed in ListView/Kanban
+    if (board.id === selectedBoard && filteredColumns) {
+      let totalCount = 0;
+      Object.values(filteredColumns).forEach(column => {
+        totalCount += column.tasks.length;
+      });
+      return totalCount;
+    }
+    
+    // For other boards, apply the same filtering logic used in performFiltering
+    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    
+    if (!isFiltering) {
+      // No filters active - return total count
+      let totalCount = 0;
+      Object.values(board.columns || {}).forEach(column => {
+        totalCount += column.tasks?.length || 0;
+      });
+      return totalCount;
+    }
+    
+    // Apply search filters using the utility function
+    let searchFilteredCount = getFilteredTaskCountForBoard(board, searchFilters, isSearchActive, members, boards);
+    
+    // If no member filtering is needed (no members selected AND no member-specific checkboxes enabled)
+    // OR if we're only doing search filtering (text, dates, tags, project/task identifiers)
+    const hasMemberFiltering = selectedMembers.length > 0 || 
+      (includeAssignees && selectedMembers.length > 0) || 
+      (includeWatchers && selectedMembers.length > 0) || 
+      (includeCollaborators && selectedMembers.length > 0) || 
+      (includeRequesters && selectedMembers.length > 0);
+    
+    if (!hasMemberFiltering) {
+      return searchFilteredCount;
+    }
+    
+    // Apply member filtering on top of search filtering
+    let totalCount = 0;
+    Object.values(board.columns || {}).forEach(column => {
+      if (!column.tasks || !Array.isArray(column.tasks)) return;
+      
+      const filteredTasks = column.tasks.filter(task => {
+        if (!task) return false;
+        
+        // First apply search filters using the same logic as performFiltering
+        if (isSearchActive) {
+          const searchFiltered = filterTasks([task], searchFilters, isSearchActive, members, boards);
+          if (searchFiltered.length === 0) return false;
+        }
+        
+        // Then apply member filtering
+        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+          return true;
+        }
+        
+        const memberIds = new Set(selectedMembers);
+        let hasMatchingMember = false;
+        
+        if (includeAssignees && task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
+        if (includeRequesters && task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
+        if (includeWatchers && task.watchers && Array.isArray(task.watchers) && task.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+        if (includeCollaborators && task.collaborators && Array.isArray(task.collaborators) && task.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+        
+        return hasMatchingMember;
+      });
+      
+      totalCount += filteredTasks.length;
+    });
+    
+    return totalCount;
+  };
+
+
+
+  // Handle password reset pages (accessible without authentication)
+  if (currentPage === 'forgot-password') {
+    return <ForgotPassword onBackToLogin={() => window.location.hash = '#kanban'} />;
+  }
+  
+  if (currentPage === 'reset-password') {
+  return (
+      <ResetPassword 
+        token={resetToken}
+        onBackToLogin={() => window.location.hash = '#kanban'}
+        onResetSuccess={() => window.location.hash = '#reset-success'}
+        onAutoLogin={(user, token) => {
+          // Automatically log the user in
+          handleLogin(user, token);
+          // Small delay to allow auth state to propagate, then navigate
+          setTimeout(() => {
+            window.location.hash = '#kanban';
+          }, 100);
+        }}
+      />
+    );
+  }
+  
+  if (currentPage === 'reset-success') {
+    return <ResetPasswordSuccess onBackToLogin={() => window.location.hash = '#kanban'} />;
+  }
+  
+  if (currentPage === 'activate-account') {
+    return (
+      <ActivateAccount 
+        token={activationToken}
+        email={activationEmail}
+        onBackToLogin={() => window.location.hash = '#kanban'}
+        isLoading={!activationParsed}
+        onAutoLogin={(user, token) => {
+          // Automatically log the user in
+          handleLogin(user, token);
+          // Small delay to allow auth state to propagate, then navigate
+          setTimeout(() => {
+            window.location.hash = '#kanban';
+          }, 100);
+        }}
+      />
+    );
+  }
+
+  // Handle task page (requires authentication)
+  if (currentPage === 'task') {
+    if (!isAuthenticated) {
+      return (
+        <Login
+          siteSettings={siteSettings}
+          onLogin={handleLogin}
+          intendedDestination={intendedDestination}
+          onForgotPassword={() => {
+            localStorage.removeItem('authToken');
+            window.location.hash = '#forgot-password';
+          }}
+        />
+      );
+    }
+    
+    return (
+      <>
+        <TaskPage 
+          currentUser={currentUser}
+          siteSettings={siteSettings}
+          members={members}
+          isPolling={isPolling}
+          lastPollTime={lastPollTime}
+          onLogout={handleLogout}
+          onPageChange={handlePageChange}
+          onRefresh={handleRefreshData}
+          onInviteUser={handleInviteUser}
+        />
+      </>
+    );
+  }
 
   // Show login page if not authenticated
   if (!isAuthenticated) {
-    return <Login onLogin={handleLogin} hasDefaultAdmin={hasDefaultAdmin ?? undefined} />;
+    return (
+      <Login 
+        onLogin={handleLogin} 
+        siteSettings={siteSettings}
+        hasDefaultAdmin={hasDefaultAdmin ?? undefined}
+        intendedDestination={intendedDestination}
+        onForgotPassword={() => {
+          // Clear auth token to prevent conflicts during password reset
+          localStorage.removeItem('authToken');
+          window.location.hash = '#forgot-password';
+          // setCurrentPage will be called by the routing handler
+        }}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
-      <header className="bg-white shadow-sm border-b border-gray-100">
-        <div className="max-w-[1400px] mx-auto px-6 py-2.5 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <a href={siteSettings.SITE_URL || '#'} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">
-              {siteSettings.SITE_NAME || 'Easy Kanban'}
-            </a>
-          </div>
-          <div className="flex items-center gap-3">
-            {currentUser && (
-              <>
-                <div className="flex items-center gap-2">
-                  {/* User Avatar */}
-                  <div className="relative group">
-                    <button
-                      className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                      onClick={() => setShowProfileModal(true)}
-                      title="Profile Settings"
-                    >
-                      {currentUser?.avatarUrl ? (
-                        <img
-                          src={currentUser.avatarUrl}
-                          alt="Profile"
-                          className="h-8 w-8 rounded-full object-cover"
-                        />
-                      ) : (
-                        <div 
-                          className="h-8 w-8 rounded-full flex items-center justify-center"
-                          style={{ 
-                            backgroundColor: members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4' 
-                          }}
-                        >
-                          <span className="text-sm font-medium text-white">
-                            {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
-                          </span>
-                        </div>
-                      )}
-                    </button>
-                    
-                    {/* Profile Dropdown */}
-                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-md shadow-lg z-50 border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                      <div className="py-1">
-                        <button
-                          onClick={() => setShowProfileModal(true)}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <User size={16} />
-                          Profile
-                        </button>
-                        <button
-                          onClick={handleLogout}
-                          className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <LogOut size={16} />
-                          Logout
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Navigation */}
-                <div className="flex items-center gap-2 ml-4">
-                  {currentUser.roles?.includes('admin') && (
-                    <button
-                      onClick={() => {
-                        setCurrentPage('kanban');
-                        // If there was a previously selected board, restore it
-                        if (selectedBoard) {
-                          window.location.hash = `kanban#${selectedBoard}`;
-                        } else {
-                          window.location.hash = 'kanban';
-                        }
-                      }}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        currentPage === 'kanban'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                        }`}
-                    >
-                      Kanban
-                    </button>
-                  )}
-                  {currentUser.roles?.includes('admin') && (
-                    <button
-                      onClick={() => {
-                        setCurrentPage('admin');
-                        window.location.hash = 'admin';
-                      }}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                        currentPage === 'admin'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                      }`}
-                    >
-                      Admin
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-            {/* User presence indicator removed (no presence tracking with polling) */}
-            
-            {/* Simple polling status indicator */}
-            <div 
-              className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs ${
-                isPolling 
-                  ? 'bg-blue-100 text-blue-700' 
-                  : 'bg-gray-100 text-gray-500'
-              }`}
-              title={
-                isPolling 
-                  ? 'Auto-refresh active (3s interval)'
-                  : 'Auto-refresh paused'
-              }
-            >
-              <div className={`w-2 h-2 rounded-full ${
-                isPolling ? 'bg-blue-500' : 'bg-gray-400'
-              }`} />
-              <span className="hidden sm:inline">
-                {isPolling ? 'Auto-refresh' : 'Manual'}
-              </span>
-              {lastPollTime && (
-                <span className="text-xs opacity-60 hidden md:inline">
-                  {lastPollTime.toLocaleTimeString([], { 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit' 
-                  })}
-                </span>
-              )}
-            </div>
-            
-            {/* Manual refresh button */}
-            <button
-              onClick={async () => {
-                            try {
-                  await refreshBoardData();
-                  setLastPollTime(new Date());
-                } catch (error) {
-                  console.error('Manual refresh failed:', error);
-                }
-              }}
-              className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
-              title="Refresh data now"
-            >
-              <RefreshCw size={16} />
-            </button>
-            
-            {/* Fix positions button (temporary) */}
-            {currentUser?.roles?.includes('admin') && (
-              <button
-                onClick={async () => {
-                                try {
-                    // Fix positions for all columns
-                    const updatePromises: Promise<any>[] = [];
-                    
-                    Object.entries(columns).forEach(([columnId, column]) => {
-                      const sortedTasks = [...column.tasks].sort((a, b) => {
-                        // Sort by current order in UI (creation time as fallback)
-                        return (a.position || 0) - (b.position || 0);
-                      });
-                      
-                      sortedTasks.forEach((task, index) => {
-                        const newPosition = index; // Simple sequential: 0, 1, 2, 3...
-                        if (task.position !== newPosition) {
-                                                updatePromises.push(api.updateTask({ ...task, position: newPosition }));
-                        }
-                      });
-                    });
-                    
-                    await Promise.all(updatePromises);
-                                    await refreshBoardData();
-                  } catch (error) {
-                    console.error('❌ Failed to fix positions:', error);
-                  }
-                }}
-                className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded text-xs hover:bg-yellow-200"
-                title="Fix task positions (admin only)"
-              >
-                Fix Positions
-              </button>
-            )}
-            
-            <button
-              onClick={() => setShowHelpModal(true)}
-              className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
-              title="Help (F1)"
-            >
-              <HelpCircle size={20} />
-            </button>
-            <a
-              href="https://github.com/drenlia/easy-kanban"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <Github size={20} />
-            </a>
-          </div>
-        </div>
-      </header>
+      
+      {/* New Enhanced Drag & Drop System */}
+      <SimpleDragDropManager
+        currentBoardId={selectedBoard || ''}
+        columns={filteredColumns}
+        boards={boards}
+        onTaskMove={handleMoveTaskToColumn}
+        onTaskMoveToDifferentBoard={handleTaskDropOnBoard}
+        onColumnReorder={async (columnId: string, newPosition: number) => {
+          try {
+            await reorderColumns(columnId, newPosition, selectedBoard || '');
+            await fetchQueryLogs();
+            await refreshBoardData();
+          } catch (error) {
+            console.error('Failed to reorder column:', error);
+            await refreshBoardData();
+          }
+        }}
+        onDraggedTaskChange={setDraggedTask}
+        onDraggedColumnChange={setDraggedColumn}
+        onBoardTabHover={setIsHoveringBoardTab}
+        onDragPreviewChange={setDragPreview}
+      >
+      <Header
+        currentUser={currentUser}
+        siteSettings={siteSettings}
+        currentPage={currentPage}
+        isPolling={isPolling}
+        lastPollTime={lastPollTime}
+        members={members}
+        onProfileClick={() => setShowProfileModal(true)}
+        onLogout={handleLogout}
+        onPageChange={handlePageChange}
+        onRefresh={handleRefreshData}
+        onHelpClick={() => setShowHelpModal(true)}
+        onInviteUser={handleInviteUser}
+      />
 
-      <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''}`}>
-        <div className="max-w-[1400px] mx-auto">
-          {currentPage === 'admin' ? (
-            <Admin 
-              key={adminRefreshKey}
+      <MainLayout
+        currentPage={currentPage}
               currentUser={currentUser} 
+        selectedTask={selectedTask}
+        adminRefreshKey={adminRefreshKey}
+        siteSettings={siteSettings}
               onUsersChanged={async () => {
                 try {
-                  const loadedMembers = await api.getMembers();
+                  const loadedMembers = await getMembers(includeSystem);
                   setMembers(loadedMembers);
                 } catch (error) {
-                  console.error('Failed to refresh members:', error);
+                  console.error('❌ Failed to refresh members:', error);
                 }
               }}
-              onSettingsChanged={async () => {
-                try {
-                  const settings = await api.getSettings();
-                  setSiteSettings(settings);
-                } catch (error) {
-                  console.error('Failed to refresh site settings:', error);
-                }
-              }}
-            />
-          ) : (
-            <>
-              {loading.general ? (
-                <LoadingSpinner size="large" className="mt-20" />
-              ) : (
-                <>
-                  <TeamMembers
+              onSettingsChanged={refreshSiteSettings}
+        loading={loading}
                     members={members}
-                    selectedMember={selectedMember}
-                    onSelectMember={setSelectedMember}
-                  />
+        boards={boards}
+        selectedBoard={selectedBoard}
+        columns={columns}
+                    selectedMembers={selectedMembers}
+        draggedTask={draggedTask}
+        draggedColumn={draggedColumn}
+        dragPreview={dragPreview}
+                      availablePriorities={availablePriorities}
+        availableTags={availableTags}
+        taskViewMode={taskViewMode}
+        isSearchActive={isSearchActive}
+        searchFilters={searchFilters}
+        filteredColumns={filteredColumns}
+        activeFilters={activeFilters}
+        gridStyle={gridStyle}
+        sensors={sensors}
+        collisionDetection={collisionDetection}
 
-                  {/* Board Tabs */}
-                  <BoardTabs
-                    boards={boards}
-                    selectedBoard={selectedBoard}
+        onSelectMember={handleMemberToggle}
+        onClearMemberSelections={handleClearMemberSelections}
+        onSelectAllMembers={handleSelectAllMembers}
+        isAllModeActive={isAllModeActive}
+        includeAssignees={includeAssignees}
+        includeWatchers={includeWatchers}
+        includeCollaborators={includeCollaborators}
+        includeRequesters={includeRequesters}
+        includeSystem={includeSystem}
+        onToggleAssignees={handleToggleAssignees}
+        onToggleWatchers={handleToggleWatchers}
+        onToggleCollaborators={handleToggleCollaborators}
+        onToggleRequesters={handleToggleRequesters}
+        onToggleSystem={handleToggleSystem}
+        onToggleTaskViewMode={handleToggleTaskViewMode}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+        onToggleSearch={handleToggleSearch}
+        onSearchFiltersChange={handleSearchFiltersChange}
                     onSelectBoard={handleBoardSelection}
                     onAddBoard={handleAddBoard}
                     onEditBoard={handleEditBoard}
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
-                    isAdmin={currentUser?.roles?.includes('admin')}
-                  />
-
-                  {selectedBoard && (
-                    <div className="relative">
-                      {(loading.tasks || loading.boards || loading.columns) && (
-                        <div className="absolute inset-0 bg-white bg-opacity-50 z-10 flex items-center justify-center">
-                          <LoadingSpinner size="medium" />
-                        </div>
-                      )}
-                      {/* Unified Drag and Drop Context */}
-                        <DndContext
-                        sensors={sensors}
-                        collisionDetection={customCollisionDetection}
+        getTaskCountForBoard={getTaskCountForBoard}
                         onDragStart={(event) => {
                           // Clear any previous drag preview
                           setDragPreview(null);
@@ -1554,82 +2606,6 @@ export default function App() {
                             });
                           }
                         }}
-                        onDragOver={(event) => {
-                          const { active, over } = event;
-                          
-                          if (!over || !draggedTask) return;
-                          
-                          // Only show preview for task drags
-                          const draggedTaskId = active.id as string;
-                          
-                          // Find source column
-                          let sourceColumnId: string | null = null;
-                          Object.entries(columns).forEach(([colId, column]) => {
-                            if (column.tasks.find(t => t.id === draggedTaskId)) {
-                              sourceColumnId = colId;
-                            }
-                          });
-                          
-                          if (!sourceColumnId) return;
-                          
-                          let targetColumnId: string | undefined;
-                          let insertIndex: number | undefined;
-                          
-                          // Determine target column and insertion index
-                          if (over.data?.current?.type === 'task') {
-                            // Hovering over another task
-                            Object.entries(columns).forEach(([colId, column]) => {
-                              const targetTask = column.tasks.find(t => t.id === over.id);
-                              if (targetTask) {
-                                targetColumnId = colId;
-                                if (sourceColumnId !== colId) {
-                                  // Cross-column: calculate insertion index
-                                  const sortedTasks = [...column.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-                                  const targetTaskIndex = sortedTasks.findIndex(t => t.id === over.id);
-                                  
-                                  // If it's the last task in the column, offer both "before" and "after" options
-                                  // For now, always insert before the target task
-                                  insertIndex = targetTaskIndex;
-                                  
-                                                              }
-                              }
-                            });
-                          } else if (over.data?.current?.type === 'column' || over.data?.current?.type === 'column-bottom') {
-                            // Hovering over column area (empty space) or bottom drop zone - drop at end
-                            targetColumnId = over.data.current.columnId as string;
-                            if (sourceColumnId !== targetColumnId) {
-                              const columnTasks = columns[targetColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      } else {
-                                                      }
-                          } else {
-                            // Fallback: check if we're over a column by ID or bottom area
-                            const overId = over.id as string;
-                            let possibleColumnId = overId;
-                            
-                            // Handle bottom drop zone IDs (e.g., "column-id-bottom")
-                            if (overId.endsWith('-bottom')) {
-                              possibleColumnId = overId.replace('-bottom', '');
-                                                      }
-                            
-                            if (columns[possibleColumnId] && sourceColumnId !== possibleColumnId) {
-                              targetColumnId = possibleColumnId;  // Use the EXTRACTED column ID, not the original
-                              const columnTasks = columns[possibleColumnId]?.tasks || [];
-                              insertIndex = columnTasks.length;
-                                                      } else {
-                                                      }
-                          }
-                          
-                          // Update drag preview state for cross-column moves only
-                          if (targetColumnId && sourceColumnId !== targetColumnId && insertIndex !== undefined) {
-                            setDragPreview({
-                              targetColumnId,
-                              insertIndex
-                            });
-                          } else {
-                            setDragPreview(null);
-                          }
-                        }}
                         onDragEnd={(event) => {
                           // Clear drag preview
                           setDragPreview(null);
@@ -1644,132 +2620,83 @@ export default function App() {
                             handleUnifiedTaskDragEnd(event);
                           }
                         }}
-                      >
-                        {/* Admin view with column drag and drop */}
-                        {currentUser?.roles?.includes('admin') ? (
-                          <SortableContext
-                            items={Object.values(columns)
-                              .sort((a, b) => (a.position || 0) - (b.position || 0))
-                              .map(col => col.id)}
-                            strategy={rectSortingStrategy}
-                          >
-                            <div style={gridStyle}>
-                              {Object.values(columns)
-                                .sort((a, b) => (a.position || 0) - (b.position || 0))
-                                .map(column => (
-                                  <KanbanColumn
-                                    key={column.id}
-                                    column={column}
-                                    members={members}
-                                    selectedMember={selectedMember}
-                                    draggedTask={draggedTask}
-                                    draggedColumn={draggedColumn}
-                                    dragPreview={dragPreview}
                                     onAddTask={handleAddTask}
-                                    onRemoveTask={handleRemoveTask}
+                                    columnWarnings={columnWarnings}
+                                    onDismissColumnWarning={handleDismissColumnWarning}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
+                                    onRemoveTask={handleRemoveTask}
+                                    onTagAdd={handleTagAdd}
+                                    onTagRemove={handleTagRemove}
+                                    onMoveTaskToColumn={handleMoveTaskToColumn}
+                                    animateCopiedTaskId={animateCopiedTaskId}
                                     onEditColumn={handleEditColumn}
                                     onRemoveColumn={handleRemoveColumn}
                                     onAddColumn={handleAddColumn}
+                                    showColumnDeleteConfirm={showColumnDeleteConfirm}
+                                    onConfirmColumnDelete={handleConfirmColumnDelete}
+                                    onCancelColumnDelete={handleCancelColumnDelete}
+                                    getColumnTaskCount={getColumnTaskCount}
                                     onTaskDragStart={handleTaskDragStart}
-                                    onTaskDragEnd={() => {}}
                                     onTaskDragOver={handleTaskDragOver}
                                     onTaskDrop={handleTaskDrop}
-                                    onSelectTask={setSelectedTask}
-                                    isAdmin={true}
-                                  />
-                                ))}
-                            </div>
-                          </SortableContext>
-                        ) : (
-                          /* Regular user view */
-                          <>
-                        <div style={gridStyle}>
-                          {Object.values(columns)
-                            .sort((a, b) => (a.position || 0) - (b.position || 0))
-                            .map(column => (
-                              <KanbanColumn
-                                key={column.id}
-                                column={column}
-                                members={members}
-                                selectedMember={selectedMember}
-                                draggedTask={draggedTask}
-                                draggedColumn={draggedColumn}
-                                dragPreview={dragPreview}
-                                onAddTask={handleAddTask}
-                                onRemoveTask={handleRemoveTask}
-                                onEditTask={handleEditTask}
-                                onCopyTask={handleCopyTask}
-                                onEditColumn={handleEditColumn}
-                                onRemoveColumn={handleRemoveColumn}
-                                onAddColumn={handleAddColumn}
-                                onTaskDragStart={handleTaskDragStart}
-                                    onTaskDragEnd={() => {}}
-                                onTaskDragOver={handleTaskDragOver}
-                                onTaskDrop={handleTaskDrop}
-                                onSelectTask={setSelectedTask}
-                                isAdmin={false}
-                              />
-                            ))}
-                        </div>
-                          </>
-                        )}
-                        
-                        <DragOverlay 
-                          dropAnimation={null}
-                        >
-                          {draggedColumn ? (
-                            <div className="bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] opacity-90 scale-105 shadow-2xl transform rotate-3 ring-2 ring-blue-400">
-                              <div className="flex items-center justify-between mb-4">
-                                <div className="text-lg font-semibold text-gray-700">{draggedColumn.title}</div>
-                              </div>
-                              <div className="flex-1 min-h-[100px] space-y-2">
-                                {draggedColumn.tasks.map(task => (
-                                  <div key={task.id} className="bg-white p-3 rounded border shadow-sm">
-                                    <div className="text-sm text-gray-600">{task.title}</div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          ) : draggedTask ? (
-                            /* Render exact replica of the original TaskCard */
-                            <div style={{ transform: 'rotate(3deg) scale(1.05)', opacity: 0.95 }}>
-                              <TaskCard
-                                task={draggedTask}
-                                member={members.find(m => m.id === draggedTask.memberId)!}
-                                members={members}
-                                onRemove={() => {}}
-                                onEdit={() => {}}
-                                onCopy={() => {}}
-                                onDragStart={() => {}}
-                                onDragEnd={() => {}}
-                                onSelect={() => {}}
-                                isDragDisabled={true}
-                              />
-                            </div>
-                          ) : null}
-                        </DragOverlay>
-                      </DndContext>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+                                    onSelectTask={handleSelectTask}
+                                    onTaskDropOnBoard={handleTaskDropOnBoard}
+                                    isTaskMiniMode={isTaskMiniMode}
+                                    onTaskEnterMiniMode={handleTaskEnterMiniMode}
+                                    onTaskExitMiniMode={handleTaskExitMiniMode}
+                                    
+                                    // Task linking props
+                                    isLinkingMode={isLinkingMode}
+                                    linkingSourceTask={linkingSourceTask}
+                                    linkingLine={linkingLine}
+                                    onStartLinking={handleStartLinking}
+                                    onUpdateLinkingLine={handleUpdateLinkingLine}
+                                    onFinishLinking={handleFinishLinking}
+                                    onCancelLinking={handleCancelLinking}
+                                    
+                                    // Hover highlighting props
+                                    hoveredLinkTask={hoveredLinkTask}
+                                    onLinkToolHover={handleLinkToolHover}
+                                    onLinkToolHoverEnd={handleLinkToolHoverEnd}
+                                    getTaskRelationshipType={getTaskRelationshipType}
+      />
 
-      {selectedTask && (
-        <div className="fixed top-0 right-0 h-full">
-          <TaskDetails
-            task={selectedTask}
-            members={members}
-            onClose={() => setSelectedTask(null)}
-            onUpdate={handleEditTask}
-          />
-        </div>
-      )}
+      <ModalManager
+        selectedTask={selectedTask}
+        taskDetailsOptions={taskDetailsOptions}
+                                members={members}
+        onTaskClose={() => handleSelectTask(null)}
+        onTaskUpdate={handleEditTask}
+        showHelpModal={showHelpModal}
+        onHelpClose={() => setShowHelpModal(false)}
+        showProfileModal={showProfileModal}
+        currentUser={currentUser}
+        onProfileClose={() => {
+          setShowProfileModal(false);
+          setIsProfileBeingEdited(false); // Reset editing state when modal closes
+        }}
+        onProfileUpdated={handleProfileUpdated}
+        isProfileBeingEdited={isProfileBeingEdited}
+        onProfileEditingChange={setIsProfileBeingEdited}
+        onActivityFeedToggle={handleActivityFeedToggle}
+        onAccountDeleted={() => {
+          // Account deleted successfully - handle logout and redirect
+          handleLogout();
+        }}
+        siteSettings={siteSettings}
+        boards={boards}
+      />
+
+      {/* Task Delete Confirmation Popup */}
+      <TaskDeleteConfirmation
+        isOpen={!!taskDeleteConfirmation.confirmationTask}
+        task={taskDeleteConfirmation.confirmationTask}
+        onConfirm={taskDeleteConfirmation.confirmDelete}
+        onCancel={taskDeleteConfirmation.cancelDelete}
+        isDeleting={taskDeleteConfirmation.isDeleting}
+        position={taskDeleteConfirmation.confirmationPosition}
+      />
 
       {showDebug && (
         <DebugPanel
@@ -1778,21 +2705,41 @@ export default function App() {
         />
       )}
 
-      <HelpModal
-        isOpen={showHelpModal}
-        onClose={() => setShowHelpModal(false)}
+      {/* Enhanced Drag Overlay */}
+      <SimpleDragOverlay 
+        draggedTask={draggedTask}
+        members={members}
+        isHoveringBoardTab={isHoveringBoardTab}
+      />
+      </SimpleDragDropManager>
+
+      {/* Activity Feed */}
+      <ActivityFeed
+        isVisible={showActivityFeed}
+        onClose={() => setShowActivityFeed(false)}
+        isMinimized={activityFeedMinimized}
+        onMinimizedChange={handleActivityFeedMinimizedChange}
+        activities={activities}
+        lastSeenActivityId={lastSeenActivityId}
+        clearActivityId={clearActivityId}
+        onMarkAsRead={handleActivityFeedMarkAsRead}
+        onClearAll={handleActivityFeedClearAll}
+        position={activityFeedPosition}
+        onPositionChange={setActivityFeedPosition}
+        dimensions={activityFeedDimensions}
+        onDimensionsChange={setActivityFeedDimensions}
+        userId={currentUser?.id || null}
       />
 
-      <Profile 
-        isOpen={showProfileModal} 
-        onClose={() => setShowProfileModal(false)} 
-        currentUser={{
-          ...currentUser,
-          displayName: members.find(m => m.user_id === currentUser?.id)?.name || `${currentUser?.firstName} ${currentUser?.lastName}`,
-          // Ensure authProvider is explicitly set
-          authProvider: currentUser?.authProvider || 'local'
-        }}
-        onProfileUpdated={handleProfileUpdated}
+      {/* Task Linking Overlay */}
+      <TaskLinkingOverlay
+        isLinkingMode={isLinkingMode}
+        linkingSourceTask={linkingSourceTask}
+        linkingLine={linkingLine}
+        feedbackMessage={linkingFeedbackMessage}
+        onUpdateLinkingLine={handleUpdateLinkingLine}
+        onFinishLinking={handleFinishLinking}
+        onCancelLinking={handleCancelLinking}
       />
     </div>
   );
