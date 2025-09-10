@@ -64,6 +64,12 @@ interface TaskCardProps {
   linkingSourceTask?: Task | null;
   onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
   onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
+  
+  // Hover highlighting props
+  hoveredLinkTask?: Task | null;
+  onLinkToolHover?: (task: Task) => void;
+  onLinkToolHoverEnd?: () => void;
+  getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
 }
 
 
@@ -93,7 +99,13 @@ export default function TaskCard({
   isLinkingMode,
   linkingSourceTask,
   onStartLinking,
-  onFinishLinking
+  onFinishLinking,
+  
+  // Hover highlighting props
+  hoveredLinkTask,
+  onLinkToolHover,
+  onLinkToolHoverEnd,
+  getTaskRelationshipType
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -805,13 +817,33 @@ export default function TaskCard({
           isLinkingMode && linkingSourceTask?.id === task.id 
             ? 'ring-2 ring-blue-500 bg-blue-100' 
             : ''
+        } ${
+          // Highlight related tasks when hovering over link tool
+          hoveredLinkTask && getTaskRelationshipType && hoveredLinkTask.id !== task.id ? (() => {
+            const relationshipType = getTaskRelationshipType(task.id);
+            if (relationshipType === 'parent') {
+              return 'ring-2 ring-green-400 bg-green-50 shadow-lg';
+            } else if (relationshipType === 'child') {
+              return 'ring-2 ring-purple-400 bg-purple-50 shadow-lg';
+            } else if (relationshipType === 'related') {
+              return 'ring-2 ring-yellow-400 bg-yellow-50 shadow-lg';
+            }
+            return '';
+          })() : ''
         }`}
         {...attributes}
-        onMouseUp={isLinkingMode && linkingSourceTask?.id !== task.id ? (e) => {
+        onMouseUp={isLinkingMode ? (e) => {
           e.preventDefault();
           e.stopPropagation();
           if (onFinishLinking) {
-            onFinishLinking(task);
+            if (linkingSourceTask?.id !== task.id) {
+              // Different task - create relationship
+              onFinishLinking(task);
+            } else {
+              // Same task - cancel linking
+              console.log('🔗 Released on same task - canceling linking');
+              onFinishLinking(null);
+            }
           }
         } : undefined}
       >
@@ -865,7 +897,33 @@ export default function TaskCard({
           isLinkingMode={isLinkingMode}
           linkingSourceTask={linkingSourceTask}
           onStartLinking={onStartLinking}
+          
+          // Hover highlighting props
+          hoveredLinkTask={hoveredLinkTask}
+          onLinkToolHover={onLinkToolHover}
+          onLinkToolHoverEnd={onLinkToolHoverEnd}
         />
+
+        {/* Relationship Type Indicator - Only show when hovering over link tool */}
+        {hoveredLinkTask && getTaskRelationshipType && hoveredLinkTask.id !== task.id && (() => {
+          const relationshipType = getTaskRelationshipType(task.id);
+          if (relationshipType) {
+            const badges = {
+              parent: { text: 'PARENT', color: 'bg-green-500' },
+              child: { text: 'CHILD', color: 'bg-purple-500' },
+              related: { text: 'RELATED', color: 'bg-yellow-500' }
+            };
+            const badge = badges[relationshipType];
+            return (
+              <div className="absolute top-2 left-2 z-20">
+                <div className={`${badge.color} text-white text-xs px-1.5 py-0.5 rounded-full font-bold shadow-md`}>
+                  {badge.text}
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
         {/* Title Row - Full Width */}
         <div className="mb-2 mt-1">

@@ -715,23 +715,53 @@ router.post('/:taskId/relationships', (req, res) => {
       return res.status(404).json({ error: 'One or both tasks not found' });
     }
     
-    // Insert the relationship
-    wrapQuery(db.prepare(`
-      INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+    // Check if relationship already exists
+    const existingRelationship = wrapQuery(db.prepare(`
+      SELECT id FROM task_rels 
+      WHERE task_id = ? AND relationship = ? AND to_task_id = ?
+    `), 'SELECT').get(taskId, relationship, toTaskId);
+    
+    if (existingRelationship) {
+      return res.status(409).json({ error: 'Relationship already exists' });
+    }
+    
+    // Check for circular relationships (prevent A→B if B→A already exists for parent/child)
+    if (relationship === 'parent' || relationship === 'child') {
+      const oppositeRelationship = relationship === 'parent' ? 'child' : 'parent';
+      const circularRelationship = wrapQuery(db.prepare(`
+        SELECT id FROM task_rels 
+        WHERE task_id = ? AND relationship = ? AND to_task_id = ?
+      `), 'SELECT').get(toTaskId, oppositeRelationship, taskId);
+      
+      if (circularRelationship) {
+        return res.status(409).json({ error: 'Cannot create circular relationship: tasks are already related in the opposite direction' });
+      }
+    }
+    
+    // Insert the relationship (use regular INSERT since we've validated above)
+    const insertResult = wrapQuery(db.prepare(`
+      INSERT INTO task_rels (task_id, relationship, to_task_id)
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, relationship, toTaskId);
     
     // For parent/child relationships, also create the inverse relationship
     if (relationship === 'parent') {
       wrapQuery(db.prepare(`
-        INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+        INSERT INTO task_rels (task_id, relationship, to_task_id)
         VALUES (?, 'child', ?)
       `), 'INSERT').run(toTaskId, taskId);
     } else if (relationship === 'child') {
       wrapQuery(db.prepare(`
-        INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+        INSERT INTO task_rels (task_id, relationship, to_task_id)
         VALUES (?, 'parent', ?)
       `), 'INSERT').run(toTaskId, taskId);
+    }
+    
+    console.log(`✅ Created relationship: ${taskId} (${relationship}) → ${toTaskId}`);
+    
+    // Verify the insertion was successful
+    if (!insertResult || insertResult.changes === 0) {
+      return res.status(500).json({ error: 'Failed to create relationship' });
     }
     
     res.json({ success: true, message: 'Task relationship created successfully' });

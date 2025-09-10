@@ -49,6 +49,13 @@ export interface UserPreferences {
     requesterTaskCreated: boolean; // Notify when a task is created and I'm the requester
     requesterTaskUpdated: boolean; // Notify when a task is updated where I'm the requester
   };
+  taskPageCollapsed: {
+    assignment: boolean;
+    schedule: boolean;
+    tags: boolean;
+    associations: boolean;
+    taskInfo: boolean;
+  };
   activityFeed: {
     isMinimized: boolean;
     position: { x: number; y: number };
@@ -123,6 +130,13 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     commentAdded: true,
     requesterTaskCreated: true,
     requesterTaskUpdated: true
+  },
+  taskPageCollapsed: {
+    assignment: false,
+    schedule: false,
+    tags: false,
+    associations: false,
+    taskInfo: false
   },
   activityFeed: {
     isMinimized: false,
@@ -211,6 +225,10 @@ export const getDefaultPreferences = (): UserPreferences => {
     notifications: {
       ...BASE_DEFAULT_PREFERENCES.notifications,
       ...ADMIN_DEFAULT_PREFERENCES.notifications
+    },
+    taskPageCollapsed: {
+      ...BASE_DEFAULT_PREFERENCES.taskPageCollapsed,
+      ...ADMIN_DEFAULT_PREFERENCES.taskPageCollapsed
     },
     activityFeed: {
       ...BASE_DEFAULT_PREFERENCES.activityFeed,
@@ -348,6 +366,10 @@ export const loadUserPreferences = (userId: string | null = null): UserPreferenc
         notifications: {
           ...defaults.notifications,
           ...loadedPrefs.notifications
+        },
+        taskPageCollapsed: {
+          ...defaults.taskPageCollapsed,
+          ...loadedPrefs.taskPageCollapsed
         },
         activityFeed: {
           ...defaults.activityFeed,

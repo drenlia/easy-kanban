@@ -56,6 +56,12 @@ interface KanbanColumnProps {
   linkingSourceTask?: Task | null;
   onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
   onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
+  
+  // Hover highlighting props
+  hoveredLinkTask?: Task | null;
+  onLinkToolHover?: (task: Task) => void;
+  onLinkToolHoverEnd?: () => void;
+  getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
 }
 
 export default function KanbanColumn({
@@ -101,7 +107,13 @@ export default function KanbanColumn({
   isLinkingMode,
   linkingSourceTask,
   onStartLinking,
-  onFinishLinking
+  onFinishLinking,
+  
+  // Hover highlighting props
+  hoveredLinkTask,
+  onLinkToolHover,
+  onLinkToolHoverEnd,
+  getTaskRelationshipType
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -298,6 +310,12 @@ export default function KanbanColumn({
             linkingSourceTask={linkingSourceTask}
             onStartLinking={onStartLinking}
             onFinishLinking={onFinishLinking}
+            
+            // Hover highlighting props
+            hoveredLinkTask={hoveredLinkTask}
+            onLinkToolHover={onLinkToolHover}
+            onLinkToolHoverEnd={onLinkToolHoverEnd}
+            getTaskRelationshipType={getTaskRelationshipType}
           />
         </div>
       );

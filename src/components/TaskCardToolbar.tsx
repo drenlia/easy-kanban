@@ -33,6 +33,11 @@ interface TaskCardToolbarProps {
   isLinkingMode?: boolean;
   linkingSourceTask?: Task | null;
   onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
+  
+  // Hover highlighting props
+  hoveredLinkTask?: Task | null;
+  onLinkToolHover?: (task: Task) => void;
+  onLinkToolHoverEnd?: () => void;
 }
 
 export default function TaskCardToolbar({
@@ -59,7 +64,12 @@ export default function TaskCardToolbar({
   // Task linking props
   isLinkingMode,
   linkingSourceTask,
-  onStartLinking
+  onStartLinking,
+  
+  // Hover highlighting props
+  hoveredLinkTask,
+  onLinkToolHover,
+  onLinkToolHoverEnd
 }: TaskCardToolbarProps) {
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
@@ -70,16 +80,65 @@ export default function TaskCardToolbar({
     onCopy(task);
   };
 
+  // State for drag-to-link logic
+  const [isDragPrepared, setIsDragPrepared] = useState(false);
+  const [dragStartPosition, setDragStartPosition] = useState<{x: number, y: number} | null>(null);
+  const dragThreshold = 5; // Minimum pixels to consider it a drag
+
   const handleLinkMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (onStartLinking) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const centerX = rect.left + rect.width / 2;
-      const centerY = rect.top + rect.height / 2;
-      onStartLinking(task, { x: centerX, y: centerY });
-    }
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const startPos = { x: centerX, y: centerY };
+    
+    // Prepare for potential drag, but don't start linking yet
+    setIsDragPrepared(true);
+    setDragStartPosition(startPos);
+    
+    console.log('🔗 Link button pressed - preparing for potential drag');
   };
+
+  // Handle global mouse move to detect drag
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isDragPrepared && dragStartPosition && onStartLinking) {
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+        const deltaX = Math.abs(currentX - dragStartPosition.x);
+        const deltaY = Math.abs(currentY - dragStartPosition.y);
+        
+        // If moved beyond threshold, start linking mode
+        if (deltaX > dragThreshold || deltaY > dragThreshold) {
+          console.log('🔗 Drag detected - starting linking mode');
+          setIsDragPrepared(false);
+          onStartLinking(task, dragStartPosition);
+          setDragStartPosition(null);
+        }
+      }
+    };
+
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      if (isDragPrepared) {
+        // Released without dragging - cancel linking
+        console.log('🔗 Released without dragging - canceling linking');
+        setIsDragPrepared(false);
+        setDragStartPosition(null);
+      }
+    };
+
+    if (isDragPrepared) {
+      document.addEventListener('mousemove', handleGlobalMouseMove);
+      document.addEventListener('mouseup', handleGlobalMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isDragPrepared, dragStartPosition, onStartLinking, task]);
 
   // Filter out tags that are already assigned to the task
   const availableTagsForAssignment = availableTags.filter(tag => 
@@ -242,6 +301,8 @@ export default function TaskCardToolbar({
             {onStartLinking && (
               <button
                 onMouseDown={handleLinkMouseDown}
+                onMouseEnter={() => onLinkToolHover?.(task)}
+                onMouseLeave={() => onLinkToolHoverEnd?.()}
                 className={`p-1 rounded-full transition-colors ${
                   isLinkingMode && linkingSourceTask?.id === task.id
                     ? 'bg-blue-100 text-blue-600'

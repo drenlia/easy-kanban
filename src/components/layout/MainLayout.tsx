@@ -113,6 +113,12 @@ interface MainLayoutProps {
   onUpdateLinkingLine?: (endPosition: {x: number, y: number}) => void;
   onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
   onCancelLinking?: () => void;
+  
+  // Hover highlighting props
+  hoveredLinkTask?: Task | null;
+  onLinkToolHover?: (task: Task) => void;
+  onLinkToolHoverEnd?: () => void;
+  getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
