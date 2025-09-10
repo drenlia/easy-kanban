@@ -50,6 +50,12 @@ interface KanbanColumnProps {
   onTaskExitMiniMode?: () => void;
   siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
+  
+  // Task linking props
+  isLinkingMode?: boolean;
+  linkingSourceTask?: Task | null;
+  onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
+  onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
 }
 
 export default function KanbanColumn({
@@ -89,7 +95,13 @@ export default function KanbanColumn({
   onTaskEnterMiniMode,
   onTaskExitMiniMode,
   siteSettings,
-  boards
+  boards,
+  
+  // Task linking props
+  isLinkingMode,
+  linkingSourceTask,
+  onStartLinking,
+  onFinishLinking
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -280,6 +292,12 @@ export default function KanbanColumn({
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
             siteSettings={siteSettings}
             boards={boards}
+            
+            // Task linking props
+            isLinkingMode={isLinkingMode}
+            linkingSourceTask={linkingSourceTask}
+            onStartLinking={onStartLinking}
+            onFinishLinking={onFinishLinking}
           />
         </div>
       );

@@ -654,5 +654,161 @@ router.delete('/:taskId/collaborators/:memberId', (req, res) => {
   }
 });
 
+// Task Relationships endpoints
+
+// Get all relationships for a task
+router.get('/:taskId/relationships', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId } = req.params;
+    
+    // Get all relationships where this task is involved (as either task_id or to_task_id)
+    const relationships = wrapQuery(db.prepare(`
+      SELECT 
+        tr.*,
+        t1.title as task_title,
+        t1.ticket as task_ticket,
+        t1.boardId as task_board_id,
+        t2.title as related_task_title,
+        t2.ticket as related_task_ticket,
+        t2.boardId as related_task_board_id,
+        b1.project as task_project_id,
+        b2.project as related_task_project_id
+      FROM task_rels tr
+      JOIN tasks t1 ON tr.task_id = t1.id
+      JOIN tasks t2 ON tr.to_task_id = t2.id
+      LEFT JOIN boards b1 ON t1.boardId = b1.id
+      LEFT JOIN boards b2 ON t2.boardId = b2.id
+      WHERE tr.task_id = ? OR tr.to_task_id = ?
+      ORDER BY tr.created_at DESC
+    `), 'SELECT').all(taskId, taskId);
+    
+    res.json(relationships);
+  } catch (error) {
+    console.error('Error fetching task relationships:', error);
+    res.status(500).json({ error: 'Failed to fetch task relationships' });
+  }
+});
+
+// Create a task relationship
+router.post('/:taskId/relationships', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId } = req.params;
+    const { relationship, toTaskId } = req.body;
+    
+    // Validate relationship type
+    if (!['child', 'parent', 'related'].includes(relationship)) {
+      return res.status(400).json({ error: 'Invalid relationship type' });
+    }
+    
+    // Prevent self-relationships
+    if (taskId === toTaskId) {
+      return res.status(400).json({ error: 'Cannot create relationship with self' });
+    }
+    
+    // Verify both tasks exist
+    const taskExists = wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const toTaskExists = wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
+    
+    if (!taskExists || !toTaskExists) {
+      return res.status(404).json({ error: 'One or both tasks not found' });
+    }
+    
+    // Insert the relationship
+    wrapQuery(db.prepare(`
+      INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(taskId, relationship, toTaskId);
+    
+    // For parent/child relationships, also create the inverse relationship
+    if (relationship === 'parent') {
+      wrapQuery(db.prepare(`
+        INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+        VALUES (?, 'child', ?)
+      `), 'INSERT').run(toTaskId, taskId);
+    } else if (relationship === 'child') {
+      wrapQuery(db.prepare(`
+        INSERT OR IGNORE INTO task_rels (task_id, relationship, to_task_id)
+        VALUES (?, 'parent', ?)
+      `), 'INSERT').run(toTaskId, taskId);
+    }
+    
+    res.json({ success: true, message: 'Task relationship created successfully' });
+  } catch (error) {
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      return res.status(409).json({ error: 'Relationship already exists' });
+    }
+    console.error('Error creating task relationship:', error);
+    res.status(500).json({ error: 'Failed to create task relationship' });
+  }
+});
+
+// Delete a task relationship
+router.delete('/:taskId/relationships/:relationshipId', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId, relationshipId } = req.params;
+    
+    // Get the relationship details before deleting
+    const relationship = wrapQuery(db.prepare(`
+      SELECT * FROM task_rels WHERE id = ? AND task_id = ?
+    `), 'SELECT').get(relationshipId, taskId);
+    
+    if (!relationship) {
+      return res.status(404).json({ error: 'Relationship not found' });
+    }
+    
+    // Delete the main relationship
+    wrapQuery(db.prepare(`
+      DELETE FROM task_rels WHERE id = ?
+    `), 'DELETE').run(relationshipId);
+    
+    // For parent/child relationships, also delete the inverse relationship
+    if (relationship.relationship === 'parent') {
+      wrapQuery(db.prepare(`
+        DELETE FROM task_rels WHERE task_id = ? AND relationship = 'child' AND to_task_id = ?
+      `), 'DELETE').run(relationship.to_task_id, relationship.task_id);
+    } else if (relationship.relationship === 'child') {
+      wrapQuery(db.prepare(`
+        DELETE FROM task_rels WHERE task_id = ? AND relationship = 'parent' AND to_task_id = ?
+      `), 'DELETE').run(relationship.to_task_id, relationship.task_id);
+    }
+    
+    res.json({ success: true, message: 'Task relationship deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting task relationship:', error);
+    res.status(500).json({ error: 'Failed to delete task relationship' });
+  }
+});
+
+// Get tasks available for creating relationships (excludes current task and already related tasks)
+router.get('/:taskId/available-for-relationship', (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { taskId } = req.params;
+    
+    // Get all tasks except the current one and already related ones
+    const availableTasks = wrapQuery(db.prepare(`
+      SELECT t.id, t.title, t.ticket, c.title as status, b.project as projectId
+      FROM tasks t
+      LEFT JOIN columns c ON t.columnId = c.id
+      LEFT JOIN boards b ON t.boardId = b.id
+      WHERE t.id != ?
+      AND t.id NOT IN (
+        SELECT to_task_id FROM task_rels WHERE task_id = ?
+        UNION
+        SELECT task_id FROM task_rels WHERE to_task_id = ?
+      )
+      ORDER BY t.ticket ASC
+    `), 'SELECT').all(taskId, taskId, taskId);
+    
+    res.json(availableTasks);
+  } catch (error) {
+    console.error('Error fetching available tasks for relationship:', error);
+    res.status(500).json({ error: 'Failed to fetch available tasks' });
+  }
+});
+
 
 export default router;

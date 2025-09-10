@@ -103,6 +103,15 @@ interface KanbanPageProps {
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
+  
+  // Task linking props
+  isLinkingMode?: boolean;
+  linkingSourceTask?: Task | null;
+  linkingLine?: {startX: number, startY: number, endX: number, endY: number} | null;
+  onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
+  onUpdateLinkingLine?: (endPosition: {x: number, y: number}) => void;
+  onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
+  onCancelLinking?: () => void;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -178,6 +187,15 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onSelectTask,
   onTaskDropOnBoard,
   siteSettings,
+  
+  // Task linking props
+  isLinkingMode,
+  linkingSourceTask,
+  linkingLine,
+  onStartLinking,
+  onUpdateLinkingLine,
+  onFinishLinking,
+  onCancelLinking,
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -576,6 +594,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagRemove={onTagRemove}
                       siteSettings={siteSettings}
                       boards={boards}
+                      
+                      // Task linking props
+                      isLinkingMode={isLinkingMode}
+                      linkingSourceTask={linkingSourceTask}
+                      onStartLinking={onStartLinking}
+                      onFinishLinking={onFinishLinking}
                     />
                     ))}
                 </BoardDropArea>
@@ -623,6 +647,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagRemove={onTagRemove}
                       siteSettings={siteSettings}
                       boards={boards}
+                      
+                      // Task linking props
+                      isLinkingMode={isLinkingMode}
+                      linkingSourceTask={linkingSourceTask}
+                      onStartLinking={onStartLinking}
+                      onFinishLinking={onFinishLinking}
                     />
                   ))}
               </BoardDropArea>

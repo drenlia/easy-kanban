@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, MessageCircle, Calendar, Paperclip } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Link } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
@@ -58,6 +58,12 @@ interface TaskCardProps {
   onTagRemove?: (tagId: string) => void;
   siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
+  
+  // Task linking props
+  isLinkingMode?: boolean;
+  linkingSourceTask?: Task | null;
+  onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
+  onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
 }
 
 
@@ -81,7 +87,13 @@ export default function TaskCard({
   onTagAdd,
   onTagRemove,
   siteSettings,
-  boards
+  boards,
+  
+  // Task linking props
+  isLinkingMode,
+  linkingSourceTask,
+  onStartLinking,
+  onFinishLinking
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -785,8 +797,23 @@ export default function TaskCard({
           isOverdue() ? 'bg-red-50' : 'bg-white'
         } p-4 rounded-lg shadow-sm cursor-default relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
+        } ${
+          isLinkingMode && linkingSourceTask?.id !== task.id 
+            ? 'hover:ring-2 hover:ring-blue-300 hover:bg-blue-50' 
+            : ''
+        } ${
+          isLinkingMode && linkingSourceTask?.id === task.id 
+            ? 'ring-2 ring-blue-500 bg-blue-100' 
+            : ''
         }`}
         {...attributes}
+        onMouseUp={isLinkingMode && linkingSourceTask?.id !== task.id ? (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (onFinishLinking) {
+            onFinishLinking(task);
+          }
+        } : undefined}
       >
         {/* Task Identifier Overlay - Top Right Corner */}
         {task.ticket && siteSettings?.USE_PREFIXES === 'true' && (
@@ -833,6 +860,11 @@ export default function TaskCard({
           attributes={attributes}
           availableTags={availableTags}
           onTagAdd={onTagAdd}
+          
+          // Task linking props
+          isLinkingMode={isLinkingMode}
+          linkingSourceTask={linkingSourceTask}
+          onStartLinking={onStartLinking}
         />
 
         {/* Title Row - Full Width */}

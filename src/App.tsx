@@ -27,6 +27,7 @@ import MiniTaskIcon from './components/MiniTaskIcon';
 import TaskCard from './components/TaskCard';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
+import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser } from './api';
@@ -217,6 +218,11 @@ export default function App() {
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
+  
+  // Task linking state
+  const [isLinkingMode, setIsLinkingMode] = useState(false);
+  const [linkingSourceTask, setLinkingSourceTask] = useState<Task | null>(null);
+  const [linkingLine, setLinkingLine] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
   
   // Debug showColumnDeleteConfirm changes
   useEffect(() => {
@@ -564,6 +570,98 @@ export default function App() {
 
   const handleRefreshData = async () => {
     await refreshBoardData();
+  };
+
+  // Task linking handlers
+  const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
+    console.log('🔗 handleStartLinking called:', {
+      taskTicket: task.ticket,
+      taskId: task.id,
+      startPosition
+    });
+    setIsLinkingMode(true);
+    setLinkingSourceTask(task);
+    setLinkingLine({
+      startX: startPosition.x,
+      startY: startPosition.y,
+      endX: startPosition.x,
+      endY: startPosition.y
+    });
+    console.log('✅ Linking mode activated');
+  };
+
+  const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
+    if (linkingLine) {
+      setLinkingLine({
+        ...linkingLine,
+        endX: endPosition.x,
+        endY: endPosition.y
+      });
+    }
+  };
+
+  const handleFinishLinking = async (targetTask: Task | null, relationshipType: 'parent' | 'child' | 'related' = 'parent') => {
+    console.log('🔗 handleFinishLinking called:', { 
+      linkingSourceTask: linkingSourceTask?.ticket, 
+      targetTask: targetTask?.ticket, 
+      relationshipType 
+    });
+    
+    if (linkingSourceTask && targetTask && linkingSourceTask.id !== targetTask.id) {
+      try {
+        console.log('🚀 Making API call to create relationship...');
+        const token = localStorage.getItem('authToken');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        
+        const response = await fetch(`/api/tasks/${linkingSourceTask.id}/relationships`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            relationship: relationshipType,
+            toTaskId: targetTask.id
+          })
+        });
+        
+        console.log('📡 API Response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ API Error response:', {
+            status: response.status,
+            statusText: response.statusText,
+            error: errorText
+          });
+          throw new Error(`Failed to create task relationship: ${response.status} ${errorText}`);
+        }
+        
+        const result = await response.json();
+        console.log('✅ API Success result:', result);
+        console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
+      } catch (error) {
+        console.error('❌ Error creating task relationship:', error);
+      }
+    } else {
+      console.log('⚠️ Relationship creation skipped:', {
+        hasSource: !!linkingSourceTask,
+        hasTarget: !!targetTask,
+        sameTask: linkingSourceTask?.id === targetTask?.id
+      });
+    }
+    
+    // Reset linking state
+    console.log('🔄 Resetting linking state...');
+    setIsLinkingMode(false);
+    setLinkingSourceTask(null);
+    setLinkingLine(null);
+  };
+
+  const handleCancelLinking = () => {
+    setIsLinkingMode(false);
+    setLinkingSourceTask(null);
+    setLinkingLine(null);
   };
 
   // Use the extracted collision detection function
@@ -2450,6 +2548,15 @@ export default function App() {
                                     isTaskMiniMode={isTaskMiniMode}
                                     onTaskEnterMiniMode={handleTaskEnterMiniMode}
                                     onTaskExitMiniMode={handleTaskExitMiniMode}
+                                    
+                                    // Task linking props
+                                    isLinkingMode={isLinkingMode}
+                                    linkingSourceTask={linkingSourceTask}
+                                    linkingLine={linkingLine}
+                                    onStartLinking={handleStartLinking}
+                                    onUpdateLinkingLine={handleUpdateLinkingLine}
+                                    onFinishLinking={handleFinishLinking}
+                                    onCancelLinking={handleCancelLinking}
       />
 
       <ModalManager
@@ -2519,6 +2626,16 @@ export default function App() {
         dimensions={activityFeedDimensions}
         onDimensionsChange={setActivityFeedDimensions}
         userId={currentUser?.id || null}
+      />
+
+      {/* Task Linking Overlay */}
+      <TaskLinkingOverlay
+        isLinkingMode={isLinkingMode}
+        linkingSourceTask={linkingSourceTask}
+        linkingLine={linkingLine}
+        onUpdateLinkingLine={handleUpdateLinkingLine}
+        onFinishLinking={handleFinishLinking}
+        onCancelLinking={handleCancelLinking}
       />
     </div>
   );

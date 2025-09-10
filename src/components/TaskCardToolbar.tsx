@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Edit2, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2 } from 'lucide-react';
+import { Copy, Edit2, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { setDndGloballyDisabled } from '../utils/globalDndState';
@@ -28,6 +28,11 @@ interface TaskCardToolbarProps {
   attributes?: any; // DnD kit attributes
   availableTags?: Tag[];
   onTagAdd?: (tagId: string) => void;
+  
+  // Task linking props
+  isLinkingMode?: boolean;
+  linkingSourceTask?: Task | null;
+  onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
 }
 
 export default function TaskCardToolbar({
@@ -49,7 +54,12 @@ export default function TaskCardToolbar({
   listeners,
   attributes,
   availableTags = [],
-  onTagAdd
+  onTagAdd,
+  
+  // Task linking props
+  isLinkingMode,
+  linkingSourceTask,
+  onStartLinking
 }: TaskCardToolbarProps) {
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
@@ -58,6 +68,17 @@ export default function TaskCardToolbar({
 
   const handleCopy = () => {
     onCopy(task);
+  };
+
+  const handleLinkMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (onStartLinking) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      onStartLinking(task, { x: centerX, y: centerY });
+    }
   };
 
   // Filter out tags that are already assigned to the task
@@ -217,7 +238,21 @@ export default function TaskCardToolbar({
             >
               <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
             </button>
-            {/* Delete Button - Right side of details icon */}
+            {/* Link Button */}
+            {onStartLinking && (
+              <button
+                onMouseDown={handleLinkMouseDown}
+                className={`p-1 rounded-full transition-colors ${
+                  isLinkingMode && linkingSourceTask?.id === task.id
+                    ? 'bg-blue-100 text-blue-600'
+                    : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'
+                }`}
+                title={isLinkingMode && linkingSourceTask?.id === task.id ? "Source task for linking" : "Hold and drag to link tasks"}
+              >
+                <Link size={14} />
+              </button>
+            )}
+            {/* Delete Button - Right side of link icon */}
             <button
               onClick={(e) => onRemove(task.id, e)}
               className="p-1 hover:bg-red-100 rounded-full transition-colors"

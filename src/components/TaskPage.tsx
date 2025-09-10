@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
-import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X } from 'lucide-react';
+import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
-import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments } from '../api';
+import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import { generateTaskUrl } from '../utils/routingUtils';
 import TextEditor from './TextEditor';
 import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
@@ -45,9 +46,49 @@ export default function TaskPage({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
 
-  // Parse the task route to get task ID
-  const taskRoute = parseTaskRoute();
+  // Task relationships state
+  const [relationships, setRelationships] = useState<any[]>([]);
+  const [parentTask, setParentTask] = useState<{id: string, ticket: string, title: string, projectId?: string} | null>(null);
+  const [childTasks, setChildTasks] = useState<{id: string, ticket: string, title: string, projectId?: string}[]>([]);
+  const [availableTasksForChildren, setAvailableTasksForChildren] = useState<{id: string, ticket: string, title: string, status: string, projectId?: string}[]>([]);
+  const [showChildrenDropdown, setShowChildrenDropdown] = useState(false);
+  const [childrenSearchTerm, setChildrenSearchTerm] = useState('');
+  const [isLoadingRelationships, setIsLoadingRelationships] = useState(false);
+  const childrenDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Track current hash to detect changes and re-parse task route
+  const [currentHash, setCurrentHash] = useState(window.location.hash);
+  
+  // Parse the task route to get task ID (will re-calculate when currentHash changes)
+  const taskRoute = useMemo(() => {
+    return parseTaskRoute(window.location.href);
+  }, [currentHash]);
   const taskId = taskRoute.taskId;
+  
+  // Listen for hash changes and update current hash state
+  useEffect(() => {
+    const handleHashChange = () => {
+      console.log('🔄 [TaskPage] Hash changed:', window.location.hash);
+      setCurrentHash(window.location.hash);
+    };
+    
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+  
+  // Reset all state when task ID changes
+  useEffect(() => {
+    console.log('🔄 [TaskPage] Task ID changed to:', taskId);
+    setTask(null);
+    setError(null);
+    setIsLoading(true);
+    setRelationships([]);
+    setParentTask(null);
+    setChildTasks([]);
+    setAvailableTasksForChildren([]);
+    setShowChildrenDropdown(false);
+    setChildrenSearchTerm('');
+  }, [taskId]);
   
 
   // Load task data
@@ -113,6 +154,72 @@ export default function TaskPage({
     loadPageData();
   }, [taskId]);
 
+  // Load task relationships
+  useEffect(() => {
+    const loadRelationships = async () => {
+      if (!task?.id) return;
+      
+      setIsLoadingRelationships(true);
+      try {
+        // Load task relationships
+        const relationshipsData = await getTaskRelationships(task.id);
+        setRelationships(relationshipsData);
+        
+        // Parse parent and children from relationships
+        const parent = relationshipsData.find((rel: any) => rel.relationship === 'child' && rel.task_id === task.id);
+        if (parent) {
+          setParentTask({
+            id: parent.to_task_id,
+            ticket: parent.related_task_ticket,
+            title: parent.related_task_title,
+            projectId: parent.related_task_project_id
+          });
+        } else {
+          setParentTask(null);
+        }
+        
+        const children = relationshipsData
+          .filter((rel: any) => rel.relationship === 'parent' && rel.task_id === task.id)
+          .map((rel: any) => ({
+            id: rel.to_task_id,
+            ticket: rel.related_task_ticket,
+            title: rel.related_task_title,
+            projectId: rel.related_task_project_id
+          }));
+        setChildTasks(children);
+        
+        // Load available tasks for adding as children
+        const availableTasksData = await getAvailableTasksForRelationship(task.id);
+        setAvailableTasksForChildren(availableTasksData);
+        
+      } catch (error) {
+        console.error('Error loading task relationships:', error);
+      } finally {
+        setIsLoadingRelationships(false);
+      }
+    };
+    
+    loadRelationships();
+  }, [task?.id]);
+
+  // Handle clicking outside children dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (childrenDropdownRef.current && !childrenDropdownRef.current.contains(event.target as Node)) {
+        setShowChildrenDropdown(false);
+        setChildrenSearchTerm('');
+      }
+    };
+
+    if (showChildrenDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showChildrenDropdown]);
+
   // Create a default task to avoid hook issues during loading
   const defaultTask = {
     id: '',
@@ -132,6 +239,103 @@ export default function TaskPage({
     updatedAt: new Date().toISOString(),
     comments: []
   };
+
+  // Task relationship handlers
+  const handleAddChildTask = async (childTaskId: string) => {
+    try {
+      if (!task?.id) return;
+      
+      await addTaskRelationship(task.id, 'parent', childTaskId);
+      
+      // Reload relationships data from server to get accurate IDs
+      const relationshipsData = await getTaskRelationships(task.id);
+      setRelationships(relationshipsData);
+      
+      // Parse children from fresh relationships data
+      const children = relationshipsData
+        .filter((rel: any) => rel.relationship === 'parent' && rel.task_id === task.id)
+        .map((rel: any) => ({
+          id: rel.to_task_id,
+          ticket: rel.related_task_ticket,
+          title: rel.related_task_title,
+          projectId: rel.related_task_project_id
+        }));
+      setChildTasks(children);
+      
+      // Reload available tasks
+      const availableTasksData = await getAvailableTasksForRelationship(task.id);
+      setAvailableTasksForChildren(availableTasksData);
+      
+      setShowChildrenDropdown(false);
+      setChildrenSearchTerm('');
+    } catch (error) {
+      console.error('Failed to add child task:', error);
+    }
+  };
+
+  const handleRemoveChildTask = async (childTaskId: string) => {
+    try {
+      if (!task?.id) return;
+      
+      // Find the relationship to delete
+      const relationship = relationships.find(rel => 
+        rel.relationship === 'parent' && 
+        rel.task_id === task.id && 
+        rel.to_task_id === childTaskId
+      );
+      
+      if (relationship) {
+        await removeTaskRelationship(task.id, relationship.id);
+        
+        // Reload all relationship data from server after successful deletion
+        const relationshipsData = await getTaskRelationships(task.id);
+        setRelationships(relationshipsData);
+        
+        // Parse parent and children from fresh data
+        const parent = relationshipsData.find((rel: any) => rel.relationship === 'child' && rel.task_id === task.id);
+        if (parent) {
+          setParentTask({
+            id: parent.to_task_id,
+            ticket: parent.related_task_ticket,
+            title: parent.related_task_title,
+            projectId: parent.related_task_project_id
+          });
+        } else {
+          setParentTask(null);
+        }
+        
+        const children = relationshipsData
+          .filter((rel: any) => rel.relationship === 'parent' && rel.task_id === task.id)
+          .map((rel: any) => ({
+            id: rel.to_task_id,
+            ticket: rel.related_task_ticket,
+            title: rel.related_task_title,
+            projectId: rel.related_task_project_id
+          }));
+        setChildTasks(children);
+        
+        // Reload available tasks
+        const availableTasksData = await getAvailableTasksForRelationship(task.id);
+        setAvailableTasksForChildren(availableTasksData);
+      }
+    } catch (error) {
+      console.error('Failed to remove child task:', error);
+    }
+  };
+
+  // Handler for opening children dropdown
+  const handleChildrenDropdownToggle = () => {
+    setShowChildrenDropdown(!showChildrenDropdown);
+    if (!showChildrenDropdown) {
+      setChildrenSearchTerm('');
+    }
+  };
+
+  // Filter available tasks based on search term
+  const filteredAvailableChildren = availableTasksForChildren.filter(task => 
+    task.ticket.toLowerCase().includes(childrenSearchTerm.toLowerCase()) ||
+    task.title.toLowerCase().includes(childrenSearchTerm.toLowerCase())
+  );
 
   const taskDetailsHook = useTaskDetails({
     task: task || defaultTask,
@@ -1132,6 +1336,135 @@ export default function TaskPage({
                       ))}
                   </select>
                 )}
+              </div>
+            </div>
+
+            {/* Task Association */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
+                <Users className="h-4 w-4 mr-2" />
+                Task Association
+              </h3>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Parent Field - Left Side */}
+                  {parentTask && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Parent:</label>
+                      <span 
+                        onClick={() => {
+                          const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
+                          console.log('🔗 TaskPage Parent URL:', { 
+                            ticket: parentTask.ticket, 
+                            projectId: parentTask.projectId, 
+                            generatedUrl: url 
+                          });
+                          // Extract just the hash part for navigation
+                          const hashPart = url.split('#').slice(1).join('#');
+                          window.location.hash = hashPart;
+                        }}
+                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                        title={`Go to parent task ${parentTask.ticket}`}
+                      >
+                        {parentTask.ticket}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {/* Children Field - Right Side */}
+                  <div className={parentTask ? '' : 'col-span-2'}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Child(s):</label>
+                    
+                    {/* Selected Children Display */}
+                    {childTasks.length > 0 && (
+                      <div className="mb-2 flex flex-wrap gap-1">
+                        {childTasks.map(child => (
+                          <span
+                            key={child.id}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 text-blue-800 hover:opacity-80 transition-opacity"
+                          >
+                            <span 
+                              onClick={() => {
+                                const url = generateTaskUrl(child.ticket, child.projectId);
+                                console.log('🔗 TaskPage Child URL:', { 
+                                  ticket: child.ticket, 
+                                  projectId: child.projectId, 
+                                  generatedUrl: url 
+                                });
+                                // Extract just the hash part for navigation
+                                const hashPart = url.split('#').slice(1).join('#');
+                                window.location.hash = hashPart;
+                              }}
+                              className="text-blue-800 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
+                              title={`Go to child task ${child.ticket}`}
+                            >
+                              {child.ticket}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveChildTask(child.id)}
+                              className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                              title="Remove child task"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Children Dropdown */}
+                    <div className="relative" ref={childrenDropdownRef}>
+                      <button
+                        type="button"
+                        onClick={handleChildrenDropdownToggle}
+                        className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+                      >
+                        <span className="text-gray-700">
+                          Add child task...
+                        </span>
+                        <ChevronDown size={16} className={`transform transition-transform ${showChildrenDropdown ? 'rotate-180' : ''}`} />
+                      </button>
+                      
+                      {showChildrenDropdown && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                          {/* Search Input */}
+                          <div className="p-2 border-b border-gray-200">
+                            <input
+                              type="text"
+                              placeholder="Search tasks by number or title..."
+                              value={childrenSearchTerm}
+                              onChange={(e) => setChildrenSearchTerm(e.target.value)}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              autoFocus
+                            />
+                          </div>
+                          
+                          {/* Available Tasks List */}
+                          <div className="max-h-40 overflow-y-auto">
+                            {filteredAvailableChildren.length > 0 ? (
+                              filteredAvailableChildren.map(availableTask => (
+                                <button
+                                  key={availableTask.id}
+                                  type="button"
+                                  onClick={() => handleAddChildTask(availableTask.id)}
+                                  className="w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors text-sm"
+                                >
+                                  <div className="font-medium text-blue-600">{availableTask.ticket}</div>
+                                  <div className="text-gray-600 truncate">{availableTask.title}</div>
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-3 py-2 text-sm text-gray-500">
+                                {childrenSearchTerm ? 'No tasks found matching your search' : 'No available tasks'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
