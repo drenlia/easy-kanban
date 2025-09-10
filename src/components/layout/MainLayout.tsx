@@ -104,6 +104,15 @@ interface MainLayoutProps {
   isTaskMiniMode?: boolean;
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
+  
+  // Task linking props
+  isLinkingMode?: boolean;
+  linkingSourceTask?: Task | null;
+  linkingLine?: {startX: number, startY: number, endX: number, endY: number} | null;
+  onStartLinking?: (task: Task, startPosition: {x: number, y: number}) => void;
+  onUpdateLinkingLine?: (endPosition: {x: number, y: number}) => void;
+  onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
+  onCancelLinking?: () => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({

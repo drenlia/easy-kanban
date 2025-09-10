@@ -312,12 +312,27 @@ const createTables = (db) => {
       UNIQUE(userId, setting_key)
     );
 
+    CREATE TABLE IF NOT EXISTS task_rels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL,
+      relationship TEXT NOT NULL CHECK(relationship IN ('child', 'parent', 'related')),
+      to_task_id TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      FOREIGN KEY (to_task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+      UNIQUE(task_id, relationship, to_task_id)
+    );
+
     -- Create indexes for better query performance
     CREATE INDEX IF NOT EXISTS idx_watchers_taskId ON watchers(taskId);
     CREATE INDEX IF NOT EXISTS idx_watchers_memberId ON watchers(memberId);
     CREATE INDEX IF NOT EXISTS idx_collaborators_taskId ON collaborators(taskId);
     CREATE INDEX IF NOT EXISTS idx_collaborators_memberId ON collaborators(memberId);
     CREATE INDEX IF NOT EXISTS idx_user_settings_userId ON user_settings(userId);
+    CREATE INDEX IF NOT EXISTS idx_task_rels_task_id ON task_rels(task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_rels_to_task_id ON task_rels(to_task_id);
+    CREATE INDEX IF NOT EXISTS idx_task_rels_relationship ON task_rels(relationship);
   `);
 };
 

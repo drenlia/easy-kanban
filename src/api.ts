@@ -497,4 +497,28 @@ export const uploadAvatar = async (file: File) => {
   return data;
 };
 
+// Task Relationships
+export const getTaskRelationships = async (taskId: string) => {
+  const response = await api.get(`/tasks/${taskId}/relationships`);
+  return response.data;
+};
+
+export const getAvailableTasksForRelationship = async (taskId: string) => {
+  const response = await api.get(`/tasks/${taskId}/available-for-relationship`);
+  return response.data;
+};
+
+export const addTaskRelationship = async (taskId: string, relationship: 'parent' | 'child' | 'related', toTaskId: string) => {
+  const response = await api.post(`/tasks/${taskId}/relationships`, {
+    relationship,
+    toTaskId
+  });
+  return response.data;
+};
+
+export const removeTaskRelationship = async (taskId: string, relationshipId: string) => {
+  const response = await api.delete(`/tasks/${taskId}/relationships/${relationshipId}`);
+  return response.data;
+};
+
 export default api;
