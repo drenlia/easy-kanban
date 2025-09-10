@@ -5,19 +5,45 @@ import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperc
 import { parseTaskRoute } from '../utils/routingUtils';
 import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments } from '../api';
 import TextEditor from './TextEditor';
+import ModalManager from './layout/ModalManager';
+import Header from './layout/Header';
 import DOMPurify from 'dompurify';
 
 interface TaskPageProps {
   currentUser: CurrentUser | null;
   siteSettings?: { [key: string]: string };
+  members: TeamMember[];
+  isPolling: boolean;
+  lastPollTime: Date | null;
+  onLogout: () => void;
+  onPageChange: (page: 'kanban' | 'admin') => void;
+  onRefresh: () => Promise<void>;
+  onInviteUser?: (email: string) => Promise<void>;
 }
 
-export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
+export default function TaskPage({ 
+  currentUser, 
+  siteSettings, 
+  members: propMembers, 
+  isPolling, 
+  lastPollTime, 
+  onLogout, 
+  onPageChange, 
+  onRefresh, 
+  onInviteUser 
+}: TaskPageProps) {
   const [task, setTask] = useState<Task | null>(null);
-  const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Use members from props
+  const members = propMembers;
+  
+  // Modal states
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
 
   // Parse the task route to get task ID
   const taskRoute = parseTaskRoute();
@@ -38,11 +64,10 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
         
         console.log('🚀 [TaskPage] Starting data load for taskId:', taskId);
         
-        // Load task, members, and boards in parallel
+        // Load task and boards in parallel (members come from props)
         console.log('📡 [TaskPage] Making API calls...');
-        const [taskData, membersData, boardsData] = await Promise.all([
+        const [taskData, boardsData] = await Promise.all([
           getTaskById(taskId),
-          getMembers(),
           getBoards()
         ]);
 
@@ -58,7 +83,7 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
           tags: taskData?.tags?.length || 0,
           comments: taskData?.comments?.length || 0
         });
-        console.log('  👥 Members data:', { count: membersData?.length, first: membersData?.[0] });
+        console.log('  👥 Members data:', { count: members?.length, first: members?.[0] });
         console.log('  📋 Boards data:', { count: boardsData?.length });
 
         if (!taskData) {
@@ -69,7 +94,6 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
 
         console.log('✅ [TaskPage] Setting state with loaded data');
         setTask(taskData);
-        setMembers(membersData);
         setBoards(boardsData);
       } catch (error) {
         console.error('❌ [TaskPage] Error loading task page data:', error);
@@ -462,6 +486,17 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
     }
   };
 
+  // Modal handlers
+  const handleProfileUpdated = async () => {
+    // Profile updates are handled by the main app, so we don't need to do anything special here
+    // The currentUser prop will be updated by the parent
+  };
+
+  const handleActivityFeedToggle = (enabled: boolean) => {
+    // Activity feed is not used on TaskPage, but we need the handler for ModalManager
+    console.log('Activity feed toggle not applicable on TaskPage:', enabled);
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -509,10 +544,26 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* App Header */}
+      <Header
+        currentUser={currentUser}
+        siteSettings={siteSettings || {}}
+        currentPage={'kanban'} // Task page is part of kanban flow
+        isPolling={isPolling}
+        lastPollTime={lastPollTime}
+        members={members}
+        onProfileClick={() => setShowProfileModal(true)}
+        onLogout={onLogout}
+        onPageChange={onPageChange}
+        onRefresh={onRefresh}
+        onHelpClick={() => setShowHelpModal(true)}
+        onInviteUser={onInviteUser}
+      />
+      
+      {/* Task Navigation Bar */}
       <div className="bg-white shadow-sm border-b">
         <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between py-4">
             <div className="flex items-center space-x-4">
               <button
                 onClick={handleBack}
@@ -1123,6 +1174,28 @@ export default function TaskPage({ currentUser, siteSettings }: TaskPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Modal Manager */}
+      <ModalManager
+        selectedTask={null} // TaskPage doesn't use task details modal
+        members={members}
+        onTaskClose={() => {}} // Not applicable for TaskPage
+        onTaskUpdate={async () => {}} // Not applicable for TaskPage
+        showHelpModal={showHelpModal}
+        onHelpClose={() => setShowHelpModal(false)}
+        showProfileModal={showProfileModal}
+        currentUser={currentUser}
+        onProfileClose={() => {
+          setShowProfileModal(false);
+          setIsProfileBeingEdited(false);
+        }}
+        onProfileUpdated={handleProfileUpdated}
+        isProfileBeingEdited={isProfileBeingEdited}
+        onProfileEditingChange={setIsProfileBeingEdited}
+        onActivityFeedToggle={handleActivityFeedToggle}
+        siteSettings={siteSettings}
+        boards={boards}
+      />
     </div>
   );
 }

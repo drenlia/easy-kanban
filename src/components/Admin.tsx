@@ -566,8 +566,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
+    <div className="bg-gray-50 py-6 px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
@@ -613,7 +612,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         )}
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
+        <div className="sticky top-16 z-40 bg-gray-50 border-b border-gray-200 mb-6 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <nav className="-mb-px flex space-x-8">
             {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'].map((tab) => (
               <button
@@ -764,8 +763,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             />
           )}
         </div>
-      </div>
-
     </div>
   );
 };

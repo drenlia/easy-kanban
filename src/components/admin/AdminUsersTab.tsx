@@ -407,19 +407,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap w-20">
                     {showColorPicker === user.id ? (
                       <div className="relative">
-                        <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 min-w-[120px]">
-                          {/* Color picker */}
-                          <div className="flex justify-center mb-3">
-                            <input
-                              type="color"
-                              value={editingColor}
-                              onChange={(e) => setEditingColor(e.target.value)}
-                              className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
-                            />
-                          </div>
-                          
-                          {/* Buttons positioned below, outside the picker area */}
-                          <div className="flex space-x-2 justify-center">
+                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50 bg-white p-3 rounded-lg shadow-xl border border-gray-200 min-w-[120px] max-w-xs">
+                          {/* Buttons positioned at the top for better visibility */}
+                          <div className="flex space-x-2 justify-center mb-3">
                             <button
                               onClick={() => handleSaveColor(user.id)}
                               className="px-3 py-1 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors font-medium"
@@ -432,6 +422,16 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             >
                               ✕
                             </button>
+                          </div>
+                          
+                          {/* Color picker positioned below buttons */}
+                          <div className="flex justify-center">
+                            <input
+                              type="color"
+                              value={editingColor}
+                              onChange={(e) => setEditingColor(e.target.value)}
+                              className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
+                            />
                           </div>
                         </div>
                       </div>
