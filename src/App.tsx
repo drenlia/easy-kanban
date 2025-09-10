@@ -2257,10 +2257,19 @@ export default function App() {
     }
     
     return (
-      <TaskPage 
-        currentUser={currentUser}
-        siteSettings={siteSettings}
-      />
+      <>
+        <TaskPage 
+          currentUser={currentUser}
+          siteSettings={siteSettings}
+          members={members}
+          isPolling={isPolling}
+          lastPollTime={lastPollTime}
+          onLogout={handleLogout}
+          onPageChange={handlePageChange}
+          onRefresh={handleRefreshData}
+          onInviteUser={handleInviteUser}
+        />
+      </>
     );
   }
 
