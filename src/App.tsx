@@ -11,6 +11,7 @@ import {
   QueryLog, 
   DragPreview 
 } from './types';
+import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 
@@ -203,6 +204,7 @@ export default function App() {
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
+  const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
@@ -806,6 +808,11 @@ export default function App() {
       setIsSearchActive(userSpecificPrefs.isSearchActive);
       setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
       setSearchFilters(userSpecificPrefs.searchFilters);
+      
+      // Load saved filter view if one is remembered
+      if (userSpecificPrefs.currentFilterViewId) {
+        loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
+      }
       
       // Set initial selected board with preference fallback
       if (!selectedBoard) {
@@ -2056,6 +2063,44 @@ export default function App() {
   const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
     setSearchFilters(newFilters);
     updateCurrentUserPreference('searchFilters', newFilters);
+    // Clear current filter view when manually changing filters
+    if (currentFilterView) {
+      setCurrentFilterView(null);
+      updateCurrentUserPreference('currentFilterViewId', null);
+    }
+  };
+
+  // Load a saved filter view by ID
+  const loadSavedFilterView = async (viewId: number) => {
+    try {
+      const view = await getSavedFilterView(viewId);
+      setCurrentFilterView(view);
+      
+      // Convert and apply the filter
+      const searchFilters = {
+        text: view.textFilter || '',
+        dateFrom: view.dateFromFilter || '',
+        dateTo: view.dateToFilter || '',
+        dueDateFrom: view.dueDateFromFilter || '',
+        dueDateTo: view.dueDateToFilter || '',
+        selectedMembers: view.memberFilters || [],
+        selectedPriorities: view.priorityFilters || [],
+        selectedTags: view.tagFilters || [],
+        projectId: view.projectFilter || '',
+        taskId: view.taskFilter || '',
+      };
+      setSearchFilters(searchFilters);
+    } catch (error) {
+      console.error('Failed to load saved filter view:', error);
+      // Clear the invalid preference
+      updateCurrentUserPreference('currentFilterViewId', null);
+    }
+  };
+
+  const handleFilterViewChange = (view: SavedFilterView | null) => {
+    setCurrentFilterView(view);
+    // Save the current filter view ID to user preferences
+    updateCurrentUserPreference('currentFilterViewId', view?.id || null);
   };
 
   // Handle member toggle selection
@@ -2581,6 +2626,8 @@ export default function App() {
         onViewModeChange={handleViewModeChange}
         onToggleSearch={handleToggleSearch}
         onSearchFiltersChange={handleSearchFiltersChange}
+        currentFilterView={currentFilterView}
+        onFilterViewChange={handleFilterViewChange}
                     onSelectBoard={handleBoardSelection}
                     onAddBoard={handleAddBoard}
                     onEditBoard={handleEditBoard}

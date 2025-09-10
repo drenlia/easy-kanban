@@ -458,27 +458,81 @@ export const setDefaultPriority = async (priorityId: number) => {
 };
 
 // Views (saved filters) management
-export const getViews = async () => {
-  const { data } = await api.get('/views');
-  return data;
-};
-
-export const createView = async (view: {
+export interface SavedFilterView {
+  id: number;
   filterName: string;
+  userId: string;
   shared: boolean;
   textFilter?: string;
   dateFromFilter?: string;
   dateToFilter?: string;
+  dueDateFromFilter?: string;
+  dueDateToFilter?: string;
   memberFilters?: string[];
   priorityFilters?: string[];
-}) => {
-  const { data } = await api.post('/views', view);
+  tagFilters?: string[];
+  projectFilter?: string;
+  taskFilter?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateFilterViewRequest {
+  filterName: string;
+  filters: {
+    text?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    dueDateFrom?: string;
+    dueDateTo?: string;
+    selectedMembers?: string[];
+    selectedPriorities?: string[];
+    selectedTags?: string[];
+    projectId?: string;
+    taskId?: string;
+  };
+  shared?: boolean;
+}
+
+export interface UpdateFilterViewRequest {
+  filterName?: string;
+  filters?: {
+    text?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    dueDateFrom?: string;
+    dueDateTo?: string;
+    selectedMembers?: string[];
+    selectedPriorities?: string[];
+    selectedTags?: string[];
+    projectId?: string;
+    taskId?: string;
+  };
+  shared?: boolean;
+}
+
+export const getSavedFilterViews = async (): Promise<SavedFilterView[]> => {
+  const { data } = await api.get('/views');
   return data;
 };
 
-export const deleteView = async (viewId: number) => {
-  const { data } = await api.delete(`/views/${viewId}`);
+export const getSavedFilterView = async (viewId: number): Promise<SavedFilterView> => {
+  const { data } = await api.get(`/views/${viewId}`);
   return data;
+};
+
+export const createSavedFilterView = async (request: CreateFilterViewRequest): Promise<SavedFilterView> => {
+  const { data } = await api.post('/views', request);
+  return data;
+};
+
+export const updateSavedFilterView = async (viewId: number, request: UpdateFilterViewRequest): Promise<SavedFilterView> => {
+  const { data } = await api.put(`/views/${viewId}`, request);
+  return data;
+};
+
+export const deleteSavedFilterView = async (viewId: number): Promise<void> => {
+  await api.delete(`/views/${viewId}`);
 };
 
 // Avatar management

@@ -238,6 +238,8 @@ const createTables = (db) => {
       memberFilters TEXT,
       priorityFilters TEXT,
       tagFilters TEXT,
+      projectFilter TEXT,
+      taskFilter TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -541,6 +543,20 @@ const initializeDefaultData = (db) => {
   try {
     // Add position column to priorities table (migration)
     db.prepare('ALTER TABLE priorities ADD COLUMN position INTEGER NOT NULL DEFAULT 0').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add projectFilter column to views table (migration)
+    db.prepare('ALTER TABLE views ADD COLUMN projectFilter TEXT').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add taskFilter column to views table (migration)
+    db.prepare('ALTER TABLE views ADD COLUMN taskFilter TEXT').run();
   } catch (error) {
     // Column already exists, ignore error
   }

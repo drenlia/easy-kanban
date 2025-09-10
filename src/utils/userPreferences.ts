@@ -16,6 +16,7 @@ export interface UserPreferences {
   selectedTaskId: string | null;
   lastSelectedBoard: string | null;
   selectedMembers: string[];
+  currentFilterViewId: number | null;
   includeAssignees: boolean;
   includeWatchers: boolean;
   includeCollaborators: boolean;
@@ -87,6 +88,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   selectedTaskId: null, // Default to no task selected
   lastSelectedBoard: null, // Default to no board remembered
   selectedMembers: [], // Default to no members selected
+  currentFilterViewId: null, // Default to no saved filter selected
   includeAssignees: true, // Default to include assignees (maintains current behavior)
   includeWatchers: false, // Default to not include watchers
   includeCollaborators: false, // Default to not include collaborators
