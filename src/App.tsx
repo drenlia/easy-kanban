@@ -266,6 +266,8 @@ export default function App() {
     currentUser,
     siteSettings,
     hasDefaultAdmin,
+    intendedDestination,
+    justRedirected,
     handleLogin,
     handleLogout,
     handleProfileUpdated,
@@ -765,13 +767,17 @@ export default function App() {
     // 4. We're not on pages that should skip auto-selection
     // 5. Not during board creation (to avoid race conditions)
     // 6. User is authenticated (so we can access preferences)
+    // 7. No intended destination (don't override redirect after login)
+    // 8. Not just redirected (prevent overriding intended destination redirect)
     if (
       currentPage === 'kanban' && 
       !selectedBoard && 
       boards.length > 0 && 
       !boardCreationPause &&
       !shouldSkipAutoBoardSelection(currentPage) &&
-      isAuthenticated && currentUser?.id
+      isAuthenticated && currentUser?.id &&
+      !intendedDestination &&
+      !justRedirected
     ) {
       // Try to use the user's last selected board if it exists in current boards
       const userPrefs = loadUserPreferences(currentUser.id);
@@ -795,7 +801,7 @@ export default function App() {
         }
       }
     }
-  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id]);
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected]);
 
 
 
@@ -2241,6 +2247,7 @@ export default function App() {
         <Login
           siteSettings={siteSettings}
           onLogin={handleLogin}
+          intendedDestination={intendedDestination}
           onForgotPassword={() => {
             localStorage.removeItem('authToken');
             window.location.hash = '#forgot-password';
@@ -2262,7 +2269,9 @@ export default function App() {
     return (
       <Login 
         onLogin={handleLogin} 
+        siteSettings={siteSettings}
         hasDefaultAdmin={hasDefaultAdmin ?? undefined}
+        intendedDestination={intendedDestination}
         onForgotPassword={() => {
           // Clear auth token to prevent conflicts during password reset
           localStorage.removeItem('authToken');

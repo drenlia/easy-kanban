@@ -1,7 +1,19 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { CurrentUser, SiteSettings } from '../types';
 import { DEFAULT_SITE_SETTINGS } from '../constants';
 import * as api from '../api';
+
+// Get intended destination from HTML capture
+const getInitialIntendedDestination = (): string | null => {
+  const captured = localStorage.getItem('capturedIntendedDestination');
+  if (captured) {
+    localStorage.removeItem('capturedIntendedDestination'); // Clean up
+    return captured;
+  }
+  return null;
+};
+
+const INITIAL_INTENDED_DESTINATION = getInitialIntendedDestination();
 
 interface UseAuthReturn {
   // State
@@ -10,6 +22,7 @@ interface UseAuthReturn {
   siteSettings: SiteSettings;
   hasDefaultAdmin: boolean | null;
   intendedDestination: string | null;
+  justRedirected: boolean;
   
   // Actions
   handleLogin: (userData: any, token: string) => void;
@@ -31,7 +44,28 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
-  const [intendedDestination, setIntendedDestination] = useState<string | null>(null);
+  const [authChecked, setAuthChecked] = useState(false); // Track if auth has been checked
+  const isProcessingOAuthRef = useRef(false);
+  const [justRedirected, setJustRedirected] = useState(false); // Prevent auto-board-selection after redirect
+  
+  // Intended destination for redirecting after login
+  const [intendedDestination, setIntendedDestination] = useState<string | null>(INITIAL_INTENDED_DESTINATION);
+
+  // Redirect to login if user is unauthenticated and has intended destination
+  useEffect(() => {
+    // Only redirect after auth has been checked
+    if (!authChecked) {
+      return;
+    }
+    
+    if (!isAuthenticated && intendedDestination) {
+      console.log('🎯 Unauthenticated user with intended destination - redirecting to login:', intendedDestination);
+      // Store intended destination in localStorage for OAuth callback
+      localStorage.setItem('oauthIntendedDestination', intendedDestination);
+      // Redirect to root login page to avoid keeping pathname
+      window.location.href = window.location.origin + '/#login';
+    }
+  }, [isAuthenticated, authChecked, intendedDestination]);
 
   // Authentication handlers
   const handleLogin = (userData: any, token: string) => {
@@ -39,10 +73,72 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     setCurrentUser(userData);
     setIsAuthenticated(true);
     
+    
     // Redirect to intended destination if available
     if (intendedDestination) {
-      window.location.hash = intendedDestination;
-      setIntendedDestination(null); // Clear the intended destination
+      console.log('🎯 Local login redirect - intended destination:', intendedDestination);
+      
+      // Handle full path vs hash-only destinations
+      if (intendedDestination.startsWith('/')) {
+        // Full path with pathname + hash (e.g., "/project/#PROJ-00004#TASK-00001")
+        // For local auth, check if we're already on the correct pathname
+        if (window.location.pathname === intendedDestination.split('#')[0]) {
+          // Same pathname, just update hash to avoid page reload
+          const hashIndex = intendedDestination.indexOf('#');
+          if (hashIndex !== -1) {
+            const hashPart = intendedDestination.substring(hashIndex);
+            window.location.hash = hashPart;
+            // Clear intended destination after navigation completes
+            setJustRedirected(true);
+            setTimeout(() => {
+              setIntendedDestination(null);
+              // Clear the redirect flag after auto-board-selection would have run
+              setTimeout(() => {
+                setJustRedirected(false);
+              }, 100);
+            }, 200);
+          } else {
+            window.location.hash = '#kanban';
+          }
+        } else {
+          // Different pathname, but still try to avoid page reload if possible
+          // For local auth, try using history API first to avoid page reload
+          try {
+            window.history.pushState(null, '', intendedDestination);
+            // Then trigger a hash change to make the app respond
+            setTimeout(() => {
+              const hashPart = intendedDestination.split('#')[1];
+              if (hashPart) {
+                window.location.hash = '#' + hashPart;
+              }
+              // Clear intended destination after navigation completes
+              setJustRedirected(true);
+              setTimeout(() => {
+                setIntendedDestination(null);
+                // Clear the redirect flag after auto-board-selection would have run
+                setTimeout(() => {
+                  setJustRedirected(false);
+                }, 100);
+              }, 200);
+            }, 100);
+          } catch (e) {
+            // Fallback to full URL redirect if history API fails
+            window.location.href = window.location.origin + intendedDestination;
+          }
+        }
+      } else {
+        // Hash-only destination (e.g., "#PROJ-00004#TASK-00001") 
+        window.location.hash = intendedDestination;
+        // Clear intended destination after navigation completes
+        setJustRedirected(true);
+        setTimeout(() => {
+          setIntendedDestination(null);
+          // Clear the redirect flag after auto-board-selection would have run
+          setTimeout(() => {
+            setJustRedirected(false);
+          }, 100);
+        }, 200);
+      }
     }
   };
 
@@ -50,6 +146,14 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     localStorage.removeItem('authToken');
     setCurrentUser(null);
     setIsAuthenticated(false);
+    
+    // Clear ALL intended destination storage to prevent stale redirects
+    localStorage.removeItem('oauthIntendedDestination');
+    localStorage.removeItem('capturedIntendedDestination');
+    sessionStorage.removeItem('originalIntendedUrl');
+    setIntendedDestination(null);
+    setJustRedirected(false);
+    
     callbacks.onPageChange('kanban'); // Reset to kanban page
     callbacks.onDataClear(); // Clear all app data
     window.location.hash = ''; // Clear URL hash
@@ -91,15 +195,20 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         .then(response => {
           setCurrentUser(response.user);
           setIsAuthenticated(true);
+          setAuthChecked(true);
         })
         .catch(() => {
           // Clear all authentication data on error
           localStorage.removeItem('authToken');
           setIsAuthenticated(false);
           setCurrentUser(null);
+          setAuthChecked(true);
           // Reset to kanban page to avoid admin page issues
           callbacks.onPageChange('kanban');
         });
+    } else {
+      // No token, user is not authenticated
+      setAuthChecked(true);
     }
   }, []); // Only run once on mount
 
@@ -145,14 +254,20 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   useEffect(() => {
     // Check for token in URL hash (for OAuth callback)
     const hash = window.location.hash;
+    
       
     // Skip password reset and account activation tokens - only handle OAuth tokens
     if (hash.includes('token=') && !hash.includes('reset-password') && !hash.includes('activate-account')) {
       const tokenMatch = hash.match(/token=([^&]+)/);
       const errorMatch = hash.match(/error=([^&]+)/);
       
+      
       if (tokenMatch) {
         const token = tokenMatch[1];
+        
+        // Check for stored intended destination from before OAuth redirect
+        const storedIntendedDestination = localStorage.getItem('oauthIntendedDestination');
+        
         
         // Clear any activation context (no longer needed with simplified flow)
         localStorage.removeItem('activationContext');
@@ -160,8 +275,42 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         // Store the OAuth token
         localStorage.setItem('authToken', token);
         
-        // Clear the URL hash and redirect to kanban
-        window.location.hash = '#kanban';
+        // Set OAuth processing flag to prevent interference BEFORE hash changes
+        isProcessingOAuthRef.current = true;
+        
+        // Handle intended destination like regular login
+        const destinationToUse = intendedDestination || storedIntendedDestination;
+        
+        
+        if (destinationToUse) {
+          
+          // Handle full path vs hash-only destinations
+          if (destinationToUse.startsWith('/')) {
+            // Full path with pathname + hash (e.g., "/project/#PROJ-00004#TASK-00001")
+            // Use full URL to preserve pathname
+            window.location.href = window.location.origin + destinationToUse;
+          } else {
+            // Hash-only destination (e.g., "#PROJ-00004#TASK-00001") 
+            window.location.hash = destinationToUse;
+          }
+          
+          // Clear intended destination after redirect
+          setJustRedirected(true);
+          setIntendedDestination(null);
+          localStorage.removeItem('oauthIntendedDestination'); // Clean up
+          
+          // Clear the redirect flag after auto-board-selection would have run
+          setTimeout(() => {
+            setJustRedirected(false);
+          }, 300);
+        } else {
+          // No intended destination, go to default kanban
+          window.location.hash = '#kanban';
+          // Also clear any stale intended destination storage for normal login
+          localStorage.removeItem('oauthIntendedDestination');
+          localStorage.removeItem('capturedIntendedDestination');
+          sessionStorage.removeItem('originalIntendedUrl');
+        }
         
         // Force authentication check by triggering a state change
         setIsAuthenticated(false);
@@ -171,11 +320,13 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           .then(response => {
             setCurrentUser(response.user);
             setIsAuthenticated(true);
+            isProcessingOAuthRef.current = false; // Clear OAuth processing flag
             console.log('✅ Google OAuth complete for:', response.user.email, 'auth_provider:', response.user.authProvider || 'google');
           })
           .catch(() => {
             // Fallback: just set authenticated and let the auth effect handle it
             setIsAuthenticated(true);
+            isProcessingOAuthRef.current = false; // Clear OAuth processing flag
           });
         
         return; // Exit early to prevent routing conflicts
@@ -189,20 +340,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     }
   }, []);
 
-  // Handle authentication state changes for intended destination
-  useEffect(() => {
-    const handleHashChange = () => {
-      const fullHash = window.location.hash;
-      
-      // Store intended destination if user is not authenticated
-      if (!isAuthenticated && fullHash && fullHash !== '#login') {
-        setIntendedDestination(fullHash);
-      }
-    };
-
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [isAuthenticated]);
 
   return {
     // State
@@ -211,6 +348,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     siteSettings,
     hasDefaultAdmin,
     intendedDestination,
+    justRedirected,
     
     // Actions
     handleLogin,
