@@ -28,8 +28,9 @@ api.interceptors.response.use(
 );
 
 // Members
-export const getMembers = async () => {
-  const { data } = await api.get<TeamMember[]>('/members');
+export const getMembers = async (includeSystem?: boolean) => {
+  const params = includeSystem ? { includeSystem: 'true' } : {};
+  const { data } = await api.get<TeamMember[]>('/members', { params });
   return data;
 };
 
@@ -46,6 +47,12 @@ export const deleteMember = async (id: string) => {
 // Boards
 export const getBoards = async () => {
   const { data } = await api.get<Board[]>('/boards');
+  return data;
+};
+
+// Get columns for a specific board
+export const getBoardColumns = async (boardId: string) => {
+  const { data } = await api.get<{id: string, title: string, boardId: string, position: number}[]>(`/boards/${boardId}/columns`);
   return data;
 };
 
@@ -90,6 +97,12 @@ export const reorderColumns = async (columnId: string, newPosition: number, boar
   return data;
 };
 
+// Move task to different board
+export const moveTaskToBoard = async (taskId: string, targetBoardId: string) => {
+  const { data } = await api.post('/tasks/move-to-board', { taskId, targetBoardId });
+  return data;
+};
+
 export const reorderTasks = async (taskId: string, newPosition: number, columnId: string) => {
   const { data } = await api.post('/tasks/reorder', { taskId, newPosition, columnId });
   return data;
@@ -101,6 +114,11 @@ export const createTaskAtTop = async (task: Task) => {
 };
 
 // Tasks
+export const getTaskById = async (id: string) => {
+  const { data } = await api.get<Task>(`/tasks/${id}`);
+  return data;
+};
+
 export const createTask = async (task: Task) => {
   const { data } = await api.post<Task>('/tasks', task);
   return data;
@@ -128,6 +146,11 @@ export const createComment = async (comment: Comment & {
   }> 
 }) => {
   const { data } = await api.post<Comment>('/comments', comment);
+  return data;
+};
+
+export const updateComment = async (id: string, text: string) => {
+  const { data } = await api.put(`/comments/${id}`, { text });
   return data;
 };
 
@@ -191,6 +214,28 @@ export const fetchCommentAttachments = async (commentId: string) => {
   return response.json();
 };
 
+// Task Attachments API
+export const fetchTaskAttachments = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/attachments`);
+  return data;
+};
+
+export const addTaskAttachments = async (taskId: string, attachments: Array<{
+  id: string;
+  name: string;
+  url: string;
+  type: string;
+  size: number;
+}>) => {
+  const { data } = await api.post(`/tasks/${taskId}/attachments`, { attachments });
+  return data;
+};
+
+export const deleteAttachment = async (attachmentId: string) => {
+  const { data } = await api.delete(`/attachments/${attachmentId}`);
+  return data;
+};
+
 // Admin API
 export const getUsers = async () => {
   const { data } = await api.get('/admin/users');
@@ -202,9 +247,13 @@ export const createUser = async (userData: {
   password: string;
   firstName: string;
   lastName: string;
+  displayName?: string;
   role: string;
 }) => {
-  const { data } = await api.post('/admin/users', userData);
+  const { data } = await api.post('/admin/users', {
+    ...userData,
+    baseUrl: window.location.origin // Send the current browser origin
+  });
   return data;
 };
 
@@ -213,8 +262,16 @@ export const updateUser = async (userId: string, userData: {
   lastName: string;
   email: string;
   isActive: boolean;
+  displayName?: string; // Optional since it's handled separately
 }) => {
-  const { data } = await api.put(`/admin/users/${userId}`, userData);
+  // Only send fields that the backend endpoint expects
+  const { firstName, lastName, email, isActive } = userData;
+  const { data } = await api.put(`/admin/users/${userId}`, { 
+    firstName, 
+    lastName, 
+    email, 
+    isActive 
+  });
   return data;
 };
 
@@ -228,8 +285,27 @@ export const deleteUser = async (userId: string) => {
   return data;
 };
 
+export const resendUserInvitation = async (userId: string) => {
+  const { data } = await api.post(`/admin/users/${userId}/resend-invitation`, {
+    baseUrl: window.location.origin // Send the current browser origin
+  });
+  return data;
+};
+
+
+export const getUserTaskCount = async (userId: string) => {
+  const { data } = await api.get(`/admin/users/${userId}/task-count`);
+  return data;
+};
+
 export const updateMemberColor = async (userId: string, color: string) => {
   const { data } = await api.put(`/admin/users/${userId}/color`, { color });
+  return data;
+};
+
+// Self-service account deletion
+export const deleteAccount = async () => {
+  const { data } = await api.delete('/users/account');
   return data;
 };
 
@@ -243,8 +319,165 @@ export const getPublicSettings = async () => {
   return data;
 };
 
+// Activity Feed
+export const getActivityFeed = async (limit: number = 20) => {
+  const { data } = await api.get(`/activity/feed?limit=${limit}`);
+  return data;
+};
+
+// User Settings
+export const getUserSettings = async () => {
+  const { data } = await api.get('/user/settings');
+  return data;
+};
+
+export const updateUserSetting = async (setting_key: string, setting_value: any) => {
+  const { data } = await api.put('/user/settings', { setting_key, setting_value });
+  return data;
+};
+
 export const updateSetting = async (key: string, value: string) => {
   const { data } = await api.put('/admin/settings', { key, value });
+  return data;
+};
+
+// Tags (public endpoint for all users)
+export const getAllTags = async () => {
+  const { data } = await api.get('/tags');
+  return data;
+};
+
+// Tags management (admin only)
+export const getTags = async () => {
+  const { data } = await api.get('/admin/tags');
+  return data;
+};
+
+export const createTag = async (tag: { tag: string; description?: string; color?: string }) => {
+  const { data } = await api.post('/admin/tags', tag);
+  return data;
+};
+
+export const updateTag = async (tagId: number, tag: { tag: string; description?: string; color?: string }) => {
+  const { data } = await api.put(`/admin/tags/${tagId}`, tag);
+  return data;
+};
+
+export const deleteTag = async (tagId: number) => {
+  const { data } = await api.delete(`/admin/tags/${tagId}`);
+  return data;
+};
+
+export const getTagUsage = async (tagId: number) => {
+  const { data } = await api.get(`/admin/tags/${tagId}/usage`);
+  return data;
+};
+
+// Task-Tag associations
+export const getTaskTags = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/tags`);
+  return data;
+};
+
+export const addTagToTask = async (taskId: string, tagId: number) => {
+  const { data } = await api.post(`/tasks/${taskId}/tags/${tagId}`);
+  return data;
+};
+
+export const removeTagFromTask = async (taskId: string, tagId: number) => {
+  const { data } = await api.delete(`/tasks/${taskId}/tags/${tagId}`);
+  return data;
+};
+
+// Task-Watchers associations
+export const getTaskWatchers = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/watchers`);
+  return data;
+};
+
+export const addWatcherToTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.post(`/tasks/${taskId}/watchers/${memberId}`);
+  return data;
+};
+
+export const removeWatcherFromTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.delete(`/tasks/${taskId}/watchers/${memberId}`);
+  return data;
+};
+
+// Task-Collaborators associations
+export const getTaskCollaborators = async (taskId: string) => {
+  const { data } = await api.get(`/tasks/${taskId}/collaborators`);
+  return data;
+};
+
+export const addCollaboratorToTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.post(`/tasks/${taskId}/collaborators/${memberId}`);
+  return data;
+};
+
+export const removeCollaboratorFromTask = async (taskId: string, memberId: string) => {
+  const { data } = await api.delete(`/tasks/${taskId}/collaborators/${memberId}`);
+  return data;
+};
+
+// Priorities management
+export const getAllPriorities = async () => {
+  const { data } = await api.get('/priorities');
+  return data;
+};
+
+export const getPriorities = async () => {
+  const { data } = await api.get('/admin/priorities');
+  return data;
+};
+
+export const createPriority = async (priority: { priority: string; color: string }) => {
+  const { data } = await api.post('/admin/priorities', priority);
+  return data;
+};
+
+export const updatePriority = async (priorityId: number, priority: { priority: string; color: string }) => {
+  const { data } = await api.put(`/admin/priorities/${priorityId}`, priority);
+  return data;
+};
+
+export const deletePriority = async (priorityId: number) => {
+  const { data } = await api.delete(`/admin/priorities/${priorityId}`);
+  return data;
+};
+
+export const reorderPriorities = async (priorities: any[]) => {
+  const { data } = await api.put('/admin/priorities/reorder', { priorities });
+  return data;
+};
+
+export const setDefaultPriority = async (priorityId: number) => {
+  const { data } = await api.put(`/admin/priorities/${priorityId}/set-default`);
+  return data;
+};
+
+// Views (saved filters) management
+export const getViews = async () => {
+  const { data } = await api.get('/views');
+  return data;
+};
+
+export const createView = async (view: {
+  filterName: string;
+  shared: boolean;
+  textFilter?: string;
+  dateFromFilter?: string;
+  dateToFilter?: string;
+  memberFilters?: string[];
+  priorityFilters?: string[];
+}) => {
+  const { data } = await api.post('/views', view);
+  return data;
+};
+
+export const deleteView = async (viewId: number) => {
+  const { data } = await api.delete(`/views/${viewId}`);
   return data;
 };
 
@@ -262,6 +495,30 @@ export const uploadAvatar = async (file: File) => {
     },
   });
   return data;
+};
+
+// Task Relationships
+export const getTaskRelationships = async (taskId: string) => {
+  const response = await api.get(`/tasks/${taskId}/relationships`);
+  return response.data;
+};
+
+export const getAvailableTasksForRelationship = async (taskId: string) => {
+  const response = await api.get(`/tasks/${taskId}/available-for-relationship`);
+  return response.data;
+};
+
+export const addTaskRelationship = async (taskId: string, relationship: 'parent' | 'child' | 'related', toTaskId: string) => {
+  const response = await api.post(`/tasks/${taskId}/relationships`, {
+    relationship,
+    toTaskId
+  });
+  return response.data;
+};
+
+export const removeTaskRelationship = async (taskId: string, relationshipId: string) => {
+  const response = await api.delete(`/tasks/${taskId}/relationships/${relationshipId}`);
+  return response.data;
 };
 
 export default api;

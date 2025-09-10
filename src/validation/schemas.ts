@@ -9,7 +9,7 @@ export const TaskSchema = z.object({
   requesterId: z.string().optional(),
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
   effort: z.number().min(0, "Effort must be positive").max(100, "Effort must be less than 100"),
-  priority: z.enum(['low', 'medium', 'high']),
+  priority: z.string().min(1, "Priority is required"),
   position: z.number().optional(),
   boardId: z.string().optional(),
 });

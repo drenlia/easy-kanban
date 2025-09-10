@@ -4,6 +4,9 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
+import BulletList from '@tiptap/extension-bullet-list';
+import OrderedList from '@tiptap/extension-ordered-list';
+import ListItem from '@tiptap/extension-list-item';
 import { 
   Bold, 
   Italic, 
@@ -19,6 +22,8 @@ import {
 interface CommentEditorProps {
   onSubmit: (content: string, attachments: File[]) => Promise<void>;
   onCancel?: () => void;
+  initialContent?: string;
+  isEditing?: boolean;
 }
 
 const formatDateTime = (dateString: string) => {
@@ -37,7 +42,7 @@ const getLocalISOString = (date: Date) => {
   return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString();
 };
 
-export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps) {
+export default function CommentEditor({ onSubmit, onCancel, initialContent = '', isEditing = false }: CommentEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
@@ -47,13 +52,29 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        bulletList: {
-          keepMarks: true,
-          keepAttributes: false,
+        // Disable the default list extensions from StarterKit
+        bulletList: false,
+        orderedList: false,
+        listItem: false,
+      }),
+      // Add explicit list extensions with proper configuration
+      BulletList.configure({
+        keepMarks: true,
+        keepAttributes: false,
+        HTMLAttributes: {
+          class: 'tiptap-bullet-list',
         },
-        orderedList: {
-          keepMarks: true,
-          keepAttributes: false,
+      }),
+      OrderedList.configure({
+        keepMarks: true,
+        keepAttributes: false,
+        HTMLAttributes: {
+          class: 'tiptap-ordered-list',
+        },
+      }),
+      ListItem.configure({
+        HTMLAttributes: {
+          class: 'tiptap-list-item',
         },
       }),
       Underline,
@@ -67,7 +88,7 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
         types: ['heading', 'paragraph']
       })
     ],
-    content: '',
+    content: initialContent,
     editorProps: {
       attributes: {
         class: 'prose prose-sm max-w-none focus:outline-none min-h-[100px] px-3 py-2'
@@ -231,7 +252,7 @@ export default function CommentEditor({ onSubmit, onCancel }: CommentEditorProps
           }`}
         >
           <Check size={16} />
-          <span>Add Comment</span>
+          <span>{isEditing ? 'Update Comment' : 'Add Comment'}</span>
         </button>
       </div>
 

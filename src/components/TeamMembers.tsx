@@ -1,4 +1,5 @@
 import React from 'react';
+import { X } from 'lucide-react';
 import { TeamMember } from '../types';
 
 export const PRESET_COLORS = [
@@ -26,19 +27,59 @@ export const PRESET_COLORS = [
 
 interface TeamMembersProps {
   members: TeamMember[];
-  selectedMember: string | null;
+  selectedMembers: string[];
   onSelectMember: (id: string) => void;
+  onClearSelections?: () => void;
+  onSelectAll?: () => void;
+  isAllModeActive?: boolean;
+  includeAssignees?: boolean;
+  includeWatchers?: boolean;
+  includeCollaborators?: boolean;
+  includeRequesters?: boolean;
+  includeSystem?: boolean;
+  onToggleAssignees?: (include: boolean) => void;
+  onToggleWatchers?: (include: boolean) => void;
+  onToggleCollaborators?: (include: boolean) => void;
+  onToggleRequesters?: (include: boolean) => void;
+  onToggleSystem?: (include: boolean) => void;
+  currentUserId?: string;
+  currentUser?: any; // To check if user is admin
   onlineUsers?: Set<string>;
   boardOnlineUsers?: Set<string>;
 }
 
 export default function TeamMembers({
   members,
-  selectedMember,
+  selectedMembers,
   onSelectMember,
+  onClearSelections,
+  onSelectAll,
+  isAllModeActive = false,
+  includeAssignees = false,
+  includeWatchers = false,
+  includeCollaborators = false,
+  includeRequesters = false,
+  includeSystem = false,
+  onToggleAssignees,
+  onToggleWatchers,
+  onToggleCollaborators,
+  onToggleRequesters,
+  onToggleSystem,
+  currentUserId,
+  currentUser,
   onlineUsers = new Set(),
   boardOnlineUsers = new Set()
 }: TeamMembersProps) {
+  
+  const handleClearSelections = () => {
+    if (onClearSelections) {
+      onClearSelections();
+    }
+  };
+
+  // Create system user member object when needed
+  // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
+  const displayMembers = members;
   
   // Function to get avatar display for a member
   const getMemberAvatar = (member: TeamMember) => {
@@ -48,7 +89,7 @@ export default function TeamMembers({
         <img 
           src={member.googleAvatarUrl} 
           alt={member.name}
-          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -58,7 +99,7 @@ export default function TeamMembers({
         <img 
           src={member.avatarUrl} 
           alt={member.name}
-          className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm"
+          className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />
       );
     }
@@ -67,7 +108,7 @@ export default function TeamMembers({
     const initials = member.name.split(' ').map(n => n[0]).join('').toUpperCase();
     return (
       <div 
-        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white border-2 border-white shadow-sm"
+        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white border-2 border-white shadow-sm"
         style={{ backgroundColor: member.color }}
       >
         {initials}
@@ -80,27 +121,151 @@ export default function TeamMembers({
   return (
     <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Team Members</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+            Team Members 
+            {selectedMembers.length > 0 && (
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {selectedMembers.length} selected
+                <button
+                  onClick={handleClearSelections}
+                  className="p-0.5 hover:bg-blue-200 rounded-full transition-colors"
+                  title="Clear selections and revert to current user"
+                >
+                  <X size={10} className="text-blue-600" />
+                </button>
+              </span>
+            )}
+          </h2>
+          
+          {/* All/None Toggle Button */}
+          {onSelectAll && (
+            <button
+              onClick={onSelectAll}
+              className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-blue-600 border border-gray-300 hover:border-blue-400 rounded transition-colors"
+              title={isAllModeActive 
+                ? "Switch to None mode: only assignees + current user" 
+                : "Switch to All mode: select all members and checkboxes"
+              }
+            >
+              {isAllModeActive ? 'None' : 'All'}
+            </button>
+          )}
+          
+          {/* Filter Options Checkboxes */}
+          <div className="flex items-center gap-3">
+            {onToggleAssignees && (
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks assigned to the selected team members"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeAssignees}
+                  onChange={(e) => onToggleAssignees(e.target.checked)}
+                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
+                />
+                <span className="text-xs text-gray-600">assignees</span>
+              </label>
+            )}
+            
+            {onToggleWatchers && (
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks where the selected members are watching for updates"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeWatchers}
+                  onChange={(e) => onToggleWatchers(e.target.checked)}
+                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
+                />
+                <span className="text-xs text-gray-600">watchers</span>
+              </label>
+            )}
+            
+            {onToggleCollaborators && (
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks where the selected members are actively collaborating"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeCollaborators}
+                  onChange={(e) => onToggleCollaborators(e.target.checked)}
+                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
+                />
+                <span className="text-xs text-gray-600">collaborators</span>
+              </label>
+            )}
+            
+            {onToggleRequesters && (
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks requested by the selected team members"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeRequesters}
+                  onChange={(e) => onToggleRequesters(e.target.checked)}
+                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
+                />
+                <span className="text-xs text-gray-600">requesters</span>
+              </label>
+            )}
+            
+            {/* System checkbox - only show for admins */}
+            {onToggleSystem && currentUser?.roles?.includes('admin') && (
+              <label 
+                className="flex items-center gap-1 cursor-pointer"
+                title="Show tasks assigned to the system user (admin only)"
+              >
+                <input
+                  type="checkbox"
+                  checked={includeSystem}
+                  onChange={(e) => onToggleSystem(e.target.checked)}
+                  className="w-3 h-3 text-amber-600 rounded focus:ring-amber-500 focus:ring-1"
+                />
+                <span className="text-xs text-amber-700 font-medium">system</span>
+              </label>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Warning when no checkboxes are selected */}
+      {!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters && (
+        <div className="mb-2 text-xs text-red-400 bg-red-50 px-2 py-1 rounded border border-red-200">
+          ⚠️ No filter options selected. Select at least one option above to display tasks.
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        {members.map(member => (
-          <div
-            key={member.id}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full cursor-pointer transition-all ${
-              selectedMember === member.id ? 'ring-2 ring-offset-1' : ''
-            }`}
-            style={{
-              backgroundColor: `${member.color}15`,
-              color: member.color
-            }}
-            onClick={() => onSelectMember(member.id)}
-            title={member.name}
-          >
-            {getMemberAvatar(member)}
-            <span className="text-xs font-medium">{member.name}</span>
-          </div>
-        ))}
+        {displayMembers.map(member => {
+          const isSelected = selectedMembers.includes(member.id);
+          return (
+            <div
+              key={member.id}
+              className={`flex items-center gap-1 px-2 py-1 rounded-full cursor-pointer transition-all duration-200 ${
+                isSelected 
+                  ? 'ring-2 ring-offset-1 shadow-md transform scale-102' 
+                  : 'hover:shadow-sm hover:scale-101'
+              }`}
+              style={{
+                backgroundColor: isSelected ? `${member.color}25` : `${member.color}15`,
+                color: member.color,
+                ringColor: member.color
+              }}
+              onClick={() => onSelectMember(member.id)}
+              title={`${member.name} ${isSelected ? '(selected)' : '(click to select)'}`}
+            >
+              {getMemberAvatar(member)}
+              <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
+                {member.name}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
 

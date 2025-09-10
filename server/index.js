@@ -1,88 +1,67 @@
 import express from 'express';
 import cors from 'cors';
-import Database from 'better-sqlite3';
+import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import multer from 'multer';
-import { mkdir } from 'fs/promises';
-import { writeFileSync } from 'fs';
+import { dirname } from 'path';
 import crypto from 'crypto';
-import path from 'path';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import nodemailer from 'nodemailer';
-// import { createServer } from 'http';
-// import { Server as SocketIOServer } from 'socket.io'; // Disabled due to loop issues
+
+// Import our extracted modules
+import { initializeDatabase } from './config/database.js';
+import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_IN } from './middleware/auth.js';
+import { attachmentUpload, avatarUpload } from './config/multer.js';
+import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
+import { createDefaultAvatar } from './utils/avatarGenerator.js';
+import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
+import { initNotificationService, getNotificationService } from './services/notificationService.js';
+import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
+
+// Import route modules
+import boardsRouter from './routes/boards.js';
+import tasksRouter from './routes/tasks.js';
+import membersRouter from './routes/members.js';
+import columnsRouter from './routes/columns.js';
+import authRouter from './routes/auth.js';
+import passwordResetRouter from './routes/password-reset.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// In Docker, use the data volume path; otherwise use local path
-const dbPath = process.env.NODE_ENV === 'development' && process.env.DOCKER_ENV 
-  ? '/app/server/data/kanban.db'
-  : join(__dirname, 'kanban.db');
 
-// Ensure the directory exists
-const dbDir = dirname(dbPath);
-if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
-}
+// Initialize database using extracted module
+const db = initializeDatabase();
 
-if (!fs.existsSync(dbPath)) {
-  fs.writeFileSync(dbPath, '');
-}
+// Initialize activity logger and notification service with database instance
+initActivityLogger(db);
+initNotificationService(db);
 
-// Initialize database
-const db = new Database(dbPath);
 const app = express();
 
-// JWT configuration
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
-const JWT_EXPIRES_IN = '24h';
+// Make database available to routes
+app.locals.db = db;
 
 // Enable CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
 
+// Serve static files
+app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
+app.use('/avatars', express.static(path.join(__dirname, 'avatars')));
 
+// ================================
+// DEBUG ENDPOINTS
+// ================================
 
-// Authentication middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+app.post('/api/debug/log', (req, res) => {
+  const { message, data } = req.body;
+  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  res.status(200).json({ success: true });
+});
 
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
+// ================================
+// AUTHENTICATION ENDPOINTS
+// ================================
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Role-based access control middleware
-const requireRole = (roles) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-    
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
-    }
-    
-    next();
-  };
-};
-
-// Query logging
-const queryLogs = [];
-let queryId = 0;
-
-// Authentication endpoints
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   
@@ -145,6 +124,83 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Account activation endpoint
+app.post('/api/auth/activate-account', async (req, res) => {
+  const { token, email, newPassword } = req.body;
+  
+  if (!token || !email || !newPassword) {
+    return res.status(400).json({ error: 'Token, email, and new password are required' });
+  }
+  
+  try {
+    // Find the invitation token
+    const invitation = wrapQuery(db.prepare(`
+      SELECT ui.*, u.id as user_id, u.email, u.first_name, u.last_name, u.is_active 
+      FROM user_invitations ui
+      JOIN users u ON ui.user_id = u.id
+      WHERE ui.token = ? AND u.email = ? AND ui.used_at IS NULL
+    `), 'SELECT').get(token, email);
+    
+    if (!invitation) {
+      return res.status(400).json({ error: 'Invalid or expired invitation token' });
+    }
+    
+    // Check if token has expired
+    const tokenExpiry = new Date(invitation.expires_at);
+    if (tokenExpiry < new Date()) {
+      return res.status(400).json({ error: 'Invitation token has expired' });
+    }
+    
+    // Check if user is already active
+    if (invitation.is_active) {
+      return res.status(400).json({ error: 'Account is already active' });
+    }
+    
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    
+    // Activate user and update password
+    wrapQuery(db.prepare(`
+      UPDATE users 
+      SET is_active = 1, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `), 'UPDATE').run(passwordHash, invitation.user_id);
+    
+    // Mark invitation as used
+    wrapQuery(db.prepare(`
+      UPDATE user_invitations 
+      SET used_at = datetime('now')
+      WHERE id = ?
+    `), 'UPDATE').run(invitation.id);
+    
+    // Log activation activity
+    wrapQuery(db.prepare(`
+      INSERT INTO activity (action, details, userId, created_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      'account_activated',
+      `User ${invitation.first_name} ${invitation.last_name} (${invitation.email}) activated their account`,
+      invitation.user_id
+    );
+    
+    console.log('✅ Account activated successfully for:', invitation.email);
+    
+    res.json({ 
+      message: 'Account activated successfully. You can now log in.',
+      user: {
+        id: invitation.user_id,
+        email: invitation.email,
+        firstName: invitation.first_name,
+        lastName: invitation.last_name
+      }
+    });
+    
+  } catch (error) {
+    console.error('Account activation error:', error);
+    res.status(500).json({ error: 'Failed to activate account' });
+  }
+});
+
 app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role } = req.body;
   
@@ -154,7 +210,7 @@ app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async 
   
   try {
     // Check if user already exists
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
@@ -164,24 +220,28 @@ app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async 
     
     // Create user
     const userId = crypto.randomUUID();
-    const userStmt = db.prepare(`
+    wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name) 
       VALUES (?, ?, ?, ?, ?)
-    `);
-    userStmt.run(userId, email, passwordHash, firstName, lastName);
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName);
     
     // Assign role
-    const roleId = db.prepare('SELECT id FROM roles WHERE name = ?').get(role)?.id;
+    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
     if (roleId) {
-      const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
-      userRoleStmt.run(userId, roleId);
+      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
     // Create member for the user
     const memberId = crypto.randomUUID();
     const memberColor = '#4ECDC4'; // Default color
-    const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
-    memberStmt.run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+      .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+    
+    // Generate default avatar
+    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId);
+    if (avatarPath) {
+      wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    }
     
     res.json({ 
       message: 'User created successfully',
@@ -234,222 +294,716 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
     });
     
   } catch (error) {
-    console.error('Get user error:', error);
+    console.error('Auth/me error:', error);
     res.status(500).json({ error: 'Failed to get user info' });
   }
 });
 
-// Admin API endpoints
+app.get('/api/auth/check-default-admin', (req, res) => {
+  try {
+    const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@example.com');
+    res.json({ exists: !!defaultAdmin });
+  } catch (error) {
+    console.error('Error checking default admin:', error);
+    res.status(500).json({ error: 'Failed to check default admin' });
+  }
+});
+
+// ================================
+// API ROUTES
+// ================================
+
+// Use route modules
+app.use('/api/members', membersRouter);
+app.use('/api/boards', boardsRouter);
+app.use('/api/columns', columnsRouter);
+app.use('/api/tasks', authenticateToken, tasksRouter);
+app.use('/api/auth', authRouter);
+app.use('/api/password-reset', passwordResetRouter);
+
+// ================================
+// ADDITIONAL ENDPOINTS
+// ================================
+
+// Comments endpoints
+app.post('/api/comments', authenticateToken, async (req, res) => {
+  const comment = req.body;
+  const userId = req.user.id;
+  
+  try {
+    // Begin transaction
+    db.prepare('BEGIN').run();
+
+    try {
+      // Insert comment
+      const commentStmt = db.prepare(`
+        INSERT INTO comments (id, taskId, text, authorId, createdAt)
+        VALUES (?, ?, ?, ?, ?)
+      `);
+      
+      commentStmt.run(
+        comment.id,
+        comment.taskId,
+        comment.text,
+        comment.authorId,
+        comment.createdAt
+      );
+      
+      // Insert attachments if any
+      if (comment.attachments?.length > 0) {
+        const attachmentStmt = db.prepare(`
+          INSERT INTO attachments (id, commentId, name, url, type, size)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+        
+        comment.attachments.forEach(attachment => {
+          attachmentStmt.run(
+            attachment.id,
+            comment.id,
+            attachment.name,
+            attachment.url,
+            attachment.type,
+            attachment.size
+          );
+        });
+      }
+
+      // Commit transaction
+      db.prepare('COMMIT').run();
+      
+      // Log comment creation activity
+      await logCommentActivity(
+        userId,
+        COMMENT_ACTIONS.CREATE,
+        comment.id,
+        comment.taskId,
+        `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
+        { commentContent: comment.text }
+      );
+      
+      res.json(comment);
+    } catch (error) {
+      // Rollback on error
+      db.prepare('ROLLBACK').run();
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error creating comment:', error);
+    res.status(500).json({ error: 'Failed to create comment' });
+  }
+});
+
+// Update comment endpoint
+app.put('/api/comments/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+  const userId = req.user.id;
+  
+  try {
+    // Get original comment first
+    const originalComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    
+    if (!originalComment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
+    // Update comment text in database
+    const stmt = db.prepare('UPDATE comments SET text = ? WHERE id = ?');
+    const result = stmt.run(text, id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
+    // Log comment update activity
+    await logCommentActivity(
+      userId,
+      COMMENT_ACTIONS.UPDATE,
+      id,
+      originalComment.taskId,
+      `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`
+    );
+    
+    // Return updated comment
+    const updatedComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    res.json(updatedComment);
+  } catch (error) {
+    console.error('Error updating comment:', error);
+    res.status(500).json({ error: 'Failed to update comment' });
+  }
+});
+
+app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+  
+  try {
+    // Get comment details before deleting
+    const commentToDelete = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    
+    if (!commentToDelete) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+    
+    // Get attachments before deleting the comment
+    const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE commentId = ?');
+    const attachments = attachmentsStmt.all(id);
+
+    // Delete the files from disk
+    for (const attachment of attachments) {
+      // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
+      const filename = attachment.url.replace('/attachments/', '');
+      const filePath = path.join(__dirname, 'attachments', filename);
+      try {
+        await fs.promises.unlink(filePath);
+        console.log(`✅ Deleted file: ${filename}`);
+      } catch (error) {
+        console.error('Error deleting file:', error);
+      }
+    }
+
+    // Delete the comment (cascades to attachments)
+    const stmt = db.prepare('DELETE FROM comments WHERE id = ?');
+    stmt.run(id);
+
+    // Log comment deletion activity
+    await logCommentActivity(
+      userId,
+      COMMENT_ACTIONS.DELETE,
+      id,
+      commentToDelete.taskId,
+      `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`
+    );
+
+    res.json({ message: 'Comment and attachments deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting comment:', error);
+    res.status(500).json({ error: 'Failed to delete comment' });
+  }
+});
+
+// New endpoint to fetch comment attachments
+app.get('/api/comments/:commentId/attachments', (req, res) => {
+  try {
+    const attachments = db.prepare(`
+      SELECT 
+        id,
+        name,
+        url,
+        type,
+        size
+      FROM attachments
+      WHERE commentId = ?
+    `).all(req.params.commentId);
+
+    res.json(attachments);
+  } catch (error) {
+    console.error('Error fetching comment attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch attachments' });
+  }
+});
+
+// File upload endpoints
+app.post('/api/upload', attachmentUpload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
+  }
+
+  res.json({
+    id: crypto.randomUUID(),
+    name: req.file.originalname,
+    url: `/attachments/${req.file.filename}`,
+    type: req.file.mimetype,
+    size: req.file.size
+  });
+});
+
+// Avatar upload endpoints
+app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No avatar file uploaded' });
+  }
+
+  try {
+    const avatarPath = `/avatars/${req.file.filename}`;
+    wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
+    
+    res.json({
+      message: 'Avatar uploaded successfully',
+      avatarUrl: avatarPath
+    });
+  } catch (error) {
+    console.error('Error uploading avatar:', error);
+    res.status(500).json({ error: 'Failed to upload avatar' });
+  }
+});
+
+app.delete('/api/users/avatar', authenticateToken, (req, res) => {
+  try {
+    wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
+    res.json({ message: 'Avatar removed successfully' });
+  } catch (error) {
+    console.error('Error removing avatar:', error);
+    res.status(500).json({ error: 'Failed to remove avatar' });
+  }
+});
+
+// Allow users to update their own profile (display name)
+app.put('/api/users/profile', authenticateToken, (req, res) => {
+  try {
+    const { displayName } = req.body;
+    const userId = req.user.id;
+    
+    if (!displayName || displayName.trim().length === 0) {
+      return res.status(400).json({ error: 'Display name is required' });
+    }
+    
+    // Check for duplicate display name (excluding current user)
+    const existingMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
+      'SELECT'
+    ).get(displayName.trim(), userId);
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This display name is already taken by another user' });
+    }
+    
+    // Update the member's name in the members table
+    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
+    updateMemberStmt.run(displayName.trim(), userId);
+    
+    res.json({ 
+      message: 'Profile updated successfully',
+      displayName: displayName.trim()
+    });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Allow users to delete their own account
+app.delete('/api/users/account', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Security validation: ensure user can only delete their own account
+    // The authenticateToken middleware already validates the JWT and sets req.user
+    // No additional user ID parameter needed - use the authenticated user's ID
+    
+    // Check if user exists and is active
+    const user = wrapQuery(db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ? AND is_active = 1'), 'SELECT').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found or already inactive' });
+    }
+    
+    // Begin transaction for cascading deletion
+    const transaction = db.transaction(() => {
+      try {
+        // 1. Delete user roles
+        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 2. Delete comments made by the user
+        wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
+        
+        // 3. Reassign tasks assigned to the user to the system account (preserve task history)
+        const systemMemberId = '00000000-0000-0000-0000-000000000001';
+        
+        wrapQuery(
+          db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = (SELECT id FROM members WHERE user_id = ?)'), 
+          'UPDATE'
+        ).run(systemMemberId, userId);
+        
+        // 4. Reassign tasks requested by the user to the system account
+        wrapQuery(
+          db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = (SELECT id FROM members WHERE user_id = ?)'), 
+          'UPDATE'
+        ).run(systemMemberId, userId);
+        
+        // 5. Delete the member record
+        wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 6. Finally, delete the user account
+        wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        
+        console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
+        
+      } catch (error) {
+        console.error('Error during account deletion transaction:', error);
+        throw error;
+      }
+    });
+    
+    // Execute the transaction
+    transaction();
+    
+    res.json({ 
+      message: 'Account deleted successfully',
+      deletedUser: {
+        email: user.email,
+        name: `${user.first_name} ${user.last_name}`
+      }
+    });
+    
+  } catch (error) {
+    console.error('Account deletion error:', error);
+    res.status(500).json({ error: 'Failed to delete account' });
+  }
+});
+
+// Admin endpoints
 app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const users = db.prepare(`
-      SELECT 
-        u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
-        u.avatar_path, u.auth_provider, u.google_avatar_url,
-        m.color as member_color, m.name as member_name,
-        GROUP_CONCAT(r.name) as roles
+    // Prevent browser caching of admin user data
+    res.set({
+      'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+    
+    const users = wrapQuery(db.prepare(`
+      SELECT u.*, GROUP_CONCAT(r.name) as roles, m.name as member_name, m.color as member_color
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
       LEFT JOIN members m ON u.id = m.user_id
       GROUP BY u.id
       ORDER BY u.created_at DESC
-    `).all();
-    
-    const formattedUsers = users.map(user => ({
+    `), 'SELECT').all();
+
+    const transformedUsers = users.map(user => ({
       id: user.id,
       email: user.email,
       firstName: user.first_name,
       lastName: user.last_name,
       displayName: user.member_name || `${user.first_name} ${user.last_name}`,
-      isActive: user.is_active,
       roles: user.roles ? user.roles.split(',') : [],
-      joined: new Date(user.created_at).toLocaleDateString(),
+      isActive: !!user.is_active,
       createdAt: user.created_at,
       avatarUrl: user.avatar_path,
       authProvider: user.auth_provider || 'local',
-      googleAvatarUrl: user.google_avatar_url,
-      memberColor: user.member_color || '#4ECDC4'
+      memberName: user.member_name,
+      memberColor: user.member_color
     }));
-    
-    res.json(formattedUsers);
+
+
+    res.json(transformedUsers);
   } catch (error) {
-    console.error('Get users error:', error);
-    res.status(500).json({ error: 'Failed to get users' });
+    console.error('Error fetching admin users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
-app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+// Admin member name update endpoint (MUST come before /:userId route)
+app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     const { userId } = req.params;
-    const { firstName, lastName, email, isActive } = req.body;
+    const { displayName } = req.body;
     
-    if (!firstName || !lastName || !email) {
-      return res.status(400).json({ error: 'First name, last name, and email are required' });
+    if (!displayName || displayName.trim().length === 0) {
+      return res.status(400).json({ error: 'Display name is required' });
     }
     
+    // Check for duplicate display name (excluding current user)
+    const existingMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
+      'SELECT'
+    ).get(displayName.trim(), userId);
+    
+    if (existingMember) {
+      return res.status(400).json({ error: 'This display name is already taken by another user' });
+    }
+    
+    console.log('🏷️ Updating member name for user:', userId, 'to:', displayName.trim());
+    
+    // Update the member's name in the members table
+    const updateMemberStmt = wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
+    const result = updateMemberStmt.run(displayName.trim(), userId);
+    
+    if (result.changes === 0) {
+      console.log('❌ No member found for user:', userId);
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    
+    console.log('✅ Member name updated successfully');
+    res.json({ 
+      message: 'Member name updated successfully',
+      displayName: displayName.trim()
+    });
+  } catch (error) {
+    console.error('Member name update error:', error);
+    res.status(500).json({ error: 'Failed to update member name' });
+  }
+});
+
+// Update user details (MUST come after more specific routes)
+app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  const { email, firstName, lastName, isActive } = req.body;
+  
+  if (!email || !firstName || !lastName) {
+    return res.status(400).json({ error: 'Email, first name, and last name are required' });
+  }
+
+  try {
     // Check if email already exists for another user
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(email, userId);
+    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
     if (existingUser) {
       return res.status(400).json({ error: 'Email already exists' });
     }
-    
+
     // Update user
-    const updateStmt = db.prepare(`
-      UPDATE users 
-      SET first_name = ?, last_name = ?, email = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+    wrapQuery(db.prepare(`
+      UPDATE users SET email = ?, first_name = ?, last_name = ?, is_active = ? 
       WHERE id = ?
-    `);
-    updateStmt.run(firstName, lastName, email, isActive ? 1 : 0, userId);
-    
-    // Update team member name if it exists
-    try {
-      const memberUpdateStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-      memberUpdateStmt.run(`${firstName} ${lastName}`, userId);
-    } catch (error) {
-      console.log('Member update not needed or failed:', error.message);
-    }
-    
+    `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
+
+    // Note: Member name is updated separately via /api/admin/users/:userId/member-name
+    // This allows for custom display names that differ from firstName + lastName
+
     res.json({ message: 'User updated successfully' });
   } catch (error) {
-    console.error('Update user error:', error);
+    console.error('Error updating user:', error);
     res.status(500).json({ error: 'Failed to update user' });
   }
 });
 
+// Update user role
 app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+  
+  if (!role) {
+    return res.status(400).json({ error: 'Role is required' });
+  }
+
   try {
-    const { userId } = req.params;
-    const { action } = req.body; // 'promote' or 'demote'
-    
-    if (!['promote', 'demote'].includes(action)) {
-      return res.status(400).json({ error: 'Invalid action' });
-    }
-    
     // Prevent users from demoting themselves
-    if (action === 'demote' && userId === req.user.id) {
-      return res.status(400).json({ error: 'You cannot demote yourself' });
+    if (userId === req.user.id && role !== 'admin') {
+      return res.status(400).json({ error: 'Cannot change your own admin role' });
     }
-    
+
     // Get current role
-    const currentRole = db.prepare(`
+    const currentRoles = wrapQuery(db.prepare(`
       SELECT r.name FROM roles r 
       JOIN user_roles ur ON r.id = ur.role_id 
       WHERE ur.user_id = ?
-    `).get(userId);
-    
-    if (!currentRole) {
-      return res.status(404).json({ error: 'User role not found' });
+    `), 'SELECT').all(userId);
+
+    if (currentRoles.length > 0 && currentRoles[0].name !== role) {
+      // Remove current role
+      wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      
+      // Assign new role
+      const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+      if (roleId) {
+        wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      }
     }
-    
-    // Remove current role
-    db.prepare('DELETE FROM user_roles WHERE user_id = ?').run(userId);
-    
-    // Assign new role
-    const newRoleName = action === 'promote' ? 'admin' : 'user';
-    const newRole = db.prepare('SELECT id FROM roles WHERE name = ?').get(newRoleName);
-    
-    if (!newRole) {
-      return res.status(500).json({ error: 'Role not found' });
-    }
-    
-    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(userId, newRole.id);
-    
-    res.json({ message: `User ${action}d successfully` });
+
+    res.json({ message: 'User role updated successfully' });
   } catch (error) {
-    console.error('Update user role error:', error);
+    console.error('Error updating user role:', error);
     res.status(500).json({ error: 'Failed to update user role' });
   }
 });
 
+// Create new user
 app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { email, password, firstName, lastName, role, displayName, baseUrl } = req.body;
+  
+  if (!email || !password || !firstName || !lastName || !role) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  
   try {
-    const { email, password, firstName, lastName, displayName, role } = req.body;
-    
-    if (!email || !password || !firstName || !lastName || !role) {
-      return res.status(400).json({ error: 'All fields are required' });
-    }
-    
     // Check if email already exists
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
-      return res.status(400).json({ error: 'Email already exists' });
+      return res.status(400).json({ error: 'User already exists' });
     }
     
     // Generate user ID
-    const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const userId = crypto.randomUUID();
     
     // Hash password
-    const passwordHash = bcrypt.hashSync(password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user
-    const userStmt = db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name) 
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    userStmt.run(userId, email, passwordHash, firstName, lastName);
+    // Create user (inactive by default for local accounts - they need to activate via email)
+    wrapQuery(db.prepare(`
+      INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, auth_provider) 
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, 0, 'local');
     
     // Assign role
-    const roleId = db.prepare('SELECT id FROM roles WHERE name = ?').get(role);
-    if (!roleId) {
-      return res.status(400).json({ error: 'Invalid role' });
+    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    if (roleId) {
+      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
-    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(userId, roleId.id);
-    
     // Create team member automatically with custom display name if provided
-    const memberName = displayName && displayName.trim() ? displayName.trim() : `${firstName} ${lastName}`;
-    const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8', '#F7DC6F'];
-    const randomColor = colors[Math.floor(Math.random() * colors.length)];
-    
-    const memberStmt = db.prepare(`
-      INSERT INTO members (id, name, color, user_id) 
-      VALUES (?, ?, ?, ?)
-    `);
-    memberStmt.run(userId, memberName, randomColor, userId);
+    const memberId = crypto.randomUUID();
+    const memberName = displayName || `${firstName} ${lastName}`;
+    const memberColor = '#4ECDC4'; // Default color
+    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+      .run(memberId, memberName, memberColor, userId);
     
     // Generate default avatar SVG for new local users
-    const defaultAvatarSvg = generateDefaultAvatar(firstName, lastName, randomColor);
-    const avatarFilename = `default-${userId}.svg`;
-    const avatarPath = path.join(AVATARS_DIR, avatarFilename);
-    
-    try {
-      fs.writeFileSync(avatarPath, defaultAvatarSvg);
+    const avatarPath = createDefaultAvatar(memberName, userId);
+    if (avatarPath) {
       // Update user with default avatar path
-      const avatarUpdateStmt = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?');
-      avatarUpdateStmt.run(`/avatars/${avatarFilename}`, userId);
-    } catch (error) {
-      console.error('Error creating default avatar:', error);
+      wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    }
+    
+    // Generate invitation token for email verification
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Store invitation token
+    wrapQuery(db.prepare(`
+      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      crypto.randomUUID(),
+      userId,
+      inviteToken,
+      tokenExpiry.toISOString()
+    );
+    
+    // Get admin user info for email
+    const adminUser = wrapQuery(
+      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(req.user.userId);
+    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+    
+    // Send invitation email
+    try {
+      const notificationService = getNotificationService();
+      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      console.log('✅ Invitation email sent for new user:', email);
+    } catch (emailError) {
+      console.warn('⚠️ Failed to send invitation email:', emailError.message);
+      // Don't fail user creation if email fails
     }
     
     res.json({ 
-      message: 'User created successfully',
-      user: {
-        id: userId,
-        email,
-        firstName,
-        lastName,
-        displayName: memberName,
-        role
-      }
+      message: 'User created successfully. An invitation email has been sent.',
+      user: { id: userId, email, firstName, lastName, role, isActive: false }
     });
+    
   } catch (error) {
-    console.error('Create user error:', error);
-    res.status(500).json({ error: 'Failed to create user' });
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+// Resend user invitation
+app.post('/api/admin/users/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { userId } = req.params;
+  const { baseUrl } = req.body;
+  
   try {
-    const { userId } = req.params;
+    // Get user details
+    const user = wrapQuery(
+      db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Only allow resending for inactive local users
+    if (user.auth_provider !== 'local') {
+      return res.status(400).json({ error: 'Cannot resend invitation for non-local accounts' });
+    }
+
+    if (user.is_active) {
+      return res.status(400).json({ error: 'User account is already active' });
+    }
+
+    // Delete any existing invitation tokens for this user
+    wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+
+    // Generate new invitation token
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
+    // Store new invitation token
+    wrapQuery(db.prepare(`
+      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
+      VALUES (?, ?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      crypto.randomUUID(),
+      userId,
+      inviteToken,
+      tokenExpiry.toISOString()
+    );
+    
+    // Get admin user info for email
+    const adminUser = wrapQuery(
+      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
+      'SELECT'
+    ).get(req.user.userId);
+    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+    
+    // Send invitation email
+    try {
+      const notificationService = getNotificationService();
+      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      console.log('✅ Invitation resent successfully for user:', user.email);
+      
+      res.json({ 
+        message: 'Invitation email sent successfully',
+        email: user.email
+      });
+    } catch (emailError) {
+      console.error('⚠️ Failed to send invitation email:', emailError.message);
+      res.status(500).json({ error: 'Failed to send invitation email' });
+    }
+    
+  } catch (error) {
+    console.error('Resend invitation error:', error);
+    res.status(500).json({ error: 'Failed to resend invitation' });
+  }
+});
+
+// Get task count for a user (for deletion confirmation)
+app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    // Count tasks where this user is either the assignee (memberId) or requester (requesterId)
+    // First get the member ID for this user
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    let taskCount = 0;
+    if (member) {
+      const assignedTasks = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE memberId = ?'), 'SELECT').get(member.id);
+      const requestedTasks = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE requesterId = ?'), 'SELECT').get(member.id);
+      taskCount = (assignedTasks?.count || 0) + (requestedTasks?.count || 0);
+    }
+    
+    res.json({ taskCount });
+  } catch (error) {
+    console.error('Error getting user task count:', error);
+    res.status(500).json({ error: 'Failed to get task count' });
+  }
+});
+
+// Delete user
+app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  
+  try {
     // Check if user is trying to delete themselves
     if (userId === req.user.id) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
-    
+
     // Delete user (cascade will handle related records)
-    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    const result = wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -457,59 +1011,345 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
     
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
-    console.error('Delete user error:', error);
+    console.error('Error deleting user:', error);
     res.status(500).json({ error: 'Failed to delete user' });
   }
 });
 
 // Update member color
 app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  const { color } = req.body;
+  
+  if (!color) {
+    return res.status(400).json({ error: 'Color is required' });
+  }
+
+  // Validate color format (hex color)
+  if (!/^#[0-9A-F]{6}$/i.test(color)) {
+    return res.status(400).json({ error: 'Invalid color format. Use hex format like #FF5733' });
+  }
+
   try {
-    const { userId } = req.params;
-    const { color } = req.body;
-    
-    if (!color) {
-      return res.status(400).json({ error: 'Color is required' });
-    }
-    
-    // Validate color format (hex color)
-    if (!/^#[0-9A-F]{6}$/i.test(color)) {
-      return res.status(400).json({ error: 'Invalid color format. Use hex color (e.g., #FF6B6B)' });
-    }
-    
     // Update member color
-    const updateStmt = db.prepare('UPDATE members SET color = ? WHERE user_id = ?');
-    const result = updateStmt.run(color, userId);
+    const result = wrapQuery(db.prepare('UPDATE members SET color = ? WHERE user_id = ?'), 'UPDATE').run(color, userId);
     
     if (result.changes === 0) {
-      return res.status(404).json({ error: 'Member not found' });
+      return res.status(404).json({ error: 'Member not found for this user' });
     }
     
-    res.json({ 
-      message: 'Member color updated successfully',
-      color: color
+    res.json({ message: 'Member color updated successfully' });
+  } catch (error) {
+    console.error('Error updating member color:', error);
+    res.status(500).json({ error: 'Failed to update member color' });
+  }
+});
+
+// Admin avatar upload endpoint
+app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), avatarUpload.single('avatar'), (req, res) => {
+  const { userId } = req.params;
+  
+  if (!req.file) {
+    return res.status(400).json({ error: 'No avatar file uploaded' });
+  }
+
+  try {
+    const avatarPath = `/avatars/${req.file.filename}`;
+    // Update user's avatar_path in database
+    wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    
+    res.json({
+      message: 'Avatar uploaded successfully',
+      avatarUrl: avatarPath
     });
   } catch (error) {
-    console.error('Update member color error:', error);
-    res.status(500).json({ error: 'Failed to update member color' });
+    console.error('Error uploading admin avatar:', error);
+    res.status(500).json({ error: 'Failed to upload avatar' });
+  }
+});
+
+// Admin avatar removal endpoint
+app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    // Clear avatar_path in database
+    wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(userId);
+    
+    res.json({ message: 'Avatar removed successfully' });
+  } catch (error) {
+    console.error('Error removing admin avatar:', error);
+    res.status(500).json({ error: 'Failed to remove avatar' });
   }
 });
 
 
 
-
-
-app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
+// Admin tags endpoints
+app.get('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings').all();
+    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Error fetching admin tags:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+});
+
+app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { tag, description, color } = req.body;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    const result = wrapQuery(db.prepare(`
+      INSERT INTO tags (tag, description, color) 
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    
+    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    res.json(newTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error creating tag:', error);
+    res.status(500).json({ error: 'Failed to create tag' });
+  }
+});
+
+app.put('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { tagId } = req.params;
+  const { tag, description, color } = req.body;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    wrapQuery(db.prepare(`
+      UPDATE tags SET tag = ?, description = ?, color = ? WHERE id = ?
+    `), 'UPDATE').run(tag, description || '', color || '#4F46E5', tagId);
+    
+    const updatedTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    res.json(updatedTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error updating tag:', error);
+    res.status(500).json({ error: 'Failed to update tag' });
+  }
+});
+
+// Get tag usage count (for deletion confirmation)
+app.get('/api/admin/tags/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { tagId } = req.params;
+  
+  try {
+    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
+    res.json({ usageCount: usageCount.count });
+  } catch (error) {
+    console.error('Error fetching tag usage:', error);
+    res.status(500).json({ error: 'Failed to fetch tag usage' });
+  }
+});
+
+app.delete('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { tagId } = req.params;
+  
+  try {
+    // Use transaction to ensure both operations succeed or fail together
+    db.transaction(() => {
+      // First remove all task associations
+      wrapQuery(db.prepare('DELETE FROM task_tags WHERE tagId = ?'), 'DELETE').run(tagId);
+      
+      // Then delete the tag
+      wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
+    })();
+    
+    res.json({ message: 'Tag deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting tag:', error);
+    res.status(500).json({ error: 'Failed to delete tag' });
+  }
+});
+
+// Admin priorities endpoints
+app.get('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const priorities = wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
+    res.json(priorities);
+  } catch (error) {
+    console.error('Error fetching admin priorities:', error);
+    res.status(500).json({ error: 'Failed to fetch priorities' });
+  }
+});
+
+app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { priority, color } = req.body;
+  
+  if (!priority || !color) {
+    return res.status(400).json({ error: 'Priority name and color are required' });
+  }
+
+  try {
+    // Get the next position
+    const maxPosition = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM priorities'), 'SELECT').get();
+    const position = (maxPosition?.maxPos || -1) + 1;
+    
+    const result = wrapQuery(db.prepare(`
+      INSERT INTO priorities (priority, color, position, initial) 
+      VALUES (?, ?, ?, 0)
+    `), 'INSERT').run(priority, color, position);
+    
+    const newPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    res.json(newPriority);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Priority already exists' });
+    }
+    console.error('Error creating priority:', error);
+    res.status(500).json({ error: 'Failed to create priority' });
+  }
+});
+
+// Reorder priorities (must come before :priorityId route)
+app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { priorities } = req.body;
+    
+    if (!Array.isArray(priorities)) {
+      return res.status(400).json({ error: 'Priorities array is required' });
+    }
+    
+    // Update positions in a transaction
+    const updatePosition = db.prepare('UPDATE priorities SET position = ? WHERE id = ?');
+    const transaction = db.transaction((priorityUpdates) => {
+      for (const update of priorityUpdates) {
+        updatePosition.run(update.position, update.id);
+      }
+    });
+    
+    transaction(priorities.map((priority, index) => ({
+      id: priority.id,
+      position: index
+    })));
+    
+    // Return updated priorities
+    const updatedPriorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    res.json(updatedPriorities);
+  } catch (error) {
+    console.error('Reorder priorities error:', error);
+    res.status(500).json({ error: 'Failed to reorder priorities' });
+  }
+});
+
+app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { priorityId } = req.params;
+  const { priority, color } = req.body;
+  
+  if (!priority || !color) {
+    return res.status(400).json({ error: 'Priority name and color are required' });
+  }
+
+  try {
+    wrapQuery(db.prepare(`
+      UPDATE priorities SET priority = ?, color = ? WHERE id = ?
+    `), 'UPDATE').run(priority, color, priorityId);
+    
+    const updatedPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    res.json(updatedPriority);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Priority already exists' });
+    }
+    console.error('Error updating priority:', error);
+    res.status(500).json({ error: 'Failed to update priority' });
+  }
+});
+
+app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { priorityId } = req.params;
+  
+  try {
+    // Check if priority is being used
+    const taskCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = (SELECT priority FROM priorities WHERE id = ?)'), 'SELECT').get(priorityId);
+    
+    if (taskCount.count > 0) {
+      return res.status(400).json({ 
+        error: `Cannot delete priority: ${taskCount.count} task(s) are using this priority` 
+      });
+    }
+    
+    const result = wrapQuery(db.prepare('DELETE FROM priorities WHERE id = ?'), 'DELETE').run(priorityId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+    
+    res.json({ message: 'Priority deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting priority:', error);
+    res.status(500).json({ error: 'Failed to delete priority' });
+  }
+});
+
+app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { priorityId } = req.params;
+  
+  try {
+    // Check if priority exists
+    const priority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    if (!priority) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+
+    // Start transaction to ensure only one priority can be default
+    db.transaction(() => {
+      // First, remove default flag from all priorities
+      wrapQuery(db.prepare('UPDATE priorities SET initial = 0'), 'UPDATE').run();
+      // Then set the specified priority as default
+      wrapQuery(db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?'), 'UPDATE').run(priorityId);
+    })();
+
+    // Return updated priority
+    const updatedPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    res.json(updatedPriority);
+  } catch (error) {
+    console.error('Error setting default priority:', error);
+    res.status(500).json({ error: 'Failed to set default priority' });
+  }
+});
+
+// Public settings endpoint for non-admin users
+app.get('/api/settings', (req, res) => {
+  try {
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
     });
     res.json(settingsObj);
   } catch (error) {
-    console.error('Get settings error:', error);
-    res.status(500).json({ error: 'Failed to get settings' });
+    console.error('Get public settings error:', error);
+    res.status(500).json({ error: 'Failed to get public settings' });
+  }
+});
+
+app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    const settingsObj = {};
+    settings.forEach(setting => {
+      settingsObj[setting.key] = setting.value;
+    });
+    res.json(settingsObj);
+  } catch (error) {
+    console.error('Error fetching admin settings:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
   }
 });
 
@@ -546,1685 +1386,581 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
 // Test email configuration endpoint
 app.post('/api/admin/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    // Get mail server settings
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)').all(
-      'SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 
-      'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME', 'SMTP_SECURE', 'MAIL_ENABLED'
-    );
+    console.log('🧪 Test email endpoint called');
     
-    const mailSettings = {};
-    settings.forEach(setting => {
-      mailSettings[setting.key] = setting.value;
-    });
-    
-    // Check if mail is enabled
-    if (mailSettings.MAIL_ENABLED !== 'true') {
-      return res.status(400).json({ error: 'Mail server is not enabled. Please enable it first.' });
+    // Check if demo mode is enabled
+    if (process.env.DEMO_ENABLED === 'true') {
+      return res.status(400).json({ 
+        error: 'Email testing disabled in demo mode',
+        details: 'Email functionality is disabled in demo environments to prevent sending emails',
+        demoMode: true
+      });
     }
     
-    // Check if all required settings are present
-    const requiredFields = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME'];
-    for (const field of requiredFields) {
-      if (!mailSettings[field]) {
-        console.log(`Missing field: ${field}, value: ${mailSettings[field]}`);
-        return res.status(400).json({ error: `Missing required setting: ${field}` });
-      }
-    }
+    // Use EmailService for clean, reusable email functionality
+    const EmailService = await import('./services/emailService.js');
+    const emailService = new EmailService.default(db);
     
-    // Create a safe copy of mail settings for logging (hide password)
-    const safeMailSettings = { ...mailSettings };
-    if (safeMailSettings.SMTP_PASSWORD) {
-      safeMailSettings.SMTP_PASSWORD = '*'.repeat(safeMailSettings.SMTP_PASSWORD.length);
-    }
-    console.log('Mail settings validation passed:', safeMailSettings);
-    
-    // Create transporter with the configured settings
-    const transporter = nodemailer.createTransport({
-      host: mailSettings.SMTP_HOST,
-      port: parseInt(mailSettings.SMTP_PORT),
-      secure: mailSettings.SMTP_SECURE === 'ssl', // true for 465, false for other ports
-      auth: {
-        user: mailSettings.SMTP_USERNAME,
-        pass: mailSettings.SMTP_PASSWORD,
-      },
-      tls: {
-        rejectUnauthorized: false // Allow self-signed certificates
-      }
-    });
-    
-    // Send test email to the logged-in admin user
-    const testEmail = {
-      from: `"${mailSettings.SMTP_FROM_NAME}" <${mailSettings.SMTP_FROM_EMAIL}>`,
-      to: req.user.email, // Send to the logged-in admin user
-      subject: 'Kanban Mail Server Test - Configuration Validated',
-      html: `
-        <h2>✅ Mail Server Configuration Test Successful!</h2>
-        <p>Your Kanban mail server configuration is working correctly.</p>
-        <h3>Configuration Details:</h3>
-        <ul>
-          <li><strong>SMTP Host:</strong> ${mailSettings.SMTP_HOST}</li>
-          <li><strong>SMTP Port:</strong> ${mailSettings.SMTP_PORT}</li>
-          <li><strong>Security:</strong> ${mailSettings.SMTP_SECURE}</li>
-          <li><strong>From Email:</strong> ${mailSettings.SMTP_FROM_EMAIL}</li>
-          <li><strong>From Name:</strong> ${mailSettings.SMTP_FROM_NAME}</li>
-        </ul>
-        <p><em>This email was sent automatically to test your mail server configuration.</em></p>
-      `
-    };
-    
-    // Send the email
-    const info = await transporter.sendMail(testEmail);
-    
-    res.json({ 
-      message: 'Test email sent successfully! Check your inbox.',
-      messageId: info.messageId,
-      settings: {
-        host: mailSettings.SMTP_HOST,
-        port: mailSettings.SMTP_PORT,
-        secure: mailSettings.SMTP_SECURE,
-        from: `${mailSettings.SMTP_FROM_NAME} <${mailSettings.SMTP_FROM_EMAIL}>`,
-        to: req.user.email
-      }
-    });
-    
-  } catch (error) {
-    console.error('Test email error:', error);
-    res.status(500).json({ error: 'Failed to test email configuration' });
-  }
-});
-
-// Manual OAuth config reload endpoint (for testing)
-app.post('/api/admin/reload-oauth', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    if (global.oauthConfigCache) {
-      global.oauthConfigCache.invalidated = true;
-      console.log('🔄 Manual OAuth config reload triggered by admin');
-    }
-    res.json({ message: 'OAuth configuration reloaded successfully' });
-  } catch (error) {
-    console.error('Reload OAuth error:', error);
-    res.status(500).json({ error: 'Failed to reload OAuth configuration' });
-  }
-});
-
-// Public settings endpoint for non-admin users
-app.get('/api/settings', (req, res) => {
-  try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
-    const settingsObj = {};
-    settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
-    });
-    res.json(settingsObj);
-  } catch (error) {
-    console.error('Get public settings error:', error);
-    res.status(500).json({ error: 'Failed to get public settings' });
-  }
-});
-
-// Check if default admin account exists (public endpoint)
-app.get('/api/auth/check-default-admin', (req, res) => {
-  try {
-    const defaultAdmin = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@example.com');
-    res.json({ exists: !!defaultAdmin });
-  } catch (error) {
-    console.error('Error checking default admin:', error);
-    res.status(500).json({ error: 'Failed to check default admin status' });
-  }
-});
-
-// Helper function to get OAuth settings with caching
-function getOAuthSettings() {
-  // Check if we have cached settings and no cache invalidation flag
-  if (global.oauthConfigCache && !global.oauthConfigCache.invalidated) {
-    return global.oauthConfigCache.settings;
-  }
-  
-  // Fetch fresh settings from database
-  const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL');
-  const settingsObj = {};
-  settings.forEach(setting => {
-    settingsObj[setting.key] = setting.value;
-  });
-  
-  // Cache the settings
-  global.oauthConfigCache = {
-    settings: settingsObj,
-    invalidated: false,
-    timestamp: Date.now()
-  };
-  
-  console.log('🔄 OAuth settings loaded from database:', Object.keys(settingsObj).map(k => `${k}: ${settingsObj[k] ? '✓' : '✗'}`).join(', '));
-  return settingsObj;
-}
-
-// Google OAuth endpoints
-app.get('/api/auth/google/url', (req, res) => {
-  try {
-    const settingsObj = getOAuthSettings();
-    
-    if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
-      return res.status(400).json({ error: 'Google OAuth not fully configured. Please set Client ID, Client Secret, and Callback URL.' });
-    }
-    
-    const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
-      `client_id=${encodeURIComponent(settingsObj.GOOGLE_CLIENT_ID)}` +
-      `&redirect_uri=${encodeURIComponent(settingsObj.GOOGLE_CALLBACK_URL)}` +
-      `&response_type=code` +
-      `&scope=${encodeURIComponent('openid email profile')}` +
-      `&access_type=offline`;
-    
-    res.json({ url: googleAuthUrl });
-  } catch (error) {
-    console.error('Error generating Google OAuth URL:', error);
-    res.status(500).json({ error: 'Failed to generate OAuth URL' });
-  }
-});
-
-app.get('/api/auth/google/callback', async (req, res) => {
-  try {
-    const { code } = req.query;
-    
-    if (!code) {
-      return res.redirect('/?error=oauth_failed');
-    }
-    
-    // Get OAuth settings
-    const settingsObj = getOAuthSettings();
-    
-    if (!settingsObj.GOOGLE_CLIENT_ID || !settingsObj.GOOGLE_CLIENT_SECRET || !settingsObj.GOOGLE_CALLBACK_URL) {
-      return res.redirect('/?error=oauth_not_configured');
-    }
-    
-    // Exchange code for access token
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: settingsObj.GOOGLE_CLIENT_ID,
-        client_secret: settingsObj.GOOGLE_CLIENT_SECRET,
-        code,
-        grant_type: 'authorization_code',
-        redirect_uri: settingsObj.GOOGLE_CALLBACK_URL
-      })
-    });
-    
-    if (!tokenResponse.ok) {
-      console.error('Google token exchange failed:', await tokenResponse.text());
-      return res.redirect('/?error=oauth_token_failed');
-    }
-    
-    const tokenData = await tokenResponse.json();
-    
-    // Get user info from Google
-    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` }
-    });
-    
-    if (!userInfoResponse.ok) {
-      console.error('Google user info failed:', await userInfoResponse.text());
-      return res.redirect('/?error=oauth_userinfo_failed');
-    }
-    
-    const userInfo = await userInfoResponse.json();
-    
-    // Check if user exists
-    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(userInfo.email);
-    let isNewUser = false;
-    
-    if (!user) {
-      // Create new user
-      const userId = `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      // Generate a dummy password hash for Google users (they don't have passwords)
-      const dummyPasswordHash = bcrypt.hashSync('google-oauth-user', 10);
-      const userStmt = db.prepare(`
-        INSERT INTO users (id, email, first_name, last_name, auth_provider, google_avatar_url, password_hash) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      userStmt.run(userId, userInfo.email, userInfo.given_name || '', userInfo.family_name || '', 'google', userInfo.picture, dummyPasswordHash);
-      
-      // Assign user role
-      const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
-      const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
-      userRoleStmt.run(userId, userRoleId);
-      
-      // Create team member
-      const memberName = userInfo.name || `${userInfo.given_name || ''} ${userInfo.family_name || ''}`.trim();
-      const memberColor = '#' + Math.floor(Math.random()*16777215).toString(16);
-      const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
-      memberStmt.run(userId, memberName, memberColor, userId);
-      
-      user = { id: userId, email: userInfo.email, firstName: userInfo.given_name, lastName: userInfo.family_name };
-      isNewUser = true;
-    }
-    
-    // Get user roles from database (for both new and existing users)
-    const roles = db.prepare(`
-      SELECT r.name 
-      FROM roles r 
-      JOIN user_roles ur ON r.id = ur.role_id 
-      WHERE ur.user_id = ?
-    `).all(user.id);
-    
-    const userRoles = roles.map(r => r.name);
-    
-    // Generate JWT token - must match local login structure
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        email: user.email,
-        role: userRoles.includes('admin') ? 'admin' : 'user',
-        roles: userRoles
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-    
-    // Redirect to login page with token and newUser flag
-    if (isNewUser) {
-      res.redirect(`/#login?token=${token}&newUser=true`);
-    } else {
-      res.redirect(`/#login?token=${token}`);
-    }
-    
-  } catch (error) {
-    console.error('Google OAuth callback error:', error);
-    res.redirect('/?error=oauth_failed');
-  }
-});
-
-function wrapQuery(stmt, type) {
-  return {
-    run(...params) {
-      try {
-        const result = stmt.run(...params);
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type,
-          query: stmt.source,
-          params,
-          timestamp: new Date().toISOString()
-        });
-        return result;
-      } catch (error) {
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type: 'ERROR',
-          query: stmt.source,
-          params,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        });
-        throw error;
-      }
-    },
-    get(...params) {
-      try {
-        const result = stmt.get(...params);
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type: 'SELECT',
-          query: stmt.source,
-          params,
-          timestamp: new Date().toISOString()
-        });
-        return result;
-      } catch (error) {
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type: 'ERROR',
-          query: stmt.source,
-          params,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        });
-        throw error;
-      }
-    },
-    all(...params) {
-      try {
-        const result = stmt.all(...params);
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type: 'SELECT',
-          query: stmt.source,
-          params,
-          timestamp: new Date().toISOString()
-        });
-        return result;
-      } catch (error) {
-        queryLogs.push({
-          id: `query-${queryId++}`,
-          type: 'ERROR',
-          query: stmt.source,
-          params,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        });
-        throw error;
-      }
-    }
-  };
-}
-
-// Initialize database tables
-db.exec(`
-  CREATE TABLE IF NOT EXISTS roles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE NOT NULL,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    first_name TEXT,
-    last_name TEXT,
-    is_active BOOLEAN DEFAULT 1,
-    avatar_path TEXT,
-    auth_provider TEXT DEFAULT 'local',
-    google_avatar_url TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS user_roles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id TEXT NOT NULL,
-    role_id INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (role_id) REFERENCES roles(id) ON DELETE CASCADE,
-    UNIQUE(user_id, role_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS members (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    color TEXT NOT NULL,
-    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS boards (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    position INTEGER DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS columns (
-    id TEXT PRIMARY KEY,
-    boardId TEXT NOT NULL,
-    title TEXT NOT NULL,
-    position INTEGER DEFAULT 0,
-    FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    position INTEGER DEFAULT 0,
-    title TEXT NOT NULL,
-    description TEXT,
-    memberId TEXT NOT NULL,
-    startDate TEXT NOT NULL,
-    effort INTEGER NOT NULL,
-    columnId TEXT NOT NULL,
-    priority TEXT NOT NULL,
-    requesterId TEXT NOT NULL,
-    boardId TEXT NOT NULL,
-    FOREIGN KEY (memberId) REFERENCES members(id) ON DELETE CASCADE,
-    FOREIGN KEY (columnId) REFERENCES columns(id) ON DELETE CASCADE,
-    FOREIGN KEY (requesterId) REFERENCES members(id) ON DELETE CASCADE,
-    FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS comments (
-    id TEXT PRIMARY KEY,
-    taskId TEXT NOT NULL,
-    text TEXT NOT NULL,
-    authorId TEXT NOT NULL,
-    createdAt TEXT NOT NULL,
-    FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE,
-    FOREIGN KEY (authorId) REFERENCES members(id) ON DELETE CASCADE
-  );
-
-  CREATE TABLE IF NOT EXISTS attachments (
-    id TEXT PRIMARY KEY,
-    commentId TEXT NOT NULL,
-    name TEXT NOT NULL,
-    url TEXT NOT NULL,
-    type TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    FOREIGN KEY (commentId) REFERENCES comments(id) ON DELETE CASCADE
-  );
-  
-  CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// Initialize authentication data if no roles exist
-const roleCount = db.prepare('SELECT COUNT(*) as count FROM roles').get();
-if (roleCount.count === 0) {
-  // Insert default roles
-  const roleStmt = db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)');
-  roleStmt.run('admin', 'Full system access and management');
-  roleStmt.run('user', 'Standard user access');
-  
-  // Create default admin user
-  const adminPassword = 'admin';
-  const passwordHash = bcrypt.hashSync(adminPassword, 10);
-  
-  const adminUser = {
-    id: 'admin-user',
-    email: 'admin@example.com',
-    passwordHash: passwordHash,
-    firstName: 'Admin',
-    lastName: 'User'
-  };
-  
-  const userStmt = db.prepare(`
-    INSERT INTO users (id, email, password_hash, first_name, last_name, auth_provider) 
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  userStmt.run(adminUser.id, adminUser.email, adminUser.passwordHash, adminUser.firstName, adminUser.lastName, 'local');
-  
-  // Assign admin role to default user
-  const adminRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('admin').id;
-  const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
-  userRoleStmt.run(adminUser.id, adminRoleId);
-  
-  // Initialize default settings
-  const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-  insertSetting.run('GOOGLE_CLIENT_ID', null);
-  insertSetting.run('GOOGLE_CLIENT_SECRET', null);
-  insertSetting.run('GOOGLE_CALLBACK_URL', 'http://localhost:3000/api/auth/google/callback');
-  insertSetting.run('SITE_NAME', 'Easy Kanban');
-  insertSetting.run('SITE_URL', 'http://localhost:3000');
-  
-  // Initialize mail server settings
-  insertSetting.run('SMTP_HOST', 'smtp.gmail.com');
-  insertSetting.run('SMTP_PORT', '587');
-  insertSetting.run('SMTP_USERNAME', 'admin@example.com');
-  insertSetting.run('SMTP_PASSWORD', 'xxxx xxxx xxxx xxxx');
-  insertSetting.run('SMTP_FROM_EMAIL', 'admin@example.com');
-  insertSetting.run('SMTP_FROM_NAME', 'Kanban Admin');
-  insertSetting.run('SMTP_SECURE', 'tls');
-  insertSetting.run('MAIL_ENABLED', 'false');
-  
-  // Create admin member
-  const adminMember = {
-    id: 'admin-member',
-    name: 'Admin User',
-    color: '#FF6B6B'
-  };
-  
-  const memberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
-  memberStmt.run(adminMember.id, adminMember.name, adminMember.color, adminUser.id);
-}
-
-// Initialize default data if no boards exist
-const boardCount = db.prepare('SELECT COUNT(*) as count FROM boards').get();
-if (boardCount.count === 0) {
-  const defaultBoard = {
-    id: 'default-board',
-    title: 'Main Board',
-    columns: [
-      { id: 'todo', title: 'To Do' },
-      { id: 'progress', title: 'In Progress' },
-      { id: 'testing', title: 'Testing' },
-      { id: 'completed', title: 'Completed' }
-    ]
-  };
-
-  // Create default demo user account (for testing purposes)
-  // This maintains the 1:1 relationship between users and team members
-  const demoUser = {
-    id: 'demo-user',
-    email: 'demo@example.com',
-    password: 'demo123',
-    firstName: 'Demo',
-    lastName: 'User'
-  };
-  
-  // Hash password and create user
-  const demoPasswordHash = bcrypt.hashSync(demoUser.password, 10);
-  const demoUserStmt = db.prepare(`
-    INSERT INTO users (id, email, password_hash, first_name, last_name, auth_provider) 
-    VALUES (?, ?, ?, ?, ?, ?)
-  `);
-  demoUserStmt.run(demoUser.id, demoUser.email, demoPasswordHash, demoUser.firstName, demoUser.lastName, 'local');
-  
-  // Assign user role to demo user
-  const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user');
-  const demoUserRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
-  demoUserRoleStmt.run(demoUser.id, userRoleId.id);
-  
-  // Create team member for demo user
-  const demoMember = {
-    id: demoUser.id, // Same ID as user for 1:1 relationship
-    name: `${demoUser.firstName} ${demoUser.lastName}`,
-    color: '#4ECDC4'
-  };
-
-  const memberStmt = wrapQuery(
-    db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'),
-    'INSERT'
-  );
-  memberStmt.run(demoMember.id, demoMember.name, demoMember.color, demoUser.id);
-
-  // Create default board
-  const boardStmt = wrapQuery(
-    db.prepare('INSERT INTO boards (id, title) VALUES (?, ?)'),
-    'INSERT'
-  );
-  boardStmt.run(defaultBoard.id, defaultBoard.title);
-
-  // Create default columns
-  const columnStmt = wrapQuery(
-    db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
-    'INSERT'
-  );
-  defaultBoard.columns.forEach((column, index) => {
-    columnStmt.run(column.id, defaultBoard.id, column.title, index);
-  });
-
-  // Create a sample task
-  const sampleTask = {
-    id: 'sample-task',
-    title: 'Welcome to Kanban',
-    description: 'This is a sample task to help you get started. Feel free to edit or delete it.',
-    memberId: demoUser.id,
-    startDate: new Date().toISOString().split('T')[0],
-    effort: 1,
-    columnId: 'todo',
-    priority: 'medium',
-    requesterId: demoUser.id,
-    boardId: defaultBoard.id
-  };
-
-  const taskStmt = wrapQuery(
-    db.prepare(`
-      INSERT INTO tasks (
-        id, title, description, memberId, startDate,
-        effort, columnId, priority, requesterId, boardId
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `),
-    'INSERT'
-  );
-
-  taskStmt.run(
-    sampleTask.id,
-    sampleTask.title,
-    sampleTask.description,
-    sampleTask.memberId,
-    sampleTask.startDate,
-    sampleTask.effort,
-    sampleTask.columnId,
-    sampleTask.priority,
-    sampleTask.requesterId,
-    sampleTask.boardId
-  );
-}
-
-// API Endpoints
-app.get('/api/members', (req, res) => {
-  try {
-    // First try the enhanced query with avatar information
     try {
-              const stmt = wrapQuery(
-          db.prepare(`
-            SELECT 
-              m.id, m.name, m.color, m.user_id, m.created_at,
-              u.avatar_path, u.auth_provider, u.google_avatar_url
-            FROM members m
-            LEFT JOIN users u ON m.user_id = u.id
-            ORDER BY m.created_at ASC
-          `), 
-          'SELECT'
-        );
-      const members = stmt.all();
+      const result = await emailService.sendTestEmail(req.user.email || 'admin@example.com');
+      res.json(result);
+    } catch (error) {
+      console.error('❌ Email test failed:', error);
       
-      // Transform the data to match the expected format
-      const transformedMembers = members.map(member => ({
-        id: member.id,
-        name: member.name,
-        color: member.color,
-        user_id: member.user_id,
-        avatarUrl: member.avatar_path,
-        authProvider: member.auth_provider,
-        googleAvatarUrl: member.google_avatar_url
-      }));
-      
-      res.json(transformedMembers);
-    } catch (enhancedError) {
-      // Fallback to basic query if enhanced query fails
-      console.log('Enhanced query failed, falling back to basic query:', enhancedError.message);
-      const basicStmt = wrapQuery(db.prepare('SELECT * FROM members'), 'SELECT');
-      const basicMembers = basicStmt.all();
-      
-      // Transform basic members to include default avatar info
-      const transformedMembers = basicMembers.map(member => ({
-        id: member.id,
-        name: member.name,
-        color: member.color,
-        user_id: member.user_id,
-        avatarUrl: null,
-        authProvider: 'local',
-        googleAvatarUrl: null
-      }));
-      
-      res.json(transformedMembers);
-    }
-  } catch (error) {
-    console.error('Error fetching members:', error);
-    res.status(500).json({ error: 'Failed to fetch members' });
-  }
-});
-
-app.post('/api/members', (req, res) => {
-  const { id, name, color } = req.body;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'),
-      'INSERT'
-    );
-    stmt.run(id, name, color);
-    res.json({ id, name, color });
-  } catch (error) {
-    console.error('Error creating member:', error);
-    res.status(500).json({ error: 'Failed to create member' });
-  }
-});
-
-app.delete('/api/members/:id', (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('DELETE FROM members WHERE id = ?'),
-      'DELETE'
-    );
-    stmt.run(id);
-    res.json({ message: 'Member deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting member:', error);
-    res.status(500).json({ error: 'Failed to delete member' });
-  }
-});
-
-app.get('/api/boards', (req, res) => {
-  try {
-    // Get all boards ordered by position (cast to integer for proper sorting)
-    const boardsStmt = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER)'), 'SELECT');
-    const boards = boardsStmt.all();
-    
-    // Prepare statements for related data
-    const columnsStmt = wrapQuery(
-      db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'),
-      'SELECT'
-    );
-    const tasksStmt = wrapQuery(
-      db.prepare(`
-        SELECT t.*, 
-          json_group_array(
-            json_object(
-              'id', c.id,
-              'text', c.text,
-              'authorId', c.authorId,
-              'createdAt', c.createdAt
-            )
-          ) as comments
-        FROM tasks t
-        LEFT JOIN comments c ON c.taskId = t.id
-        WHERE t.boardId = ?
-        GROUP BY t.id
-      `),
-      'SELECT'
-    );
-    
-    const boardsWithData = boards.map(board => {
-      const columns = columnsStmt.all(board.id);
-      const tasks = tasksStmt.all(board.id).map(task => ({
-        ...task,
-        comments: task.comments === '[null]' ? [] : JSON.parse(task.comments)
-      }));
-      
-      // Create columns object with tasks
-      const columnsObj = {};
-      columns.forEach(column => {
-        columnsObj[column.id] = {
-          ...column,
-          tasks: tasks.filter(task => task.columnId === column.id)
-        };
-      });
-      
-      return {
-        ...board,
-        columns: columnsObj
-      };
-    });
-    
-    res.json(boardsWithData);
-  } catch (error) {
-    console.error('Error fetching boards:', error);
-    res.status(500).json({ error: 'Failed to fetch boards' });
-  }
-});
-
-app.post('/api/boards', (req, res) => {
-  const { id, title, columns } = req.body;
-  
-  try {
-    // Get the highest position and add 1
-    const maxPosition = db.prepare('SELECT COALESCE(MAX(CAST(position AS INTEGER)), -1) as maxPos FROM boards').get();
-    const newPosition = maxPosition.maxPos + 1;
-    
-    const boardStmt = wrapQuery(
-      db.prepare('INSERT INTO boards (id, title, position) VALUES (?, ?, ?)'),
-      'INSERT'
-    );
-    boardStmt.run(id, title, newPosition);
-    
-    const columnStmt = wrapQuery(
-      db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
-      'INSERT'
-    );
-    
-    Object.values(columns).forEach((column, index) => {
-      columnStmt.run(column.id, id, column.title, index);
-    });
-    
-    const boardWithColumns = { id, title, columns, position: newPosition };
-    
-    // Emit real-time event to all users (boards are visible to everyone)
-    emitToAll('board:created', {
-      board: boardWithColumns,
-      timestamp: new Date().toISOString()
-    });
-    
-    res.json(boardWithColumns);
-  } catch (error) {
-    console.error('Error creating board:', error);
-    res.status(500).json({ error: 'Failed to create board' });
-  }
-});
-
-app.put('/api/boards/:id', (req, res) => {
-  const { id } = req.params;
-  const { title } = req.body;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('UPDATE boards SET title = ? WHERE id = ?'),
-      'UPDATE'
-    );
-    stmt.run(title, id);
-    res.json({ id, title });
-  } catch (error) {
-    console.error('Error updating board:', error);
-    res.status(500).json({ error: 'Failed to update board' });
-  }
-});
-
-app.delete('/api/boards/:id', (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('DELETE FROM boards WHERE id = ?'),
-      'DELETE'
-    );
-    stmt.run(id);
-    res.json({ message: 'Board deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting board:', error);
-    res.status(500).json({ error: 'Failed to delete board' });
-  }
-});
-
-app.post('/api/boards/reorder', (req, res) => {
-  const { boardId, newPosition } = req.body;
-  
-  try {
-    // Get current board position
-    const currentBoard = db.prepare('SELECT position FROM boards WHERE id = ?').get(boardId);
-    if (!currentBoard) {
-      return res.status(404).json({ error: 'Board not found' });
-    }
-    
-    const currentPosition = parseInt(currentBoard.position) || 0;
-    if (currentPosition === newPosition) {
-      return res.json({ message: 'No change needed' });
-    }
-    
-    const transaction = db.transaction(() => {
-      // Get all boards ordered by current position
-      const allBoards = db.prepare('SELECT id, position FROM boards ORDER BY position').all();
-      
-      // Reset all positions to simple integers (0, 1, 2, 3, etc.)
-      allBoards.forEach((board, index) => {
-        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(index, board.id);
-      });
-      
-      // Now get the normalized positions and find the target and dragged boards
-      const normalizedBoards = db.prepare('SELECT id, position FROM boards ORDER BY position').all();
-      const draggedBoard = normalizedBoards.find(board => board.id === boardId);
-      const targetBoard = normalizedBoards.find(board => board.position === newPosition);
-      
-      if (draggedBoard && targetBoard) {
-        // Simple swap: just swap the two positions
-        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(targetBoard.position, draggedBoard.id);
-        db.prepare('UPDATE boards SET position = ? WHERE id = ?').run(draggedBoard.position, targetBoard.id);
+      // If it's a validation error, return the validation details
+      if (error.valid === false) {
+        return res.status(400).json(error);
       }
-    });
-    
-    transaction();
-    res.json({ message: 'Boards reordered successfully' });
-  } catch (error) {
-    console.error('Error reordering boards:', error);
-    res.status(500).json({ error: 'Failed to reorder boards' });
-  }
-});
-
-app.post('/api/columns', (req, res) => {
-  const { id, boardId, title } = req.body;
-  
-  try {
-    // Get the highest position for this board and add 1
-    const maxPosition = db.prepare('SELECT COALESCE(MAX(position), -1) as maxPos FROM columns WHERE boardId = ?').get(boardId);
-    const newPosition = maxPosition.maxPos + 1;
-    
-    const stmt = wrapQuery(
-      db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)'),
-      'INSERT'
-    );
-    stmt.run(id, boardId, title, newPosition);
-    res.json({ id, boardId, title, position: newPosition, tasks: [] });
-  } catch (error) {
-    console.error('Error creating column:', error);
-    res.status(500).json({ error: 'Failed to create column' });
-  }
-});
-
-app.put('/api/columns/:id', (req, res) => {
-  const { id } = req.params;
-  const { title } = req.body;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('UPDATE columns SET title = ? WHERE id = ?'),
-      'UPDATE'
-    );
-    stmt.run(title, id);
-    res.json({ id, title });
-  } catch (error) {
-    console.error('Error updating column:', error);
-    res.status(500).json({ error: 'Failed to update column' });
-  }
-});
-
-app.delete('/api/columns/:id', (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare('DELETE FROM columns WHERE id = ?'),
-      'DELETE'
-    );
-    stmt.run(id);
-    res.json({ message: 'Column deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting column:', error);
-    res.status(500).json({ error: 'Failed to delete column' });
-  }
-});
-
-// Add task at top endpoint
-app.post('/api/tasks/add-at-top', (req, res) => {
-  const task = req.body;
-  
-  try {
-    // Begin transaction to add task at top and shift others
-    const transaction = db.transaction(() => {
-      // Shift all existing tasks in this column down by 1
-      db.prepare(`
-        UPDATE tasks 
-        SET position = position + 1 
-        WHERE columnId = ?
-      `).run(task.columnId);
       
-      // Insert new task at position 0
-      db.prepare(`
-        INSERT INTO tasks (
-          id, title, description, memberId, startDate, 
-          effort, columnId, priority, requesterId, boardId, position
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-      `).run(
-        task.id,
-        task.title,
-        task.description,
-        task.memberId,
-        task.startDate,
-        task.effort,
-        task.columnId,
-        task.priority,
-        task.requesterId,
-        task.boardId
+      // Return detailed error information for SMTP failures
+      return res.status(500).json({ 
+        error: 'Failed to send test email',
+        details: error.message,
+        errorCode: error.code,
+        command: error.command,
+        troubleshooting: {
+          common_issues: [
+            'Check SMTP credentials (username/password)',
+            'Verify SMTP host and port',
+            'Check if less secure app access is enabled (Gmail)',
+            'Verify firewall/network settings',
+            'Check if 2FA requires app password (Gmail)'
+          ]
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('❌ Test email error:', error);
+    res.status(500).json({ 
+      error: 'Failed to test email configuration',
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+});
+
+
+// Priorities endpoint
+app.get('/api/priorities', authenticateToken, (req, res) => {
+  try {
+    const priorities = wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
+    res.json(priorities);
+  } catch (error) {
+    console.error('Error fetching priorities:', error);
+    res.status(500).json({ error: 'Failed to fetch priorities' });
+  }
+});
+
+// Tags endpoints
+app.get('/api/tags', authenticateToken, (req, res) => {
+  try {
+    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Error fetching tags:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+});
+
+// Task-Tag association endpoints
+app.get('/api/tasks/:taskId/tags', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const taskTags = wrapQuery(db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN task_tags tt ON t.id = tt.tagId
+      WHERE tt.taskId = ?
+      ORDER BY t.tag ASC
+    `), 'SELECT').all(taskId);
+    
+    res.json(taskTags);
+  } catch (error) {
+    console.error('Error fetching task tags:', error);
+    res.status(500).json({ error: 'Failed to fetch task tags' });
+  }
+});
+
+app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
+  const { taskId, tagId } = req.params;
+  const userId = req.user?.id || 'system';
+  
+  try {
+    // Check if association already exists
+    const existing = wrapQuery(db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?'), 'SELECT').get(taskId, tagId);
+    
+    if (existing) {
+      return res.status(409).json({ error: 'Tag already associated with this task' });
+    }
+    
+    // Get tag and task details for logging
+    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
+    wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
+    
+    // Log tag association activity
+    if (tag && task) {
+      await logActivity(
+        userId,
+        TAG_ACTIONS.ASSOCIATE,
+        `associated tag "${tag.tag}" with task "${task.title}"`,
+        {
+          taskId: taskId,
+          tagId: parseInt(tagId),
+          columnId: task.columnId,
+          boardId: task.boardId
+        }
       );
-    });
+    }
     
-    transaction();
-    res.json({ ...task, comments: [], position: 0 });
+    res.json({ message: 'Tag added to task successfully' });
   } catch (error) {
-    console.error('Error adding task at top:', error);
-    res.status(500).json({ error: 'Failed to add task at top' });
+    console.error('Error adding tag to task:', error);
+    res.status(500).json({ error: 'Failed to add tag to task' });
   }
 });
 
-// Task reordering endpoint
-app.post('/api/tasks/reorder', (req, res) => {
-  const { taskId, newPosition, columnId } = req.body;
+app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
+  const { taskId, tagId } = req.params;
+  const userId = req.user?.id || 'system';
   
   try {
-    // Get current position of the task being moved
-    const currentTask = db.prepare('SELECT position FROM tasks WHERE id = ? AND columnId = ?').get(taskId, columnId);
-    if (!currentTask) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
+    // Get tag and task details for logging before deletion
+    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
-    const currentPosition = currentTask.position || 0;
-    
-    if (currentPosition === newPosition) {
-      return res.json({ message: 'No change needed' });
-    }
-    
-    // Begin transaction for position updates
-    const transaction = db.transaction(() => {
-      if (currentPosition < newPosition) {
-        // Moving down: shift tasks between current and new position up by 1
-        db.prepare(`
-          UPDATE tasks 
-          SET position = position - 1 
-          WHERE columnId = ? AND position > ? AND position <= ?
-        `).run(columnId, currentPosition, newPosition);
-      } else {
-        // Moving up: shift tasks between new and current position down by 1
-        db.prepare(`
-          UPDATE tasks 
-          SET position = position + 1 
-          WHERE columnId = ? AND position >= ? AND position < ?
-        `).run(columnId, newPosition, currentPosition);
-      }
-      
-      // Update the moved task to its new position
-      db.prepare('UPDATE tasks SET position = ? WHERE id = ?').run(newPosition, taskId);
-    });
-    
-    transaction();
-    res.json({ message: 'Tasks reordered successfully' });
-  } catch (error) {
-    console.error('Error reordering tasks:', error);
-    res.status(500).json({ error: 'Failed to reorder tasks' });
-  }
-});
-
-app.post('/api/columns/reorder', (req, res) => {
-  const { columnId, newPosition, boardId } = req.body;
-  
-  try {
-    // Get current position of the column being moved
-    const currentColumn = db.prepare('SELECT position FROM columns WHERE id = ? AND boardId = ?').get(columnId, boardId);
-    if (!currentColumn) {
-      return res.status(404).json({ error: 'Column not found' });
-    }
-    
-    const currentPosition = currentColumn.position;
-    
-    if (currentPosition === newPosition) {
-      return res.json({ message: 'No change needed' });
-    }
-    
-    // Begin transaction for position updates
-    const transaction = db.transaction(() => {
-      if (currentPosition < newPosition) {
-        // Moving down: shift columns between current and new position up by 1
-        db.prepare(`
-          UPDATE columns 
-          SET position = position - 1 
-          WHERE boardId = ? AND position > ? AND position <= ?
-        `).run(boardId, currentPosition, newPosition);
-      } else {
-        // Moving up: shift columns between new and current position down by 1
-        db.prepare(`
-          UPDATE columns 
-          SET position = position + 1 
-          WHERE boardId = ? AND position >= ? AND position < ?
-        `).run(boardId, newPosition, currentPosition);
-      }
-      
-      // Update the moved column to its new position
-      db.prepare('UPDATE columns SET position = ? WHERE id = ?').run(newPosition, columnId);
-    });
-    
-    transaction();
-    res.json({ message: 'Columns reordered successfully' });
-  } catch (error) {
-    console.error('Error reordering columns:', error);
-    res.status(500).json({ error: 'Failed to reorder columns' });
-  }
-});
-
-app.get('/api/tasks', (req, res) => {
-  try {
-    const tasks = db.prepare(`
-      SELECT t.*,
-        json_group_array(
-          CASE WHEN c.id IS NOT NULL THEN json_object(
-            'id', c.id,
-            'text', c.text,
-            'authorId', c.authorId,
-            'createdAt', c.createdAt,
-            'taskId', t.id
-          ) ELSE NULL END
-        ) as comments
-      FROM tasks t
-      LEFT JOIN comments c ON t.id = c.taskId
-      GROUP BY t.id
-    `).all();
-
-    const processedTasks = tasks.map(task => ({
-      ...task,
-      comments: JSON.parse(task.comments)
-        .filter(Boolean)
-        .map(comment => ({
-          ...comment,
-          attachments: JSON.parse(comment.attachments || '[]')
-            .filter(Boolean)
-        }))
-    }));
-
-    res.json(processedTasks);
-  } catch (error) {
-    console.error('Error fetching tasks:', error);
-    res.status(500).json({ error: 'Failed to fetch tasks' });
-  }
-});
-
-app.post('/api/tasks', (req, res) => {
-  const task = req.body;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare(`
-        INSERT INTO tasks (
-          id, title, description, memberId, startDate, 
-          effort, columnId, priority, requesterId, boardId, position
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `),
-      'INSERT'
-    );
-    
-    stmt.run(
-      task.id,
-      task.title,
-      task.description,
-      task.memberId,
-      task.startDate,
-      task.effort,
-      task.columnId,
-      task.priority,
-      task.requesterId,
-      task.boardId,
-      task.position !== undefined ? task.position : 0 // Properly handle position
-    );
-    
-    const taskWithComments = { ...task, comments: [] };
-    
-    // Real-time events disabled
-    // TODO: Re-implement when Socket.IO is fixed
-    
-    res.json(taskWithComments);
-  } catch (error) {
-    console.error('Error creating task:', error);
-    res.status(500).json({ error: 'Failed to create task' });
-  }
-});
-
-app.put('/api/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  const task = req.body;
-  
-  try {
-    const stmt = wrapQuery(
-      db.prepare(`
-        UPDATE tasks SET 
-          title = ?, description = ?, memberId = ?, 
-          startDate = ?, effort = ?, columnId = ?, 
-          priority = ?, requesterId = ?, boardId = ?, position = ?
-        WHERE id = ?
-      `),
-      'UPDATE'
-    );
-    
-    stmt.run(
-      task.title,
-      task.description,
-      task.memberId,
-      task.startDate,
-      task.effort,
-      task.columnId,
-      task.priority,
-      task.requesterId,
-      task.boardId,
-      task.position !== undefined ? task.position : 0, // Properly handle position
-      id
-    );
-    
-    // Real-time events disabled
-    // TODO: Re-implement when Socket.IO is fixed
-    
-    res.json(task);
-  } catch (error) {
-    console.error('Error updating task:', error);
-    res.status(500).json({ error: 'Failed to update task' });
-  }
-});
-
-app.delete('/api/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // Get task info before deleting for the real-time event
-    const taskInfo = db.prepare('SELECT boardId, columnId FROM tasks WHERE id = ?').get(id);
-    
-    const stmt = wrapQuery(
-      db.prepare('DELETE FROM tasks WHERE id = ?'),
-      'DELETE'
-    );
-    stmt.run(id);
-    
-    // Real-time events disabled
-    // TODO: Re-implement when Socket.IO is fixed
-    
-    res.json({ message: 'Task deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting task:', error);
-    res.status(500).json({ error: 'Failed to delete task' });
-  }
-});
-
-const ATTACHMENTS_DIR = join(__dirname, 'attachments');
-const AVATARS_DIR = join(__dirname, 'avatars');
-
-  // Ensure directories exist
-  try {
-    await mkdir(ATTACHMENTS_DIR, { recursive: true });
-    await mkdir(AVATARS_DIR, { recursive: true });
-  } catch (error) {
-    console.error('Error creating directories:', error);
-  }
-
-  // Ensure members table has created_at column (migration)
-  try {
-    db.prepare('ALTER TABLE members ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
-  } catch (error) {
-    // Column already exists, ignore error
-    console.log('Members table already has created_at column or migration not needed');
-  }
-
-  // Clean up orphaned members (members without corresponding users)
-  try {
-    const orphanedMembers = db.prepare(`
-      SELECT m.id, m.name 
-      FROM members m 
-      LEFT JOIN users u ON m.user_id = u.id 
-      WHERE u.id IS NULL
-    `).all();
-    
-    if (orphanedMembers.length > 0) {
-      console.log(`Found ${orphanedMembers.length} orphaned members, removing them:`, orphanedMembers);
-      db.prepare('DELETE FROM members WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users)').run();
-      console.log('Orphaned members cleaned up');
-    }
-  } catch (error) {
-    console.log('Member cleanup not needed or failed:', error.message);
-  }
-
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, ATTACHMENTS_DIR);
-  },
-  filename: (req, file, cb) => {
-    // Create unique filename
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    const ext = file.originalname.split('.').pop();
-    cb(null, `${uniqueSuffix}.${ext}`);
-  }
-});
-
-const upload = multer({ 
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
-  }
-});
-
-// Add this to serve static files from the attachments directory
-app.use('/attachments', express.static(ATTACHMENTS_DIR));
-
-// Add this to serve static files from the avatars directory
-app.use('/avatars', express.static(AVATARS_DIR));
-
-// Add file upload endpoint
-app.post('/api/upload', upload.single('file'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
-
-    const fileUrl = `/attachments/${req.file.filename}`;
-    res.json({
-      id: crypto.randomUUID(),
-      name: req.file.originalname,
-      url: fileUrl,
-      type: req.file.mimetype,
-      size: req.file.size
-    });
-  } catch (error) {
-    console.error('Error uploading file:', error);
-    res.status(500).json({ error: 'Failed to upload file' });
-  }
-});
-
-// Configure multer for avatar uploads
-const avatarStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, AVATARS_DIR);
-  },
-  filename: (req, file, cb) => {
-    // Create unique filename for avatars
-    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
-    const ext = file.originalname.split('.').pop();
-    cb(null, `avatar-${uniqueSuffix}.${ext}`);
-  }
-});
-
-// Function to generate default avatar SVG
-const generateDefaultAvatar = (firstName, lastName, color) => {
-  const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
-  return `
-    <svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="50" cy="50" r="50" fill="${color}"/>
-      <text x="50" y="60" font-family="Arial, sans-serif" font-size="32" font-weight="bold" 
-            text-anchor="middle" fill="white">${initials}</text>
-    </svg>
-  `;
-};
-
-const avatarUpload = multer({ 
-  storage: avatarStorage,
-  limits: {
-    fileSize: 2 * 1024 * 1024 // 2MB limit for avatars
-  },
-  fileFilter: (req, file, cb) => {
-    // Only allow image files
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed for avatars'));
-    }
-  }
-});
-
-// Add avatar upload endpoint
-app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No avatar uploaded' });
-    }
-
-    const avatarUrl = `/avatars/${req.file.filename}`;
-    
-    // Update user's avatar_path in database
-    const updateStmt = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?');
-    updateStmt.run(avatarUrl, req.user.id);
-    
-    res.json({
-      message: 'Avatar updated successfully',
-      avatarUrl: avatarUrl
-    });
-  } catch (error) {
-    console.error('Error uploading avatar:', error);
-    res.status(500).json({ error: 'Failed to upload avatar' });
-  }
-});
-
-
-
-// Remove user avatar
-app.delete('/api/users/avatar', authenticateToken, (req, res) => {
-  try {
-    const userId = req.user.id;
-    
-    // Get current avatar path to delete file
-    const user = db.prepare('SELECT avatar_path FROM users WHERE id = ?').get(userId);
-    
-    if (user?.avatar_path) {
-      // Delete the avatar file
-      const avatarPath = join(AVATARS_DIR, user.avatar_path.split('/').pop());
-      if (fs.existsSync(avatarPath)) {
-        fs.unlinkSync(avatarPath);
-      }
-    }
-    
-    // Clear avatar_path in database
-    const updateStmt = db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?');
-    updateStmt.run(userId);
-    
-    res.json({ 
-      message: 'Avatar removed successfully'
-    });
-  } catch (error) {
-    console.error('Avatar removal error:', error);
-    res.status(500).json({ error: 'Failed to remove avatar' });
-  }
-});
-
-// Allow users to update their own profile (display name)
-app.put('/api/users/profile', authenticateToken, (req, res) => {
-  try {
-    const { displayName } = req.body;
-    const userId = req.user.id;
-    
-    if (!displayName || displayName.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required' });
-    }
-    
-    // Update the member's name in the members table
-    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    updateMemberStmt.run(displayName.trim(), userId);
-    
-    res.json({ 
-      message: 'Profile updated successfully',
-      displayName: displayName.trim()
-    });
-  } catch (error) {
-    console.error('Profile update error:', error);
-    res.status(500).json({ error: 'Failed to update profile' });
-  }
-});
-
-// Admin avatar upload endpoint
-app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), avatarUpload.single('avatar'), (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No avatar uploaded' });
-    }
-
-    const userId = req.params.userId;
-    const avatarUrl = `/avatars/${req.file.filename}`;
-    
-    // Update user's avatar_path in database
-    const updateStmt = db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?');
-    updateStmt.run(avatarUrl, userId);
-    
-    res.json({
-      message: 'Avatar updated successfully',
-      avatarUrl: avatarUrl
-    });
-  } catch (error) {
-    console.error('Error uploading admin avatar:', error);
-    res.status(500).json({ error: 'Failed to upload avatar' });
-  }
-});
-
-// Admin avatar removal endpoint
-app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    const userId = req.params.userId;
-    
-    // Get current avatar path to delete file
-    const user = db.prepare('SELECT avatar_path FROM users WHERE id = ?').get(userId);
-    
-    if (user?.avatar_path) {
-      // Delete the avatar file
-      const avatarPath = join(AVATARS_DIR, user.avatar_path.split('/').pop());
-      if (fs.existsSync(avatarPath)) {
-        fs.unlinkSync(avatarPath);
-      }
-    }
-    
-    // Clear avatar_path in database
-    const updateStmt = db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?');
-    updateStmt.run(userId);
-    
-    res.json({ 
-      message: 'Avatar removed successfully'
-    });
-  } catch (error) {
-    console.error('Avatar removal error:', error);
-    res.status(500).json({ error: 'Failed to remove avatar' });
-  }
-});
-
-// Admin member name update endpoint
-app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { displayName } = req.body;
-    
-    if (!displayName || displayName.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required' });
-    }
-    
-    // Update the member's name in the members table
-    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    const result = updateMemberStmt.run(displayName.trim(), userId);
+    const result = wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
     
     if (result.changes === 0) {
-      return res.status(404).json({ error: 'Member not found' });
+      return res.status(404).json({ error: 'Tag association not found' });
     }
     
-    res.json({ 
-      message: 'Member name updated successfully',
-      displayName: displayName.trim()
-    });
+    // Log tag disassociation activity
+    if (tag && task) {
+      await logActivity(
+        userId,
+        TAG_ACTIONS.DISASSOCIATE,
+        `removed tag "${tag.tag}" from task "${task.title}"`,
+        {
+          taskId: taskId,
+          tagId: parseInt(tagId),
+          columnId: task.columnId,
+          boardId: task.boardId
+        }
+      );
+    }
+    
+    res.json({ message: 'Tag removed from task successfully' });
   } catch (error) {
-    console.error('Member name update error:', error);
-    res.status(500).json({ error: 'Failed to update member name' });
+    console.error('Error removing tag from task:', error);
+    res.status(500).json({ error: 'Failed to remove tag from task' });
   }
 });
 
-// Update the existing comments endpoint
-app.post('/api/comments', (req, res) => {
-  const comment = req.body;
+// Activity Feed endpoint
+app.get('/api/activity/feed', authenticateToken, (req, res) => {
+  const { limit = 20 } = req.query;
+  
+  try {
+    const activities = wrapQuery(db.prepare(`
+      SELECT 
+        a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+        datetime(a.created_at) || 'Z' as created_at,
+        a.updated_at,
+        m.name as member_name,
+        r.name as role_name,
+        b.title as board_title,
+        c.title as column_title
+      FROM activity a
+      LEFT JOIN users u ON a.userId = u.id
+      LEFT JOIN members m ON u.id = m.user_id
+      LEFT JOIN roles r ON a.roleId = r.id
+      LEFT JOIN boards b ON a.boardId = b.id
+      LEFT JOIN columns c ON a.columnId = c.id
+      ORDER BY a.created_at DESC
+      LIMIT ?
+    `), 'SELECT').all(parseInt(limit));
+    
+    res.json(activities);
+  } catch (error) {
+    console.error('Error fetching activity feed:', error);
+    res.status(500).json({ error: 'Failed to fetch activity feed' });
+  }
+});
+
+// User Settings endpoints
+app.get('/api/user/settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    // Create user_settings table if it doesn't exist
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_settings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL,
+        setting_key TEXT NOT NULL,
+        setting_value TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(userId, setting_key)
+      )
+    `);
+    
+    const settings = wrapQuery(db.prepare(`
+      SELECT setting_key, setting_value 
+      FROM user_settings 
+      WHERE userId = ?
+    `), 'SELECT').all(userId);
+    
+    // Convert to object format
+    const settingsObj = settings.reduce((acc, setting) => {
+      let value = setting.setting_value;
+      
+      // Convert booleans
+      if (value === 'true') {
+        value = true;
+      } else if (value === 'false') {
+        value = false;
+      } else if (!isNaN(value) && !isNaN(parseFloat(value))) {
+        // Convert numbers (but only if it's actually a pure number)
+        value = parseFloat(value);
+      }
+      // Leave strings (including JSON strings) as strings
+      
+      acc[setting.setting_key] = value;
+      return acc;
+    }, {});
+    
+    // Don't set defaults here - let the client handle smart merging
+    // This allows the client to properly merge cookie vs database values
+    res.json(settingsObj);
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    res.status(500).json({ error: 'Failed to fetch user settings' });
+  }
+});
+
+app.put('/api/user/settings', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { setting_key, setting_value } = req.body;
+  
+  try {
+    // Handle undefined/null values
+    if (setting_value === undefined || setting_value === null) {
+      console.warn(`Skipping save for ${setting_key}: value is ${setting_value}`);
+      return res.json({ message: 'Setting skipped (undefined/null value)' });
+    }
+    
+    // Convert value to string safely
+    const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
+    
+    wrapQuery(db.prepare(`
+      INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `), 'INSERT').run(userId, setting_key, valueString);
+    
+    res.json({ message: 'Setting updated successfully' });
+  } catch (error) {
+    console.error('Error updating user setting:', error);
+    res.status(500).json({ error: 'Failed to update user setting' });
+  }
+});
+
+// Task-Watchers association endpoints
+app.get('/api/tasks/:taskId/watchers', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const watchers = wrapQuery(db.prepare(`
+      SELECT m.* FROM members m
+      JOIN watchers w ON m.id = w.memberId
+      WHERE w.taskId = ?
+      ORDER BY m.name ASC
+    `), 'SELECT').all(taskId);
+    
+    res.json(watchers);
+  } catch (error) {
+    console.error('Error fetching task watchers:', error);
+    res.status(500).json({ error: 'Failed to fetch task watchers' });
+  }
+});
+
+app.post('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    // Check if association already exists
+    const existing = wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    
+    if (existing) {
+      return res.status(409).json({ error: 'Member is already watching this task' });
+    }
+    
+    wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    res.json({ message: 'Watcher added to task successfully' });
+  } catch (error) {
+    console.error('Error adding watcher to task:', error);
+    res.status(500).json({ error: 'Failed to add watcher to task' });
+  }
+});
+
+app.delete('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    const result = wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Watcher association not found' });
+    }
+    
+    res.json({ message: 'Watcher removed from task successfully' });
+  } catch (error) {
+    console.error('Error removing watcher from task:', error);
+    res.status(500).json({ error: 'Failed to remove watcher from task' });
+  }
+});
+
+// Task-Collaborators association endpoints
+app.get('/api/tasks/:taskId/collaborators', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const collaborators = wrapQuery(db.prepare(`
+      SELECT m.* FROM members m
+      JOIN collaborators c ON m.id = c.memberId
+      WHERE c.taskId = ?
+      ORDER BY m.name ASC
+    `), 'SELECT').all(taskId);
+    
+    res.json(collaborators);
+  } catch (error) {
+    console.error('Error fetching task collaborators:', error);
+    res.status(500).json({ error: 'Failed to fetch task collaborators' });
+  }
+});
+
+app.post('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    // Check if association already exists
+    const existing = wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    
+    if (existing) {
+      return res.status(409).json({ error: 'Member is already collaborating on this task' });
+    }
+    
+    wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    res.json({ message: 'Collaborator added to task successfully' });
+  } catch (error) {
+    console.error('Error adding collaborator to task:', error);
+    res.status(500).json({ error: 'Failed to add collaborator to task' });
+  }
+});
+
+app.delete('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+  const { taskId, memberId } = req.params;
+  
+  try {
+    const result = wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Collaborator association not found' });
+    }
+    
+    res.json({ message: 'Collaborator removed from task successfully' });
+  } catch (error) {
+    console.error('Error removing collaborator from task:', error);
+    res.status(500).json({ error: 'Failed to remove collaborator from task' });
+  }
+});
+
+// Task-Attachments association endpoints
+app.get('/api/tasks/:taskId/attachments', authenticateToken, (req, res) => {
+  const { taskId } = req.params;
+  
+  try {
+    const attachments = db.prepare(`
+      SELECT id, name, url, type, size, created_at
+      FROM attachments 
+      WHERE taskId = ?
+      ORDER BY created_at DESC
+    `).all(taskId);
+    
+    res.json(attachments);
+  } catch (error) {
+    console.error('Error fetching task attachments:', error);
+    res.status(500).json({ error: 'Failed to fetch task attachments' });
+  }
+});
+
+app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) => {
+  const { taskId } = req.params;
+  const { attachments } = req.body;
+  const userId = req.user.id;
   
   try {
     // Begin transaction
     db.prepare('BEGIN').run();
 
     try {
-      // Insert comment
-      const commentStmt = wrapQuery(
-        db.prepare(`
-          INSERT INTO comments (id, taskId, text, authorId, createdAt)
-          VALUES (?, ?, ?, ?, ?)
-        `),
-        'INSERT'
-      );
+      const insertedAttachments = [];
       
-      commentStmt.run(
-        comment.id,
-        comment.taskId,
-        comment.text,
-        comment.authorId,
-        comment.createdAt
-      );
-      
-      // Insert attachments if any
-      if (comment.attachments?.length > 0) {
-        const attachmentStmt = wrapQuery(
-          db.prepare(`
-            INSERT INTO attachments (id, commentId, name, url, type, size)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `),
-          'INSERT'
-        );
+      if (attachments?.length > 0) {
+        const attachmentStmt = db.prepare(`
+          INSERT INTO attachments (id, taskId, name, url, type, size)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
         
-        comment.attachments.forEach(attachment => {
+        attachments.forEach(attachment => {
           attachmentStmt.run(
             attachment.id,
-            comment.id,
+            taskId,
             attachment.name,
             attachment.url,
             attachment.type,
             attachment.size
           );
+          insertedAttachments.push(attachment);
         });
       }
 
       // Commit transaction
       db.prepare('COMMIT').run();
-      res.json(comment);
+      
+      res.json(insertedAttachments);
     } catch (error) {
       // Rollback on error
       db.prepare('ROLLBACK').run();
       throw error;
     }
   } catch (error) {
-    console.error('Error creating comment:', error);
-    res.status(500).json({ error: 'Failed to create comment' });
+    console.error('Error adding task attachments:', error);
+    res.status(500).json({ error: 'Failed to add task attachments' });
   }
 });
 
-// Add comment deletion endpoint with file cleanup
-app.delete('/api/comments/:id', async (req, res) => {
+app.delete('/api/attachments/:id', authenticateToken, (req, res) => {
   const { id } = req.params;
   
   try {
-    // Get attachments before deleting the comment
-    const attachmentsStmt = wrapQuery(
-      db.prepare('SELECT url FROM attachments WHERE commentId = ?'),
-      'SELECT'
-    );
-    const attachments = attachmentsStmt.all(id);
-
-    // Delete the files from disk
-    for (const attachment of attachments) {
-      const filePath = join(__dirname, '..', attachment.url);
-      try {
-        await fs.promises.unlink(filePath);
-      } catch (error) {
-        console.error('Error deleting file:', error);
-      }
+    // First, get the attachment info to find the file path
+    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+    
+    if (!attachment) {
+      return res.status(404).json({ error: 'Attachment not found' });
     }
-
-    // Delete the comment (cascades to attachments)
-    const stmt = wrapQuery(
-      db.prepare('DELETE FROM comments WHERE id = ?'),
-      'DELETE'
-    );
-    stmt.run(id);
-
-    res.json({ message: 'Comment and attachments deleted successfully' });
+    
+    // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
+    const filename = attachment.url.replace('/attachments/', '');
+    const filePath = path.join(__dirname, 'attachments', filename);
+    
+    // Delete the physical file if it exists
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`✅ Deleted file: ${filename}`);
+      } catch (fileError) {
+        console.error('Error deleting file:', fileError);
+        // Continue with database deletion even if file deletion fails
+      }
+    } else {
+      console.log(`⚠️ File not found: ${filename}`);
+    }
+    
+    // Delete the database record
+    const result = db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Attachment record not found' });
+    }
+    
+    res.json({ message: 'Attachment and file deleted successfully' });
   } catch (error) {
-    console.error('Error deleting comment:', error);
-    res.status(500).json({ error: 'Failed to delete comment' });
-  }
-});
-
-app.get('/api/debug/logs', (req, res) => {
-  res.json(queryLogs);
-});
-
-app.post('/api/debug/logs/clear', (req, res) => {
-  queryLogs.length = 0;
-  res.json({ message: 'Logs cleared successfully' });
-});
-
-// New endpoint to fetch comment attachments
-app.get('/api/comments/:commentId/attachments', (req, res) => {
-  try {
-    const attachments = db.prepare(`
-      SELECT 
-        id,
-        name,
-        url,
-        type,
-        size
-      FROM attachments
-      WHERE commentId = ?
-    `).all(req.params.commentId);
-
-    res.json(attachments);
-  } catch (error) {
-    console.error('Error fetching comment attachments:', error);
-    res.status(500).json({ error: 'Failed to fetch attachments' });
+    console.error('Error deleting attachment:', error);
+    res.status(500).json({ error: 'Failed to delete attachment' });
   }
 });
 
 // Serve attachment files
 app.get('/attachments/:filename', (req, res) => {
+  const { filename } = req.params;
+  
   try {
-    const filename = req.params.filename;
+    const filePath = path.join(__dirname, 'attachments', filename);
     
-    // Get the file path from the uploads directory
-    const filePath = path.join(__dirname, 'uploads', filename);
-    
-    // Check if file exists
     if (!fs.existsSync(filePath)) {
-      console.error('File not found:', filePath);
-      return res.status(404).send('File not found');
+      return res.status(404).json({ error: 'File not found' });
     }
-
-    // Send the file with proper content type
-    res.sendFile(filePath, (err) => {
-      if (err) {
-        console.error('Error sending file:', err);
-        res.status(500).send('Error sending file');
-      }
-    });
     
+    res.sendFile(filePath);
   } catch (error) {
     console.error('Error serving attachment:', error);
-    res.status(500).send('Error serving attachment');
+    res.status(500).json({ error: 'Failed to serve file' });
   }
 });
 
-// Health check endpoint for Docker
+// ================================
+// DEBUG ENDPOINTS
+// ================================
+
+app.get('/api/debug/logs', (req, res) => {
+  res.json(getQueryLogs());
+});
+
+app.post('/api/debug/logs/clear', (req, res) => {
+  clearQueryLogs();
+  res.json({ message: 'Query logs cleared' });
+});
+
+// ================================
+// HEALTH CHECK
+// ================================
+
 app.get('/health', (req, res) => {
   try {
-    // Check if database is accessible
-    db.prepare('SELECT 1').get();
+    wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
       database: 'connected'
     });
   } catch (error) {
-    res.status(503).json({ 
+    res.status(500).json({ 
       status: 'unhealthy', 
-      timestamp: new Date().toISOString(),
-      database: 'disconnected',
-      error: error.message
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 });
 
+// ================================
+// SPA FALLBACK FOR CLIENT-SIDE ROUTING
+// ================================
 
+// Serve the React app for all non-API routes
+app.get('*', (req, res) => {
+  // Skip API routes
+  if (req.path.startsWith('/api/') || req.path.startsWith('/attachments/') || req.path.startsWith('/avatars/') || req.path === '/health') {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+  
+  // For all other routes (including /project/, /task/, etc.), serve the React app
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
 
-// Socket.IO temporarily removed due to connection loop issues
-// TODO: Implement simpler real-time solution
+// ================================
+// START SERVER
+// ================================
 
 const PORT = process.env.PORT || 3222;
+
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Real-time collaboration temporarily disabled`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
+  console.log(`✨ Refactored server with modular architecture`);
 });
