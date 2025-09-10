@@ -25,6 +25,7 @@ import membersRouter from './routes/members.js';
 import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
+import viewsRouter from './routes/views.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -318,6 +319,7 @@ app.use('/api/members', membersRouter);
 app.use('/api/boards', boardsRouter);
 app.use('/api/columns', columnsRouter);
 app.use('/api/tasks', authenticateToken, tasksRouter);
+app.use('/api/views', viewsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
 
