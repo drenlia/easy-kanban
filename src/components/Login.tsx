@@ -3,11 +3,13 @@ import { login } from '../api';
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => void;
+  siteSettings?: any;
   hasDefaultAdmin?: boolean;
+  intendedDestination?: string | null;
   onForgotPassword?: () => void;
 }
 
-export default function Login({ onLogin, hasDefaultAdmin = true, onForgotPassword }: LoginProps) {
+export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -59,6 +61,16 @@ export default function Login({ onLogin, hasDefaultAdmin = true, onForgotPasswor
     setIsLoading(true);
 
     try {
+      // Store intended destination before OAuth redirect
+      if (intendedDestination) {
+        console.log('🎯 Storing intended destination before Google OAuth:', intendedDestination);
+        localStorage.setItem('oauthIntendedDestination', intendedDestination);
+      } else {
+        // Clear any stale intended destination for normal login
+        console.log('🎯 Clearing stale intended destination for normal Google OAuth login');
+        localStorage.removeItem('oauthIntendedDestination');
+      }
+
       // Redirect to Google OAuth
       const response = await fetch('/api/auth/google/url');
       if (response.ok) {
