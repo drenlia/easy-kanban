@@ -5,6 +5,7 @@ interface TaskLinkingOverlayProps {
   isLinkingMode: boolean;
   linkingSourceTask: Task | null;
   linkingLine: {startX: number, startY: number, endX: number, endY: number} | null;
+  feedbackMessage?: string | null;
   onUpdateLinkingLine: (endPosition: {x: number, y: number}) => void;
   onFinishLinking: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
   onCancelLinking: () => void;
@@ -14,6 +15,7 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
   isLinkingMode,
   linkingSourceTask,
   linkingLine,
+  feedbackMessage,
   onUpdateLinkingLine,
   onFinishLinking,
   onCancelLinking
@@ -60,6 +62,42 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
     };
   }, [isLinkingMode, linkingLine, onUpdateLinkingLine, onCancelLinking]);
 
+  // Show feedback message if present
+  if (feedbackMessage) {
+    const message = feedbackMessage.toLowerCase();
+    const isError = message.includes('failed') || message.includes('cannot create');
+    const isCancelled = message.includes('cancelled');
+    const isAlreadyExists = message.includes('already exists') || message.includes('circular relationship');
+    
+    let bgColor, icon;
+    if (isError) {
+      bgColor = 'bg-red-600';
+      icon = '❌';
+    } else if (isCancelled) {
+      bgColor = 'bg-orange-600';
+      icon = '⚠️';
+    } else if (isAlreadyExists) {
+      bgColor = 'bg-yellow-600';
+      icon = '⚠️';
+    } else {
+      // Success case
+      bgColor = 'bg-green-600';
+      icon = '✅';
+    }
+    
+    return (
+      <div className="fixed inset-0 z-50 pointer-events-none">
+        <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 ${bgColor} text-white px-4 py-2 rounded-lg shadow-lg text-sm font-medium`}>
+          <div className="flex items-center space-x-2">
+            <span>{icon}</span>
+            <span>{feedbackMessage}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show linking overlay if in linking mode
   if (!isLinkingMode || !linkingLine || !linkingSourceTask) {
     return null;
   }

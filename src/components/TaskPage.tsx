@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
-import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
 import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
+import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import TextEditor from './TextEditor';
 import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
@@ -33,6 +34,8 @@ export default function TaskPage({
   onRefresh, 
   onInviteUser 
 }: TaskPageProps) {
+  console.log('🚀 TaskPage component mounting!');
+  console.log('🚀 TaskPage currentUser:', currentUser?.id);
   const [task, setTask] = useState<Task | null>(null);
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,6 +58,34 @@ export default function TaskPage({
   const [childrenSearchTerm, setChildrenSearchTerm] = useState('');
   const [isLoadingRelationships, setIsLoadingRelationships] = useState(false);
   const childrenDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Collapsible sections state - always load from preferences if available
+  const [collapsedSections, setCollapsedSections] = useState<{
+    assignment: boolean;
+    schedule: boolean;
+    tags: boolean;
+    associations: boolean;
+    taskInfo: boolean;
+  }>(() => {
+    console.log('📁 TaskPage: Initializing collapsed sections state');
+    if (currentUser?.id) {
+      console.log('📁 TaskPage: User found during init:', currentUser.id);
+      const prefs = loadUserPreferences(currentUser.id);
+      console.log('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
+      if (prefs.taskPageCollapsed) {
+        console.log('📁 TaskPage: Using saved preferences for initial state');
+        return prefs.taskPageCollapsed;
+      }
+    }
+    console.log('📁 TaskPage: Using default state (all expanded)');
+    return {
+      assignment: false,
+      schedule: false,
+      tags: false,
+      associations: false,
+      taskInfo: false,
+    };
+  });
 
   // Track current hash to detect changes and re-parse task route
   const [currentHash, setCurrentHash] = useState(window.location.hash);
@@ -690,6 +721,37 @@ export default function TaskPage({
     }
   };
 
+  // Toggle section collapse state and save to user preferences
+  const toggleSection = useCallback((section: keyof typeof collapsedSections) => {
+    const newState = {
+      ...collapsedSections,
+      [section]: !collapsedSections[section]
+    };
+    console.log('📁 TaskPage: Toggling section', section, 'to', !collapsedSections[section]);
+    console.log('📁 TaskPage: New collapsed state:', newState);
+    setCollapsedSections(newState);
+    
+    // Save to user preferences
+    if (currentUser?.id) {
+      console.log('📁 TaskPage: Saving preferences for user', currentUser.id);
+      updateUserPreference('taskPageCollapsed', newState, currentUser.id);
+    }
+  }, [collapsedSections, currentUser?.id]);
+
+  // Sync with preferences when user changes (backup for edge cases)
+  useEffect(() => {
+    console.log('📁 TaskPage: useEffect triggered - syncing preferences');
+    if (currentUser?.id) {
+      const prefs = loadUserPreferences(currentUser.id);
+      console.log('📁 TaskPage: Syncing preferences for user', currentUser.id);
+      console.log('📁 TaskPage: Current prefs:', prefs.taskPageCollapsed);
+      if (prefs.taskPageCollapsed) {
+        console.log('📁 TaskPage: Syncing to saved preferences');
+        setCollapsedSections(prefs.taskPageCollapsed);
+      }
+    }
+  }, [currentUser?.id]);
+
   // Modal handlers
   const handleProfileUpdated = async () => {
     // Profile updates are handled by the main app, so we don't need to do anything special here
@@ -764,8 +826,8 @@ export default function TaskPage({
         onInviteUser={onInviteUser}
       />
       
-      {/* Task Navigation Bar */}
-      <div className="bg-white shadow-sm border-b">
+      {/* Task Navigation Bar - Sticky */}
+      <div className="sticky top-16 z-40 bg-white shadow-sm border-b">
         <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center space-x-4">
@@ -1068,11 +1130,23 @@ export default function TaskPage({
           <div className="space-y-6">
             
             {/* Assignment */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
-                <User className="h-4 w-4 mr-2" />
-                Assignment
-              </h3>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('assignment')}
+              >
+                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                  <User className="h-4 w-4 mr-2" />
+                  Assignment
+                </h3>
+                {collapsedSections.assignment ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.assignment && (
+                <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Assigned To</label>
@@ -1208,14 +1282,28 @@ export default function TaskPage({
                   </div>
                 </div>
               </div>
+                </div>
+              )}
             </div>
 
             {/* Priority & Dates */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
-                <Calendar className="h-4 w-4 mr-2" />
-                Schedule & Priority
-              </h3>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('schedule')}
+              >
+                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Schedule & Priority
+                </h3>
+                {collapsedSections.schedule ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.schedule && (
+                <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Priority</label>
@@ -1273,14 +1361,28 @@ export default function TaskPage({
                   />
                 </div>
               </div>
+                </div>
+              )}
             </div>
 
             {/* Tags */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
-                <Tag className="h-4 w-4 mr-2" />
-                Tags
-              </h3>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('tags')}
+              >
+                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                  <Tag className="h-4 w-4 mr-2" />
+                  Tags
+                </h3>
+                {collapsedSections.tags ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.tags && (
+                <div className="px-6 pb-6">
               <div className="space-y-3">
                 <div className="flex flex-wrap gap-1">
                   {taskTags.map((tag) => (
@@ -1337,14 +1439,28 @@ export default function TaskPage({
                   </select>
                 )}
               </div>
+                </div>
+              )}
             </div>
 
             {/* Task Association */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
-                <Users className="h-4 w-4 mr-2" />
-                Task Association
-              </h3>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.associations ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('associations')}
+              >
+                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                  <Users className="h-4 w-4 mr-2" />
+                  Task Association
+                </h3>
+                {collapsedSections.associations ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.associations && (
+                <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   {/* Parent Field - Left Side */}
@@ -1466,11 +1582,25 @@ export default function TaskPage({
                   </div>
                 </div>
               </div>
+                </div>
+              )}
             </div>
 
             {/* Task Info */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-4">Task Information</h3>
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('taskInfo')}
+              >
+                <h3 className="text-sm font-medium text-gray-700">Task Information</h3>
+                {collapsedSections.taskInfo ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.taskInfo && (
+                <div className="px-6 pb-6">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Task ID:</span>
@@ -1503,6 +1633,8 @@ export default function TaskPage({
                   </div>
                 )}
               </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

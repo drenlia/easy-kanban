@@ -112,6 +112,12 @@ interface KanbanPageProps {
   onUpdateLinkingLine?: (endPosition: {x: number, y: number}) => void;
   onFinishLinking?: (targetTask: Task | null, relationshipType?: 'parent' | 'child' | 'related') => Promise<void>;
   onCancelLinking?: () => void;
+  
+  // Hover highlighting props
+  hoveredLinkTask?: Task | null;
+  onLinkToolHover?: (task: Task) => void;
+  onLinkToolHoverEnd?: () => void;
+  getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -196,6 +202,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onUpdateLinkingLine,
   onFinishLinking,
   onCancelLinking,
+  
+  // Hover highlighting props
+  hoveredLinkTask,
+  onLinkToolHover,
+  onLinkToolHoverEnd,
+  getTaskRelationshipType,
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -600,6 +612,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       linkingSourceTask={linkingSourceTask}
                       onStartLinking={onStartLinking}
                       onFinishLinking={onFinishLinking}
+                      
+                      // Hover highlighting props
+                      hoveredLinkTask={hoveredLinkTask}
+                      onLinkToolHover={onLinkToolHover}
+                      onLinkToolHoverEnd={onLinkToolHoverEnd}
+                      getTaskRelationshipType={getTaskRelationshipType}
                     />
                     ))}
                 </BoardDropArea>
@@ -653,6 +671,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       linkingSourceTask={linkingSourceTask}
                       onStartLinking={onStartLinking}
                       onFinishLinking={onFinishLinking}
+                      
+                      // Hover highlighting props
+                      hoveredLinkTask={hoveredLinkTask}
+                      onLinkToolHover={onLinkToolHover}
+                      onLinkToolHoverEnd={onLinkToolHoverEnd}
+                      getTaskRelationshipType={getTaskRelationshipType}
                     />
                   ))}
               </BoardDropArea>

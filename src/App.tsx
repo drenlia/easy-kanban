@@ -223,6 +223,11 @@ export default function App() {
   const [isLinkingMode, setIsLinkingMode] = useState(false);
   const [linkingSourceTask, setLinkingSourceTask] = useState<Task | null>(null);
   const [linkingLine, setLinkingLine] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
+  const [linkingFeedbackMessage, setLinkingFeedbackMessage] = useState<string | null>(null);
+  
+  // Hover highlighting for relationships
+  const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
+  const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
   
   // Debug showColumnDeleteConfirm changes
   useEffect(() => {
@@ -628,20 +633,39 @@ export default function App() {
         console.log('📡 API Response status:', response.status);
         
         if (!response.ok) {
-          const errorText = await response.text();
+          let errorMessage = 'Failed to create task relationship';
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+          } catch (parseError) {
+            // If JSON parsing fails, try text
+            try {
+              const errorText = await response.text();
+              errorMessage = errorText || errorMessage;
+            } catch (textError) {
+              // Keep default message
+            }
+          }
+          
           console.error('❌ API Error response:', {
             status: response.status,
             statusText: response.statusText,
-            error: errorText
+            error: errorMessage
           });
-          throw new Error(`Failed to create task relationship: ${response.status} ${errorText}`);
+          throw new Error(errorMessage);
         }
         
         const result = await response.json();
         console.log('✅ API Success result:', result);
         console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
+        
+        // Set success feedback message
+        setLinkingFeedbackMessage(`${linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
       } catch (error) {
         console.error('❌ Error creating task relationship:', error);
+        // Set specific error feedback message
+        const errorMessage = error instanceof Error ? error.message : 'Failed to create task relationship';
+        setLinkingFeedbackMessage(errorMessage);
       }
     } else {
       console.log('⚠️ Relationship creation skipped:', {
@@ -649,19 +673,92 @@ export default function App() {
         hasTarget: !!targetTask,
         sameTask: linkingSourceTask?.id === targetTask?.id
       });
+      
+      // Set cancellation feedback message
+      setLinkingFeedbackMessage('Task link cancelled');
     }
     
-    // Reset linking state
+    // Reset linking state (but keep feedback message visible)
     console.log('🔄 Resetting linking state...');
     setIsLinkingMode(false);
     setLinkingSourceTask(null);
     setLinkingLine(null);
+    
+    // Clear feedback message after 3 seconds
+    setTimeout(() => {
+      setLinkingFeedbackMessage(null);
+    }, 3000);
   };
 
   const handleCancelLinking = () => {
     setIsLinkingMode(false);
     setLinkingSourceTask(null);
     setLinkingLine(null);
+    setLinkingFeedbackMessage('Task link cancelled');
+    
+    // Clear feedback message after 3 seconds
+    setTimeout(() => {
+      setLinkingFeedbackMessage(null);
+    }, 3000);
+  };
+
+  // Hover highlighting handlers
+  // When user hovers over a link tool button, highlight all related tasks with color-coded borders:
+  // - Green: Parent tasks (tasks that this one depends on)
+  // - Purple: Child tasks (tasks that depend on this one)  
+  // - Yellow: Related tasks (loosely connected tasks)
+  const handleLinkToolHover = async (task: Task) => {
+    setHoveredLinkTask(task);
+    
+    // Load relationships for this task if not already loaded
+    if (!taskRelationships[task.id]) {
+      try {
+        const relationships = await api.get(`/tasks/${task.id}/relationships`);
+        setTaskRelationships(prev => ({
+          ...prev,
+          [task.id]: relationships.data || []
+        }));
+      } catch (error) {
+        console.error('Failed to load task relationships for hover:', error);
+      }
+    }
+  };
+
+  const handleLinkToolHoverEnd = () => {
+    setHoveredLinkTask(null);
+  };
+
+  // Helper function to check if a task is related to the hovered task
+  const getTaskRelationshipType = (taskId: string): 'parent' | 'child' | 'related' | null => {
+    if (!hoveredLinkTask || !taskRelationships[hoveredLinkTask.id]) return null;
+    
+    const relationships = taskRelationships[hoveredLinkTask.id];
+    
+    // Check if the task is a parent of the hovered task
+    const parentRel = relationships.find(rel => 
+      rel.relationship === 'child' && 
+      rel.task_id === hoveredLinkTask.id && 
+      rel.to_task_id === taskId
+    );
+    if (parentRel) return 'parent';
+    
+    // Check if the task is a child of the hovered task
+    const childRel = relationships.find(rel => 
+      rel.relationship === 'parent' && 
+      rel.task_id === hoveredLinkTask.id && 
+      rel.to_task_id === taskId
+    );
+    if (childRel) return 'child';
+    
+    // Check if the task has a 'related' relationship
+    const relatedRel = relationships.find(rel => 
+      rel.relationship === 'related' && 
+      ((rel.task_id === hoveredLinkTask.id && rel.to_task_id === taskId) ||
+       (rel.task_id === taskId && rel.to_task_id === hoveredLinkTask.id))
+    );
+    if (relatedRel) return 'related';
+    
+    return null;
   };
 
   // Use the extracted collision detection function
@@ -2557,6 +2654,12 @@ export default function App() {
                                     onUpdateLinkingLine={handleUpdateLinkingLine}
                                     onFinishLinking={handleFinishLinking}
                                     onCancelLinking={handleCancelLinking}
+                                    
+                                    // Hover highlighting props
+                                    hoveredLinkTask={hoveredLinkTask}
+                                    onLinkToolHover={handleLinkToolHover}
+                                    onLinkToolHoverEnd={handleLinkToolHoverEnd}
+                                    getTaskRelationshipType={getTaskRelationshipType}
       />
 
       <ModalManager
@@ -2633,6 +2736,7 @@ export default function App() {
         isLinkingMode={isLinkingMode}
         linkingSourceTask={linkingSourceTask}
         linkingLine={linkingLine}
+        feedbackMessage={linkingFeedbackMessage}
         onUpdateLinkingLine={handleUpdateLinkingLine}
         onFinishLinking={handleFinishLinking}
         onCancelLinking={handleCancelLinking}
