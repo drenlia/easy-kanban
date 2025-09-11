@@ -1,3 +1,5 @@
+# Running docker-compose.yml file.
+docker-compose.yml
 # Dependencies
 node_modules/
 npm-debug.log*
