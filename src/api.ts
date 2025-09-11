@@ -610,4 +610,14 @@ export const getTaskFlowChart = async (taskId: string): Promise<{
   return response.data;
 };
 
+// User Status
+export const getUserStatus = async (): Promise<{
+  isActive: boolean;
+  isAdmin: boolean;
+  forceLogout: boolean;
+}> => {
+  const response = await api.get('/user/status');
+  return response.data;
+};
+
 export default api;

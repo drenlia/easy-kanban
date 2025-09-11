@@ -667,7 +667,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       Activity Feed
                     </label>
                     <p className="text-sm text-gray-500">
-                      Show a floating activity feed on the right side of the screen to see recent actions and changes.
+                      Show a floating activity feed on the screen to see recent actions and changes.
                       {systemSettings.SHOW_ACTIVITY_FEED !== 'false' ? ' System default: Enabled' : ' System default: Disabled'}
                     </p>
                   </div>

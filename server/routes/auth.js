@@ -230,16 +230,24 @@ router.get('/google/callback', async (req, res) => {
       debugLog(settingsObj, '🔐 [GOOGLE SSO] User must be invited first before using Google OAuth');
       return res.redirect('/?error=user_not_invited');
     } else {
-      console.log('🔐 [GOOGLE SSO] ✅ Existing user found, proceeding with login');
+      console.log('🔐 [GOOGLE SSO] ✅ Existing user found, checking if active...');
       
-      // Always update auth_provider to 'google' and store Google avatar
+      // Check if user is active
+      if (!user.is_active) {
+        console.log('🔐 [GOOGLE SSO] ❌ User account is deactivated:', userInfo.email);
+        debugLog(settingsObj, '🔐 [GOOGLE SSO] Deactivated user attempted to login via Google OAuth');
+        return res.redirect('/?error=account_deactivated');
+      }
+      
+      console.log('🔐 [GOOGLE SSO] ✅ User is active, proceeding with login');
+      
+      // Update auth_provider to 'google' and store Google avatar (but don't change is_active)
       console.log('🔐 [GOOGLE SSO] Updating user auth_provider to google...');
       try {
         db.prepare(`
           UPDATE users 
           SET auth_provider = 'google', 
               google_avatar_url = ?,
-              is_active = 1,
               updated_at = datetime('now')
           WHERE id = ?
         `).run(userInfo.picture, user.id);

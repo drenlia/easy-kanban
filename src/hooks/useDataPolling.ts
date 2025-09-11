@@ -16,6 +16,12 @@ interface ActivityItem {
   created_at: string;
 }
 
+export interface UserStatus {
+  isActive: boolean;
+  isAdmin: boolean;
+  forceLogout: boolean;
+}
+
 interface UseDataPollingProps {
   enabled: boolean;
   selectedBoard: string | null;
@@ -134,6 +140,7 @@ export const useDataPolling = ({
           }
         }
 
+
         // Update columns for the current board if it changed
         if (selectedBoard) {
           const currentBoard = loadedBoards.find(b => b.id === selectedBoard);
@@ -171,6 +178,7 @@ export const useDataPolling = ({
     currentColumns,
     currentSiteSettings,
     currentSharedFilters,
+    includeSystem,
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,

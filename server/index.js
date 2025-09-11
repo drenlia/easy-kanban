@@ -1592,6 +1592,35 @@ app.get('/api/activity/feed', authenticateToken, (req, res) => {
   }
 });
 
+// User Status endpoint for permission refresh
+app.get('/api/user/status', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  
+  try {
+    // Get current user status and permissions
+    const user = wrapQuery(db.prepare(`
+      SELECT u.is_active, r.name as role 
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE u.id = ?
+    `), 'SELECT').get(userId);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    res.json({
+      isActive: Boolean(user.is_active),
+      isAdmin: user.role === 'admin',
+      forceLogout: !user.is_active // Force logout if user is deactivated
+    });
+  } catch (error) {
+    console.error('Error fetching user status:', error);
+    res.status(500).json({ error: 'Failed to fetch user status' });
+  }
+});
+
 // User Settings endpoints
 app.get('/api/user/settings', authenticateToken, (req, res) => {
   const userId = req.user.id;

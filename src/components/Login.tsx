@@ -16,6 +16,41 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   const [error, setError] = useState('');
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
   
+  // Check for OAuth errors in URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const errorParam = urlParams.get('error');
+    
+    if (errorParam) {
+      let errorMessage = 'Login failed. Please try again.';
+      
+      switch (errorParam) {
+        case 'account_deactivated':
+          errorMessage = 'Your account has been deactivated. Please contact an administrator.';
+          break;
+        case 'user_not_invited':
+          errorMessage = 'Access denied. You must be invited to use this system.';
+          break;
+        case 'oauth_failed':
+          errorMessage = 'Authentication failed. Please try again.';
+          break;
+        case 'oauth_not_configured':
+          errorMessage = 'Google sign-in is not properly configured. Please contact an administrator.';
+          break;
+        case 'oauth_userinfo_failed':
+          errorMessage = 'Failed to retrieve user information from Google. Please try again.';
+          break;
+      }
+      
+      setError(errorMessage);
+      
+      // Clean up the URL by removing the error parameter
+      const newUrl = new URL(window.location);
+      newUrl.searchParams.delete('error');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
+
   // Check if Google OAuth is configured
   useEffect(() => {
     const checkGoogleOAuth = async () => {
