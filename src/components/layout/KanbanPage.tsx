@@ -73,6 +73,7 @@ interface KanbanPageProps {
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
   currentFilterView?: any; // SavedFilterView | null
+  sharedFilterViews?: any[]; // SavedFilterView[]
   onFilterViewChange?: (view: any) => void; // (view: SavedFilterView | null) => void
   onSelectBoard: (boardId: string) => void;
   onAddBoard: () => Promise<void>;
@@ -164,6 +165,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleSearch,
   onSearchFiltersChange,
   currentFilterView,
+  sharedFilterViews,
   onFilterViewChange,
   onSelectBoard,
   onAddBoard,
@@ -442,6 +444,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           onFiltersChange={onSearchFiltersChange}
           siteSettings={siteSettings}
           currentFilterView={currentFilterView}
+          sharedFilterViews={sharedFilterViews}
           onFilterViewChange={onFilterViewChange}
         />
       )}

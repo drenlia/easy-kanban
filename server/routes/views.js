@@ -79,6 +79,45 @@ router.get('/', authenticateToken, (req, res) => {
   }
 });
 
+// GET /api/views/shared - Get shared filter views from other users
+router.get('/shared', authenticateToken, (req, res) => {
+  try {
+    const userId = req.user.id;
+    console.log('🔍 [GET /api/views/shared] Current user ID:', userId);
+    
+    const stmt = db.prepare(`
+      SELECT v.*, 
+             CASE 
+               WHEN u.first_name IS NOT NULL AND u.last_name IS NOT NULL 
+               THEN u.first_name || ' ' || u.last_name
+               WHEN u.first_name IS NOT NULL 
+               THEN u.first_name
+               ELSE u.email
+             END as creatorName
+      FROM views v
+      LEFT JOIN users u ON v.userId = u.id
+      WHERE v.shared = 1 AND v.userId != ?
+      ORDER BY v.filterName ASC
+    `);
+    
+    const views = stmt.all(userId);
+    console.log('📊 [GET /api/views/shared] Found shared views:', views.length);
+    console.log('📋 [GET /api/views/shared] Views:', views.map(v => ({ id: v.id, filterName: v.filterName, userId: v.userId, creatorName: v.creatorName })));
+    
+    const formattedViews = views.map(view => {
+      const formatted = formatViewForResponse(view);
+      formatted.creatorName = view.creatorName;
+      return formatted;
+    });
+    
+    console.log('✅ [GET /api/views/shared] Sending response with', formattedViews.length, 'views');
+    res.json(formattedViews);
+  } catch (error) {
+    console.error('❌ [GET /api/views/shared] Error fetching shared views:', error);
+    res.status(500).json({ error: 'Failed to fetch shared filter views' });
+  }
+});
+
 // GET /api/views/:id - Get a specific saved filter view
 router.get('/:id', authenticateToken, (req, res) => {
   try {

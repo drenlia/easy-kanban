@@ -475,6 +475,7 @@ export interface SavedFilterView {
   taskFilter?: string;
   created_at: string;
   updated_at: string;
+  creatorName?: string; // Available for shared filters
 }
 
 export interface CreateFilterViewRequest {
@@ -513,6 +514,11 @@ export interface UpdateFilterViewRequest {
 
 export const getSavedFilterViews = async (): Promise<SavedFilterView[]> => {
   const { data } = await api.get('/views');
+  return data;
+};
+
+export const getSharedFilterViews = async (): Promise<SavedFilterView[]> => {
+  const { data } = await api.get('/views/shared');
   return data;
 };
 

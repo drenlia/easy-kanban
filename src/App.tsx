@@ -205,6 +205,7 @@ export default function App() {
   const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
   const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
+  const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
@@ -470,6 +471,7 @@ export default function App() {
     currentSiteSettings: siteSettings,
     currentPriorities: availablePriorities,
     currentActivities: activities,
+    currentSharedFilters: sharedFilterViews,
     includeSystem,
     onBoardsUpdate: setBoards,
     onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
@@ -477,6 +479,7 @@ export default function App() {
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
     onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
+    onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
   });
 
   // Restore selected task from preferences when tasks are loaded
@@ -2627,6 +2630,7 @@ export default function App() {
         onToggleSearch={handleToggleSearch}
         onSearchFiltersChange={handleSearchFiltersChange}
         currentFilterView={currentFilterView}
+        sharedFilterViews={sharedFilterViews}
         onFilterViewChange={handleFilterViewChange}
                     onSelectBoard={handleBoardSelection}
                     onAddBoard={handleAddBoard}
