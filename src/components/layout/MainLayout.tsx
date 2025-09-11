@@ -70,6 +70,9 @@ interface MainLayoutProps {
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
+  currentFilterView?: any; // SavedFilterView | null
+  sharedFilterViews?: any[]; // SavedFilterView[]
+  onFilterViewChange?: (view: any) => void; // (view: SavedFilterView | null) => void
   onSelectBoard: (boardId: string) => void;
   onAddBoard: () => Promise<void>;
   onEditBoard: (boardId: string, title: string) => Promise<void>;
