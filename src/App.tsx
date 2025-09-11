@@ -368,7 +368,7 @@ export default function App() {
   // Load user settings for activity feed
   useEffect(() => {
     const loadUserSettings = async () => {
-      if (currentUser?.id) {
+      if (isAuthenticated && currentUser?.id) {
         try {
           const settings = await getUserSettings();
           // Use system default if user hasn't set a preference
@@ -410,7 +410,7 @@ export default function App() {
     };
     
     loadUserSettings();
-  }, [currentUser?.id, systemSettings]);
+  }, [isAuthenticated, currentUser?.id, systemSettings]);
 
   // Load admin defaults for new user preferences
   useEffect(() => {

@@ -423,6 +423,21 @@ const initializeDefaultData = (db) => {
       adminId
     );
 
+    // Create default user settings for admin user
+    const defaultAdminSettings = [
+      ['showActivityFeed', 'true'],
+      ['defaultViewMode', 'kanban'],
+      ['defaultTaskViewMode', 'expand'],
+      ['activityFeedPosition', '{"x": 0, "y": 443}'],
+      ['activityFeedWidth', '180'],
+      ['activityFeedHeight', '400']
+    ];
+
+    const adminSettingsStmt = db.prepare('INSERT INTO user_settings (userId, setting_key, setting_value) VALUES (?, ?, ?)');
+    defaultAdminSettings.forEach(([key, value]) => {
+      adminSettingsStmt.run(adminId, key, value);
+    });
+
     // Create system user account (for orphaned tasks when users are deleted)
     const systemUserId = '00000000-0000-0000-0000-000000000000';
     const systemMemberId = '00000000-0000-0000-0000-000000000001';
