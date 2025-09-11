@@ -581,4 +581,33 @@ export const removeTaskRelationship = async (taskId: string, relationshipId: str
   return response.data;
 };
 
+// Get complete task flow chart data (optimized)
+export const getTaskFlowChart = async (taskId: string): Promise<{
+  rootTaskId: string;
+  tasks: Array<{
+    id: string;
+    ticket: string;
+    title: string;
+    memberId: string;
+    memberName: string;
+    memberColor: string;
+    status: string;
+    priority: string;
+    startDate: string;
+    dueDate: string;
+    projectId: string;
+  }>;
+  relationships: Array<{
+    id: string;
+    taskId: string;
+    relationship: string;
+    relatedTaskId: string;
+    taskTicket: string;
+    relatedTaskTicket: string;
+  }>;
+}> => {
+  const response = await api.get(`/tasks/${taskId}/flow-chart`);
+  return response.data;
+};
+
 export default api;

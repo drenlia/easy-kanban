@@ -56,6 +56,7 @@ export interface UserPreferences {
     schedule: boolean;
     tags: boolean;
     associations: boolean;
+    taskFlow: boolean;
     taskInfo: boolean;
   };
   activityFeed: {
@@ -140,6 +141,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     schedule: false,
     tags: false,
     associations: false,
+    taskFlow: false,
     taskInfo: false
   },
   activityFeed: {

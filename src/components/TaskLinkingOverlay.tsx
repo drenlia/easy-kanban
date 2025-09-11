@@ -67,7 +67,8 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
     const message = feedbackMessage.toLowerCase();
     const isError = message.includes('failed') || message.includes('cannot create');
     const isCancelled = message.includes('cancelled');
-    const isAlreadyExists = message.includes('already exists') || message.includes('circular relationship');
+    const isAlreadyExists = message.includes('already exists');
+    const isCircularDependency = message.includes('circular dependency') || message.includes('descendant');
     
     let bgColor, icon;
     if (isError) {
@@ -76,6 +77,9 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
     } else if (isCancelled) {
       bgColor = 'bg-orange-600';
       icon = '⚠️';
+    } else if (isCircularDependency) {
+      bgColor = 'bg-red-600';
+      icon = '🔄';
     } else if (isAlreadyExists) {
       bgColor = 'bg-yellow-600';
       icon = '⚠️';

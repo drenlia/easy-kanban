@@ -208,7 +208,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </div>
           )}
 
-          {hasDefaultAdmin && (
+          {hasDefaultAdmin && process.env.DEMO_ENABLED !== 'true' && (
             <div className="text-center text-sm text-gray-600">
               <p>Default credentials:</p>
               <p className="font-mono text-xs mt-1">
