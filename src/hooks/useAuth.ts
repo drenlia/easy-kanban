@@ -21,6 +21,7 @@ interface UseAuthReturn {
   currentUser: CurrentUser | null;
   siteSettings: SiteSettings;
   hasDefaultAdmin: boolean | null;
+  hasDemoUser: boolean | null;
   intendedDestination: string | null;
   justRedirected: boolean;
   
@@ -44,6 +45,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
+  const [hasDemoUser, setHasDemoUser] = useState<boolean | null>(null);
   const [authChecked, setAuthChecked] = useState(false); // Track if auth has been checked
   const isProcessingOAuthRef = useRef(false);
   const [justRedirected, setJustRedirected] = useState(false); // Prevent auto-board-selection after redirect
@@ -250,6 +252,30 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     checkDefaultAdmin();
   }, []);
 
+  // Check if demo user account exists
+  useEffect(() => {
+    const checkDemoUser = async () => {
+      try {
+        // Check if demo user account exists using dedicated endpoint
+        const response = await fetch('/api/auth/check-demo-user');
+        
+        if (response.ok) {
+          const data = await response.json();
+          setHasDemoUser(data.exists);
+        } else {
+          // If we can't check, assume it exists for safety
+          setHasDemoUser(true);
+        }
+      } catch (error) {
+        // Network or other errors - assume it exists for safety
+        console.warn('Could not check demo user status, assuming exists for safety:', error);
+        setHasDemoUser(true);
+      }
+    };
+    
+    checkDemoUser();
+  }, []);
+
   // Handle Google OAuth callback with token - MUST run before routing
   useEffect(() => {
     // Check for token in URL hash (for OAuth callback)
@@ -347,6 +373,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     currentUser,
     siteSettings,
     hasDefaultAdmin,
+    hasDemoUser,
     intendedDestination,
     justRedirected,
     

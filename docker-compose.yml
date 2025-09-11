@@ -3,7 +3,7 @@ services:
     build: .
     container_name: easy-kanban
     ports:
-      - "3010:3010"
+      - "3221:3010"
       - "3222:3222"
     environment:
       - NODE_ENV=development
@@ -11,7 +11,7 @@ services:
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
-      - DEMO_ENABLED=false
+      - DEMO_ENABLED=true
     volumes:
       - .:/app
       - /app/node_modules

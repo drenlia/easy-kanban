@@ -310,6 +310,37 @@ app.get('/api/auth/check-default-admin', (req, res) => {
   }
 });
 
+app.get('/api/auth/check-demo-user', (req, res) => {
+  try {
+    const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@example.com');
+    res.json({ exists: !!demoUser });
+  } catch (error) {
+    console.error('Error checking demo user:', error);
+    res.status(500).json({ error: 'Failed to check demo user' });
+  }
+});
+
+app.get('/api/auth/demo-credentials', (req, res) => {
+  try {
+    const adminPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
+    const demoPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
+    
+    res.json({
+      admin: {
+        email: 'admin@example.com',
+        password: adminPassword || 'admin' // Fallback to default if not found
+      },
+      demo: {
+        email: 'demo@example.com',
+        password: demoPassword || 'demo' // Fallback to default if not found
+      }
+    });
+  } catch (error) {
+    console.error('Error getting demo credentials:', error);
+    res.status(500).json({ error: 'Failed to get demo credentials' });
+  }
+});
+
 // ================================
 // API ROUTES
 // ================================

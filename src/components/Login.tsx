@@ -1,21 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { login } from '../api';
+import { Copy, Check } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => void;
   siteSettings?: any;
   hasDefaultAdmin?: boolean;
+  hasDemoUser?: boolean;
   intendedDestination?: string | null;
   onForgotPassword?: () => void;
 }
 
-export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
+export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, hasDemoUser = true, intendedDestination, onForgotPassword }: LoginProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
+  const [copiedItem, setCopiedItem] = useState<string | null>(null);
+  const [demoCredentials, setDemoCredentials] = useState<{
+    admin: { email: string; password: string };
+    demo: { email: string; password: string };
+  } | null>(null);
   
+  // Copy to clipboard function
+  const copyToClipboard = async (text: string, itemId: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedItem(itemId);
+      setTimeout(() => setCopiedItem(null), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  // Fetch demo credentials
+  useEffect(() => {
+    const fetchDemoCredentials = async () => {
+      try {
+        const response = await fetch('/api/auth/demo-credentials');
+        if (response.ok) {
+          const credentials = await response.json();
+          setDemoCredentials(credentials);
+        }
+      } catch (error) {
+        console.error('Failed to fetch demo credentials:', error);
+        // Fallback to default credentials
+        setDemoCredentials({
+          admin: { email: 'admin@example.com', password: 'admin' },
+          demo: { email: 'demo@example.com', password: 'demo' }
+        });
+      }
+    };
+
+    fetchDemoCredentials();
+  }, []);
+
   // Check for OAuth errors in URL parameters
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -243,13 +283,81 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </div>
           )}
 
-          {hasDefaultAdmin && process.env.DEMO_ENABLED !== 'true' && (
+          {(hasDefaultAdmin || hasDemoUser) && demoCredentials && (
             <div className="text-center text-sm text-gray-600">
-              <p>Default credentials:</p>
-              <p className="font-mono text-xs mt-1">
-                Email: admin@example.com<br />
-                Password: admin
-              </p>
+              <p className="font-semibold mb-2">Demo Credentials:</p>
+              <div className="space-y-2">
+                {hasDefaultAdmin && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                    <p className="text-xs font-medium text-blue-800 mb-2">Admin Account</p>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs text-blue-700">{demoCredentials.admin.email}</span>
+                        <button
+                          onClick={() => copyToClipboard(demoCredentials.admin.email, 'admin-email')}
+                          className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
+                          title="Copy email"
+                        >
+                          {copiedItem === 'admin-email' ? (
+                            <Check className="w-3 h-3 text-green-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-blue-600" />
+                          )}
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs text-blue-700">{demoCredentials.admin.password}</span>
+                        <button
+                          onClick={() => copyToClipboard(demoCredentials.admin.password, 'admin-password')}
+                          className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
+                          title="Copy password"
+                        >
+                          {copiedItem === 'admin-password' ? (
+                            <Check className="w-3 h-3 text-green-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-blue-600" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {hasDemoUser && (
+                  <div className="bg-green-50 border border-green-200 rounded-md p-3">
+                    <p className="text-xs font-medium text-green-800 mb-2">Demo Account</p>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs text-green-700">{demoCredentials.demo.email}</span>
+                        <button
+                          onClick={() => copyToClipboard(demoCredentials.demo.email, 'demo-email')}
+                          className="ml-2 p-1 hover:bg-green-100 rounded transition-colors"
+                          title="Copy email"
+                        >
+                          {copiedItem === 'demo-email' ? (
+                            <Check className="w-3 h-3 text-green-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-green-600" />
+                          )}
+                        </button>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs text-green-700">{demoCredentials.demo.password}</span>
+                        <button
+                          onClick={() => copyToClipboard(demoCredentials.demo.password, 'demo-password')}
+                          className="ml-2 p-1 hover:bg-green-100 rounded transition-colors"
+                          title="Copy password"
+                        >
+                          {copiedItem === 'demo-password' ? (
+                            <Check className="w-3 h-3 text-green-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-green-600" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </form>
