@@ -166,6 +166,8 @@ const createTables = (db) => {
       priority TEXT NOT NULL,
       columnId TEXT NOT NULL,
       boardId TEXT,
+      pre_boardId TEXT,
+      pre_columnId TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (memberId) REFERENCES members(id),
@@ -238,6 +240,8 @@ const createTables = (db) => {
       memberFilters TEXT,
       priorityFilters TEXT,
       tagFilters TEXT,
+      projectFilter TEXT,
+      taskFilter TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -504,13 +508,15 @@ const initializeDefaultData = (db) => {
     const demoMember = db.prepare('SELECT id FROM members WHERE user_id = ?').get(demoUserId);
     if (demoMember) {
       const taskId = crypto.randomUUID();
+      const now = new Date().toISOString();
       db.prepare(`
-        INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, effort, priority, columnId, boardId, position) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         taskId,
         'Welcome to Easy Kanban!',
         'This is a sample task to get you started. You can edit, move, or delete this task.',
+        'TASK-00001',
         demoMember.id,
         demoMember.id,
         new Date().toISOString().split('T')[0],
@@ -518,7 +524,9 @@ const initializeDefaultData = (db) => {
         'medium',
         defaultColumns[0].id,
         boardId,
-        0
+        0,
+        now,
+        now
       );
     }
   }
@@ -541,6 +549,20 @@ const initializeDefaultData = (db) => {
   try {
     // Add position column to priorities table (migration)
     db.prepare('ALTER TABLE priorities ADD COLUMN position INTEGER NOT NULL DEFAULT 0').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add projectFilter column to views table (migration)
+    db.prepare('ALTER TABLE views ADD COLUMN projectFilter TEXT').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add taskFilter column to views table (migration)
+    db.prepare('ALTER TABLE views ADD COLUMN taskFilter TEXT').run();
   } catch (error) {
     // Column already exists, ignore error
   }

@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { X, ChevronDown, Check, ChevronUp } from 'lucide-react';
+import { X, ChevronDown, Check, ChevronUp, Save, Settings, RefreshCw } from 'lucide-react';
 import { Priority, PriorityOption, Tag } from '../types';
-import { getAllTags } from '../api';
+import { getAllTags, getSavedFilterViews, getSharedFilterViews, createSavedFilterView, updateSavedFilterView, SavedFilterView } from '../api';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
+import ManageFiltersModal from './ManageFiltersModal';
 
 interface SearchFilters {
   text: string;
@@ -22,13 +23,19 @@ interface SearchInterfaceProps {
   availablePriorities: PriorityOption[];
   onFiltersChange: (filters: SearchFilters) => void;
   siteSettings?: { [key: string]: string };
+  currentFilterView?: SavedFilterView | null;
+  sharedFilterViews?: SavedFilterView[];
+  onFilterViewChange?: (view: SavedFilterView | null) => void;
 }
 
 export default function SearchInterface({
   filters,
   availablePriorities,
   onFiltersChange,
-  siteSettings
+  siteSettings,
+  currentFilterView,
+  sharedFilterViews,
+  onFilterViewChange
 }: SearchInterfaceProps) {
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
@@ -37,8 +44,16 @@ export default function SearchInterface({
     return !prefs.isAdvancedSearchExpanded;
   });
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [savedFilterViews, setSavedFilterViews] = useState<SavedFilterView[]>([]);
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showManageModal, setShowManageModal] = useState(false);
+  const [newFilterName, setNewFilterName] = useState('');
+  const [isLoadingFilters, setIsLoadingFilters] = useState(false);
+  const [isSavingFilter, setIsSavingFilter] = useState(false);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
 
   // Helper function to determine text color based on background color
   const getTextColor = (backgroundColor: string): string => {
@@ -122,6 +137,28 @@ export default function SearchInterface({
     loadTags();
   }, []);
 
+  // Load saved filter views function (only user's own - shared filters come from props)
+  const loadSavedFilters = async () => {
+    setIsLoadingFilters(true);
+    try {
+      console.log('🔍 [SearchInterface] Loading user\'s own filters...');
+      
+      // Load user's own filters
+      const myViews = await getSavedFilterViews();
+      console.log('📊 [SearchInterface] Loaded my views:', myViews.length);
+      setSavedFilterViews(myViews);
+    } catch (error) {
+      console.error('❌ [SearchInterface] Failed to load saved filter views:', error);
+    } finally {
+      setIsLoadingFilters(false);
+    }
+  };
+
+  // Load saved filter views on mount
+  useEffect(() => {
+    loadSavedFilters();
+  }, []);
+
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -131,11 +168,144 @@ export default function SearchInterface({
       if (tagsDropdownRef.current && !tagsDropdownRef.current.contains(event.target as Node)) {
         setShowTagsDropdown(false);
       }
+      if (filterDropdownRef.current && !filterDropdownRef.current.contains(event.target as Node)) {
+        setShowFilterDropdown(false);
+      }
     };
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Helper function to convert SearchFilters to API format
+  const convertFiltersForAPI = (searchFilters: SearchFilters) => {
+    return {
+      textFilter: searchFilters.text || undefined,
+      dateFromFilter: searchFilters.dateFrom || undefined,
+      dateToFilter: searchFilters.dateTo || undefined,
+      dueDateFromFilter: searchFilters.dueDateFrom || undefined,
+      dueDateToFilter: searchFilters.dueDateTo || undefined,
+      memberFilters: searchFilters.selectedMembers.length > 0 ? searchFilters.selectedMembers : undefined,
+      priorityFilters: searchFilters.selectedPriorities.length > 0 ? searchFilters.selectedPriorities : undefined,
+      tagFilters: searchFilters.selectedTags.length > 0 ? searchFilters.selectedTags : undefined,
+      projectFilter: searchFilters.projectId || undefined,
+      taskFilter: searchFilters.taskId || undefined,
+    };
+  };
+
+  // Helper function to convert API filter to SearchFilters format
+  const convertAPIFiltersToSearchFilters = (view: SavedFilterView): SearchFilters => {
+    return {
+      text: view.textFilter || '',
+      dateFrom: view.dateFromFilter || '',
+      dateTo: view.dateToFilter || '',
+      dueDateFrom: view.dueDateFromFilter || '',
+      dueDateTo: view.dueDateToFilter || '',
+      selectedMembers: view.memberFilters || [],
+      selectedPriorities: view.priorityFilters || [],
+      selectedTags: view.tagFilters || [],
+      projectId: view.projectFilter || '',
+      taskId: view.taskFilter || '',
+    };
+  };
+
+  // Handle applying a saved filter
+  const handleApplyFilter = (view: SavedFilterView | null) => {
+    if (view) {
+      const newFilters = convertAPIFiltersToSearchFilters(view);
+      onFiltersChange(newFilters);
+    } else {
+      // Clear all filters (same as Clear All button)
+      handleClearAllFilters();
+    }
+    onFilterViewChange?.(view);
+    setShowFilterDropdown(false);
+  };
+
+  // Centralized clear all filters function
+  const handleClearAllFilters = () => {
+    onFiltersChange({
+      text: '',
+      dateFrom: '',
+      dateTo: '',
+      dueDateFrom: '',
+      dueDateTo: '',
+      selectedMembers: [],
+      selectedPriorities: [],
+      selectedTags: [],
+      projectId: '',
+      taskId: ''
+    });
+    onFilterViewChange?.(null); // Reset to "None"
+  };
+
+  // Handle saving current filters as a new view
+  const handleSaveFilter = async () => {
+    if (!newFilterName.trim()) return;
+
+    setIsSavingFilter(true);
+    try {
+      const apiFilters = convertFiltersForAPI(filters);
+      const newView = await createSavedFilterView({
+        filterName: newFilterName.trim(),
+        filters: apiFilters,
+        shared: false
+      });
+      
+      setSavedFilterViews(prev => [...prev, newView]);
+      setNewFilterName('');
+      setShowSaveDialog(false);
+      onFilterViewChange?.(newView);
+    } catch (error) {
+      console.error('Failed to save filter view:', error);
+      // Could add a toast notification here
+    } finally {
+      setIsSavingFilter(false);
+    }
+  };
+
+  // Handle updating an existing filter with current filter values
+  const handleUpdateFilter = async (view: SavedFilterView) => {
+    setIsSavingFilter(true);
+    try {
+      const apiFilters = convertFiltersForAPI(filters);
+      const updatedView = await updateSavedFilterView(view.id, {
+        filters: apiFilters
+      });
+      
+      // Update the local list of saved filters
+      setSavedFilterViews(prev => 
+        prev.map(v => v.id === view.id ? updatedView : v)
+      );
+      
+      // If this is the currently selected filter, update the current view as well
+      if (currentFilterView?.id === view.id) {
+        onFilterViewChange?.(updatedView);
+      }
+      
+      setShowFilterDropdown(false);
+    } catch (error) {
+      console.error('Failed to update filter view:', error);
+      // Could add a toast notification here
+    } finally {
+      setIsSavingFilter(false);
+    }
+  };
+
+  // Check if current filters have any active filters
+  const hasActiveFilters = () => {
+    return !!(
+      filters.text || 
+      filters.dateFrom || 
+      filters.dateTo || 
+      filters.dueDateFrom || 
+      filters.dueDateTo || 
+      filters.selectedPriorities.length > 0 || 
+      filters.selectedTags.length > 0 || 
+      filters.projectId || 
+      filters.taskId
+    );
+  };
 
   return (
     <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
@@ -222,22 +392,134 @@ export default function SearchInterface({
               Filters active
             </button>
           )}
+
+          {/* Saved Filters Section */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gray-700">Save or apply filter:</span>
+            
+            {/* Filter Dropdown */}
+            <div className="relative" ref={filterDropdownRef}>
+              <button
+                onClick={() => setShowFilterDropdown(!showFilterDropdown)}
+                className="bg-white border border-gray-300 rounded px-3 py-1.5 text-xs hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent min-w-[120px] flex items-center justify-between"
+              >
+                <span className="text-gray-600">
+                  {currentFilterView ? currentFilterView.filterName : 'None'}
+                </span>
+                <ChevronDown size={12} className="text-gray-400 ml-2" />
+              </button>
+              
+              {showFilterDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-50 min-w-[200px]">
+                  {/* None option */}
+                  <button
+                    onClick={() => handleApplyFilter(null)}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                  >
+                    <span>None</span>
+                    {!currentFilterView && <Check size={12} className="text-blue-500" />}
+                  </button>
+                  
+                  {/* Save current filters option */}
+                  {hasActiveFilters() && (
+                    <>
+                      <hr className="border-gray-200" />
+                      <button
+                        onClick={() => {
+                          setShowFilterDropdown(false);
+                          setShowSaveDialog(true);
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 text-blue-600 flex items-center"
+                      >
+                        <Save size={12} className="mr-2" />
+                        Save current filters...
+                      </button>
+                    </>
+                  )}
+                  
+                  {/* My Filters Section */}
+                  {savedFilterViews.length > 0 && (
+                    <>
+                      <hr className="border-gray-200" />
+                      <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
+                        My Filters:
+                      </div>
+                      {savedFilterViews.map((view) => (
+                        <div key={view.id} className="flex items-center group">
+                          {/* Apply filter button (main area) */}
+                          <button
+                            onClick={() => handleApplyFilter(view)}
+                            className="flex-1 text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                          >
+                            <span className="truncate">{view.filterName}</span>
+                            {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
+                          </button>
+                          
+                          {/* Update filter button (only show when there are active filters) */}
+                          {hasActiveFilters() && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateFilter(view);
+                              }}
+                              className="px-2 py-2 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
+                              title={`Update "${view.filterName}" with current filters`}
+                              disabled={isSavingFilter}
+                            >
+                              <RefreshCw size={12} className={isSavingFilter ? 'animate-spin' : ''} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Shared Filters Section */}
+                  {sharedFilterViews && sharedFilterViews.length > 0 && (
+                    <>
+                      <hr className="border-gray-200" />
+                      <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
+                        Shared Filters:
+                      </div>
+                      {sharedFilterViews.map((view) => (
+                        <div key={`shared-${view.id}`} className="flex items-center">
+                          {/* Apply filter button (main area) */}
+                          <button
+                            onClick={() => handleApplyFilter(view)}
+                            className="flex-1 text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="text-blue-500">🌐</span>
+                              <span className="truncate">{view.filterName}</span>
+                              {view.creatorName && (
+                                <span className="text-gray-400 text-xs">(by {view.creatorName})</span>
+                              )}
+                            </div>
+                            {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
+                          </button>
+                          {/* No update button for shared filters - users can't modify them */}
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Manage Filters Button */}
+            <button
+              onClick={() => setShowManageModal(true)}
+              className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+              title="Manage saved filters"
+            >
+              <Settings size={14} />
+            </button>
+          </div>
           
           {/* Clear All Filters Button */}
           {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId) && (
             <button
-              onClick={() => onFiltersChange({
-                text: '',
-                dateFrom: '',
-                dateTo: '',
-                dueDateFrom: '',
-                dueDateTo: '',
-                selectedMembers: [], // Keep for compatibility but not used in UI
-                selectedPriorities: [],
-                selectedTags: [],
-                projectId: '',
-                taskId: ''
-              })}
+              onClick={handleClearAllFilters}
               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
               title="Clear all filters"
             >
@@ -484,6 +766,66 @@ export default function SearchInterface({
 
         </div>
       )}
+
+      {/* Save Filter Dialog */}
+      {showSaveDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-96 max-w-90vw">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Save Filter</h3>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Filter Name
+              </label>
+              <input
+                type="text"
+                value={newFilterName}
+                onChange={(e) => setNewFilterName(e.target.value)}
+                placeholder="Enter filter name..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newFilterName.trim()) {
+                    handleSaveFilter();
+                  } else if (e.key === 'Escape') {
+                    setShowSaveDialog(false);
+                    setNewFilterName('');
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowSaveDialog(false);
+                  setNewFilterName('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                disabled={isSavingFilter}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveFilter}
+                disabled={!newFilterName.trim() || isSavingFilter}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                {isSavingFilter ? 'Saving...' : 'Save Filter'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Filters Modal */}
+      <ManageFiltersModal
+        isOpen={showManageModal}
+        onClose={() => setShowManageModal(false)}
+        savedFilterViews={savedFilterViews}
+        onViewsUpdated={setSavedFilterViews}
+        currentFilterView={currentFilterView}
+        onCurrentFilterViewChange={onFilterViewChange}
+        onRefreshFilters={loadSavedFilters}
+      />
     </div>
   );
 }

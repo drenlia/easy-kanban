@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Board, TeamMember, Columns, SiteSettings, PriorityOption } from '../types';
 import { POLLING_INTERVAL } from '../constants';
 import * as api from '../api';
-import { getAllPriorities, getActivityFeed } from '../api';
+import { getAllPriorities, getActivityFeed, getSharedFilterViews, SavedFilterView } from '../api';
 
 interface ActivityItem {
   id: number;
@@ -25,6 +25,7 @@ interface UseDataPollingProps {
   currentSiteSettings: SiteSettings;
   currentPriorities: PriorityOption[];
   currentActivities?: ActivityItem[];
+  currentSharedFilters?: SavedFilterView[];
   includeSystem: boolean;
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
@@ -32,6 +33,7 @@ interface UseDataPollingProps {
   onSiteSettingsUpdate: (settings: SiteSettings) => void;
   onPrioritiesUpdate: (priorities: PriorityOption[]) => void;
   onActivitiesUpdate?: (activities: ActivityItem[]) => void;
+  onSharedFiltersUpdate?: (sharedFilters: SavedFilterView[]) => void;
 }
 
 interface UseDataPollingReturn {
@@ -48,6 +50,7 @@ export const useDataPolling = ({
   currentSiteSettings,
   currentPriorities,
   currentActivities = [],
+  currentSharedFilters = [],
   includeSystem,
   onBoardsUpdate,
   onMembersUpdate,
@@ -55,6 +58,7 @@ export const useDataPolling = ({
   onSiteSettingsUpdate,
   onPrioritiesUpdate,
   onActivitiesUpdate,
+  onSharedFiltersUpdate,
 }: UseDataPollingProps): UseDataPollingReturn => {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -69,12 +73,13 @@ export const useDataPolling = ({
 
     const pollForUpdates = async () => {
       try {
-        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities] = await Promise.all([
+        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters] = await Promise.all([
           api.getBoards(),
           api.getMembers(includeSystem), // Use current includeSystem state
           api.getPublicSettings(),
           getAllPriorities(),
-          onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([])
+          onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([]),
+          onSharedFiltersUpdate ? getSharedFilterViews() : Promise.resolve([])
         ]);
 
         // Update boards list if it changed
@@ -119,6 +124,16 @@ export const useDataPolling = ({
           }
         }
 
+        // Update shared filters if they changed
+        if (onSharedFiltersUpdate && loadedSharedFilters) {
+          const currentSharedFiltersString = JSON.stringify(currentSharedFilters);
+          const newSharedFiltersString = JSON.stringify(loadedSharedFilters);
+
+          if (currentSharedFiltersString !== newSharedFiltersString) {
+            onSharedFiltersUpdate(loadedSharedFilters);
+          }
+        }
+
         // Update columns for the current board if it changed
         if (selectedBoard) {
           const currentBoard = loadedBoards.find(b => b.id === selectedBoard);
@@ -155,10 +170,12 @@ export const useDataPolling = ({
     currentMembers,
     currentColumns,
     currentSiteSettings,
+    currentSharedFilters,
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,
     onSiteSettingsUpdate,
+    onSharedFiltersUpdate,
   ]);
 
   return {
