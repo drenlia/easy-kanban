@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { 
   TeamMember, 
@@ -31,12 +31,12 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser } from './api';
+import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
-import { useDataPolling } from './hooks/useDataPolling';
+import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode } from './utils/userPreferences';
 import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
@@ -95,6 +95,10 @@ export default function App() {
   const [activities, setActivities] = useState<any[]>([]);
   const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
   const [clearActivityId, setClearActivityId] = useState<number>(0);
+  
+  // User Status for permission refresh
+  const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
+  const userStatusRef = useRef<UserStatus | null>(null);
   
   // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
@@ -305,6 +309,60 @@ export default function App() {
     },
   });
   const { loading, withLoading } = useLoadingState();
+
+  // User status update handler with force logout functionality
+  const handleUserStatusUpdate = (newUserStatus: UserStatus) => {
+    const previousStatus = userStatusRef.current;
+    console.log('🔍 [UserStatus] Update handler called:', { 
+      previousStatus, 
+      newUserStatus, 
+      permissionChanged: previousStatus?.isAdmin !== newUserStatus.isAdmin 
+    });
+    
+    // Handle force logout scenarios
+    if (newUserStatus.forceLogout || !newUserStatus.isActive) {
+      console.log('🔐 User deactivated or force logout detected. Logging out...');
+      
+      // Clear all local storage and session data
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Show appropriate message
+      const message = !newUserStatus.isActive 
+        ? 'Your account has been deactivated. Please contact an administrator.'
+        : 'Your session has been terminated by an administrator.';
+      
+      // Force logout with message
+      handleLogout(message);
+      return;
+    }
+    
+    // Handle permission changes (soft updates) - only if we have a previous status to compare
+    if (previousStatus !== null && previousStatus.isAdmin !== newUserStatus.isAdmin) {
+      const permissionChange = newUserStatus.isAdmin ? 'promoted to admin' : 'demoted to user';
+      console.log(`🔄 User permission changed: ${permissionChange}`);
+      console.log('🔄 Calling handleProfileUpdated to refresh user roles...');
+      
+      // Refresh the current user data to update roles in the UI
+      handleProfileUpdated().then(() => {
+        console.log('✅ User profile refreshed successfully');
+      }).catch(error => {
+        console.error('❌ Failed to refresh user profile after permission change:', error);
+      });
+      
+      // Optional: Show a notification about permission change
+      // You could add a toast notification here if desired
+    } else if (previousStatus === null) {
+      console.log('🔍 [UserStatus] Initial status set, no action needed');
+    } else {
+      console.log('🔍 [UserStatus] No permission change detected');
+    }
+    
+    // Update both state and ref
+    userStatusRef.current = newUserStatus;
+    setUserStatus(newUserStatus);
+  };
+
   
   // Custom hooks
   const showDebug = useDebug();
@@ -461,7 +519,7 @@ export default function App() {
     }
   };
   
-  // Data polling for real-time collaboration
+  // Data polling for real-time collaboration and permission refresh
   const { isPolling, lastPollTime } = useDataPolling({
     enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
     selectedBoard,
@@ -481,6 +539,29 @@ export default function App() {
     onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
     onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
   });
+
+  // Separate lightweight polling for user status on all pages
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const pollUserStatus = async () => {
+      try {
+        const newUserStatus = await getUserStatus();
+        console.log('🔍 [UserStatus] Polled status:', newUserStatus);
+        handleUserStatusUpdate(newUserStatus);
+      } catch (error) {
+        console.error('❌ [UserStatus] Polling failed:', error);
+      }
+    };
+
+    // Initial check
+    pollUserStatus();
+
+    // Poll every 5 seconds (less frequent than main polling)
+    const statusInterval = setInterval(pollUserStatus, 5000);
+
+    return () => clearInterval(statusInterval);
+  }, [isAuthenticated]);
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {

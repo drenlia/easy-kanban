@@ -8,8 +8,6 @@ const router = express.Router();
 
 // Helper function to check for circular dependencies in task relationships
 function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
-  console.log(`🔍 checkForCycles called: source=${sourceTaskId}, target=${targetTaskId}, rel=${relationship}`);
-  
   // Simple cycle detection:
   // If A wants to become parent of B, check if A is already a child of B
   // If A wants to become child of B, check if A is already a parent of B
@@ -34,8 +32,6 @@ function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
     return { hasCycle: false };
   }
   
-  console.log(`🔍 Checking if ${checkTaskId} is already ${oppositeRelationship} of ${checkTargetId}`);
-  
   // Check if the opposite relationship already exists
   const existingOppositeRel = wrapQuery(db.prepare(`
     SELECT id FROM task_rels 
@@ -45,7 +41,6 @@ function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
   if (existingOppositeRel) {
     const sourceTicket = getTaskTicket(db, sourceTaskId);
     const targetTicket = getTaskTicket(db, targetTaskId);
-    console.log(`❌ Cycle detected: ${sourceTicket} is already ${oppositeRelationship} of ${targetTicket}`);
     
     return {
       hasCycle: true,
@@ -53,7 +48,6 @@ function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
     };
   }
   
-  console.log(`✅ No direct cycle found`);
   return { hasCycle: false };
 }
 
@@ -811,16 +805,12 @@ router.post('/:taskId/relationships', (req, res) => {
     
     // Check for circular relationships (prevent cycles in parent/child hierarchies)
     if (relationship === 'parent' || relationship === 'child') {
-      console.log(`🔍 Checking for cycles: ${taskId} (${relationship}) → ${toTaskId}`);
       const wouldCreateCycle = checkForCycles(db, taskId, toTaskId, relationship);
-      console.log(`🔍 Cycle check result:`, wouldCreateCycle);
       if (wouldCreateCycle.hasCycle) {
-        console.log(`❌ Cycle detected! Blocking relationship creation.`);
         return res.status(409).json({ 
           error: `Cannot create relationship: This would create a circular dependency. ${wouldCreateCycle.reason}` 
         });
       }
-      console.log(`✅ No cycle detected, proceeding with relationship creation.`);
     }
     
     // Insert the relationship (use regular INSERT since we've validated above)

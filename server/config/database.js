@@ -118,6 +118,8 @@ const createTables = (db) => {
       auth_provider TEXT DEFAULT 'local',
       google_avatar_url TEXT,
       is_active INTEGER DEFAULT 1,
+      deactivated_at DATETIME NULL,
+      deactivated_by TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
