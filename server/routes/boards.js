@@ -151,14 +151,37 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'A board with this name already exists' });
     }
     
+    // Generate project identifier
+    const projectPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_PROJ_PREFIX')?.value || 'PROJ-';
+    const projectIdentifier = generateProjectIdentifier(db, projectPrefix);
+    
     const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
-    wrapQuery(db.prepare('INSERT INTO boards (id, title, position) VALUES (?, ?, ?)'), 'INSERT').run(id, title, position + 1);
-    res.json({ id, title, position: position + 1 });
+    wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
+    res.json({ id, title, project: projectIdentifier, position: position + 1 });
   } catch (error) {
     console.error('Error creating board:', error);
     res.status(500).json({ error: 'Failed to create board' });
   }
 });
+
+// Utility function to generate project identifiers
+const generateProjectIdentifier = (db, prefix = 'PROJ-') => {
+  // Get the highest existing project number
+  const result = wrapQuery(db.prepare(`
+    SELECT project FROM boards 
+    WHERE project IS NOT NULL AND project LIKE ?
+    ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
+    LIMIT 1
+  `), 'SELECT').get(`${prefix}%`, prefix.length + 1);
+  
+  let nextNumber = 1;
+  if (result && result.project) {
+    const currentNumber = parseInt(result.project.substring(prefix.length));
+    nextNumber = currentNumber + 1;
+  }
+  
+  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+};
 
 // Update board
 router.put('/:id', (req, res) => {

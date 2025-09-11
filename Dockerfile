@@ -4,7 +4,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies first (this will be preserved in the container)
 COPY package*.json ./
 RUN npm ci
 
@@ -12,7 +12,8 @@ RUN npm ci
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p /app/server/data /app/server/attachments
+RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars
+
 
 # Expose both ports
 EXPOSE 3010 3222

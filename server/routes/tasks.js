@@ -5,6 +5,23 @@ import { TASK_ACTIONS } from '../constants/activityActions.js';
 
 const router = express.Router();
 
+// Utility function to generate task ticket numbers
+const generateTaskTicket = (db, prefix = 'TASK-') => {
+  const result = db.prepare(`
+    SELECT ticket FROM tasks
+    WHERE ticket IS NOT NULL AND ticket LIKE ?
+    ORDER BY CAST(SUBSTR(ticket, ?) AS INTEGER) DESC
+    LIMIT 1
+  `).get(`${prefix}%`, prefix.length + 1);
+
+  let nextNumber = 1;
+  if (result && result.ticket) {
+    const currentNumber = parseInt(result.ticket.substring(prefix.length));
+    nextNumber = currentNumber + 1;
+  }
+  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+};
+
 // Get all tasks
 router.get('/', (req, res) => {
   try {
@@ -145,12 +162,16 @@ router.post('/', async (req, res) => {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
     
+    // Generate task ticket number
+    const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
+    const ticket = generateTaskTicket(db, taskPrefix);
+    
     // Create the task
     wrapQuery(db.prepare(`
-      INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
-      task.id, task.title, task.description || '', task.memberId, task.requesterId,
+      task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
       task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
     );
     
@@ -181,13 +202,18 @@ router.post('/add-at-top', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const now = new Date().toISOString();
+    
+    // Generate task ticket number
+    const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
+    const ticket = generateTaskTicket(db, taskPrefix);
+    
     db.transaction(() => {
       wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
       wrapQuery(db.prepare(`
-        INSERT INTO tasks (id, title, description, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `), 'INSERT').run(
-        task.id, task.title, task.description || '', task.memberId, task.requesterId,
+        task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
         task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
       );
     })();
