@@ -1,11 +1,14 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, closestCenter } from '@dnd-kit/core';
-import { Task, Column, Columns, PriorityOption } from '../types';
+import { Task, Columns, PriorityOption } from '../types';
 import { TaskViewMode, loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
 import { updateTask, getAllPriorities } from '../api';
 import { TaskHandle } from './gantt/TaskHandle';
 import { MoveHandle } from './gantt/MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './gantt/types';
+import { useVirtualViewport } from '../hooks/useVirtualViewport';
+import { usePerformanceMonitor } from '../hooks/usePerformanceMonitor';
+import { TaskJumpDropdown } from './gantt/TaskJumpDropdown';
 
 interface GanttViewProps {
   columns: Columns;
@@ -26,11 +29,6 @@ interface GanttTask {
   columnPosition: number;
 }
 
-interface DateColumn {
-  date: Date;
-  isToday: boolean;
-  isWeekend: boolean;
-}
 
 // Helper function to parse date string as local date (avoiding timezone issues)
 const parseLocalDate = (dateString: string): Date => {
@@ -49,7 +47,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [activeDragItem, setActiveDragItem] = useState<GanttDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
   const [taskColumnWidth, setTaskColumnWidth] = useState(320); // Default 320px, will load from preferences
-  const [isResizing, setIsResizing] = useState(false);
+  const [, setIsResizing] = useState(false);
+
+  // Performance monitoring for the Gantt view
+  const { measureFunction, startMeasurement } = usePerformanceMonitor({
+    enableConsoleLog: false,
+    sampleRate: 0.05 // Sample 5% of operations in production
+  });
 
   // Configure DnD sensors to restrict to horizontal movement
   const sensors = useSensors(
@@ -62,7 +66,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   );
 
   // Custom modifier to restrict to horizontal axis
-  const restrictToHorizontalAxis = ({ transform }) => {
+  const restrictToHorizontalAxis = ({ transform }: { transform: any }) => {
     return {
       ...transform,
       y: 0, // Force Y position to 0, only allow X movement
@@ -151,30 +155,26 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     };
     fetchPriorities();
   }, []);
-  // Generate date range (today -30 to today +90 = ~3 months)
-  const dateRange = useMemo(() => {
-    const dates: DateColumn[] = [];
-    const today = new Date();
+  // Find the earliest task start date to position the timeline
+  const earliestTaskDate = useMemo(() => {
+    let earliest: Date | null = null;
     
-    // Create start date at midnight local time (30 days before today)
-    const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30);
-    
-    for (let i = 0; i < 121; i++) { // 121 days total (-30 to +90 inclusive = ~3 months)
-      const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30 + i);
-      
-      dates.push({
-        date: currentDate,
-        isToday: currentDate.toDateString() === today.toDateString(),
-        isWeekend: currentDate.getDay() === 0 || currentDate.getDay() === 6
+    Object.values(columns).forEach(column => {
+      column.tasks.forEach(task => {
+        if (task.startDate) {
+          const taskStartDate = parseLocalDate(task.startDate);
+          if (!earliest || taskStartDate < earliest) {
+            earliest = taskStartDate;
+          }
+        }
       });
-      
-    }
+    });
     
-    return dates;
-  }, []);
+    return earliest;
+  }, [columns]);
 
-  // Extract and prepare tasks from all columns
-  const ganttTasks = useMemo(() => {
+  // Extract and prepare tasks from all columns (needed before useVirtualViewport)
+  const ganttTasks = useMemo(() => measureFunction(() => {
     const tasks: GanttTask[] = [];
     
     // Create column position map for sorting
@@ -223,7 +223,28 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       }
       return a.ticket.localeCompare(b.ticket); // Then by ticket
     });
-  }, [columns]);
+  }, 'ganttTasks calculation', 'computation')(), [columns, measureFunction]);
+
+  // Use virtual viewport for efficient date range management
+  const {
+    dateRange,
+    virtualViewport,
+    scrollContainerRef,
+    isLoading,
+    scrollToToday,
+    scrollToTask,
+    scrollEarlier,
+    scrollLater,
+    getVisibleTasks,
+  } = useVirtualViewport({
+    initialDays: 120,           // 4 months exactly
+    bufferDays: 20,             // Smaller buffer for better memory management
+    chunkSize: 30,              // Load 1 month at a time
+    maxDays: 120,               // Keep maximum 4 months in memory
+    daysBeforeToday: 0,         // Will be calculated based on earliest task
+    earliestTaskDate: earliestTaskDate,  // Start timeline at earliest task
+    allTasks: ganttTasks        // Pass all tasks for positioning
+  });
 
   // Calculate task bar grid position
   const getTaskBarGridPosition = (task: GanttTask) => {
@@ -284,6 +305,49 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     return result;
   };
+
+  // Check if a task intersects with the current viewport (optimized with memoization)
+  const taskIntersectsViewport = useCallback((task: GanttTask): boolean => {
+    if (!task.startDate || !task.endDate) return false;
+    
+    // Convert task dates to indices in the full date range
+    let taskStartIndex = -1;
+    let taskEndIndex = -1;
+    
+    for (let i = 0; i < dateRange.length; i++) {
+      const rangeDate = dateRange[i].date;
+      const rangeDateStr = rangeDate.toISOString().split('T')[0];
+      const taskStartStr = task.startDate.toISOString().split('T')[0];
+      const taskEndStr = task.endDate.toISOString().split('T')[0];
+      
+      if (taskStartIndex === -1 && rangeDateStr === taskStartStr) {
+        taskStartIndex = i;
+      }
+      if (rangeDateStr === taskEndStr) {
+        taskEndIndex = i;
+      }
+    }
+    
+    // If task dates are not in current date range, don't render
+    if (taskStartIndex === -1 && taskEndIndex === -1) return false;
+    
+    // If task is partially outside the date range, still include it if it intersects
+    if (taskStartIndex === -1) taskStartIndex = 0;
+    if (taskEndIndex === -1) taskEndIndex = dateRange.length - 1;
+    
+    // Check if task overlaps with viewport (with some buffer for smooth scrolling)
+    const { startIndex, endIndex } = virtualViewport;
+    const buffer = 10; // Small buffer for smooth scrolling
+    
+    // Task intersects if:
+    // - Task starts before viewport ends AND task ends after viewport starts
+    return (taskStartIndex <= endIndex + buffer && taskEndIndex >= startIndex - buffer);
+  }, [virtualViewport, dateRange]);
+
+  // Get tasks visible in current timeline window (pre-positioned by virtual viewport)
+  const visibleTasks = useMemo(() => {
+    return getVisibleTasks();
+  }, [getVisibleTasks]);
 
   // Get priority color from dynamic priorities
   const getPriorityColor = (priority: string) => {
@@ -356,7 +420,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
+    const { over } = event;
     
     console.log('🎯 Drag ended:', { over: over?.id, activeDragItem });
     
@@ -453,6 +517,43 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     console.log('📍 Task dropped on date:', { dragData, targetDate });
   };
 
+  // Handle task jump from dropdown
+  const handleJumpToTask = useCallback(async (task: GanttTask) => {
+    if (!task.startDate || !task.endDate) {
+      console.warn('Cannot jump to task without dates:', task);
+      return;
+    }
+
+    try {
+      // Scroll to the task using the virtual viewport
+      await scrollToTask(task.startDate, task.endDate);
+      
+      // Also highlight the task for a moment
+      console.log('🎯 Jumped to task:', task.ticket);
+      
+      // Optional: trigger task selection if needed
+      // onSelectTask(task as Task);
+    } catch (error) {
+      console.error('Failed to jump to task:', error);
+    }
+  }, [scrollToTask]);
+
+  // Show loading state while dateRange is initializing
+  if (dateRange.length === 0) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="border-b border-gray-200 p-4">
+          <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+          <p className="text-sm text-gray-600 mt-1">Loading timeline...</p>
+        </div>
+        <div className="p-8 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-2 text-gray-600">Initializing Gantt view...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <DndContext 
       sensors={sensors}
@@ -465,10 +566,82 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
       {/* Header */}
       <div className="border-b border-gray-200 p-4">
-        <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
-        <p className="text-sm text-gray-600 mt-1">
-          Timeline view showing task schedules from {formatDate(dateRange[0].date)} to {formatDate(dateRange[dateRange.length - 1].date)}
-        </p>
+        <div className="flex items-center justify-between gap-4">
+          {/* Title and Description */}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {dateRange.length > 0 ? (
+                `Timeline view from ${formatDate(dateRange[0].date)} to ${formatDate(dateRange[dateRange.length - 1].date)}`
+              ) : (
+                'Loading timeline...'
+              )}
+            </p>
+          </div>
+          
+          {/* Navigation Controls */}
+          <div className="flex items-center gap-3">
+            {/* Navigation Buttons */}
+            <div className="flex items-center gap-2">
+              {/* Today Button */}
+              <button
+                onClick={scrollToToday}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to today"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Today
+              </button>
+
+              {/* Earlier Button */}
+              <button
+                onClick={scrollEarlier}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to earlier dates"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Earlier
+              </button>
+
+              {/* Later Button */}
+              <button
+                onClick={scrollLater}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to later dates"
+              >
+                Later
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+
+              {/* Loading Indicator - Fixed position to prevent layout shift */}
+              <div className="relative w-20 flex justify-center">
+                {isLoading && (
+                  <div className="absolute flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md whitespace-nowrap">
+                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    Loading
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Task Jump Dropdown */}
+            {ganttTasks.length > 0 && (
+              <div className="flex-shrink-0">
+                <TaskJumpDropdown
+                  tasks={ganttTasks.filter(task => task.startDate && task.endDate)}
+                  onTaskSelect={handleJumpToTask}
+                  className="w-56"
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Gantt Chart */}
@@ -490,7 +663,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           </div>
           
           {/* Task Info Rows */}
-          {ganttTasks.map((task, taskIndex) => (
+          {visibleTasks && visibleTasks.length > 0 ? visibleTasks.map((task, taskIndex) => (
             <div 
               key={`task-info-${task.id}`}
               className={`p-2 border-b border-gray-100 ${
@@ -532,38 +705,59 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 </button>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="p-4 text-center text-gray-500">
+              <div className="mb-2">📅 No tasks yet</div>
+              <div className="text-xs">The timeline is ready for your tasks!</div>
+            </div>
+          )}
         </div>
         
         {/* Scrollable Timeline */}
-        <div className="flex-1 overflow-x-auto">
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 overflow-x-auto relative"
+        >
+          
           <div className="min-w-[800px]">
             {/* Date Header */}
             <div 
               className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-12"
-              style={{ gridTemplateColumns: `repeat(${dateRange.length}, 1fr)` }}
+              style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
             >
-            {dateRange.map((dateCol, index) => (
-              <div
-                key={index}
-                className={`p-1 text-xs text-center border-r border-gray-100 ${
-                  dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
-                  dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
-                }`}
-                style={{ minWidth: '20px' }}
-              >
-                <div>{dateCol.date.getDate()}</div>
-                {index % 7 === 0 && (
-                  <div className="text-xs text-gray-500 mt-1">
-                    {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}
-                  </div>
-                )}
-              </div>
-            ))}
+            {virtualViewport.visibleDates.map((dateCol, index) => {
+              const actualIndex = virtualViewport.startIndex + index;
+              const prevDateCol = index > 0 ? virtualViewport.visibleDates[index - 1] : null;
+              const isFirstOfMonth = !prevDateCol || prevDateCol.date.getMonth() !== dateCol.date.getMonth();
+              
+              return (
+                <div
+                  key={actualIndex}
+                  className={`p-1 text-xs text-center border-r border-gray-100 ${
+                    dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
+                    dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
+                  }`}
+                  style={{ minWidth: '20px' }}
+                >
+                  <div>{dateCol.date.getDate()}</div>
+                  {(actualIndex % 7 === 0 || isFirstOfMonth) && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}
+                      {/* Show year for first month occurrence */}
+                      {isFirstOfMonth && (
+                        <div className="text-xs text-gray-400">
+                          {dateCol.date.getFullYear()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             </div>
 
             {/* Task Timeline Rows */}
-            {ganttTasks.map((task, taskIndex) => {
+            {visibleTasks && visibleTasks.length > 0 ? visibleTasks.map((task, taskIndex) => {
               const gridPosition = getTaskBarGridPosition(task);
               
               return (
@@ -574,16 +768,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     taskViewMode === 'shrink' ? 'h-16' : 
                     'h-20'
                   }`}
-                  style={{ gridTemplateColumns: `repeat(${dateRange.length}, 1fr)` }}
+                  style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
                 >
                 {/* Background Date Columns - droppable areas */}
-                {dateRange.map((dateCol, dateIndex) => {
+                {virtualViewport.visibleDates.map((dateCol, relativeIndex) => {
+                  const dateIndex = virtualViewport.startIndex + relativeIndex;
                   const dateString = dateCol.date.toISOString().split('T')[0];
                   const dropId = `date-${dateIndex}`;
                   
                   // Inline droppable component
                   const DroppableDateCell = () => {
-                    const { isOver, setNodeRef } = useDroppable({
+                    const { setNodeRef } = useDroppable({
                       id: dropId,
                       data: {
                         date: dateString,
@@ -600,7 +795,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           dateCol.isWeekend ? 'bg-gray-50' : ''
                         }`}
                         style={{ 
-                          gridColumn: dateIndex + 2, // +2 to skip task info column
+                          gridColumn: relativeIndex + 1, // Relative to visible grid
                           gridRow: 1,
                           minWidth: '20px' 
                         }}
@@ -739,14 +934,49 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 )}
               </div>
             );
-          })}
+          }) : (
+            <div className="p-8 text-center text-gray-500">
+              <div className="text-lg mb-2">No tasks in view</div>
+              <div className="text-sm">Scroll to see tasks or adjust the date range.</div>
+            </div>
+          )}
 
           {/* Empty state */}
-          {ganttTasks.length === 0 && (
-            <div className="p-8 text-center text-gray-500">
-              <div className="text-lg mb-2">No tasks found</div>
-              <div className="text-sm">Create some tasks with start and end dates to see them in the Gantt chart.</div>
-            </div>
+          {(!visibleTasks || visibleTasks.length === 0) && (
+            <>
+              {/* Empty state with interactive grid for task creation */}
+              <div className="text-center text-gray-500 py-4 border-b border-gray-100">
+                <div className="text-sm">📅 Timeline ready for new tasks</div>
+                <div className="text-xs text-gray-400">Click on any date to create a task</div>
+              </div>
+              
+              {/* Interactive timeline grid for task creation */}
+              <div 
+                className="grid border-b border-gray-100 bg-white hover:bg-blue-50 transition-colors relative h-16"
+                style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
+              >
+                {/* Background Date Columns - droppable areas for new tasks */}
+                {virtualViewport.visibleDates.map((dateCol, relativeIndex) => {
+                  const dateIndex = virtualViewport.startIndex + relativeIndex;
+                  const dateString = dateCol.date.toISOString().split('T')[0];
+                  const dropId = `date-${dateIndex}`;
+
+                  return (
+                    <div
+                      key={dropId}
+                      className={`relative border-r border-gray-100 h-full ${
+                        dateCol.isToday ? 'bg-blue-50' :
+                        dateCol.isWeekend ? 'bg-gray-50' : 'bg-white'
+                      } hover:bg-blue-100 transition-colors cursor-pointer`}
+                      style={{ minWidth: '20px' }}
+                      title={`Create task on ${dateCol.date.toLocaleDateString()}`}
+                    >
+                      {/* Future: Add click handler for task creation */}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
           </div>
         </div>
