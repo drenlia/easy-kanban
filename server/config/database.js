@@ -26,6 +26,16 @@ const generateProjectIdentifier = (db, prefix = 'PROJ-') => {
   return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
 };
 
+// Utility function to generate random passwords
+const generateRandomPassword = (length = 12) => {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+};
+
 // Function to create default letter-based avatars
 function createLetterAvatar(letter, userId, role = 'user') {
   try {
@@ -363,6 +373,14 @@ const createTables = (db) => {
 
 // Initialize default data
 const initializeDefaultData = (db) => {
+  // Generate random passwords for both admin and demo users (always generate new ones)
+  const adminPassword = generateRandomPassword(12);
+  const demoPassword = generateRandomPassword(12);
+  
+  // Store passwords in settings
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ADMIN_PASSWORD', adminPassword);
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('DEMO_PASSWORD', demoPassword);
+
   // Initialize authentication data if no roles exist
   const rolesCount = db.prepare('SELECT COUNT(*) as count FROM roles').get().count;
   if (rolesCount === 0) {
@@ -370,9 +388,9 @@ const initializeDefaultData = (db) => {
     db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)').run('admin', 'Administrator role');
     db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)').run('user', 'Regular user role');
 
-    // Create default admin user
+    // Create default admin user with random password
     const adminId = crypto.randomUUID();
-    const adminPasswordHash = bcrypt.hashSync('admin', 10);
+    const adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
     
     // Create admin avatar
     const adminAvatarPath = createLetterAvatar('A', adminId, 'admin');
@@ -476,9 +494,12 @@ const initializeDefaultData = (db) => {
   // Initialize default data if no boards exist
   const boardsCount = db.prepare('SELECT COUNT(*) as count FROM boards').get().count;
   if (boardsCount === 0) {
+    // Get the demo password from settings (already generated above)
+    const demoPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('DEMO_PASSWORD')?.value;
+    
     // Create default demo user account
     const demoUserId = crypto.randomUUID();
-    const demoPasswordHash = bcrypt.hashSync('demo', 10);
+    const demoPasswordHash = bcrypt.hashSync(demoPassword, 10);
     
     const existingDemoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@example.com');
     if (!existingDemoUser) {
