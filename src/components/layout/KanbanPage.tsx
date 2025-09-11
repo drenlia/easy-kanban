@@ -20,6 +20,7 @@ import TaskCard from '../TaskCard';
 import BoardTabs from '../BoardTabs';
 import LoadingSpinner from '../LoadingSpinner';
 import ListView from '../ListView';
+import GanttView from '../GanttView';
 
 
 interface KanbanPageProps {
@@ -517,11 +518,12 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               />
             </div>
           ) : viewMode === 'gantt' ? (
-            <div className="text-center text-gray-500 py-20">
-              <Calendar size={48} className="mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">Gantt View Coming Soon</h3>
-              <p>This feature is currently under development.</p>
-            </div>
+            <GanttView
+              columns={filteredColumns}
+              onSelectTask={onSelectTask}
+              taskViewMode={taskViewMode}
+              onUpdateTask={onEditTask}
+            />
           ) : (
             <>
               {/* Columns Navigation Container */}

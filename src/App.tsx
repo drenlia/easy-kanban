@@ -615,6 +615,13 @@ export default function App() {
     updateCurrentUserPreference('lastSelectedBoard', boardId);
   };
 
+  // Clear filteredColumns when board changes to prevent stale data in pills
+  useEffect(() => {
+    if (selectedBoard) {
+      setFilteredColumns({}); // Clear immediately to prevent stale pill counts
+    }
+  }, [selectedBoard]);
+
   // Invite user handler
   const handleInviteUser = async (email: string) => {
     try {
@@ -2445,12 +2452,25 @@ export default function App() {
   const getTaskCountForBoard = (board: Board) => {
     // For the currently selected board, use the actual filtered columns data
     // This ensures the count matches exactly what's displayed in ListView/Kanban
-    if (board.id === selectedBoard && filteredColumns) {
-      let totalCount = 0;
-      Object.values(filteredColumns).forEach(column => {
-        totalCount += column.tasks.length;
-      });
-      return totalCount;
+    // BUT only if the filteredColumns are from the current selectedBoard (avoid stale data during board switches)
+    if (board.id === selectedBoard && filteredColumns && Object.keys(filteredColumns).length > 0) {
+      // Additional validation: check if filteredColumns contain columns that belong to this board
+      const currentBoardData = boards.find(b => b.id === selectedBoard);
+      const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
+      const filteredColumnIds = Object.keys(filteredColumns);
+      
+      // Only use filteredColumns if they match the current board's column structure
+      const isValidForCurrentBoard = currentBoardColumnIds.length > 0 && 
+        filteredColumnIds.every(id => currentBoardColumnIds.includes(id)) &&
+        currentBoardColumnIds.every(id => filteredColumnIds.includes(id));
+      
+      if (isValidForCurrentBoard) {
+        let totalCount = 0;
+        Object.values(filteredColumns).forEach(column => {
+          totalCount += column.tasks.length;
+        });
+        return totalCount;
+      }
     }
     
     // For other boards, apply the same filtering logic used in performFiltering
