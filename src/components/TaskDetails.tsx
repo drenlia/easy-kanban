@@ -1729,7 +1729,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 
                 {/* Children Field - Right Side */}
                 <div className={parentTask ? '' : 'col-span-2'}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Child(s):</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Child(ren):</label>
                   
                   {/* Selected Children Display */}
                   {childTasks.length > 0 && (

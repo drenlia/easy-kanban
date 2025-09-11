@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
-import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
 import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
@@ -9,6 +9,7 @@ import { loadUserPreferences, updateUserPreference } from '../utils/userPreferen
 import TextEditor from './TextEditor';
 import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
+import TaskFlowChart from './TaskFlowChart';
 import DOMPurify from 'dompurify';
 
 interface TaskPageProps {
@@ -65,6 +66,7 @@ export default function TaskPage({
     schedule: boolean;
     tags: boolean;
     associations: boolean;
+    taskFlow: boolean;
     taskInfo: boolean;
   }>(() => {
     console.log('📁 TaskPage: Initializing collapsed sections state');
@@ -74,7 +76,10 @@ export default function TaskPage({
       console.log('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
       if (prefs.taskPageCollapsed) {
         console.log('📁 TaskPage: Using saved preferences for initial state');
-        return prefs.taskPageCollapsed;
+        return {
+          ...prefs.taskPageCollapsed,
+          taskFlow: prefs.taskPageCollapsed.taskFlow ?? false, // Default to expanded for new section
+        };
       }
     }
     console.log('📁 TaskPage: Using default state (all expanded)');
@@ -83,6 +88,7 @@ export default function TaskPage({
       schedule: false,
       tags: false,
       associations: false,
+      taskFlow: false,
       taskInfo: false,
     };
   });
@@ -483,6 +489,24 @@ export default function TaskPage({
     setEditingCommentText('');
   };
 
+  // Toggle section collapse state
+  const toggleSection = useCallback((section: keyof typeof collapsedSections) => {
+    setCollapsedSections(prev => {
+      const newState = {
+        ...prev,
+        [section]: !prev[section]
+      };
+      
+      // Save to user preferences
+      if (currentUser?.id) {
+        console.log(`📁 TaskPage: Toggling section ${section} to ${newState[section] ? 'collapsed' : 'expanded'}`);
+        updateUserPreference(currentUser.id, 'taskPageCollapsed', newState);
+      }
+      
+      return newState;
+    });
+  }, [currentUser?.id]);
+
   const handleDeleteCommentClick = async (commentId: string) => {
     if (!currentUser) return;
     
@@ -721,22 +745,6 @@ export default function TaskPage({
     }
   };
 
-  // Toggle section collapse state and save to user preferences
-  const toggleSection = useCallback((section: keyof typeof collapsedSections) => {
-    const newState = {
-      ...collapsedSections,
-      [section]: !collapsedSections[section]
-    };
-    console.log('📁 TaskPage: Toggling section', section, 'to', !collapsedSections[section]);
-    console.log('📁 TaskPage: New collapsed state:', newState);
-    setCollapsedSections(newState);
-    
-    // Save to user preferences
-    if (currentUser?.id) {
-      console.log('📁 TaskPage: Saving preferences for user', currentUser.id);
-      updateUserPreference('taskPageCollapsed', newState, currentUser.id);
-    }
-  }, [collapsedSections, currentUser?.id]);
 
   // Sync with preferences when user changes (backup for edge cases)
   useEffect(() => {
@@ -1124,6 +1132,32 @@ export default function TaskPage({
                 )}
               </div>
             </div>
+
+            {/* Task Flow Chart */}
+            <div className="bg-white rounded-lg shadow-sm">
+              <div 
+                className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskFlow ? 'pb-3' : 'pb-0'}`}
+                onClick={() => toggleSection('taskFlow')}
+              >
+                <h3 className="text-sm font-medium text-gray-700 flex items-center">
+                  <GitBranch className="h-4 w-4 mr-2" />
+                  Task Flow Chart
+                </h3>
+                {collapsedSections.taskFlow ? (
+                  <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                ) : (
+                  <ChevronUp className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                )}
+              </div>
+              {!collapsedSections.taskFlow && (
+                <div className="px-6 pb-6">
+                  <TaskFlowChart 
+                    currentTaskId={task?.id || ''} 
+                    currentTaskData={task}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right Column - Metadata */}
@@ -1489,7 +1523,7 @@ export default function TaskPage({
                   
                   {/* Children Field - Right Side */}
                   <div className={parentTask ? '' : 'col-span-2'}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Child(s):</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Child(ren):</label>
                     
                     {/* Selected Children Display */}
                     {childTasks.length > 0 && (
@@ -1585,6 +1619,7 @@ export default function TaskPage({
                 </div>
               )}
             </div>
+
 
             {/* Task Info */}
             <div className="bg-white rounded-lg shadow-sm">

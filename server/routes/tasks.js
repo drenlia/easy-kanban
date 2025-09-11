@@ -2,8 +2,66 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Helper function to check for circular dependencies in task relationships
+function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
+  console.log(`🔍 checkForCycles called: source=${sourceTaskId}, target=${targetTaskId}, rel=${relationship}`);
+  
+  // Simple cycle detection:
+  // If A wants to become parent of B, check if A is already a child of B
+  // If A wants to become child of B, check if A is already a parent of B
+  
+  let oppositeRelationship;
+  let checkTaskId, checkTargetId;
+  
+  if (relationship === 'parent') {
+    // sourceTask wants to become parent of targetTask
+    // Check if sourceTask is already a child of targetTask
+    oppositeRelationship = 'child';
+    checkTaskId = sourceTaskId;  // A
+    checkTargetId = targetTaskId; // B
+  } else if (relationship === 'child') {
+    // sourceTask wants to become child of targetTask  
+    // Check if sourceTask is already a parent of targetTask
+    oppositeRelationship = 'parent';
+    checkTaskId = sourceTaskId;  // A
+    checkTargetId = targetTaskId; // B
+  } else {
+    // 'related' relationships don't create cycles
+    return { hasCycle: false };
+  }
+  
+  console.log(`🔍 Checking if ${checkTaskId} is already ${oppositeRelationship} of ${checkTargetId}`);
+  
+  // Check if the opposite relationship already exists
+  const existingOppositeRel = wrapQuery(db.prepare(`
+    SELECT id FROM task_rels 
+    WHERE task_id = ? AND relationship = ? AND to_task_id = ?
+  `), 'SELECT').get(checkTaskId, oppositeRelationship, checkTargetId);
+  
+  if (existingOppositeRel) {
+    const sourceTicket = getTaskTicket(db, sourceTaskId);
+    const targetTicket = getTaskTicket(db, targetTaskId);
+    console.log(`❌ Cycle detected: ${sourceTicket} is already ${oppositeRelationship} of ${targetTicket}`);
+    
+    return {
+      hasCycle: true,
+      reason: `${sourceTicket} is already ${oppositeRelationship} of ${targetTicket}`
+    };
+  }
+  
+  console.log(`✅ No direct cycle found`);
+  return { hasCycle: false };
+}
+
+// Helper function to get task ticket by ID
+function getTaskTicket(db, taskId) {
+  const task = wrapQuery(db.prepare('SELECT ticket FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+  return task ? task.ticket : 'Unknown';
+}
 
 // Utility function to generate task ticket numbers
 const generateTaskTicket = (db, prefix = 'TASK-') => {
@@ -751,17 +809,18 @@ router.post('/:taskId/relationships', (req, res) => {
       return res.status(409).json({ error: 'Relationship already exists' });
     }
     
-    // Check for circular relationships (prevent A→B if B→A already exists for parent/child)
+    // Check for circular relationships (prevent cycles in parent/child hierarchies)
     if (relationship === 'parent' || relationship === 'child') {
-      const oppositeRelationship = relationship === 'parent' ? 'child' : 'parent';
-      const circularRelationship = wrapQuery(db.prepare(`
-        SELECT id FROM task_rels 
-        WHERE task_id = ? AND relationship = ? AND to_task_id = ?
-      `), 'SELECT').get(toTaskId, oppositeRelationship, taskId);
-      
-      if (circularRelationship) {
-        return res.status(409).json({ error: 'Cannot create circular relationship: tasks are already related in the opposite direction' });
+      console.log(`🔍 Checking for cycles: ${taskId} (${relationship}) → ${toTaskId}`);
+      const wouldCreateCycle = checkForCycles(db, taskId, toTaskId, relationship);
+      console.log(`🔍 Cycle check result:`, wouldCreateCycle);
+      if (wouldCreateCycle.hasCycle) {
+        console.log(`❌ Cycle detected! Blocking relationship creation.`);
+        return res.status(409).json({ 
+          error: `Cannot create relationship: This would create a circular dependency. ${wouldCreateCycle.reason}` 
+        });
       }
+      console.log(`✅ No cycle detected, proceeding with relationship creation.`);
     }
     
     // Insert the relationship (use regular INSERT since we've validated above)
@@ -863,6 +922,174 @@ router.get('/:taskId/available-for-relationship', (req, res) => {
   } catch (error) {
     console.error('Error fetching available tasks for relationship:', error);
     res.status(500).json({ error: 'Failed to fetch available tasks' });
+  }
+});
+
+// Get complete task flow chart data (optimized for visualization)
+router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { db } = req.app.locals;
+    
+    console.log(`🌳 FlowChart API: Building flow chart for task: ${taskId}`);
+    
+    // Step 1: Get all connected tasks using a simpler approach
+    // First, collect all task IDs that are connected through relationships
+    const connectedTaskIds = new Set([taskId]);
+    const processedIds = new Set();
+    const toProcess = [taskId];
+    
+    // Iteratively find all connected tasks (avoiding recursion issues)
+    while (toProcess.length > 0 && connectedTaskIds.size < 50) { // Limit to prevent infinite loops
+      const currentId = toProcess.shift();
+      if (processedIds.has(currentId)) continue;
+      
+      processedIds.add(currentId);
+      
+      // Find all tasks connected to current task
+      const connected = wrapQuery(db.prepare(`
+        SELECT DISTINCT 
+          CASE 
+            WHEN task_id = ? THEN to_task_id 
+            ELSE task_id 
+          END as connected_id
+        FROM task_rels 
+        WHERE task_id = ? OR to_task_id = ?
+      `), 'SELECT').all(currentId, currentId, currentId);
+      
+      connected.forEach(row => {
+        if (!connectedTaskIds.has(row.connected_id)) {
+          connectedTaskIds.add(row.connected_id);
+          toProcess.push(row.connected_id);
+        }
+      });
+    }
+    
+    console.log(`🔍 FlowChart API: Found ${connectedTaskIds.size} connected tasks`);
+    
+    // Step 2: Get full task data for all connected tasks
+    if (connectedTaskIds.size > 0) {
+      const placeholders = Array(connectedTaskIds.size).fill('?').join(',');
+      const tasksQuery = `
+        SELECT 
+          t.id,
+          t.ticket,
+          t.title,
+          t.memberId,
+          mem.name as memberName,
+          mem.color as memberColor,
+          c.title as status,
+          t.priority,
+          t.startDate,
+          t.dueDate,
+          b.project as projectId
+        FROM tasks t
+        LEFT JOIN members mem ON t.memberId = mem.id
+        LEFT JOIN columns c ON t.columnId = c.id
+        LEFT JOIN boards b ON t.boardId = b.id
+        WHERE t.id IN (${placeholders})
+      `;
+      
+      const tasks = wrapQuery(db.prepare(tasksQuery), 'SELECT').all(...Array.from(connectedTaskIds));
+      
+      // Step 3: Get all relationships between these tasks
+      const relationshipsQuery = `
+        SELECT 
+          tr.id,
+          tr.task_id,
+          tr.relationship,
+          tr.to_task_id,
+          t1.ticket as task_ticket,
+          t2.ticket as related_task_ticket
+        FROM task_rels tr
+        JOIN tasks t1 ON tr.task_id = t1.id
+        JOIN tasks t2 ON tr.to_task_id = t2.id
+        WHERE tr.task_id IN (${placeholders}) AND tr.to_task_id IN (${placeholders})
+      `;
+      
+      const relationships = wrapQuery(db.prepare(relationshipsQuery), 'SELECT').all(...Array.from(connectedTaskIds), ...Array.from(connectedTaskIds));
+      
+      console.log(`✅ FlowChart API: Found ${tasks.length} tasks and ${relationships.length} relationships`);
+      
+      // Step 4: Build the response
+      const response = {
+        rootTaskId: taskId,
+        tasks: tasks.map(task => ({
+          id: task.id,
+          ticket: task.ticket,
+          title: task.title,
+          memberId: task.memberId,
+          memberName: task.memberName || 'Unknown',
+          memberColor: task.memberColor || '#6366F1',
+          status: task.status || 'Unknown',
+          priority: task.priority || 'medium',
+          startDate: task.startDate,
+          dueDate: task.dueDate,
+          projectId: task.projectId
+        })),
+        relationships: relationships.map(rel => ({
+          id: rel.id,
+          taskId: rel.task_id,
+          relationship: rel.relationship,
+          relatedTaskId: rel.to_task_id,
+          taskTicket: rel.task_ticket,
+          relatedTaskTicket: rel.related_task_ticket
+        }))
+      };
+      
+      res.json(response);
+    } else {
+      // No connected tasks, return just the root task
+      const rootTaskQuery = `
+        SELECT 
+          t.id,
+          t.ticket,
+          t.title,
+          t.memberId,
+          mem.name as memberName,
+          mem.color as memberColor,
+          c.title as status,
+          t.priority,
+          t.startDate,
+          t.dueDate,
+          b.project as projectId
+        FROM tasks t
+        LEFT JOIN members mem ON t.memberId = mem.id
+        LEFT JOIN columns c ON t.columnId = c.id
+        LEFT JOIN boards b ON t.boardId = b.id
+        WHERE t.id = ?
+      `;
+      
+      const rootTask = wrapQuery(db.prepare(rootTaskQuery), 'SELECT').get(taskId);
+      
+      if (rootTask) {
+        const response = {
+          rootTaskId: taskId,
+          tasks: [{
+            id: rootTask.id,
+            ticket: rootTask.ticket,
+            title: rootTask.title,
+            memberId: rootTask.memberId,
+            memberName: rootTask.memberName || 'Unknown',
+            memberColor: rootTask.memberColor || '#6366F1',
+            status: rootTask.status || 'Unknown',
+            priority: rootTask.priority || 'medium',
+            startDate: rootTask.startDate,
+            dueDate: rootTask.dueDate,
+            projectId: rootTask.projectId
+          }],
+          relationships: []
+        };
+        
+        res.json(response);
+      } else {
+        res.status(404).json({ error: 'Task not found' });
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ FlowChart API: Error getting flow chart data:', error);
+    res.status(500).json({ error: 'Failed to get flow chart data' });
   }
 });
 
