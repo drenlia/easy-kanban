@@ -24,6 +24,7 @@ export interface UserPreferences {
   includeRequesters: boolean;
   includeSystem: boolean;
   taskDetailsWidth: number;
+  ganttTaskColumnWidth: number;
   listViewColumnVisibility: ColumnVisibility;
   searchFilters: {
     text: string;
@@ -98,6 +99,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   includeRequesters: false, // Default to not include requesters
   includeSystem: false, // Default to not include system user
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
+  ganttTaskColumnWidth: 320, // Default Gantt task column width in pixels
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
@@ -147,7 +149,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   activityFeed: {
     isMinimized: false,
     position: { x: typeof window !== 'undefined' ? window.innerWidth - 220 : 800, y: 66 },
-    width: 208, // Default width (w-52 = 208px)
+    width: 208, // Default width (now supports 120-600px range)
     height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400, // Dynamic default height
     lastSeenActivityId: 0,
     clearActivityId: 0,
@@ -293,6 +295,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('taskViewMode', preferences.taskViewMode),
           saveIfDefined('viewMode', preferences.viewMode),
           saveIfDefined('taskDetailsWidth', preferences.taskDetailsWidth),
+          saveIfDefined('ganttTaskColumnWidth', preferences.ganttTaskColumnWidth),
           
           // App Settings (only save if explicitly set)
           saveIfDefined('taskDeleteConfirm', preferences.appSettings.taskDeleteConfirm),
@@ -435,6 +438,7 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         taskViewMode: smartMerge(preferences.taskViewMode, dbSettings.taskViewMode, defaults.taskViewMode),
         viewMode: smartMerge(preferences.viewMode, dbSettings.viewMode, defaults.viewMode),
         taskDetailsWidth: smartMerge(preferences.taskDetailsWidth, dbSettings.taskDetailsWidth, defaults.taskDetailsWidth),
+        ganttTaskColumnWidth: smartMerge(preferences.ganttTaskColumnWidth, dbSettings.ganttTaskColumnWidth, defaults.ganttTaskColumnWidth),
         
         // Member Filter Preferences  
         includeAssignees: smartMerge(preferences.includeAssignees, dbSettings.includeAssignees, defaults.includeAssignees),

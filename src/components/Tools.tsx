@@ -31,7 +31,7 @@ export default function Tools({
           onClick={() => {
             const modes: ViewMode[] = ['kanban', 'list', 'gantt'];
             const currentIndex = modes.indexOf(viewMode);
-            const nextIndex = (currentIndex + 1) % (modes.length - 1); // Skip gantt for now
+            const nextIndex = (currentIndex + 1) % modes.length; // Include gantt now
             onViewModeChange(modes[nextIndex]);
           }}
           className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
@@ -41,12 +41,14 @@ export default function Tools({
           }`}
           title={
             viewMode === 'kanban' ? 'Switch to list view' :
-            viewMode === 'list' ? 'Switch to kanban view' :
+            viewMode === 'list' ? 'Switch to gantt view' :
+            viewMode === 'gantt' ? 'Switch to kanban view' :
             'Switch to kanban view'
           }
         >
           {viewMode === 'kanban' ? <List size={16} /> :
-           viewMode === 'list' ? <LayoutGrid size={16} /> :
+           viewMode === 'list' ? <Calendar size={16} /> :
+           viewMode === 'gantt' ? <LayoutGrid size={16} /> :
            <LayoutGrid size={16} />}
         </button>
 
@@ -63,8 +65,8 @@ export default function Tools({
           <Search size={16} />
         </button>
 
-        {/* Task View Mode Toggle - Show in both kanban and list view */}
-        {(viewMode === 'kanban' || viewMode === 'list') && (
+        {/* Task View Mode Toggle - Show in kanban, list, and gantt view */}
+        {(viewMode === 'kanban' || viewMode === 'list' || viewMode === 'gantt') && (
           <button
             onClick={onToggleTaskViewMode}
             className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
@@ -74,8 +76,8 @@ export default function Tools({
             }`}
             title={
               taskViewMode === 'compact' ? 'Switch to shrink view (truncated descriptions)' :
-              taskViewMode === 'shrink' ? 'Switch to expand view (full descriptions)' :
-              'Switch to compact view (no descriptions)'
+              taskViewMode === 'shrink' ? 'Switch to expand view (full descriptions + dates in Gantt)' :
+              'Switch to compact view (tickets only)'
             }
           >
             {taskViewMode === 'compact' ? <Minus size={16} /> :

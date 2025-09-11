@@ -55,6 +55,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const [showTooltip, setShowTooltip] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{top: number, left: number} | null>(null);
   const [showMinimizeDropdown, setShowMinimizeDropdown] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState<{x: number, y: number} | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [isResizing, setIsResizing] = useState<'width' | 'height' | 'height-top' | 'both' | 'both-top' | null>(null);
@@ -188,13 +189,50 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     }
   };
 
+  // Calculate smart tooltip position to stay within viewport
+  const calculateTooltipPosition = (rect: DOMRect): {top: number, left: number} => {
+    const tooltipWidth = 320; // Approximate tooltip width (max-w-sm = 384px, but content is smaller)
+    const tooltipHeight = 120; // Approximate tooltip height
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 8; // Margin from viewport edges
+    
+    // Default: centered above the element
+    let tooltipX = rect.left + rect.width / 2 - tooltipWidth / 2;
+    let tooltipY = rect.top - tooltipHeight - 10; // 10px gap above
+    
+    // Check horizontal boundaries
+    if (tooltipX < margin) {
+      // Too far left, align to left edge with margin
+      tooltipX = margin;
+    } else if (tooltipX + tooltipWidth > viewportWidth - margin) {
+      // Too far right, align to right edge with margin
+      tooltipX = viewportWidth - tooltipWidth - margin;
+    }
+    
+    // Check vertical boundaries
+    if (tooltipY < margin) {
+      // Too close to top, position below instead
+      tooltipY = rect.bottom + 10; // 10px gap below
+    }
+    
+    // Double-check if positioning below would go off bottom
+    if (tooltipY + tooltipHeight > viewportHeight - margin) {
+      // Position at the best available spot
+      tooltipY = Math.max(margin, viewportHeight - tooltipHeight - margin);
+    }
+    
+    return {
+      top: tooltipY,
+      left: tooltipX
+    };
+  };
+
   // Tooltip handlers
   const handleMouseEnter = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setTooltipPosition({
-      top: rect.top - 10,
-      left: rect.left + rect.width / 2
-    });
+    const smartPosition = calculateTooltipPosition(rect);
+    setTooltipPosition(smartPosition);
     setShowTooltip(true);
   };
 
@@ -275,7 +313,8 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     
     // Calculate new dimensions based on resize type
     if (isResizing === 'width' || isResizing === 'both' || isResizing === 'both-top') {
-      newWidth = Math.max(180, Math.min(400, e.clientX - rect.left));
+      // Allow much smaller widths with more flexible constraints
+      newWidth = Math.max(120, Math.min(600, e.clientX - rect.left));
     }
     
     if (isResizing === 'height' || isResizing === 'both') {
@@ -371,8 +410,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (showMinimizeDropdown && !(event.target as Element).closest('.minimize-dropdown')) {
-        setShowMinimizeDropdown(false);
+      if (showMinimizeDropdown) {
+        const target = event.target as Element;
+        // Check if click is not on the button or dropdown
+        const isClickOnButton = target.closest('.minimize-dropdown');
+        const isClickOnDropdown = target.closest('[data-minimize-dropdown]');
+        
+        if (!isClickOnButton && !isClickOnDropdown) {
+          setShowMinimizeDropdown(false);
+        }
       }
     };
 
@@ -471,6 +517,60 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         console.error('Failed to clear activity filter preference:', error);
       });
     }
+  };
+
+  // Calculate optimal dropdown position to stay within viewport
+  const calculateDropdownPosition = (): {x: number, y: number} => {
+    if (!feedRef.current) return {x: 0, y: 0};
+    
+    const feedRect = feedRef.current.getBoundingClientRect();
+    const dropdownWidth = 140; // min-w-[140px] from the dropdown
+    const dropdownHeight = 80; // Approximate height for 2 buttons
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const margin = 8; // Small margin from viewport edge
+    
+    // Calculate button position (it's in the top-right area of the feed)
+    const buttonX = feedRect.right - 25; // Approximate button center
+    const buttonY = feedRect.top + 20; // Approximate button center
+    
+    // Default: position dropdown to the right and below the button
+    let dropdownX = buttonX;
+    let dropdownY = buttonY + 6; // 6px below button
+    
+    // Check if dropdown would go off-screen on the right
+    if (dropdownX + dropdownWidth > viewportWidth - margin) {
+      // Position to the left of the button instead
+      dropdownX = buttonX - dropdownWidth;
+    }
+    
+    // Ensure it doesn't go off-screen on the left
+    if (dropdownX < margin) {
+      dropdownX = margin;
+    }
+    
+    // Check if dropdown would go off-screen on the bottom
+    if (dropdownY + dropdownHeight > viewportHeight - margin) {
+      // Position above the button instead
+      dropdownY = buttonY - dropdownHeight - 6;
+    }
+    
+    // Ensure it doesn't go off-screen on the top
+    if (dropdownY < margin) {
+      dropdownY = margin;
+    }
+    
+    return {x: dropdownX, y: dropdownY};
+  };
+
+  // Handle minimize dropdown toggle with position calculation
+  const handleMinimizeDropdownToggle = () => {
+    if (!showMinimizeDropdown) {
+      // Calculate position before showing
+      const optimalPosition = calculateDropdownPosition();
+      setDropdownPosition(optimalPosition);
+    }
+    setShowMinimizeDropdown(!showMinimizeDropdown);
   };
 
   // Highlight search terms in text - returns HTML string for dangerouslySetInnerHTML
@@ -625,8 +725,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             className="fixed z-[10000] max-w-sm p-3 bg-gray-900 text-white text-xs rounded-lg shadow-lg pointer-events-none"
             style={{
               top: tooltipPosition.top,
-              left: tooltipPosition.left,
-              transform: 'translate(-50%, -100%)'
+              left: tooltipPosition.left
             }}
           >
             <div className="space-y-1">
@@ -643,14 +742,16 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                 <span>{formatTimeAgo(latestActivity.created_at)}</span>
               </div>
             </div>
-            {/* Tooltip arrow */}
-            <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900"></div>
           </div>,
           document.body
         )}
       </div>
     );
   }
+
+  // Determine if we're in narrow mode for responsive styling
+  const isNarrowMode = dimensions.width <= 160;
+  const isExtraNarrowMode = dimensions.width <= 130;
 
   return (
     <div 
@@ -673,11 +774,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           <GripVertical className="w-3 h-3 text-gray-400" />
         </div>
         
-        <div className="flex items-center space-x-1.5 flex-1">
-          <Activity className="w-3 h-3 text-blue-600" />
-          <h3 className="font-medium text-gray-900 text-xs">Activity Feed</h3>
+        <div className="flex items-center space-x-1.5 flex-1 min-w-0">
+          <Activity className="w-3 h-3 text-blue-600 flex-shrink-0" />
+          {!isExtraNarrowMode && (
+            <h3 className="font-medium text-gray-900 text-xs truncate">
+              {isNarrowMode ? 'Activity' : 'Activity Feed'}
+            </h3>
+          )}
           {unreadCount > 0 && (
-            <div className="bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center ml-1">
+            <div className="bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0">
               <span className="text-xs leading-none">{unreadCount > 9 ? '9+' : unreadCount}</span>
             </div>
           )}
@@ -686,37 +791,14 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           {/* Minimize Dropdown */}
           <div className="relative minimize-dropdown">
             <button
-              onClick={() => setShowMinimizeDropdown(!showMinimizeDropdown)}
+              onClick={handleMinimizeDropdownToggle}
               className="p-0.5 hover:bg-gray-200 rounded transition-colors flex items-center"
               title="Minimize Options"
             >
               <ChevronDown className="w-2.5 h-2.5 text-gray-500" />
             </button>
             
-            {showMinimizeDropdown && (
-              <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]">
-                <button
-                  onClick={() => {
-                    handleMinimizeInPlace();
-                    setShowMinimizeDropdown(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
-                >
-                  <ChevronDown className="w-3 h-3 mr-2" />
-                  In place
-                </button>
-                <button
-                  onClick={() => {
-                    handleMinimizeToBottom();
-                    setShowMinimizeDropdown(false);
-                  }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
-                >
-                  <ChevronDown className="w-3 h-3 mr-2" />
-                  Bottom
-                </button>
-              </div>
-            )}
+            {/* Dropdown rendered here for positioning context, but content is in portal */}
           </div>
           
           <button
@@ -729,18 +811,22 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         </div>
       </div>
 
-      {/* Filter Input */}
-      <div className="border-b border-gray-200 p-2 bg-white">
+      {/* Filter Input - Responsive */}
+      <div className={`border-b border-gray-200 bg-white ${isNarrowMode ? 'p-1' : 'p-2'}`}>
         <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-            <Search className="h-3 w-3 text-gray-400" />
-          </div>
+          {!isExtraNarrowMode && (
+            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+              <Search className="h-3 w-3 text-gray-400" />
+            </div>
+          )}
           <input
             type="text"
-            placeholder="Filter activities..."
+            placeholder={isNarrowMode ? "Filter..." : "Filter activities..."}
             value={filterText}
             onChange={(e) => handleFilterChange(e.target.value)}
-            className="block w-full pl-7 pr-7 py-1.5 text-xs border border-gray-300 rounded-md leading-4 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+            className={`block w-full py-1.5 text-xs border border-gray-300 rounded-md leading-4 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
+              isExtraNarrowMode ? 'pl-2 pr-6' : 'pl-7 pr-7'
+            }`}
           />
           {filterText && (
             <button
@@ -752,15 +838,20 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             </button>
           )}
         </div>
-        {filterText && (
+        {filterText && !isNarrowMode && (
           <div className="mt-1 text-xs text-gray-500">
             {displayActivities.length} of {visibleActivities.length} activities shown
+          </div>
+        )}
+        {filterText && isNarrowMode && (
+          <div className="mt-1 text-xs text-gray-500 text-center">
+            {displayActivities.length}/{visibleActivities.length}
           </div>
         )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className={`flex-1 overflow-y-auto ${isNarrowMode ? 'p-1' : 'p-2'}`}>
         {loading && activities.length === 0 && (
           <div className="flex items-center justify-center py-4">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
@@ -786,38 +877,63 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             return (
               <div 
                 key={activity.id} 
-                className={`flex items-start space-x-1.5 p-1.5 rounded hover:bg-gray-100 transition-colors ${
+                className={`flex items-start rounded hover:bg-gray-100 transition-colors ${
+                  isNarrowMode ? 'space-x-1 p-1' : 'space-x-1.5 p-1.5'
+                } ${
                   isUnread 
                     ? 'bg-blue-50 border-l-2 border-blue-500' 
                     : 'bg-gray-50'
                 }`}
               >
-                <div className="text-xs flex-shrink-0 mt-0.5">
-                  {getActionIcon(activity.action)}
-                </div>
+                {!isExtraNarrowMode && (
+                  <div className="text-xs flex-shrink-0 mt-0.5">
+                    {getActionIcon(activity.action)}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-xs text-gray-900 leading-tight">
-                    <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
-                      {highlightText(name, filterText)}
-                    </span>
-                    {' '}
-                    <span 
-                      className="text-gray-700"
-                      dangerouslySetInnerHTML={{ 
-                        __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
-                          ALLOWED_TAGS: ['a', 'span'],
-                          ALLOWED_ATTR: ['href', 'class', 'title']
-                        })
-                      }}
-                    />
+                    {isNarrowMode ? (
+                      // Compact layout for narrow widths
+                      <div className="space-y-0.5">
+                        <div className={`font-medium truncate ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
+                          {highlightText(name, filterText)}
+                        </div>
+                        <div 
+                          className="text-gray-700 text-xs leading-tight"
+                          dangerouslySetInnerHTML={{ 
+                            __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
+                              ALLOWED_TAGS: ['a', 'span'],
+                              ALLOWED_ATTR: ['href', 'class', 'title']
+                            })
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      // Normal layout
+                      <>
+                        <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
+                          {highlightText(name, filterText)}
+                        </span>
+                        {' '}
+                        <span 
+                          className="text-gray-700"
+                          dangerouslySetInnerHTML={{ 
+                            __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
+                              ALLOWED_TAGS: ['a', 'span'],
+                              ALLOWED_ATTR: ['href', 'class', 'title']
+                            })
+                          }}
+                        />
+                      </>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-1 mt-0.5">
-                    <Clock className="w-2 h-2 text-gray-400" />
-                    <span className="text-xs text-gray-500 leading-none">
-                      {formatTimeAgo(activity.created_at)}
+                  <div className={`flex items-center mt-0.5 ${isNarrowMode ? 'space-x-0.5' : 'space-x-1'}`}>
+                    <Clock className="w-2 h-2 text-gray-400 flex-shrink-0" />
+                    <span className="text-xs text-gray-500 leading-none truncate">
+                      {isNarrowMode ? formatTimeAgo(activity.created_at).replace(' ago', '') : formatTimeAgo(activity.created_at)}
                     </span>
                     {isUnread && (
-                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full ml-1"></div>
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full flex-shrink-0"></div>
                     )}
                   </div>
                 </div>
@@ -828,24 +944,24 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="p-1.5 border-t border-gray-200 bg-gray-50 rounded-b space-y-1">
+      <div className={`border-t border-gray-200 bg-gray-50 rounded-b space-y-1 ${isNarrowMode ? 'p-1' : 'p-1.5'}`}>
         {unreadCount > 0 ? (
           <button
             onClick={handleMarkAsRead}
             className="w-full text-xs text-green-600 hover:text-green-700 font-medium py-0.5 bg-green-50 hover:bg-green-100 rounded transition-colors"
           >
-            Mark {unreadCount} as Read
+            {isNarrowMode ? `✓ ${unreadCount}` : `Mark ${unreadCount} as Read`}
           </button>
         ) : displayActivities.length > 0 ? (
           <button
             onClick={handleClearAll}
             className="w-full text-xs text-red-600 hover:text-red-700 font-medium py-0.5 bg-red-50 hover:bg-red-100 rounded transition-colors"
           >
-            Clear All Activities
+            {isNarrowMode ? 'Clear' : 'Clear All Activities'}
           </button>
         ) : (
           <div className="text-xs text-gray-500 text-center py-1">
-            {clearActivityId > 0 ? 'Feed cleared' : 'Auto-refreshing every 3s'}
+            {clearActivityId > 0 ? 'Feed cleared' : (isNarrowMode ? 'Auto 3s' : 'Auto-refreshing every 3s')}
           </div>
         )}
       </div>
@@ -885,6 +1001,40 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         onMouseDown={(e) => handleResizeStart(e, 'both-top')}
         style={{ top: -2, right: -2 }}
       />
+      
+      {/* Minimize Dropdown Portal - rendered outside the feed to avoid clipping */}
+      {showMinimizeDropdown && dropdownPosition && createPortal(
+        <div 
+          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]"
+          data-minimize-dropdown
+          style={{
+            left: dropdownPosition.x,
+            top: dropdownPosition.y,
+          }}
+        >
+          <button
+            onClick={() => {
+              handleMinimizeInPlace();
+              setShowMinimizeDropdown(false);
+            }}
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+          >
+            <ChevronDown className="w-3 h-3 mr-2" />
+            In place
+          </button>
+          <button
+            onClick={() => {
+              handleMinimizeToBottom();
+              setShowMinimizeDropdown(false);
+            }}
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+          >
+            <ChevronDown className="w-3 h-3 mr-2" />
+            Bottom
+          </button>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
