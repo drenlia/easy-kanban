@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Edit2, Trash2, Save, XCircle } from 'lucide-react';
+import { X, Edit2, Trash2, Save, XCircle, Globe, Lock } from 'lucide-react';
 import { SavedFilterView, updateSavedFilterView, deleteSavedFilterView } from '../api';
 
 interface ManageFiltersModalProps {
@@ -9,6 +9,7 @@ interface ManageFiltersModalProps {
   onViewsUpdated: (views: SavedFilterView[]) => void;
   currentFilterView?: SavedFilterView | null;
   onCurrentFilterViewChange?: (view: SavedFilterView | null) => void;
+  onRefreshFilters?: () => void; // For refreshing shared filters
 }
 
 export default function ManageFiltersModal({
@@ -17,7 +18,8 @@ export default function ManageFiltersModal({
   savedFilterViews,
   onViewsUpdated,
   currentFilterView,
-  onCurrentFilterViewChange
+  onCurrentFilterViewChange,
+  onRefreshFilters
 }: ManageFiltersModalProps) {
   const [editingView, setEditingView] = useState<SavedFilterView | null>(null);
   const [editName, setEditName] = useState('');
@@ -104,6 +106,33 @@ export default function ManageFiltersModal({
 
   const handleCancelDelete = () => {
     setDeleteConfirmId(null);
+  };
+
+  const handleToggleShare = async (view: SavedFilterView) => {
+    setIsLoading(true);
+    try {
+      const updatedView = await updateSavedFilterView(view.id, {
+        shared: !view.shared
+      });
+
+      const updatedViews = savedFilterViews.map(v => 
+        v.id === view.id ? updatedView : v
+      );
+      onViewsUpdated(updatedViews);
+
+      // Update current filter view if it's the one being modified
+      if (currentFilterView?.id === view.id) {
+        onCurrentFilterViewChange?.(updatedView);
+      }
+      
+      // Refresh all filters to update shared filters lists for all users
+      onRefreshFilters?.();
+    } catch (error) {
+      console.error('Failed to toggle filter sharing:', error);
+      alert('Failed to update sharing status. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -203,32 +232,63 @@ export default function ManageFiltersModal({
                     </div>
                   ) : (
                     /* View Mode */
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-medium text-gray-900 truncate">{view.filterName}</h4>
-                        <div className="text-xs text-gray-500 mt-1 space-y-1">
-                          <p>Created: {new Date(view.created_at).toLocaleDateString()}</p>
-                          {currentFilterView?.id === view.id && (
-                            <p className="text-blue-600 font-medium">Currently applied</p>
-                          )}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-gray-900 truncate">{view.filterName}</h4>
+                          <div className="text-xs text-gray-500 mt-1 space-y-1">
+                            <p>Created: {new Date(view.created_at).toLocaleDateString()}</p>
+                            {currentFilterView?.id === view.id && (
+                              <p className="text-blue-600 font-medium">Currently applied</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 ml-3">
+                          <button
+                            onClick={() => handleStartEdit(view)}
+                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            title="Rename filter"
+                            disabled={isLoading}
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(view.id)}
+                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Delete filter"
+                            disabled={isLoading}
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 ml-3">
+                      
+                      {/* Share toggle */}
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                        <div className="flex items-center gap-2">
+                          {view.shared ? (
+                            <Globe size={14} className="text-blue-500" />
+                          ) : (
+                            <Lock size={14} className="text-gray-400" />
+                          )}
+                          <span className="text-sm text-gray-700">
+                            {view.shared ? 'Shared with team' : 'Private filter'}
+                          </span>
+                        </div>
                         <button
-                          onClick={() => handleStartEdit(view)}
-                          className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                          title="Rename filter"
+                          onClick={() => handleToggleShare(view)}
                           disabled={isLoading}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                            view.shared 
+                              ? 'bg-blue-600' 
+                              : 'bg-gray-200'
+                          } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <Edit2 size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(view.id)}
-                          className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title="Delete filter"
-                          disabled={isLoading}
-                        >
-                          <Trash2 size={14} />
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                              view.shared ? 'translate-x-6' : 'translate-x-1'
+                            }`}
+                          />
                         </button>
                       </div>
                     </div>

@@ -17,6 +17,7 @@ export interface UserPreferences {
   lastSelectedBoard: string | null;
   selectedMembers: string[];
   currentFilterViewId: number | null;
+  showSharedFilters: boolean;
   includeAssignees: boolean;
   includeWatchers: boolean;
   includeCollaborators: boolean;
@@ -89,6 +90,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   lastSelectedBoard: null, // Default to no board remembered
   selectedMembers: [], // Default to no members selected
   currentFilterViewId: null, // Default to no saved filter selected
+  showSharedFilters: true, // Default to show shared filters from other users
   includeAssignees: true, // Default to include assignees (maintains current behavior)
   includeWatchers: false, // Default to not include watchers
   includeCollaborators: false, // Default to not include collaborators

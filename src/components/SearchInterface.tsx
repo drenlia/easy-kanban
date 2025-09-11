@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown, Check, ChevronUp, Save, Settings, RefreshCw } from 'lucide-react';
 import { Priority, PriorityOption, Tag } from '../types';
-import { getAllTags, getSavedFilterViews, createSavedFilterView, updateSavedFilterView, SavedFilterView } from '../api';
+import { getAllTags, getSavedFilterViews, getSharedFilterViews, createSavedFilterView, updateSavedFilterView, SavedFilterView } from '../api';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import ManageFiltersModal from './ManageFiltersModal';
 
@@ -24,6 +24,7 @@ interface SearchInterfaceProps {
   onFiltersChange: (filters: SearchFilters) => void;
   siteSettings?: { [key: string]: string };
   currentFilterView?: SavedFilterView | null;
+  sharedFilterViews?: SavedFilterView[];
   onFilterViewChange?: (view: SavedFilterView | null) => void;
 }
 
@@ -33,6 +34,7 @@ export default function SearchInterface({
   onFiltersChange,
   siteSettings,
   currentFilterView,
+  sharedFilterViews,
   onFilterViewChange
 }: SearchInterfaceProps) {
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
@@ -135,19 +137,25 @@ export default function SearchInterface({
     loadTags();
   }, []);
 
+  // Load saved filter views function (only user's own - shared filters come from props)
+  const loadSavedFilters = async () => {
+    setIsLoadingFilters(true);
+    try {
+      console.log('🔍 [SearchInterface] Loading user\'s own filters...');
+      
+      // Load user's own filters
+      const myViews = await getSavedFilterViews();
+      console.log('📊 [SearchInterface] Loaded my views:', myViews.length);
+      setSavedFilterViews(myViews);
+    } catch (error) {
+      console.error('❌ [SearchInterface] Failed to load saved filter views:', error);
+    } finally {
+      setIsLoadingFilters(false);
+    }
+  };
+
   // Load saved filter views on mount
   useEffect(() => {
-    const loadSavedFilters = async () => {
-      setIsLoadingFilters(true);
-      try {
-        const views = await getSavedFilterViews();
-        setSavedFilterViews(views);
-      } catch (error) {
-        console.error('Failed to load saved filter views:', error);
-      } finally {
-        setIsLoadingFilters(false);
-      }
-    };
     loadSavedFilters();
   }, []);
 
@@ -429,37 +437,71 @@ export default function SearchInterface({
                     </>
                   )}
                   
-                  {/* Divider */}
-                  {savedFilterViews.length > 0 && <hr className="border-gray-200" />}
-                  
-                  {/* Saved filters */}
-                  {savedFilterViews.map((view) => (
-                    <div key={view.id} className="flex items-center group">
-                      {/* Apply filter button (main area) */}
-                      <button
-                        onClick={() => handleApplyFilter(view)}
-                        className="flex-1 text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
-                      >
-                        <span className="truncate">{view.filterName}</span>
-                        {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
-                      </button>
-                      
-                      {/* Update filter button (only show when there are active filters) */}
-                      {hasActiveFilters() && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUpdateFilter(view);
-                          }}
-                          className="px-2 py-2 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
-                          title={`Update "${view.filterName}" with current filters`}
-                          disabled={isSavingFilter}
-                        >
-                          <RefreshCw size={12} className={isSavingFilter ? 'animate-spin' : ''} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                  {/* My Filters Section */}
+                  {savedFilterViews.length > 0 && (
+                    <>
+                      <hr className="border-gray-200" />
+                      <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
+                        My Filters:
+                      </div>
+                      {savedFilterViews.map((view) => (
+                        <div key={view.id} className="flex items-center group">
+                          {/* Apply filter button (main area) */}
+                          <button
+                            onClick={() => handleApplyFilter(view)}
+                            className="flex-1 text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                          >
+                            <span className="truncate">{view.filterName}</span>
+                            {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
+                          </button>
+                          
+                          {/* Update filter button (only show when there are active filters) */}
+                          {hasActiveFilters() && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUpdateFilter(view);
+                              }}
+                              className="px-2 py-2 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
+                              title={`Update "${view.filterName}" with current filters`}
+                              disabled={isSavingFilter}
+                            >
+                              <RefreshCw size={12} className={isSavingFilter ? 'animate-spin' : ''} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Shared Filters Section */}
+                  {sharedFilterViews && sharedFilterViews.length > 0 && (
+                    <>
+                      <hr className="border-gray-200" />
+                      <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
+                        Shared Filters:
+                      </div>
+                      {sharedFilterViews.map((view) => (
+                        <div key={`shared-${view.id}`} className="flex items-center">
+                          {/* Apply filter button (main area) */}
+                          <button
+                            onClick={() => handleApplyFilter(view)}
+                            className="flex-1 text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                          >
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <span className="text-blue-500">🌐</span>
+                              <span className="truncate">{view.filterName}</span>
+                              {view.creatorName && (
+                                <span className="text-gray-400 text-xs">(by {view.creatorName})</span>
+                              )}
+                            </div>
+                            {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
+                          </button>
+                          {/* No update button for shared filters - users can't modify them */}
+                        </div>
+                      ))}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -782,6 +824,7 @@ export default function SearchInterface({
         onViewsUpdated={setSavedFilterViews}
         currentFilterView={currentFilterView}
         onCurrentFilterViewChange={onFilterViewChange}
+        onRefreshFilters={loadSavedFilters}
       />
     </div>
   );

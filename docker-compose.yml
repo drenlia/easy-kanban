@@ -14,7 +14,6 @@ services:
       - DEMO_ENABLED=false
     volumes:
       - .:/app
-      - /app/node_modules
       - kanban-data:/app/server/data
       - kanban-attachments:/app/server/attachments
       - kanban-avatars:/app/server/avatars
