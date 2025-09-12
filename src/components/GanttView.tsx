@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, closestCenter } from '@dnd-kit/core';
 import { Task, Columns, PriorityOption } from '../types';
 import { TaskViewMode, loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
-import { updateTask, getAllPriorities } from '../api';
+import { updateTask, getAllPriorities, createTaskAtTop } from '../api';
+import { generateUUID } from '../utils/uuid';
 import { TaskHandle } from './gantt/TaskHandle';
 import { MoveHandle } from './gantt/MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './gantt/types';
@@ -15,6 +16,13 @@ interface GanttViewProps {
   onSelectTask: (task: Task) => void;
   taskViewMode?: TaskViewMode;
   onUpdateTask?: (task: Task) => void; // For optimistic updates
+  onTaskDragStart?: (task: Task) => void; // Standard drag start handler
+  onTaskDragEnd?: () => void; // Standard drag end handler
+  boardId?: string | null; // Board identifier for viewport initialization
+  onAddTask?: (columnId: string) => Promise<void>; // For creating new tasks (fallback)
+  currentUser?: any; // Current user for task creation
+  members?: any[]; // Team members for task creation
+  onRefreshData?: () => Promise<void>; // Refresh data after task creation
 }
 
 interface GanttTask {
@@ -42,12 +50,17 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day); // month is 0-indexed
 };
 
-const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask }) => {
+const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<GanttDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
   const [taskColumnWidth, setTaskColumnWidth] = useState(320); // Default 320px, will load from preferences
   const [, setIsResizing] = useState(false);
+  
+  // Task creation drag state
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [taskCreationStart, setTaskCreationStart] = useState<string | null>(null);
+  const [taskCreationEnd, setTaskCreationEnd] = useState<string | null>(null);
 
   // Performance monitoring for the Gantt view
   const { measureFunction, startMeasurement } = usePerformanceMonitor({
@@ -242,8 +255,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     chunkSize: 30,              // Load 1 month at a time
     maxDays: 120,               // Keep maximum 4 months in memory
     daysBeforeToday: 0,         // Will be calculated based on earliest task
-    earliestTaskDate: earliestTaskDate,  // Start timeline at earliest task
-    allTasks: ganttTasks        // Pass all tasks for positioning
+    allTasks: ganttTasks,       // Pass all tasks for positioning
+    isDuringDrag: !!activeDragItem,  // Prevent viewport shifts during drag
+    boardId: boardId || 'default'     // Board ID for session-based initialization
   });
 
   // Calculate task bar grid position
@@ -406,6 +420,22 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     setActiveDragItem(dragData);
     setCurrentHoverDate(null);
     console.log('🎯 Drag started:', dragData);
+    
+    // Call standard drag start handler to set draggedTask state (disables polling)
+    if (onTaskDragStart && dragData?.taskId) {
+      const draggedTask = ganttTasks.find(t => t.id === dragData.taskId);
+      if (draggedTask) {
+        // Convert GanttTask to Task format
+        const taskForParent = Object.values(columns)
+          .flatMap(col => col.tasks)
+          .find(t => t.id === draggedTask.id);
+        
+        if (taskForParent) {
+          onTaskDragStart(taskForParent);
+          console.log('🛡️ Drag state set - polling disabled');
+        }
+      }
+    }
   };
 
   const handleDragOver = (event: DragOverEvent) => {
@@ -430,6 +460,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     if (!over || !activeDragItem) {
       console.log('❌ Drag ended without valid drop target or drag item');
       setActiveDragItem(null);
+      
+      // Still call drag end handler to clear state
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+        console.log('🔄 Drag state cleared - polling re-enabled');
+      }
+      
       return;
     }
 
@@ -437,6 +474,18 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const targetDate = dropData.date;
     
     console.log('🎯 Drag ended:', { dragItem: activeDragItem, targetDate });
+
+    // Simple approach: Set drag state immediately (disables polling)
+    if (onTaskDragStart && activeDragItem?.taskId) {
+      const taskForParent = Object.values(columns)
+        .flatMap(col => col.tasks)
+        .find(t => t.id === activeDragItem.taskId);
+      
+      if (taskForParent) {
+        onTaskDragStart(taskForParent);
+        console.log('🛡️ Polling disabled during update');
+      }
+    }
 
     try {
       // Find the original task
@@ -449,9 +498,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         return;
       }
 
-      const updateData: any = { ...originalTask };
+      // Calculate the updated task
+      let updatedTask = { ...originalTask };
 
-      // Update the appropriate date based on what was dragged
       console.log('🔧 Before update:', { 
         dragType: activeDragItem.dragType, 
         targetDate, 
@@ -460,53 +509,51 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       });
 
       if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE) {
-        // Start handle logic - if dragged past end, clamp to end (creates 1-day task)
         const currentEndDate = originalTask.dueDate;
         if (currentEndDate && targetDate > currentEndDate) {
-          // User dragged start past end - clamp to end date (1-day task at original end)
-          updateData.startDate = currentEndDate;
+          updatedTask.startDate = currentEndDate;
           console.log('📅 Clamping startDate to endDate for 1-day task:', currentEndDate);
         } else {
-          updateData.startDate = targetDate;
-          console.log('📅 Setting startDate to:', targetDate, 'keeping dueDate:', originalTask.dueDate);
+          updatedTask.startDate = targetDate;
+          console.log('📅 Setting startDate to:', targetDate);
         }
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE) {
-        // End handle logic - if dragged before start, clamp to start (creates 1-day task)
         const currentStartDate = originalTask.startDate;
         if (currentStartDate && targetDate < currentStartDate) {
-          // User dragged end before start - clamp to start date (1-day task at original start)
-          updateData.dueDate = currentStartDate;
+          updatedTask.dueDate = currentStartDate;
           console.log('📅 Clamping endDate to startDate for 1-day task:', currentStartDate);
         } else {
-          updateData.dueDate = targetDate;
-          console.log('📅 Setting dueDate to:', targetDate, 'keeping startDate:', originalTask.startDate);
+          updatedTask.dueDate = targetDate;
+          console.log('📅 Setting dueDate to:', targetDate);
         }
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
-        // Move entire task - calculate duration and shift both dates
         const originalStart = new Date(activeDragItem.originalStartDate);
         const originalEnd = new Date(activeDragItem.originalEndDate);
         const taskDuration = Math.abs(originalEnd.getTime() - originalStart.getTime());
         const newStartDate = new Date(targetDate);
         const newEndDate = new Date(newStartDate.getTime() + taskDuration);
         
-        updateData.startDate = targetDate;
-        updateData.dueDate = newEndDate.toISOString().split('T')[0];
+        updatedTask.startDate = targetDate;
+        updatedTask.dueDate = newEndDate.toISOString().split('T')[0];
       }
 
-      console.log('🔄 Updating task with data:', updateData);
+      console.log('🔄 Calling handleEditTask with:', updatedTask);
 
-      // Optimistic UI update
+      // Use the exact same function that ListView and TaskCard use
       if (onUpdateTask) {
-        onUpdateTask(updateData);
+        await onUpdateTask(updatedTask);
+        console.log('✅ Task updated successfully');
       }
-
-      // API call
-      await updateTask(updateData);
-      console.log('✅ Task updated successfully');
 
     } catch (error) {
       console.error('❌ Failed to update task:', error);
     } finally {
+      // Clear drag state (re-enables polling)
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+        console.log('🔄 Polling re-enabled');
+      }
+      
       setActiveDragItem(null);
       setCurrentHoverDate(null);
     }
@@ -515,6 +562,127 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const handleTaskDrop = (dragData: GanttDragItem, targetDate: string) => {
     // This will be called by DateColumn, but the actual logic is in handleDragEnd
     console.log('📍 Task dropped on date:', { dragData, targetDate });
+  };
+
+  // Get default priority name  
+  const getDefaultPriorityName = (): string => {
+    const defaultPriority = priorities.find(p => !!p.initial);
+    return defaultPriority?.priority || 'Medium';
+  };
+
+  // Handle task creation with date range support
+  const createTaskWithDateRange = async (startDate: string, endDate: string) => {
+    // Find the first column (position 0) to add the task to
+    const firstColumn = Object.values(columns).find(col => col.position === 0);
+    if (!firstColumn) {
+      console.error('No first column found for task creation');
+      return;
+    }
+
+    // If we have advanced task creation capabilities, use them
+    if (currentUser && members && boardId) {
+      console.log('🆕 Creating advanced task with date range:', startDate, 'to', endDate, 'in column:', firstColumn.title);
+      
+      // Find current user member
+      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+      if (!currentUserMember) {
+        console.error('Current user not found in members list');
+        return;
+      }
+
+      // Create task with prefilled date range
+      const newTask: Task = {
+        id: generateUUID(),
+        title: 'New Task',
+        description: '',
+        memberId: currentUserMember.id,
+        startDate: startDate, // Pre-fill with start date
+        dueDate: endDate,     // Pre-fill with end date (or same as start for single day)
+        effort: 1,
+        columnId: firstColumn.id,
+        position: 0,
+        priority: getDefaultPriorityName(),
+        requesterId: currentUserMember.id,
+        boardId: boardId,
+        comments: []
+      };
+
+      try {
+        // Use createTaskAtTop for better positioning
+        const createdTask = await createTaskAtTop(newTask);
+        console.log('✅ Task created successfully:', createdTask);
+        
+        // Refresh data to get updated state
+        if (onRefreshData) {
+          await onRefreshData();
+        }
+        
+        // Open the task in detail view for editing
+        onSelectTask(createdTask);
+        
+      } catch (error) {
+        console.error('❌ Failed to create task:', error);
+      }
+    } else if (onAddTask) {
+      // Fallback to basic task creation
+      console.log('🆕 Creating basic task in column:', firstColumn.title);
+      await onAddTask(firstColumn.id);
+    }
+  };
+
+  // Handle mouse down for task creation (start of potential drag)
+  const handleTaskCreationMouseDown = (dateString: string, event: React.MouseEvent) => {
+    // Prevent if we're already dragging a task
+    if (activeDragItem) return;
+    
+    event.preventDefault();
+    setIsCreatingTask(true);
+    setTaskCreationStart(dateString);
+    setTaskCreationEnd(dateString); // Start with same date
+    console.log('🎯 Started task creation at:', dateString);
+  };
+
+  // Handle mouse enter during task creation drag
+  const handleTaskCreationMouseEnter = (dateString: string) => {
+    if (isCreatingTask && taskCreationStart) {
+      setTaskCreationEnd(dateString);
+      console.log('🖱️ Task creation drag to:', dateString);
+    }
+  };
+
+  // Handle mouse up to complete task creation
+  const handleTaskCreationMouseUp = async (event: React.MouseEvent) => {
+    if (isCreatingTask && taskCreationStart && taskCreationEnd) {
+      event.preventDefault();
+      
+      // Determine start and end dates (handle drag in either direction)
+      const startDateObj = parseLocalDate(taskCreationStart);
+      const endDateObj = parseLocalDate(taskCreationEnd);
+      
+      const finalStartDate = startDateObj <= endDateObj ? taskCreationStart : taskCreationEnd;
+      const finalEndDate = startDateObj <= endDateObj ? taskCreationEnd : taskCreationStart;
+      
+      console.log('🆕 Creating task from', finalStartDate, 'to', finalEndDate);
+      
+      // Clear creation state
+      setIsCreatingTask(false);
+      setTaskCreationStart(null);
+      setTaskCreationEnd(null);
+      
+      // Create the task
+      await createTaskWithDateRange(finalStartDate, finalEndDate);
+    } else {
+      // Clear state if something went wrong
+      setIsCreatingTask(false);
+      setTaskCreationStart(null);
+      setTaskCreationEnd(null);
+    }
+  };
+
+  // Handle creating a new task when clicking on empty grid space (backward compatibility)
+  const handleCreateTaskOnDate = async (dateString: string) => {
+    // For single click, create task with same start and due date
+    await createTaskWithDateRange(dateString, dateString);
   };
 
   // Handle task jump from dropdown
@@ -537,6 +705,25 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       console.error('Failed to jump to task:', error);
     }
   }, [scrollToTask]);
+
+  // Add global mouse up listener for task creation
+  useEffect(() => {
+    const handleGlobalMouseUp = (event: MouseEvent) => {
+      if (isCreatingTask) {
+        // Convert to React event for compatibility
+        const reactEvent = {
+          preventDefault: () => event.preventDefault(),
+          stopPropagation: () => event.stopPropagation()
+        } as React.MouseEvent;
+        handleTaskCreationMouseUp(reactEvent);
+      }
+    };
+
+    if (isCreatingTask) {
+      document.addEventListener('mouseup', handleGlobalMouseUp);
+      return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
+    }
+  }, [isCreatingTask, taskCreationStart, taskCreationEnd]);
 
   // Show loading state while dateRange is initializing
   if (dateRange.length === 0) {
@@ -563,7 +750,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       onDragOver={handleDragOver} 
       onDragEnd={handleDragEnd}
     >
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white rounded-lg border border-gray-200 overflow-visible">
       {/* Header */}
       <div className="border-b border-gray-200 p-4">
         <div className="flex items-center justify-between gap-4">
@@ -580,21 +767,57 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           </div>
           
           {/* Navigation Controls */}
-          <div className="flex items-center gap-3">
-            {/* Navigation Buttons */}
-            <div className="flex items-center gap-2">
-              {/* Today Button */}
+          <div className="flex items-center gap-4">
+            {/* Task Navigation: < Task > */}
+            <div className="flex items-center gap-1">
+              {/* Jump to Earliest Task */}
               <button
-                onClick={scrollToToday}
-                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-                title="Scroll to today"
+                onClick={() => {
+                  if (ganttTasks.length > 0) {
+                    const earliestTask = ganttTasks.reduce((earliest, task) => 
+                      (!earliest.startDate || (task.startDate && task.startDate < earliest.startDate)) ? task : earliest
+                    );
+                    if (earliestTask.startDate) {
+                      scrollToTask(earliestTask.startDate, earliestTask.endDate || earliestTask.startDate, 'start-left');
+                    }
+                  }
+                }}
+                disabled={ganttTasks.length === 0}
+                className="p-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Jump to earliest task"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-                Today
               </button>
 
+              {/* Task Label */}
+              <span className="text-sm text-gray-600 font-medium px-2">Task</span>
+
+              {/* Jump to Latest Task */}
+              <button
+                onClick={() => {
+                  if (ganttTasks.length > 0) {
+                    const latestTask = ganttTasks.reduce((latest, task) => 
+                      (!latest.endDate || (task.endDate && task.endDate > latest.endDate)) ? task : latest
+                    );
+                    if (latestTask.endDate) {
+                      scrollToTask(latestTask.startDate || latestTask.endDate, latestTask.endDate, 'end-right');
+                    }
+                  }
+                }}
+                disabled={ganttTasks.length === 0}
+                className="p-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Jump to latest task"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Date Navigation: < Earlier Today Later > */}
+            <div className="flex items-center gap-2">
               {/* Earlier Button */}
               <button
                 onClick={scrollEarlier}
@@ -605,6 +828,18 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
                 Earlier
+              </button>
+
+              {/* Today Button */}
+              <button
+                onClick={scrollToToday}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to today"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Today
               </button>
 
               {/* Later Button */}
@@ -618,16 +853,16 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
               </button>
+            </div>
 
-              {/* Loading Indicator - Fixed position to prevent layout shift */}
-              <div className="relative w-20 flex justify-center">
-                {isLoading && (
-                  <div className="absolute flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md whitespace-nowrap">
-                    <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    Loading
-                  </div>
-                )}
-              </div>
+            {/* Loading Indicator - Fixed position to prevent layout shift */}
+            <div className="relative w-20 flex justify-center">
+              {isLoading && (
+                <div className="absolute flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md whitespace-nowrap">
+                  <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  Loading
+                </div>
+              )}
             </div>
 
             {/* Task Jump Dropdown */}
@@ -651,8 +886,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           className="sticky left-0 z-10 bg-white border-r border-gray-200"
           style={{ width: `${taskColumnWidth}px` }}
         >
-          {/* Task Header */}
-          <div className="p-3 font-medium text-gray-700 border-b border-gray-200 bg-gray-50 flex items-center justify-between h-12">
+          {/* Task Header - matches Month/Day headers (h-6 + h-8 = 24px + 32px = 56px) */}
+          <div className="font-medium text-gray-700 border-b border-gray-200 bg-gray-50 flex items-center justify-between px-3" style={{ height: '56px' }}>
             <span>Task</span>
             {/* Resize handle */}
             <div
@@ -660,6 +895,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               onMouseDown={handleResizeStart}
               title="Drag to resize task column"
             />
+          </div>
+          
+          {/* Task Creation Header Row - matches creation row in timeline */}
+          <div className="h-12 bg-blue-50 border-b border-gray-200 flex items-center justify-end px-3">
+            <span className="text-sm text-blue-700 font-medium">Add tasks here →</span>
           </div>
           
           {/* Task Info Rows */}
@@ -720,15 +960,33 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         >
           
           <div className="min-w-[800px]">
-            {/* Date Header */}
+            {/* Month/Year Header Row - STICKY */}
             <div 
-              className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-12"
+              className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6 sticky top-0 z-20"
+              style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
+            >
+              {virtualViewport.visibleDates.map((dateCol, index) => (
+                <div
+                  key={index}
+                  className="text-xs text-center py-1 border-r border-gray-200"
+                  style={{ minWidth: '20px' }}
+                >
+                  {dateCol.date.getDate() === 1 && (
+                    <span className="text-gray-600 font-medium">
+                      {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}'{dateCol.date.getFullYear().toString().slice(-2)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            {/* Day Numbers Row - STICKY */}
+            <div 
+              className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8 sticky top-6 z-20"
               style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
             >
             {virtualViewport.visibleDates.map((dateCol, index) => {
               const actualIndex = virtualViewport.startIndex + index;
-              const prevDateCol = index > 0 ? virtualViewport.visibleDates[index - 1] : null;
-              const isFirstOfMonth = !prevDateCol || prevDateCol.date.getMonth() !== dateCol.date.getMonth();
               
               return (
                 <div
@@ -740,22 +998,79 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   style={{ minWidth: '20px' }}
                 >
                   <div>{dateCol.date.getDate()}</div>
-                  {(actualIndex % 7 === 0 || isFirstOfMonth) && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}
-                      {/* Show year for first month occurrence */}
-                      {isFirstOfMonth && (
-                        <div className="text-xs text-gray-400">
-                          {dateCol.date.getFullYear()}
-                        </div>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
             </div>
 
+            {/* Task Creation Row - STICKY */}
+            <div 
+              className="grid border-b border-gray-200 bg-white transition-colors relative h-12 sticky top-14 z-20"
+              style={{ gridTemplateColumns: `repeat(${virtualViewport.visibleDates.length}, 1fr)` }}
+            >
+              {virtualViewport.visibleDates.map((dateCol, relativeIndex) => {
+                const dateIndex = virtualViewport.startIndex + relativeIndex;
+                const dateString = dateCol.date.toISOString().split('T')[0];
+                
+                return (
+                  <div
+                    key={`create-${dateIndex}`}
+                    className={`border-r border-gray-100 hover:bg-blue-50 transition-colors flex items-center justify-center group relative ${
+                      isCreatingTask ? 'cursor-crosshair bg-blue-100' : 'cursor-pointer'
+                    } ${
+                      dateCol.isToday ? 'bg-blue-50' : 
+                      dateCol.isWeekend ? 'bg-gray-50' : ''
+                    }`}
+                    style={{ minWidth: '20px' }}
+                    onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
+                    onMouseEnter={() => handleTaskCreationMouseEnter(dateString)}
+                    onClick={() => !isCreatingTask && handleCreateTaskOnDate(dateString)}
+                    title={isCreatingTask ? "Drag to set date range" : `Create task on ${dateCol.date.toLocaleDateString()}`}
+                  >
+                    {/* Plus icon - visible on hover */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                    </div>
+                    
+                    {/* Date range feedback during drag */}
+                    {(() => {
+                      if (!isCreatingTask || !taskCreationStart || !taskCreationEnd) return null;
+                      
+                      const startDate = new Date(taskCreationStart);
+                      const endDate = new Date(taskCreationEnd);
+                      const currentDate = new Date(dateString);
+                      const isInRange = currentDate >= startDate && currentDate <= endDate;
+                      
+                      if (isInRange) {
+                        const daysDiff = Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1;
+                        const isStart = currentDate.getTime() === startDate.getTime();
+                        const isEnd = currentDate.getTime() === endDate.getTime();
+                        
+                        return (
+                          <div className={`absolute inset-0 flex items-center justify-center ${
+                            isStart || isEnd ? 'bg-blue-400 opacity-80' : 'bg-blue-300 opacity-70'
+                          }`}>
+                            {(isStart || (daysDiff === 1)) && (
+                              <span className="text-xs font-bold text-white">
+                                {daysDiff} day{daysDiff !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+
+          {/* Timeline Content Area */}
+          <div className="flex-1 overflow-x-auto relative">
+          
+          <div className="min-w-[800px]">
             {/* Task Timeline Rows */}
             {visibleTasks && visibleTasks.length > 0 ? visibleTasks.map((task, taskIndex) => {
               const gridPosition = getTaskBarGridPosition(task);
@@ -787,10 +1102,22 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     });
 
 
+                    // Check if this date is in the creation selection (ONLY during active task creation)
+                    const isInCreationRange = !!(isCreatingTask && taskCreationStart && taskCreationEnd && (() => {
+                      const startDateObj = parseLocalDate(taskCreationStart);
+                      const endDateObj = parseLocalDate(taskCreationEnd);
+                      const currentDateObj = parseLocalDate(dateString);
+                      
+                      const rangeStart = startDateObj <= endDateObj ? startDateObj : endDateObj;
+                      const rangeEnd = startDateObj <= endDateObj ? endDateObj : startDateObj;
+                      
+                      return currentDateObj >= rangeStart && currentDateObj <= rangeEnd;
+                    })());
+
                     return (
                       <div
                         ref={setNodeRef}
-                        className={`h-16 border-r border-gray-100 ${
+                        className={`h-16 border-r border-gray-100 transition-colors ${
                           dateCol.isToday ? 'bg-blue-50' : 
                           dateCol.isWeekend ? 'bg-gray-50' : ''
                         }`}
@@ -800,6 +1127,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           minWidth: '20px' 
                         }}
                       >
+                        {/* Background cell - no task creation here anymore */}
                       </div>
                     );
                   };
@@ -852,8 +1180,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       className={`h-6 rounded ${isDragging ? 'opacity-90 ring-2 ring-blue-400' : 'opacity-80 hover:opacity-100'} transition-all flex items-center group relative`}
                       style={{
                         gridColumn: startIndex === endIndex 
-                          ? `${startIndex + 2} / ${startIndex + 3}` // 1-day task: exactly 1 column
-                          : `${startIndex + 2} / ${endIndex + 3}`,   // Multi-day task: normal span
+                          ? `${startIndex + 1} / ${startIndex + 2}` // 1-day task: exactly 1 column
+                          : `${startIndex + 1} / ${endIndex + 2}`,   // Multi-day task: normal span
                         gridRow: 1,
                         alignSelf: 'center',
                         zIndex: isDragging ? 25 : 10,
@@ -961,17 +1289,43 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   const dateString = dateCol.date.toISOString().split('T')[0];
                   const dropId = `date-${dateIndex}`;
 
+                  // Check if this date is in the creation selection (ONLY in empty state)
+                  const isInCreationRange = !!(isCreatingTask && taskCreationStart && taskCreationEnd && (() => {
+                    const startDateObj = parseLocalDate(taskCreationStart);
+                    const endDateObj = parseLocalDate(taskCreationEnd);
+                    const currentDateObj = parseLocalDate(dateString);
+                    
+                    const rangeStart = startDateObj <= endDateObj ? startDateObj : endDateObj;
+                    const rangeEnd = startDateObj <= endDateObj ? endDateObj : startDateObj;
+                    
+                    return currentDateObj >= rangeStart && currentDateObj <= rangeEnd;
+                  })());
+
                   return (
                     <div
                       key={dropId}
-                      className={`relative border-r border-gray-100 h-full ${
-                        dateCol.isToday ? 'bg-blue-50' :
-                        dateCol.isWeekend ? 'bg-gray-50' : 'bg-white'
-                      } hover:bg-blue-100 transition-colors cursor-pointer`}
+                      className={`relative border-r border-gray-100 h-full transition-colors cursor-pointer ${
+                        isInCreationRange 
+                          ? 'bg-blue-200 border-blue-300' 
+                          : `${dateCol.isToday ? 'bg-blue-50' :
+                               dateCol.isWeekend ? 'bg-gray-50' : 'bg-white'
+                             } hover:bg-blue-100`
+                      }`}
                       style={{ minWidth: '20px' }}
-                      title={`Create task on ${dateCol.date.toLocaleDateString()}`}
+                      onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
+                      onMouseEnter={() => handleTaskCreationMouseEnter(dateString)}
+                      onClick={() => !isCreatingTask && handleCreateTaskOnDate(dateString)}
+                      title={isCreatingTask ? "Drag to set date range" : `Create task on ${dateCol.date.toLocaleDateString()}`}
                     >
-                      {/* Future: Add click handler for task creation */}
+                      {/* Show creation feedback only during active drag */}
+                      {isInCreationRange && (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-xs text-blue-700 font-medium bg-white px-1 rounded">
+                            {taskCreationStart === taskCreationEnd ? '1 day' : 
+                             Math.abs(parseLocalDate(taskCreationEnd).getTime() - parseLocalDate(taskCreationStart).getTime()) / (1000 * 60 * 60 * 24) + 1 + ' days'}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -980,6 +1334,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           )}
           </div>
         </div>
+        </div>
+      </div>
       </div>
 
       {/* Legend */}
