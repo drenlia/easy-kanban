@@ -68,11 +68,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     sampleRate: 0.05 // Sample 5% of operations in production
   });
 
-  // Configure DnD sensors to restrict to horizontal movement
+  // Configure DnD sensors for immediate response (like Kanban view)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 5, // Require 5px movement before drag starts
+        distance: 3, // Reduce from 5px to 3px for faster drag initiation
       },
     }),
     useSensor(KeyboardSensor)
@@ -85,6 +85,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       y: 0, // Force Y position to 0, only allow X movement
     };
   };
+
+
+
 
   // Handle task column resizing
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -124,28 +127,45 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     loadPreferences();
   }, []);
 
-  // Save task column width to user preferences when it changes (debounced)
+  // Save task column width to user preferences when it changes (heavily debounced for performance)
   useEffect(() => {
-    const savePreference = async () => {
+    const savePreference = () => {
+      // Use requestIdleCallback for non-blocking operation
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
       try {
         const currentPreferences = await loadUserPreferencesAsync();
         await saveUserPreferences({
           ...currentPreferences,
           ganttTaskColumnWidth: taskColumnWidth
         });
-        console.log('💾 Saved task column width:', taskColumnWidth);
       } catch (error) {
-        console.error('Failed to save task column width preference:', error);
+            // Silent fail to avoid blocking
+          }
+        });
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(async () => {
+          try {
+            const currentPreferences = await loadUserPreferencesAsync();
+            await saveUserPreferences({
+              ...currentPreferences,
+              ganttTaskColumnWidth: taskColumnWidth
+            });
+          } catch (error) {
+            // Silent fail to avoid blocking
+          }
+        }, 100);
       }
     };
     
-    // Debounce the save to avoid excessive API calls during resize
+    // Heavily debounce the save to avoid blocking during resize (2 seconds)
     const timeoutId = setTimeout(() => {
       // Only save if not the initial default value (avoid saving on mount)
       if (taskColumnWidth !== 320) {
         savePreference();
       }
-    }, 500); // 500ms debounce
+    }, 2000); // 2000ms debounce for performance
     
     return () => clearTimeout(timeoutId);
   }, [taskColumnWidth]);
@@ -186,7 +206,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     return earliest;
   }, [columns]);
 
-  // Extract and prepare tasks from all columns (needed before useVirtualViewport)
+  // Extract and prepare tasks from all columns (memoized for performance)
   const ganttTasks = useMemo(() => measureFunction(() => {
     const tasks: GanttTask[] = [];
     
@@ -302,8 +322,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     setViewportCenter(centerDate);
     
-    // Initial range: 6 months total (3 months before and after center)
-    const initialMonths = 3;
+    // Initial range: 2 months total (1 month before and after center) - PERFORMANCE FIX
+    const initialMonths = 1;
     const startDate = new Date(centerDate);
     startDate.setMonth(startDate.getMonth() - initialMonths);
     startDate.setDate(1); // Start of month
@@ -338,8 +358,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     // Prepend new dates
     const updatedRange = [...newDates, ...dateRange];
     
-    // Memory management: Keep max 12 months (trim from end if needed)
-    const maxDays = 365;
+    // Memory management: Keep max 4 months (trim from end if needed) - PERFORMANCE FIX
+    const maxDays = 120;
     const finalRange = updatedRange.length > maxDays 
       ? updatedRange.slice(0, maxDays) 
       : updatedRange;
@@ -375,8 +395,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     // Append new dates
     const updatedRange = [...dateRange, ...newDates];
     
-    // Memory management: Keep max 12 months (trim from start if needed)
-    const maxDays = 365;
+    // Memory management: Keep max 4 months (trim from start if needed) - PERFORMANCE FIX
+    const maxDays = 120;
     const finalRange = updatedRange.length > maxDays 
       ? updatedRange.slice(-maxDays) 
       : updatedRange;
@@ -391,9 +411,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     setIsLoading(false);
   }, [dateRange, generateDateRange]);
 
-  // Get all tasks (all tasks always available)
-  const getVisibleTasks = useCallback(() => ganttTasks, [ganttTasks]);
-  
+  // Create a memoized date-to-index map for O(1) lookups instead of O(n) linear search
+  const dateToIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    dateRange.forEach((dateCol, index) => {
+      const dateStr = dateCol.date.toISOString().split('T')[0];
+      map.set(dateStr, index);
+    });
+    return map;
+  }, [dateRange]);
+
+
   // Navigation functions
   const scrollToToday = useCallback(() => {
     if (!scrollContainerRef.current) return;
@@ -489,6 +517,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     });
   }, [loadLater, dateRange.length]);
 
+
   // Simple viewport (all dates always visible)
   const virtualViewport = useMemo(() => ({
     startIndex: 0,
@@ -500,43 +529,37 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   }), [dateRange]);
 
   // Calculate task bar grid position
-  const getTaskBarGridPosition = (task: GanttTask) => {
+  // Optimized task bar grid position calculation using fast O(1) lookups
+  const getTaskBarGridPosition = useCallback((task: GanttTask) => {
     if (!task.startDate || !task.endDate) return null;
     
-    // Find start and end day indices by comparing dates directly
-    const taskStartDate = task.startDate;
-    const taskEndDate = task.endDate;
+    const taskStartStr = task.startDate.toISOString().split('T')[0];
+    const taskEndStr = task.endDate.toISOString().split('T')[0];
     
-    // Find the index of the start date in our date range
-    let startDayIndex = -1;
-    let endDayIndex = -1;
+    // Fast O(1) lookup instead of O(n) linear search - MAJOR PERFORMANCE IMPROVEMENT
+    let startDayIndex = dateToIndexMap.get(taskStartStr) ?? -1;
+    let endDayIndex = dateToIndexMap.get(taskEndStr) ?? -1;
     
-    for (let i = 0; i < dateRange.length; i++) {
-      const rangeDate = dateRange[i].date;
-      
-      // Compare dates by their date string (YYYY-MM-DD) to avoid timezone issues
-      const rangeDateStr = rangeDate.toISOString().split('T')[0];
-      const taskStartStr = taskStartDate.toISOString().split('T')[0];
-      const taskEndStr = taskEndDate.toISOString().split('T')[0];
-      
-      if (startDayIndex === -1 && rangeDateStr === taskStartStr) {
-        startDayIndex = i;
-      }
-      if (rangeDateStr === taskEndStr) {
-        endDayIndex = i;
-      }
-    }
-    
-    // If dates are outside visible range, calculate approximate position
+    // Handle dates outside visible range
     if (startDayIndex === -1 || endDayIndex === -1) {
+      if (dateRange.length === 0) return null;
+      
       const firstDate = dateRange[0].date;
       const lastDate = dateRange[dateRange.length - 1].date;
       
-      if (taskStartDate < firstDate) startDayIndex = 0;
-      else if (taskStartDate > lastDate) return null; // Task starts after visible range
+      // Task starts before visible range
+      if (task.startDate < firstDate) {
+        startDayIndex = 0;
+      } else if (task.startDate > lastDate) {
+        return null; // Task starts after visible range
+      }
       
-      if (taskEndDate > lastDate) endDayIndex = dateRange.length - 1;
-      else if (taskEndDate < firstDate) return null; // Task ends before visible range
+      // Task ends after visible range
+      if (task.endDate > lastDate) {
+        endDayIndex = dateRange.length - 1;
+      } else if (task.endDate < firstDate) {
+        return null; // Task ends before visible range
+      }
     }
     
     // Ensure we have valid indices
@@ -555,28 +578,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       result.gridColumnEnd = result.gridColumnStart + 1; // 1-day task spans exactly 1 column
     }
     
-    
     return result;
-  };
+  }, [dateToIndexMap, dateRange]);
 
-
-  // Get all tasks (no virtual filtering - all tasks are always visible)
-  const visibleTasks = useMemo(() => {
-    return getVisibleTasks();
-  }, [getVisibleTasks]);
-
-  // Get priority color from dynamic priorities
-  const getPriorityColor = (priority: string) => {
-    const priorityOption = priorities.find(p => p.priority.toLowerCase() === priority.toLowerCase());
-    if (priorityOption) {
-      // Return both background color and appropriate text color
-      return {
-        backgroundColor: priorityOption.color,
-        color: getContrastColor(priorityOption.color)
-      };
-    }
-    return { backgroundColor: '#007bff', color: '#ffffff' }; // Fallback blue with white text
-  };
 
   // Helper function to determine text color based on background
   const getContrastColor = (hexColor: string): string => {
@@ -594,6 +598,40 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     // Return black for light backgrounds, white for dark backgrounds
     return luminance > 0.5 ? '#000000' : '#ffffff';
   };
+
+  // Limit visible tasks during drag operations to prevent DOM thrashing
+  const visibleTasks = useMemo(() => {
+    // During drag operations, limit to max 20 tasks to prevent performance issues
+    if (activeDragItem && ganttTasks.length > 20) {
+      // Find the dragged task and show a window around it
+      const draggedTaskIndex = ganttTasks.findIndex(t => t.id === activeDragItem.taskId);
+      if (draggedTaskIndex >= 0) {
+        const start = Math.max(0, draggedTaskIndex - 10);
+        const end = Math.min(ganttTasks.length, draggedTaskIndex + 10);
+        return ganttTasks.slice(start, end);
+      }
+      return ganttTasks.slice(0, 20);
+    }
+    return ganttTasks;
+  }, [ganttTasks, activeDragItem]);
+
+  // Memoized priority color lookup for performance
+  const priorityColorMap = useMemo(() => {
+    const map = new Map<string, any>();
+    priorities.forEach(p => {
+      map.set(p.priority.toLowerCase(), {
+        backgroundColor: p.color,
+        color: getContrastColor(p.color)
+      });
+    });
+    // Add fallback
+    map.set('__fallback__', { backgroundColor: '#007bff', color: '#ffffff' });
+    return map;
+  }, [priorities]);
+
+  const getPriorityColor = useCallback((priority: string) => {
+    return priorityColorMap.get(priority?.toLowerCase()) || priorityColorMap.get('__fallback__');
+  }, [priorityColorMap]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
@@ -624,56 +662,54 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   };
 
   // DnD-Kit handlers
-  const handleDragStart = (event: DragStartEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     const dragData = event.active.data.current as GanttDragItem;
     setActiveDragItem(dragData);
     setCurrentHoverDate(null);
-    console.log('🎯 Drag started:', dragData);
     
-    // Call standard drag start handler to set draggedTask state (disables polling)
+    // Immediately disable polling for smooth drag experience (like Kanban view)
     if (onTaskDragStart && dragData?.taskId) {
-      const draggedTask = ganttTasks.find(t => t.id === dragData.taskId);
-      if (draggedTask) {
-        // Convert GanttTask to Task format
+      // Fast lookup for the original task to disable polling immediately
         const taskForParent = Object.values(columns)
           .flatMap(col => col.tasks)
-          .find(t => t.id === draggedTask.id);
+        .find(t => t.id === dragData.taskId);
         
         if (taskForParent) {
           onTaskDragStart(taskForParent);
-          console.log('🛡️ Drag state set - polling disabled');
-        }
       }
     }
-  };
+  }, [onTaskDragStart, columns]);
 
-  const handleDragOver = (event: DragOverEvent) => {
+  // Throttle drag over updates for better performance
+  const throttledSetHoverDate = useCallback((date: string) => {
+    requestAnimationFrame(() => {
+      setCurrentHoverDate(date);
+    });
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
     const { over } = event;
     if (over && activeDragItem) {
       const dropData = over.data.current as { date: string; dateIndex: number };
-      setCurrentHoverDate(dropData.date);
-      console.log('🖱️ Dragging over date:', dropData.date, 'for task:', activeDragItem.taskId);
-    } else {
-      console.log('🚫 No over target or activeDragItem:', { over: over?.id, activeDragItem: !!activeDragItem });
+      // Only update if the date has actually changed to avoid unnecessary re-renders
+      if (currentHoverDate !== dropData.date) {
+        throttledSetHoverDate(dropData.date);
+      }
     }
-  };
+  }, [activeDragItem, currentHoverDate, throttledSetHoverDate]);
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const { over } = event;
-    
-    console.log('🎯 Drag ended:', { over: over?.id, activeDragItem });
     
     // Always clear hover state immediately
     setCurrentHoverDate(null);
     
     if (!over || !activeDragItem) {
-      console.log('❌ Drag ended without valid drop target or drag item');
       setActiveDragItem(null);
       
       // Still call drag end handler to clear state
       if (onTaskDragEnd) {
         onTaskDragEnd();
-        console.log('🔄 Drag state cleared - polling re-enabled');
       }
       
       return;
@@ -682,19 +718,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const dropData = over.data.current as { date: string; dateIndex: number };
     const targetDate = dropData.date;
     
-    console.log('🎯 Drag ended:', { dragItem: activeDragItem, targetDate });
-
-    // Simple approach: Set drag state immediately (disables polling)
-    if (onTaskDragStart && activeDragItem?.taskId) {
-      const taskForParent = Object.values(columns)
-        .flatMap(col => col.tasks)
-        .find(t => t.id === activeDragItem.taskId);
-      
-      if (taskForParent) {
-        onTaskDragStart(taskForParent);
-        console.log('🛡️ Polling disabled during update');
-      }
-    }
+    // Note: onTaskDragStart already called in handleDragStart, no need to call again here
 
     try {
       // Find the original task
@@ -703,42 +727,22 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         .find(t => t.id === activeDragItem.taskId);
 
       if (!originalTask) {
-        console.error('❌ Original task not found');
         return;
       }
 
-      // Calculate the updated task
-      let updatedTask = { ...originalTask };
-
-      console.log('🔧 Before update:', { 
-        dragType: activeDragItem.dragType, 
-        targetDate, 
-        currentStart: originalTask.startDate, 
-        currentDue: originalTask.dueDate 
-      });
+      // Calculate the updated task efficiently
+      const updatedTask = { ...originalTask };
 
       if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE) {
         const currentEndDate = originalTask.dueDate;
-        if (currentEndDate && targetDate > currentEndDate) {
-          updatedTask.startDate = currentEndDate;
-          console.log('📅 Clamping startDate to endDate for 1-day task:', currentEndDate);
-        } else {
-          updatedTask.startDate = targetDate;
-          console.log('📅 Setting startDate to:', targetDate);
-        }
+        updatedTask.startDate = (currentEndDate && targetDate > currentEndDate) ? currentEndDate : targetDate;
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE) {
         const currentStartDate = originalTask.startDate;
-        if (currentStartDate && targetDate < currentStartDate) {
-          updatedTask.dueDate = currentStartDate;
-          console.log('📅 Clamping endDate to startDate for 1-day task:', currentStartDate);
-        } else {
-          updatedTask.dueDate = targetDate;
-          console.log('📅 Setting dueDate to:', targetDate);
-        }
+        updatedTask.dueDate = (currentStartDate && targetDate < currentStartDate) ? currentStartDate : targetDate;
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
         const originalStart = new Date(activeDragItem.originalStartDate);
         const originalEnd = new Date(activeDragItem.originalEndDate);
-        const taskDuration = Math.abs(originalEnd.getTime() - originalStart.getTime());
+        const taskDuration = originalEnd.getTime() - originalStart.getTime();
         const newStartDate = new Date(targetDate);
         const newEndDate = new Date(newStartDate.getTime() + taskDuration);
         
@@ -746,32 +750,35 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         updatedTask.dueDate = newEndDate.toISOString().split('T')[0];
       }
 
-      console.log('🔄 Calling handleEditTask with:', updatedTask);
-
-      // Use the exact same function that ListView and TaskCard use
+      // Use optimistic update (non-blocking) to prevent message handler violations
       if (onUpdateTask) {
-        await onUpdateTask(updatedTask);
-        console.log('✅ Task updated successfully');
+        // Schedule the update for the next tick to avoid blocking the drag completion
+        setTimeout(() => {
+          try {
+            onUpdateTask(updatedTask);
+          } catch (error) {
+            console.error('Failed to update task:', error);
+          }
+        }, 0);
       }
 
     } catch (error) {
-      console.error('❌ Failed to update task:', error);
+      console.error('Failed to update task:', error);
     } finally {
       // Clear drag state (re-enables polling)
       if (onTaskDragEnd) {
         onTaskDragEnd();
-        console.log('🔄 Polling re-enabled');
       }
       
       setActiveDragItem(null);
       setCurrentHoverDate(null);
     }
-  };
+  }, [activeDragItem, columns, onTaskDragStart, onTaskDragEnd, onUpdateTask]);
 
-  const handleTaskDrop = (dragData: GanttDragItem, targetDate: string) => {
+  const handleTaskDrop = useCallback((dragData: GanttDragItem, targetDate: string) => {
     // This will be called by DateColumn, but the actual logic is in handleDragEnd
-    console.log('📍 Task dropped on date:', { dragData, targetDate });
-  };
+    // Keeping this minimal for performance
+  }, []);
 
   // Get default priority name  
   const getDefaultPriorityName = (): string => {
@@ -780,17 +787,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   };
 
   // Handle task creation with date range support
-  const createTaskWithDateRange = async (startDate: string, endDate: string) => {
+  const createTaskWithDateRange = useCallback(async (startDate: string, endDate: string) => {
     // Find the first column (position 0) to add the task to
     const firstColumn = Object.values(columns).find(col => col.position === 0);
     if (!firstColumn) {
-      console.error('No first column found for task creation');
       return;
     }
 
     // If we have advanced task creation capabilities, use them
     if (currentUser && members && boardId) {
-      console.log('🆕 Creating advanced task with date range:', startDate, 'to', endDate, 'in column:', firstColumn.title);
       
       // Find current user member
       const currentUserMember = members.find(m => m.user_id === currentUser.id);
@@ -819,7 +824,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       try {
         // Use createTaskAtTop for better positioning
         const createdTask = await createTaskAtTop(newTask);
-        console.log('✅ Task created successfully:', createdTask);
         
         // Refresh data to get updated state
         if (onRefreshData) {
@@ -830,14 +834,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         onSelectTask(createdTask);
         
       } catch (error) {
-        console.error('❌ Failed to create task:', error);
+        console.error('Failed to create task:', error);
       }
     } else if (onAddTask) {
       // Fallback to basic task creation
-      console.log('🆕 Creating basic task in column:', firstColumn.title);
       await onAddTask(firstColumn.id);
     }
-  };
+  }, [columns, currentUser, members, boardId, onRefreshData, onSelectTask, onAddTask]);
 
   // Handle mouse down for task creation (start of potential drag)
   const handleTaskCreationMouseDown = (dateString: string, event: React.MouseEvent) => {
@@ -1294,6 +1297,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         <div 
           ref={scrollContainerRef}
           className="flex-1 overflow-x-auto relative"
+          style={{
+            willChange: activeDragItem ? 'scroll-position' : 'auto',
+            contain: 'layout style' // Performance optimization for contained rendering
+          }}
         >
           
           <div 
@@ -1431,9 +1438,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     taskViewMode === 'shrink' ? 'h-16' : 
                     'h-20'
                   }`}
-                  style={{ gridTemplateColumns: `repeat(${dateRange.length}, 1fr)` }}
+                  style={{ 
+                    gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                    willChange: activeDragItem ? 'transform' : 'auto' // Performance hint during drag
+                  }}
                 >
-                {/* Background Date Columns - droppable areas */}
+                {/* Background Date Columns - daily precision droppable areas */}
                 {dateRange.map((dateCol, relativeIndex) => {
                   const dateIndex = relativeIndex;
                   const dateString = dateCol.date.toISOString().split('T')[0];
@@ -1446,21 +1456,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       data: {
                         date: dateString,
                         dateIndex
-                      }
+                      },
+                      disabled: !activeDragItem // Only active during drag for performance
                     });
-
-
-                    // Check if this date is in the creation selection (ONLY during active task creation)
-                    const isInCreationRange = !!(isCreatingTask && taskCreationStart && taskCreationEnd && (() => {
-                      const startDateObj = parseLocalDate(taskCreationStart);
-                      const endDateObj = parseLocalDate(taskCreationEnd);
-                      const currentDateObj = parseLocalDate(dateString);
-                      
-                      const rangeStart = startDateObj <= endDateObj ? startDateObj : endDateObj;
-                      const rangeEnd = startDateObj <= endDateObj ? endDateObj : startDateObj;
-                      
-                      return currentDateObj >= rangeStart && currentDateObj <= rangeEnd;
-                    })());
 
                     return (
                       <div
@@ -1470,12 +1468,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           dateCol.isWeekend ? 'bg-gray-50' : ''
                         }`}
                         style={{ 
-                          gridColumn: relativeIndex + 1, // Relative to visible grid
+                          gridColumn: relativeIndex + 1,
                           gridRow: 1,
                           minWidth: '20px' 
                         }}
                       >
-                        {/* Background cell - no task creation here anymore */}
+                        {/* Background cell - daily precision */}
                       </div>
                     );
                   };
@@ -1531,6 +1529,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           ? `${startIndex + 1} / ${startIndex + 2}` // 1-day task: exactly 1 column
                           : `${startIndex + 1} / ${endIndex + 2}`,   // Multi-day task: normal span
                         gridRow: 1,
+                        willChange: isDragging ? 'opacity, transform' : 'auto', // Performance hint for drag operations
                         alignSelf: 'center',
                         zIndex: isDragging ? 25 : 10,
                         ...getPriorityColor(task.priority)
