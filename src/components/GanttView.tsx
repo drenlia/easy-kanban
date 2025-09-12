@@ -268,6 +268,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [isLoading, setIsLoading] = useState(false);
   const [viewportCenter, setViewportCenter] = useState<Date>(new Date()); // Track center of current view
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const [isInitialRangeSet, setIsInitialRangeSet] = useState(false);
   
   // Generate date range function
   const generateDateRange = useCallback((startDate: Date, endDate: Date) => {
@@ -293,6 +294,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Initialize date range based on tasks or default around today
   useEffect(() => {
+    // Only set initial range once to prevent unwanted repositioning after task updates
+    if (isInitialRangeSet) return;
+    
     // Find task date bounds
     let earliestTaskDate: Date | null = null;
     let latestTaskDate: Date | null = null;
@@ -337,7 +341,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     const initialRange = generateDateRange(startDate, endDate);
     setDateRange(initialRange);
-  }, [ganttTasks, generateDateRange]);
+    setIsInitialRangeSet(true); // Mark initial range as set
+  }, [ganttTasks, generateDateRange, isInitialRangeSet]);
 
   // Load earlier dates (2 months)
   const loadEarlier = useCallback(() => {
@@ -615,6 +620,39 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     return ganttTasks;
   }, [ganttTasks, activeDragItem]);
 
+  // Mathematical collision detection for precise drop positioning
+  const calculatePreciseDropPosition = useCallback((event: DragEndEvent | DragOverEvent) => {
+    if (!event.over?.data?.current?.isDensityCell) return null;
+    
+    // Only apply to task movement/creation, NOT to handle resizing
+    const dragType = event.active.data.current?.dragType;
+    if (dragType === DRAG_TYPES.TASK_START_HANDLE || dragType === DRAG_TYPES.TASK_END_HANDLE) {
+      return null; // Let handle logic handle precise positioning
+    }
+    
+    // Get the exact mouse position - try both current and translated rects
+    const draggedElement = event.active.rect.current.translated || event.active.rect.current.initial;
+    if (!draggedElement) return null;
+    
+    // For task movement, use the main timeline container (not task-specific container)
+    const timelineContainer = scrollContainerRef.current?.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) return null;
+    
+    // Calculate exact column based on mouse position relative to timeline
+    const rect = timelineContainer.getBoundingClientRect();
+    const relativeX = draggedElement.left - rect.left;
+    const columnWidth = rect.width / dateRange.length;
+    const exactColumn = Math.floor(relativeX / columnWidth);
+    
+    // Clamp to valid range
+    const clampedColumn = Math.max(0, Math.min(exactColumn, dateRange.length - 1));
+    
+    return {
+      dateIndex: clampedColumn,
+      date: dateRange[clampedColumn]?.date.toISOString().split('T')[0]
+    };
+  }, [dateRange]);
+
   // Memoized priority color lookup for performance
   const priorityColorMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -690,10 +728,25 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { over } = event;
     if (over && activeDragItem) {
-      const dropData = over.data.current as { date: string; dateIndex: number };
+      const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
+      
+      // For visual feedback during drag, prioritize direct dropData for responsiveness
+      let targetDate = dropData.date;
+      
+      // Only use precise calculation for final positioning (not for visual feedback)
+      // This ensures smooth cursor following during drag
+      const dragType = activeDragItem.dragType;
+      if (dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
+        // For task movement, use dropData.date directly for better visual feedback
+        targetDate = dropData.date;
+      }
+      
       // Only update if the date has actually changed to avoid unnecessary re-renders
-      if (currentHoverDate !== dropData.date) {
-        throttledSetHoverDate(dropData.date);
+      if (currentHoverDate !== targetDate) {
+        // Use requestAnimationFrame for smoother updates
+        requestAnimationFrame(() => {
+          throttledSetHoverDate(targetDate);
+        });
       }
     }
   }, [activeDragItem, currentHoverDate, throttledSetHoverDate]);
@@ -715,8 +768,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       return;
     }
 
-    const dropData = over.data.current as { date: string; dateIndex: number };
-    const targetDate = dropData.date;
+    // Use mathematical collision detection for density cells, otherwise use direct drop data
+    const precisePosition = calculatePreciseDropPosition(event);
+    const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
+    const targetDate = precisePosition?.date || dropData.date;
     
     // Note: onTaskDragStart already called in handleDragStart, no need to call again here
 
@@ -1443,21 +1498,30 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     willChange: activeDragItem ? 'transform' : 'auto' // Performance hint during drag
                   }}
                 >
-                {/* Background Date Columns - daily precision droppable areas */}
+                {/* Background Date Columns - optimized droppable density */}
                 {dateRange.map((dateCol, relativeIndex) => {
                   const dateIndex = relativeIndex;
                   const dateString = dateCol.date.toISOString().split('T')[0];
                   const dropId = `date-${dateIndex}`;
                   
-                  // Inline droppable component
+                  // Smart density: every 3rd date for large ranges, every date for small ranges
+                  // BUT: always full precision for handle dragging AND task movement (for smooth visual feedback)
+                  const useDensity = dateRange.length > 90;
+                  const isHandleDrag = activeDragItem?.dragType === DRAG_TYPES.TASK_START_HANDLE || 
+                                     activeDragItem?.dragType === DRAG_TYPES.TASK_END_HANDLE;
+                  const isTaskMovement = activeDragItem?.dragType === DRAG_TYPES.TASK_MOVE_HANDLE;
+                  const isDensityDate = !useDensity || isHandleDrag || isTaskMovement || relativeIndex % 3 === 0;
+                  
+                  // Inline droppable component (only for density dates)
                   const DroppableDateCell = () => {
                     const { setNodeRef } = useDroppable({
                       id: dropId,
                       data: {
                         date: dateString,
-                        dateIndex
+                        dateIndex,
+                        isDensityCell: isDensityDate && !isHandleDrag && !isTaskMovement
                       },
-                      disabled: !activeDragItem // Only active during drag for performance
+                      disabled: !activeDragItem || !isDensityDate // Enhanced performance control
                     });
 
                     return (
