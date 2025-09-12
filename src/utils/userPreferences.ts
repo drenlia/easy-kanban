@@ -25,6 +25,7 @@ export interface UserPreferences {
   includeSystem: boolean;
   taskDetailsWidth: number;
   ganttTaskColumnWidth: number;
+  ganttScrollPositions: { [boardId: string]: { date: string; sessionId: string } }; // Per-board scroll positions
   listViewColumnVisibility: ColumnVisibility;
   searchFilters: {
     text: string;
@@ -100,6 +101,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   includeSystem: false, // Default to not include system user
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   ganttTaskColumnWidth: 320, // Default Gantt task column width in pixels
+  ganttScrollPositions: {}, // Per-board Gantt scroll positions (empty by default)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
