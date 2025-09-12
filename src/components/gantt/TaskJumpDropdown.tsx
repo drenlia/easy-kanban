@@ -10,6 +10,7 @@ interface GanttTask {
   priority: string;
   columnId: string;
   columnPosition: number;
+  taskPosition: number;
 }
 
 interface TaskJumpDropdownProps {
