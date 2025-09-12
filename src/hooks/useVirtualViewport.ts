@@ -24,8 +24,9 @@ interface UseVirtualViewportOptions {
   chunkSize?: number;          // Days to load per chunk (default: 30)
   maxDays?: number;            // Maximum days to keep in memory (default: 120)
   daysBeforeToday?: number;    // Days before today in initial load (default: 0)
-  earliestTaskDate?: Date | null; // Start timeline at this date instead of today
   allTasks?: any[];            // All tasks to position (loaded once)
+  isDuringDrag?: boolean;      // Prevent viewport reinitialization during drag operations
+  boardId?: string;            // Board identifier to detect tab switches
 }
 
 interface TaskPosition {
@@ -42,8 +43,9 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
     chunkSize = 30,
     maxDays = 120,
     daysBeforeToday = 0,
-    earliestTaskDate = null,
-    allTasks = []
+    allTasks = [],
+    isDuringDrag = false,
+    boardId = 'default'
   } = options;
 
   // Performance monitoring
@@ -72,7 +74,7 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
   const [viewportStart, setViewportStart] = useState(0);
   const [viewportEnd, setViewportEnd] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
-  const [initializedWith, setInitializedWith] = useState<Date | null | 'no-tasks'>(null);
+  const [initializedBoardId, setInitializedBoardId] = useState<string | null>(null);
   
   // Task positioning state
   const [taskPositions, setTaskPositions] = useState<TaskPosition[]>([]);
@@ -169,32 +171,24 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
     }
   }, [allTasks, timelineStartDate, calculateTaskPositions]);
 
-  // Initialize date range based on earliest task or today (single initialization)
+  // Initialize date range on board switch or first load - SIMPLE and RELIABLE
   useEffect(() => {
-    // Determine what we should initialize with
-    const targetValue = earliestTaskDate || 'no-tasks';
+    // Don't initialize during drag operations to prevent viewport shifts
+    if (isDuringDrag) return;
     
-    // Only initialize if we haven't initialized with this value yet
-    if (initializedWith === targetValue) return;
+    // Only initialize if this is a different board than we've initialized before
+    // This allows tab switching while preventing reinitialization during work
+    if (initializedBoardId === boardId) return;
     
     const initializeDateRange = async () => {
-      setInitializedWith(targetValue);
+      // Mark this specific board as initialized
+      setInitializedBoardId(boardId);
       
-      let daysFromToday: number;
-      let absoluteStartDate: Date;
-      
-      if (earliestTaskDate) {
-        // Start at earliest task date (preferred strategy)
-        const today = new Date();
-        daysFromToday = Math.floor((earliestTaskDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        absoluteStartDate = new Date(earliestTaskDate);
-      } else {
-        // No tasks: start timeline showing today with buffer on both sides for exploration
-        // This centers "today" in the middle of the 120-day view
-        daysFromToday = -Math.floor(initialDays / 2); // e.g., -60 days from today
-        const today = new Date();
-        absoluteStartDate = new Date(today.getTime() + daysFromToday * 24 * 60 * 60 * 1000);
-      }
+      // SIMPLIFIED: Always start centered on today with 60 days before and 60 days after
+      // This is predictable, reliable, and works the same for everyone
+      const daysFromToday = -Math.floor(initialDays / 2); // -60 days from today
+      const today = new Date();
+      const absoluteStartDate = new Date(today.getTime() + daysFromToday * 24 * 60 * 60 * 1000);
       
       // Set the absolute timeline start date for task positioning
       setTimelineStartDate(absoluteStartDate);
@@ -211,7 +205,7 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
     };
     
     initializeDateRange();
-  }, [earliestTaskDate, initializedWith, initialDays, generateDateRange, generateDateRangeMainThread]);
+  }, [isDuringDrag, boardId, initializedBoardId, initialDays, generateDateRange, generateDateRangeMainThread]);
 
   // Calculate viewport based on scroll position (optimized)
   const updateViewport = useCallback(measureFunction(() => {
@@ -481,19 +475,34 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
       }
     },
 
-    scrollToTask: async (taskStartDate: Date, taskEndDate: Date) => {
+    scrollToTask: async (taskStartDate: Date, taskEndDate: Date, positioning: 'start-left' | 'end-right' | 'center' = 'center') => {
       // Find if the task dates are in the current range
       const startIndex = dateRange.findIndex(d => 
         d.date.toDateString() === taskStartDate.toDateString()
+      );
+      const endIndex = dateRange.findIndex(d => 
+        d.date.toDateString() === taskEndDate.toDateString()
       );
       
       if (startIndex >= 0) {
         // Task is already in range, just scroll to it
         if (scrollContainerRef.current) {
-          // Center the task in the viewport
           const containerWidth = scrollContainerRef.current.clientWidth;
-          const taskCenter = startIndex * dateColumnWidth;
-          const scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+          let scrollPosition = 0;
+          
+          if (positioning === 'start-left') {
+            // Position task start date at the first visible column (left edge)
+            scrollPosition = Math.max(0, startIndex * dateColumnWidth);
+          } else if (positioning === 'end-right' && endIndex >= 0) {
+            // Position task end date at the rightmost visible column (right edge)
+            const columnsVisible = Math.floor(containerWidth / dateColumnWidth);
+            scrollPosition = Math.max(0, (endIndex - columnsVisible + 1) * dateColumnWidth);
+          } else {
+            // Default: center the task in the viewport
+            const taskCenter = startIndex * dateColumnWidth;
+            scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+          }
+          
           scrollContainerRef.current.scrollLeft = scrollPosition;
         }
       } else {
@@ -502,23 +511,53 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
         const daysFromToday = Math.floor((taskStartDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
         
         try {
-          // Generate a new date range centered around the task
-          const rangeStart = daysFromToday - 60; // 60 days before task
-          const rangeSize = 121; // 121 days total (task will be roughly centered)
+          // Generate a new date range around the task
+          let rangeStart, rangeSize;
+          
+          if (positioning === 'start-left') {
+            // Load range starting from the task start date
+            rangeStart = daysFromToday;
+            rangeSize = 121;
+          } else if (positioning === 'end-right') {
+            // Load range ending at the task end date
+            const endDaysFromToday = Math.floor((taskEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            rangeStart = endDaysFromToday - 120; // 120 days before task end
+            rangeSize = 121;
+          } else {
+            // Default: center around task start
+            rangeStart = daysFromToday - 60; // 60 days before task
+            rangeSize = 121; // 121 days total (task will be roughly centered)
+          }
           
           const newDates = await generateDateRange(rangeStart, rangeSize);
           setDateRange(newDates);
           
-          // After setting new range, scroll to the task
+          // After setting new range, scroll to the task with proper positioning
           setTimeout(() => {
             const newStartIndex = newDates.findIndex(d => 
               d.date.toDateString() === taskStartDate.toDateString()
             );
+            const newEndIndex = newDates.findIndex(d => 
+              d.date.toDateString() === taskEndDate.toDateString()
+            );
             
             if (newStartIndex >= 0 && scrollContainerRef.current) {
               const containerWidth = scrollContainerRef.current.clientWidth;
-              const taskCenter = newStartIndex * dateColumnWidth;
-              const scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+              let scrollPosition = 0;
+              
+              if (positioning === 'start-left') {
+                // Position task start date at the first visible column
+                scrollPosition = Math.max(0, newStartIndex * dateColumnWidth);
+              } else if (positioning === 'end-right' && newEndIndex >= 0) {
+                // Position task end date at the rightmost visible column
+                const columnsVisible = Math.floor(containerWidth / dateColumnWidth);
+                scrollPosition = Math.max(0, (newEndIndex - columnsVisible + 1) * dateColumnWidth);
+              } else {
+                // Default: center the task
+                const taskCenter = newStartIndex * dateColumnWidth;
+                scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+              }
+              
               scrollContainerRef.current.scrollLeft = scrollPosition;
             }
           }, 100); // Small delay to ensure DOM update
@@ -526,8 +565,20 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
         } catch (error) {
           console.error('Failed to load task date range:', error);
           // Fallback: try with main thread generation
-          const rangeStart = daysFromToday - 60;
-          const rangeSize = 121;
+          let rangeStart, rangeSize;
+          
+          if (positioning === 'start-left') {
+            rangeStart = daysFromToday;
+            rangeSize = 121;
+          } else if (positioning === 'end-right') {
+            const endDaysFromToday = Math.floor((taskEndDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+            rangeStart = endDaysFromToday - 120;
+            rangeSize = 121;
+          } else {
+            rangeStart = daysFromToday - 60;
+            rangeSize = 121;
+          }
+          
           const fallbackDates = generateDateRangeMainThread(rangeStart, rangeSize);
           setDateRange(fallbackDates);
           
@@ -535,11 +586,24 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
             const newStartIndex = fallbackDates.findIndex(d => 
               d.date.toDateString() === taskStartDate.toDateString()
             );
+            const newEndIndex = fallbackDates.findIndex(d => 
+              d.date.toDateString() === taskEndDate.toDateString()
+            );
             
             if (newStartIndex >= 0 && scrollContainerRef.current) {
               const containerWidth = scrollContainerRef.current.clientWidth;
-              const taskCenter = newStartIndex * dateColumnWidth;
-              const scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+              let scrollPosition = 0;
+              
+              if (positioning === 'start-left') {
+                scrollPosition = Math.max(0, newStartIndex * dateColumnWidth);
+              } else if (positioning === 'end-right' && newEndIndex >= 0) {
+                const columnsVisible = Math.floor(containerWidth / dateColumnWidth);
+                scrollPosition = Math.max(0, (newEndIndex - columnsVisible + 1) * dateColumnWidth);
+              } else {
+                const taskCenter = newStartIndex * dateColumnWidth;
+                scrollPosition = Math.max(0, taskCenter - containerWidth / 2);
+              }
+              
               scrollContainerRef.current.scrollLeft = scrollPosition;
             }
           }, 100);

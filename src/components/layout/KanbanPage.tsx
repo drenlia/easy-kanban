@@ -103,7 +103,10 @@ interface KanbanPageProps {
   onCancelColumnDelete?: () => void;
   getColumnTaskCount?: (columnId: string) => number;
   onTaskDragStart: (task: Task) => void;
+  onTaskDragEnd: () => void;
   onTaskDragOver: (e: React.DragEvent) => void;
+  onRefreshBoardData: () => Promise<void>;
+  onSetDragCooldown: (active: boolean, duration?: number) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDropOnBoard?: (taskId: string, targetBoardId: string) => Promise<void>;
@@ -195,7 +198,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onCancelColumnDelete,
   getColumnTaskCount,
   onTaskDragStart,
+  onTaskDragEnd,
   onTaskDragOver,
+  onRefreshBoardData,
+  onSetDragCooldown,
   onTaskDrop,
   onSelectTask,
   onTaskDropOnBoard,
@@ -523,6 +529,13 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               onSelectTask={onSelectTask}
               taskViewMode={taskViewMode}
               onUpdateTask={onEditTask}
+              onTaskDragStart={onTaskDragStart}
+              onTaskDragEnd={onTaskDragEnd}
+              boardId={selectedBoard}
+              onAddTask={onAddTask}
+              currentUser={currentUser}
+              members={members}
+              onRefreshData={onRefreshBoardData}
             />
           ) : (
             <>

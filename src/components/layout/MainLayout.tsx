@@ -95,7 +95,10 @@ interface MainLayoutProps {
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   onTaskDragStart: (task: Task) => void;
+  onTaskDragEnd: () => void;
   onTaskDragOver: (e: React.DragEvent) => void;
+  onRefreshBoardData: () => Promise<void>;
+  onSetDragCooldown: (active: boolean, duration?: number) => void;
   onTaskDrop: () => Promise<void>;
   onSelectTask: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   onTaskDropOnBoard: (taskId: string, targetBoardId: string) => Promise<void>;

@@ -1584,6 +1584,29 @@ export default function App() {
     // Pause polling during drag to prevent state conflicts
   };
 
+  // Clear drag state (for Gantt drag end)
+  const handleTaskDragEnd = () => {
+    setDraggedTask(null);
+    setDragCooldown(true);
+    setTimeout(() => {
+      setDragCooldown(false);
+    }, DRAG_COOLDOWN_DURATION);
+  };
+
+  // Set drag cooldown (for Gantt operations)
+  const handleSetDragCooldown = (active: boolean, duration?: number) => {
+    setDragCooldown(active);
+    if (active && duration) {
+      setTimeout(() => {
+        setDragCooldown(false);
+      }, duration);
+    } else if (active) {
+      setTimeout(() => {
+        setDragCooldown(false);
+      }, DRAG_COOLDOWN_DURATION);
+    }
+  };
+
   // Old handleTaskDragEnd removed - replaced with unified version below
 
   const handleTaskDragOver = (e: React.DragEvent) => {
@@ -2794,7 +2817,10 @@ export default function App() {
                                     onCancelColumnDelete={handleCancelColumnDelete}
                                     getColumnTaskCount={getColumnTaskCount}
                                     onTaskDragStart={handleTaskDragStart}
+                                    onTaskDragEnd={handleTaskDragEnd}
                                     onTaskDragOver={handleTaskDragOver}
+                                    onRefreshBoardData={refreshBoardData}
+                                    onSetDragCooldown={handleSetDragCooldown}
                                     onTaskDrop={handleTaskDrop}
                                     onSelectTask={handleSelectTask}
                                     onTaskDropOnBoard={handleTaskDropOnBoard}
