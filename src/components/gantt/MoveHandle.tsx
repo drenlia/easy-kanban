@@ -14,12 +14,20 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
   task, 
   onTaskMove 
 }) => {
+  // Helper function to safely convert date to string
+  const dateToString = (date: string | Date | undefined | null): string => {
+    if (!date) return '';
+    if (typeof date === 'string') return date.split('T')[0]; // Already a string, just get date part
+    if (date instanceof Date) return date.toISOString().split('T')[0]; // Convert Date to string
+    return '';
+  };
+
   const dragData: GanttDragItem = {
     id: `${taskId}-move`,
     taskId,
     taskTitle: task.title,
-    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
-    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    originalStartDate: dateToString(task.startDate),
+    originalEndDate: dateToString(task.dueDate), // Note: Task uses dueDate, not endDate
     dragType: DRAG_TYPES.TASK_MOVE_HANDLE
   };
 
