@@ -1,17 +1,27 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, closestCenter } from '@dnd-kit/core';
-import { Task, Column, Columns, PriorityOption } from '../types';
+import { Task, Columns, PriorityOption } from '../types';
 import { TaskViewMode, loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
-import { updateTask, getAllPriorities } from '../api';
+import { updateTask, getAllPriorities, createTaskAtTop } from '../api';
+import { generateUUID } from '../utils/uuid';
 import { TaskHandle } from './gantt/TaskHandle';
 import { MoveHandle } from './gantt/MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './gantt/types';
+import { usePerformanceMonitor } from '../hooks/usePerformanceMonitor';
+import { TaskJumpDropdown } from './gantt/TaskJumpDropdown';
 
 interface GanttViewProps {
   columns: Columns;
   onSelectTask: (task: Task) => void;
   taskViewMode?: TaskViewMode;
   onUpdateTask?: (task: Task) => void; // For optimistic updates
+  onTaskDragStart?: (task: Task) => void; // Standard drag start handler
+  onTaskDragEnd?: () => void; // Standard drag end handler
+  boardId?: string | null; // Board identifier for viewport initialization
+  onAddTask?: (columnId: string) => Promise<void>; // For creating new tasks (fallback)
+  currentUser?: any; // Current user for task creation
+  members?: any[]; // Team members for task creation
+  onRefreshData?: () => Promise<void>; // Refresh data after task creation
 }
 
 interface GanttTask {
@@ -24,13 +34,9 @@ interface GanttTask {
   priority: string;
   columnId: string;
   columnPosition: number;
+  taskPosition: number;
 }
 
-interface DateColumn {
-  date: Date;
-  isToday: boolean;
-  isWeekend: boolean;
-}
 
 // Helper function to parse date string as local date (avoiding timezone issues)
 const parseLocalDate = (dateString: string): Date => {
@@ -44,30 +50,44 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day); // month is 0-indexed
 };
 
-const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask }) => {
+const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<GanttDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
   const [taskColumnWidth, setTaskColumnWidth] = useState(320); // Default 320px, will load from preferences
-  const [isResizing, setIsResizing] = useState(false);
+  const [, setIsResizing] = useState(false);
+  
+  // Task creation drag state
+  const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const [taskCreationStart, setTaskCreationStart] = useState<string | null>(null);
+  const [taskCreationEnd, setTaskCreationEnd] = useState<string | null>(null);
 
-  // Configure DnD sensors to restrict to horizontal movement
+  // Performance monitoring for the Gantt view
+  const { measureFunction, startMeasurement } = usePerformanceMonitor({
+    enableConsoleLog: false,
+    sampleRate: 0.05 // Sample 5% of operations in production
+  });
+
+  // Configure DnD sensors for immediate response (like Kanban view)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 5, // Require 5px movement before drag starts
+        distance: 3, // Reduce from 5px to 3px for faster drag initiation
       },
     }),
     useSensor(KeyboardSensor)
   );
 
   // Custom modifier to restrict to horizontal axis
-  const restrictToHorizontalAxis = ({ transform }) => {
+  const restrictToHorizontalAxis = ({ transform }: { transform: any }) => {
     return {
       ...transform,
       y: 0, // Force Y position to 0, only allow X movement
     };
   };
+
+
+
 
   // Handle task column resizing
   const handleResizeStart = (e: React.MouseEvent) => {
@@ -107,28 +127,45 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     loadPreferences();
   }, []);
 
-  // Save task column width to user preferences when it changes (debounced)
+  // Save task column width to user preferences when it changes (heavily debounced for performance)
   useEffect(() => {
-    const savePreference = async () => {
+    const savePreference = () => {
+      // Use requestIdleCallback for non-blocking operation
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
       try {
         const currentPreferences = await loadUserPreferencesAsync();
         await saveUserPreferences({
           ...currentPreferences,
           ganttTaskColumnWidth: taskColumnWidth
         });
-        console.log('💾 Saved task column width:', taskColumnWidth);
       } catch (error) {
-        console.error('Failed to save task column width preference:', error);
+            // Silent fail to avoid blocking
+          }
+        });
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(async () => {
+          try {
+            const currentPreferences = await loadUserPreferencesAsync();
+            await saveUserPreferences({
+              ...currentPreferences,
+              ganttTaskColumnWidth: taskColumnWidth
+            });
+          } catch (error) {
+            // Silent fail to avoid blocking
+          }
+        }, 100);
       }
     };
     
-    // Debounce the save to avoid excessive API calls during resize
+    // Heavily debounce the save to avoid blocking during resize (2 seconds)
     const timeoutId = setTimeout(() => {
       // Only save if not the initial default value (avoid saving on mount)
       if (taskColumnWidth !== 320) {
         savePreference();
       }
-    }, 500); // 500ms debounce
+    }, 2000); // 2000ms debounce for performance
     
     return () => clearTimeout(timeoutId);
   }, [taskColumnWidth]);
@@ -151,30 +188,26 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     };
     fetchPriorities();
   }, []);
-  // Generate date range (today -30 to today +90 = ~3 months)
-  const dateRange = useMemo(() => {
-    const dates: DateColumn[] = [];
-    const today = new Date();
+  // Find the earliest task start date to position the timeline
+  const earliestTaskDate = useMemo(() => {
+    let earliest: Date | null = null;
     
-    // Create start date at midnight local time (30 days before today)
-    const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30);
-    
-    for (let i = 0; i < 121; i++) { // 121 days total (-30 to +90 inclusive = ~3 months)
-      const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 30 + i);
-      
-      dates.push({
-        date: currentDate,
-        isToday: currentDate.toDateString() === today.toDateString(),
-        isWeekend: currentDate.getDay() === 0 || currentDate.getDay() === 6
+    Object.values(columns).forEach(column => {
+      column.tasks.forEach(task => {
+        if (task.startDate) {
+          const taskStartDate = parseLocalDate(task.startDate);
+          if (!earliest || taskStartDate < earliest) {
+            earliest = taskStartDate;
+          }
+        }
       });
-      
-    }
+    });
     
-    return dates;
-  }, []);
+    return earliest;
+  }, [columns]);
 
-  // Extract and prepare tasks from all columns
-  const ganttTasks = useMemo(() => {
+  // Extract and prepare tasks from all columns (memoized for performance)
+  const ganttTasks = useMemo(() => measureFunction(() => {
     const tasks: GanttTask[] = [];
     
     // Create column position map for sorting
@@ -211,58 +244,744 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           status: column.title,
           priority: task.priority || 'medium',
           columnId: task.columnId,
-          columnPosition: column.position || 0 // Add column position for sorting
+          columnPosition: column.position || 0, // Add column position for sorting
+          taskPosition: task.position || 0 // Add task position for within-column sorting
         });
       });
     });
     
-    // Sort by column position (ascending), then by ticket
+    // Sort by column position (ascending), then by task position within column, then by ticket
     return tasks.sort((a, b) => {
       if (a.columnPosition !== b.columnPosition) {
         return a.columnPosition - b.columnPosition; // Sort by column position
       }
-      return a.ticket.localeCompare(b.ticket); // Then by ticket
+      if (a.taskPosition !== b.taskPosition) {
+        return a.taskPosition - b.taskPosition; // Then by task position within column
+      }
+      return a.ticket.localeCompare(b.ticket); // Finally by ticket as fallback
     });
-  }, [columns]);
+  }, 'ganttTasks calculation', 'computation')(), [columns, measureFunction]);
 
-  // Calculate task bar grid position
-  const getTaskBarGridPosition = (task: GanttTask) => {
-    if (!task.startDate || !task.endDate) return null;
+  // Smart dynamic date loading with continuous timeline
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [dateRange, setDateRange] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [viewportCenter, setViewportCenter] = useState<Date | null>(null); // Track center of current view
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const [isInitialRangeSet, setIsInitialRangeSet] = useState(false);
+  const [lastSavedScrollDate, setLastSavedScrollDate] = useState<string | null>(null);
+  const [isProgrammaticScroll, setIsProgrammaticScroll] = useState(false);
+  const [isBoardTransitioning, setIsBoardTransitioning] = useState(false);
+  
+  // Generate date range function
+  const generateDateRange = useCallback((startDate: Date, endDate: Date) => {
+    const dates = [];
+    const currentDate = new Date(startDate);
+    const today = new Date();
     
-    // Find start and end day indices by comparing dates directly
-    const taskStartDate = task.startDate;
-    const taskEndDate = task.endDate;
-    
-    // Find the index of the start date in our date range
-    let startDayIndex = -1;
-    let endDayIndex = -1;
-    
-    for (let i = 0; i < dateRange.length; i++) {
-      const rangeDate = dateRange[i].date;
+    while (currentDate <= endDate) {
+      const isToday = currentDate.toDateString() === today.toDateString();
+      const isWeekend = currentDate.getDay() === 0 || currentDate.getDay() === 6;
       
-      // Compare dates by their date string (YYYY-MM-DD) to avoid timezone issues
-      const rangeDateStr = rangeDate.toISOString().split('T')[0];
-      const taskStartStr = taskStartDate.toISOString().split('T')[0];
-      const taskEndStr = taskEndDate.toISOString().split('T')[0];
+      dates.push({
+        date: new Date(currentDate),
+        isToday,
+        isWeekend
+      });
       
-      if (startDayIndex === -1 && rangeDateStr === taskStartStr) {
-        startDayIndex = i;
-      }
-      if (rangeDateStr === taskEndStr) {
-        endDayIndex = i;
-      }
+      currentDate.setDate(currentDate.getDate() + 1);
     }
     
-    // If dates are outside visible range, calculate approximate position
+    return dates;
+  }, []);
+
+  // Debounced function to save scroll position to user preferences (avoid loops)
+  const saveScrollPosition = useCallback(async (firstVisibleDate: string) => {
+    if (!boardId || !firstVisibleDate || firstVisibleDate === lastSavedScrollDate) {
+      return; // Don't save if no boardId, no date, or same date (avoid loops)
+    }
+
+    try {
+      const currentPreferences = await loadUserPreferencesAsync();
+      const sessionId = Date.now().toString(); // Unique session identifier
+      
+      await saveUserPreferences({
+        ...currentPreferences,
+        ganttScrollPositions: {
+          ...currentPreferences.ganttScrollPositions,
+          [boardId]: {
+            date: firstVisibleDate,
+            sessionId: sessionId
+          }
+        }
+      });
+      
+      setLastSavedScrollDate(firstVisibleDate);
+      console.log('💾 [DEBUG] Saved to user preferences:', {
+        boardId,
+        savedDate: firstVisibleDate,
+        sessionId: sessionId
+      });
+    } catch (error) {
+      console.error('Failed to save scroll position:', error);
+    }
+  }, [boardId, lastSavedScrollDate]);
+
+  // Unified function to save current scroll position (works for both manual scroll and button clicks)
+  const saveCurrentScrollPosition = useCallback(() => {
+    if (!scrollContainerRef.current || !boardId || dateRange.length === 0) {
+      return;
+    }
+
+    const scrollLeft = scrollContainerRef.current.scrollLeft;
+    
+    // Calculate actual column width dynamically (not hard-coded)
+    const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) return;
+    
+    const totalWidth = timelineContainer.scrollWidth;
+    const columnWidth = totalWidth / dateRange.length;
+    const visibleColumnIndex = Math.floor(scrollLeft / columnWidth);
+    const currentLeftmostDate = dateRange[Math.max(0, visibleColumnIndex)]?.date.toISOString().split('T')[0];
+    
+    // Debug logging to identify the problem
+    console.log('🔍 [DEBUG] Position calculation:', {
+      scrollLeft,
+      totalWidth,
+      dateRangeLength: dateRange.length,
+      columnWidth,
+      visibleColumnIndex,
+      currentLeftmostDate,
+      firstDateInRange: dateRange[0]?.date.toISOString().split('T')[0],
+      lastDateInRange: dateRange[dateRange.length - 1]?.date.toISOString().split('T')[0],
+      boardId
+    });
+    
+    if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDate) {
+      console.log('📝 [DEBUG] Triggering position save:', {
+        boardId,
+        currentLeftmostDate,
+        lastSavedScrollDate,
+        trigger: isProgrammaticScroll ? 'programmatic' : 'manual'
+      });
+      saveScrollPosition(currentLeftmostDate);
+    } else {
+      console.log('⏭️ [DEBUG] Skipping position save:', {
+        boardId,
+        currentLeftmostDate,
+        lastSavedScrollDate,
+        reason: !currentLeftmostDate ? 'no date' : 'same as last saved'
+      });
+    }
+  }, [boardId, dateRange, lastSavedScrollDate, saveScrollPosition, isProgrammaticScroll]);
+
+  // Debounced manual scroll handler
+  const handleManualScroll = useCallback(() => {
+    if (isProgrammaticScroll) {
+      console.log('🚫 [DEBUG] Skipping manual scroll save (programmatic scroll active)');
+      return; // Skip during button operations
+    }
+    console.log('📜 [DEBUG] Manual scroll detected - calling saveCurrentScrollPosition');
+    saveCurrentScrollPosition();
+  }, [isProgrammaticScroll, saveCurrentScrollPosition]);
+
+  // Debounced version - only save 500ms after scrolling stops
+  const debouncedScrollHandler = useMemo(() => {
+    let timeoutId: NodeJS.Timeout;
+    return () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(handleManualScroll, 500);
+    };
+  }, [handleManualScroll]);
+
+  // Reset initialization flag when board changes
+  useEffect(() => {
+    console.log('🔄 [DEBUG] Board changed to:', boardId, '- resetting state');
+    setIsBoardTransitioning(true); // Start transition
+    setIsInitialRangeSet(false);
+    setLastSavedScrollDate(null);
+    setIsProgrammaticScroll(false);
+    setViewportCenter(null); // Clear viewport center to allow saved position restoration
+  }, [boardId]);
+
+  // Add scroll event listener for manual scroll detection
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      debouncedScrollHandler();
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    
+    return () => {
+      scrollContainer.removeEventListener('scroll', handleScroll);
+    };
+  }, [debouncedScrollHandler]);
+
+  // Initialize date range based on tasks or default around today
+  useEffect(() => {
+    // Only set initial range once per board to prevent unwanted repositioning after task updates
+    if (isInitialRangeSet && dateRange.length > 0) {
+      return;
+    }
+    
+    const initializeDateRange = async () => {
+      console.log('🔄 [DEBUG] Initializing date range for board:', boardId);
+      
+      // Check for saved scroll position for this specific board
+      let centerDate = new Date(); // Default to today
+      let savedPositionDate = null;
+      
+      // Use viewportCenter if available (e.g., from Today button or Jump to task)
+      if (viewportCenter) {
+        centerDate = new Date(viewportCenter);
+        console.log('📍 [DEBUG] Using viewportCenter:', centerDate.toISOString().split('T')[0]);
+      } else if (boardId) {
+        console.log('🔍 [DEBUG] Loading saved position for board:', boardId);
+        try {
+          const preferences = await loadUserPreferencesAsync();
+          const savedPosition = preferences.ganttScrollPositions?.[boardId];
+          
+          console.log('📋 [DEBUG] Retrieved preferences:', {
+            boardId,
+            hasGanttScrollPositions: !!preferences.ganttScrollPositions,
+            savedPosition,
+            allSavedBoards: Object.keys(preferences.ganttScrollPositions || {})
+          });
+          
+          if (savedPosition?.date) {
+            // Use saved position as center date for this board
+            centerDate = parseLocalDate(savedPosition.date);
+            savedPositionDate = savedPosition.date;
+            console.log('✅ [DEBUG] Using saved position as center:', savedPositionDate);
+          } else {
+            console.log('⚠️ [DEBUG] No saved position found for board:', boardId);
+          }
+        } catch (error) {
+          console.error('Failed to load saved scroll position:', error);
+        }
+      } else {
+        console.log('⚠️ [DEBUG] No boardId provided for restoration');
+      }
+      
+      // Find task date bounds
+      let earliestTaskDate: Date | null = null;
+      let latestTaskDate: Date | null = null;
+      
+      ganttTasks.forEach(task => {
+        if (task.startDate) {
+          if (!earliestTaskDate || task.startDate < earliestTaskDate) {
+            earliestTaskDate = task.startDate;
+          }
+        }
+        if (task.endDate) {
+          if (!latestTaskDate || task.endDate > latestTaskDate) {
+            latestTaskDate = task.endDate;
+          }
+        }
+      });
+      
+      // If no saved position, determine center point from tasks or default to today
+      if (!boardId) {
+        if (earliestTaskDate && latestTaskDate) {
+          // Center between earliest and latest task
+          const midTime = (earliestTaskDate as Date).getTime() + ((latestTaskDate as Date).getTime() - (earliestTaskDate as Date).getTime()) / 2;
+          centerDate = new Date(midTime);
+        }
+      }
+      
+      setViewportCenter(centerDate);
+      
+      // Clear viewportCenter after using it to avoid interfering with future board loads
+      if (viewportCenter) {
+        setTimeout(() => setViewportCenter(null), 100); // Clear after range is set
+      }
+      
+      // Initial range: 2 months total (1 month before and after center) - PERFORMANCE FIX
+      const initialMonths = 1;
+      const startDate = new Date(centerDate);
+      startDate.setMonth(startDate.getMonth() - initialMonths);
+      startDate.setDate(1); // Start of month
+      
+      const endDate = new Date(centerDate);
+      endDate.setMonth(endDate.getMonth() + initialMonths);
+      endDate.setDate(0); // End of previous month (last day)
+      endDate.setDate(endDate.getDate() + 1); // Move to first day of next month
+      const daysInMonth = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0).getDate();
+      endDate.setDate(daysInMonth); // Last day of month
+      
+      const initialRange = generateDateRange(startDate, endDate);
+      setDateRange(initialRange);
+      setIsInitialRangeSet(true); // Mark initial range as set
+      setIsBoardTransitioning(false); // End transition
+      
+      // If we restored a saved position, scroll to show it as leftmost column
+      if (savedPositionDate) {
+        console.log('🎯 [DEBUG] Attempting to restore scroll position:', savedPositionDate);
+        setTimeout(() => {
+          if (scrollContainerRef.current && initialRange.length > 0) {
+            const restoredDate = savedPositionDate;
+            const targetIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === restoredDate);
+            
+            console.log('📐 [DEBUG] Scroll restoration calculation:', {
+              restoredDate,
+              targetIndex,
+              dateRangeLength: initialRange.length,
+              firstDate: initialRange[0]?.date.toISOString().split('T')[0],
+              lastDate: initialRange[initialRange.length - 1]?.date.toISOString().split('T')[0]
+            });
+            
+            if (targetIndex >= 0) {
+              const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
+              if (timelineContainer) {
+                const totalWidth = timelineContainer.scrollWidth;
+                const columnWidth = totalWidth / initialRange.length;
+                const targetScrollLeft = targetIndex * columnWidth;
+                
+                console.log('📍 [DEBUG] Setting scroll position:', {
+                  totalWidth,
+                  columnWidth,
+                  targetScrollLeft,
+                  beforeScrollLeft: scrollContainerRef.current.scrollLeft
+                });
+                
+                scrollContainerRef.current.scrollLeft = targetScrollLeft;
+                
+                // Verify the scroll actually happened
+                setTimeout(() => {
+                  if (scrollContainerRef.current) {
+                    console.log('✅ [DEBUG] Scroll position after restoration:', {
+                      actualScrollLeft: scrollContainerRef.current.scrollLeft,
+                      targetScrollLeft,
+                      success: Math.abs(scrollContainerRef.current.scrollLeft - targetScrollLeft) < 10
+                    });
+                  }
+                }, 50);
+              } else {
+                console.log('❌ [DEBUG] Timeline container not found for scroll restoration');
+              }
+            } else {
+              console.log('❌ [DEBUG] Restored date not found in date range:', {
+                restoredDate,
+                availableDates: initialRange.slice(0, 5).map(d => d.date.toISOString().split('T')[0])
+              });
+            }
+          } else {
+            console.log('❌ [DEBUG] Cannot restore scroll - no container or empty range:', {
+              hasContainer: !!scrollContainerRef.current,
+              rangeLength: initialRange.length
+            });
+          }
+        }, 100); // Small delay to ensure DOM is updated
+      } else {
+        console.log('ℹ️ [DEBUG] No saved position to restore');
+      }
+      
+      // If we used viewportCenter (e.g., Today button or Jump to task), scroll to center it and save position
+      if (viewportCenter && centerDate.getTime() === viewportCenter.getTime()) {
+        setTimeout(() => {
+          if (scrollContainerRef.current && initialRange.length > 0) {
+            const targetDateStr = centerDate.toISOString().split('T')[0];
+            const targetIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === targetDateStr);
+            
+            if (targetIndex >= 0) {
+              const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
+              if (timelineContainer) {
+                const totalWidth = timelineContainer.scrollWidth;
+                const columnWidth = totalWidth / initialRange.length;
+                const scrollLeft = targetIndex * columnWidth;
+                const targetScroll = scrollLeft - (scrollContainerRef.current.clientWidth / 2); // Center it
+                
+                console.log('🎯 [DEBUG] Centering on target date:', {
+                  targetDate: targetDateStr,
+                  targetIndex,
+                  scrollLeft,
+                  targetScroll: Math.max(0, targetScroll)
+                });
+                
+                scrollContainerRef.current.scrollLeft = Math.max(0, targetScroll);
+              }
+            }
+          }
+          
+          // Save position after centering
+          setTimeout(() => {
+            saveCurrentScrollPosition();
+          }, 100);
+        }, 200); // Wait for DOM to update
+      }
+    };
+    
+    // Call the async initialization function
+    initializeDateRange();
+  }, [ganttTasks, generateDateRange, isInitialRangeSet, boardId, viewportCenter, saveCurrentScrollPosition]);
+
+  // Load earlier dates (2 months)
+  const loadEarlier = useCallback(() => {
+    if (dateRange.length === 0) return;
+    
+    setIsLoading(true);
+    
+      const firstDate = dateRange[0].date;
+    const newStartDate = new Date(firstDate);
+    newStartDate.setMonth(newStartDate.getMonth() - 2);
+    newStartDate.setDate(1); // Start of month
+    
+    const newEndDate = new Date(firstDate);
+    newEndDate.setDate(newEndDate.getDate() - 1); // Day before current first date
+    
+    const newDates = generateDateRange(newStartDate, newEndDate);
+    
+    // Prepend new dates
+    const updatedRange = [...newDates, ...dateRange];
+    
+    // Memory management: Keep max 4 months (trim from end if needed) - PERFORMANCE FIX
+    const maxDays = 120;
+    const finalRange = updatedRange.length > maxDays 
+      ? updatedRange.slice(0, maxDays) 
+      : updatedRange;
+    
+    setDateRange(finalRange);
+    
+    // Adjust scroll position to maintain current view
+    if (scrollContainerRef.current) {
+      const scrollAdjustment = newDates.length * 20; // 20px per column
+      scrollContainerRef.current.scrollLeft += scrollAdjustment;
+    }
+    
+    // Save new scroll position after loading earlier dates
+    setTimeout(() => {
+      if (finalRange.length > 0) {
+        const newFirstVisibleDate = finalRange[0].date.toISOString().split('T')[0];
+        saveScrollPosition(newFirstVisibleDate);
+      }
+    }, 100); // Small delay to let scroll adjustment complete
+    
+    setIsLoading(false);
+  }, [dateRange, generateDateRange, saveScrollPosition]);
+
+  // Load later dates (2 months)
+  const loadLater = useCallback(() => {
+    if (dateRange.length === 0) return;
+    
+    setIsLoading(true);
+    
+      const lastDate = dateRange[dateRange.length - 1].date;
+    const newStartDate = new Date(lastDate);
+    newStartDate.setDate(newStartDate.getDate() + 1); // Day after current last date
+    
+    const newEndDate = new Date(lastDate);
+    newEndDate.setMonth(newEndDate.getMonth() + 2);
+    const daysInMonth = new Date(newEndDate.getFullYear(), newEndDate.getMonth() + 1, 0).getDate();
+    newEndDate.setDate(daysInMonth); // Last day of month
+    
+    const newDates = generateDateRange(newStartDate, newEndDate);
+    
+    // Append new dates
+    const updatedRange = [...dateRange, ...newDates];
+    
+    // Memory management: Keep max 4 months (trim from start if needed) - PERFORMANCE FIX
+    const maxDays = 120;
+    const finalRange = updatedRange.length > maxDays 
+      ? updatedRange.slice(-maxDays) 
+      : updatedRange;
+    
+    // Adjust scroll if we trimmed from start
+    if (updatedRange.length > maxDays && scrollContainerRef.current) {
+      const trimmed = updatedRange.length - maxDays;
+      scrollContainerRef.current.scrollLeft -= trimmed * 20;
+    }
+    
+    setDateRange(finalRange);
+    
+    // Save new scroll position after loading later dates
+    setTimeout(() => {
+      if (finalRange.length > 0) {
+        const newFirstVisibleDate = finalRange[0].date.toISOString().split('T')[0];
+        saveScrollPosition(newFirstVisibleDate);
+      }
+    }, 100); // Small delay to let scroll adjustment complete
+    
+    setIsLoading(false);
+  }, [dateRange, generateDateRange, saveScrollPosition]);
+
+  // Create a memoized date-to-index map for O(1) lookups instead of O(n) linear search
+  const dateToIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    dateRange.forEach((dateCol, index) => {
+      const dateStr = dateCol.date.toISOString().split('T')[0];
+      map.set(dateStr, index);
+    });
+    return map;
+  }, [dateRange]);
+
+
+  // Navigation functions
+  const scrollToToday = useCallback(async () => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    console.log('📅 [DEBUG] Smooth scroll to today:', todayStr);
+    
+    // Check if today is already in current range
+    const todayIndex = dateRange.findIndex(d => d.isToday);
+    
+    if (todayIndex >= 0 && scrollContainerRef.current) {
+      // Today is already visible - just smooth scroll to center it
+      const container = scrollContainerRef.current;
+      const timelineContainer = container.querySelector('.gantt-timeline-container');
+      if (timelineContainer) {
+        const totalWidth = timelineContainer.scrollWidth;
+        const columnWidth = totalWidth / dateRange.length;
+        const scrollLeft = todayIndex * columnWidth;
+        const targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
+        
+        setIsProgrammaticScroll(true);
+        container.scrollTo({
+          left: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+        
+        setTimeout(() => {
+          saveCurrentScrollPosition();
+          setIsProgrammaticScroll(false);
+        }, 300);
+      }
+    } else {
+      // Today not in range - expand range to include it smoothly
+      const currentStart = dateRange[0]?.date;
+      const currentEnd = dateRange[dateRange.length - 1]?.date;
+      
+      if (currentStart && currentEnd && dateRange.length > 0) {
+        // Determine how to expand the range to include today
+        let newStart = new Date(Math.min(currentStart.getTime(), today.getTime()));
+        let newEnd = new Date(Math.max(currentEnd.getTime(), today.getTime()));
+        
+        // Add buffer around today
+        newStart.setMonth(newStart.getMonth() - 2);
+        newEnd.setMonth(newEnd.getMonth() + 2);
+        
+        // Generate expanded range
+        const expandedRange = generateDateRange(newStart, newEnd);
+        setDateRange(expandedRange);
+        
+        // After range updates, scroll to today
+        setTimeout(() => {
+          const newTodayIndex = expandedRange.findIndex(d => d.isToday);
+          
+          if (newTodayIndex >= 0 && scrollContainerRef.current) {
+            const container = scrollContainerRef.current;
+            const timelineContainer = container.querySelector('.gantt-timeline-container');
+            if (timelineContainer) {
+              const totalWidth = timelineContainer.scrollWidth;
+              const columnWidth = totalWidth / expandedRange.length;
+              const scrollLeft = newTodayIndex * columnWidth;
+              const targetScroll = scrollLeft - (container.clientWidth / 2);
+              
+              setIsProgrammaticScroll(true);
+              container.scrollTo({
+                left: Math.max(0, targetScroll),
+                behavior: 'smooth'
+              });
+              
+              setTimeout(() => {
+                saveCurrentScrollPosition();
+                setIsProgrammaticScroll(false);
+              }, 300);
+            }
+          }
+        }, 100);
+      } else {
+        // No current range - fall back to regeneration (first load)
+        setViewportCenter(today);
+        setDateRange([]);
+        setIsInitialRangeSet(false);
+      }
+    }
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
+  
+  const scrollToTask = useCallback(async (startDate: Date, endDate: Date, position?: string) => {
+    if (!scrollContainerRef.current) return;
+    
+    const targetDateStr = startDate.toISOString().split('T')[0];
+    console.log('🎯 [DEBUG] Smooth scroll to task:', targetDateStr);
+    
+    // Check if target date is already in current range
+    const targetIndex = dateRange.findIndex(d => 
+      d.date.toISOString().split('T')[0] === targetDateStr
+    );
+    
+    if (targetIndex >= 0) {
+      // Target is already visible - just smooth scroll to it
+      const container = scrollContainerRef.current;
+      const timelineContainer = container.querySelector('.gantt-timeline-container');
+      if (timelineContainer) {
+        const totalWidth = timelineContainer.scrollWidth;
+        const columnWidth = totalWidth / dateRange.length;
+        const scrollLeft = targetIndex * columnWidth;
+        const targetScroll = scrollLeft - (container.clientWidth / 3);
+        
+        setIsProgrammaticScroll(true);
+        container.scrollTo({
+          left: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+        
+        setTimeout(() => {
+          saveCurrentScrollPosition();
+          setIsProgrammaticScroll(false);
+        }, 300);
+      }
+    } else {
+      // Target not in range - expand range to include it smoothly
+      const currentStart = dateRange[0]?.date;
+      const currentEnd = dateRange[dateRange.length - 1]?.date;
+      
+      if (currentStart && currentEnd) {
+        // Determine how to expand the range
+        let newStart = new Date(Math.min(currentStart.getTime(), startDate.getTime()));
+        let newEnd = new Date(Math.max(currentEnd.getTime(), startDate.getTime()));
+        
+        // Add some buffer around the target
+        newStart.setMonth(newStart.getMonth() - 1);
+        newEnd.setMonth(newEnd.getMonth() + 1);
+        
+        // Generate expanded range
+        const expandedRange = generateDateRange(newStart, newEnd);
+        setDateRange(expandedRange);
+        
+        // After range updates, scroll to the target
+        setTimeout(() => {
+          const newTargetIndex = expandedRange.findIndex(d => 
+            d.date.toISOString().split('T')[0] === targetDateStr
+          );
+          
+          if (newTargetIndex >= 0 && scrollContainerRef.current) {
+            const container = scrollContainerRef.current;
+            const timelineContainer = container.querySelector('.gantt-timeline-container');
+            if (timelineContainer) {
+              const totalWidth = timelineContainer.scrollWidth;
+              const columnWidth = totalWidth / expandedRange.length;
+              const scrollLeft = newTargetIndex * columnWidth;
+              const targetScroll = scrollLeft - (container.clientWidth / 3);
+              
+              setIsProgrammaticScroll(true);
+              container.scrollTo({
+                left: Math.max(0, targetScroll),
+                behavior: 'smooth'
+              });
+              
+              setTimeout(() => {
+                saveCurrentScrollPosition();
+                setIsProgrammaticScroll(false);
+              }, 300);
+            }
+          }
+        }, 100); // Small delay for DOM update
+      }
+    }
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
+  
+  // Enhanced scroll functions with smooth scrolling and dynamic loading
+  const scrollEarlier = useCallback(() => {
+    if (!scrollContainerRef.current) return;
+    
+    // Set flag FIRST to prevent any manual scroll handler interference
+    setIsProgrammaticScroll(true);
+    
+    const currentScroll = scrollContainerRef.current.scrollLeft;
+    const newScroll = Math.max(0, currentScroll - 600); // Scroll left by ~30 days
+    
+    // If we're scrolling near the beginning, trigger load earlier
+    if (newScroll < 400 && dateRange.length > 0) { // Within 20 days of start
+      loadEarlier();
+    }
+    
+    // Smooth scroll to new position
+    scrollContainerRef.current.scrollTo({
+      left: newScroll,
+      behavior: 'smooth'
+    });
+    
+    // Save position after navigation using unified function
+    setTimeout(() => {
+      saveCurrentScrollPosition();
+      setIsProgrammaticScroll(false); // Reset flag after scroll completes
+    }, 300); // Wait for smooth scroll to complete
+  }, [loadEarlier, dateRange.length, saveCurrentScrollPosition]);
+  
+  const scrollLater = useCallback(() => {
+    if (!scrollContainerRef.current) return;
+    
+    // Set flag FIRST to prevent any manual scroll handler interference
+    setIsProgrammaticScroll(true);
+    
+    const currentScroll = scrollContainerRef.current.scrollLeft;
+    const maxScroll = scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth;
+    const newScroll = Math.min(maxScroll, currentScroll + 600); // Scroll right by ~30 days
+    
+    // If we're scrolling near the end, trigger load later
+    if (newScroll > maxScroll - 400 && dateRange.length > 0) { // Within 20 days of end
+      loadLater();
+    }
+    
+    // Smooth scroll to new position
+    scrollContainerRef.current.scrollTo({
+      left: newScroll,
+      behavior: 'smooth'
+    });
+    
+    // Save position after navigation using unified function
+    setTimeout(() => {
+      saveCurrentScrollPosition();
+      setIsProgrammaticScroll(false); // Reset flag after scroll completes
+    }, 300); // Wait for smooth scroll to complete
+  }, [loadLater, dateRange.length, saveCurrentScrollPosition]);
+
+
+  // Simple viewport (all dates always visible)
+  const virtualViewport = useMemo(() => ({
+    startIndex: 0,
+    endIndex: dateRange.length - 1,
+    totalRange: dateRange.length,
+    visibleDates: dateRange,
+    canLoadEarlier: true,
+    canLoadLater: true
+  }), [dateRange]);
+
+  // Calculate task bar grid position
+  // Optimized task bar grid position calculation using fast O(1) lookups
+  const getTaskBarGridPosition = useCallback((task: GanttTask) => {
+    if (!task.startDate || !task.endDate) return null;
+    
+    const taskStartStr = task.startDate.toISOString().split('T')[0];
+    const taskEndStr = task.endDate.toISOString().split('T')[0];
+    
+    // Fast O(1) lookup instead of O(n) linear search - MAJOR PERFORMANCE IMPROVEMENT
+    let startDayIndex = dateToIndexMap.get(taskStartStr) ?? -1;
+    let endDayIndex = dateToIndexMap.get(taskEndStr) ?? -1;
+    
+    // Handle dates outside visible range
     if (startDayIndex === -1 || endDayIndex === -1) {
+      if (dateRange.length === 0) return null;
+      
       const firstDate = dateRange[0].date;
       const lastDate = dateRange[dateRange.length - 1].date;
       
-      if (taskStartDate < firstDate) startDayIndex = 0;
-      else if (taskStartDate > lastDate) return null; // Task starts after visible range
+      // Task starts before visible range
+      if (task.startDate < firstDate) {
+        startDayIndex = 0;
+      } else if (task.startDate > lastDate) {
+        return null; // Task starts after visible range
+      }
       
-      if (taskEndDate > lastDate) endDayIndex = dateRange.length - 1;
-      else if (taskEndDate < firstDate) return null; // Task ends before visible range
+      // Task ends after visible range
+      if (task.endDate > lastDate) {
+        endDayIndex = dateRange.length - 1;
+      } else if (task.endDate < firstDate) {
+        return null; // Task ends before visible range
+      }
     }
     
     // Ensure we have valid indices
@@ -281,22 +1000,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       result.gridColumnEnd = result.gridColumnStart + 1; // 1-day task spans exactly 1 column
     }
     
-    
     return result;
-  };
+  }, [dateToIndexMap, dateRange]);
 
-  // Get priority color from dynamic priorities
-  const getPriorityColor = (priority: string) => {
-    const priorityOption = priorities.find(p => p.priority.toLowerCase() === priority.toLowerCase());
-    if (priorityOption) {
-      // Return both background color and appropriate text color
-      return {
-        backgroundColor: priorityOption.color,
-        color: getContrastColor(priorityOption.color)
-      };
-    }
-    return { backgroundColor: '#007bff', color: '#ffffff' }; // Fallback blue with white text
-  };
 
   // Helper function to determine text color based on background
   const getContrastColor = (hexColor: string): string => {
@@ -314,6 +1020,73 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     // Return black for light backgrounds, white for dark backgrounds
     return luminance > 0.5 ? '#000000' : '#ffffff';
   };
+
+  // Limit visible tasks during drag operations to prevent DOM thrashing
+  const visibleTasks = useMemo(() => {
+    // During drag operations, limit to max 20 tasks to prevent performance issues
+    if (activeDragItem && ganttTasks.length > 20) {
+      // Find the dragged task and show a window around it
+      const draggedTaskIndex = ganttTasks.findIndex(t => t.id === activeDragItem.taskId);
+      if (draggedTaskIndex >= 0) {
+        const start = Math.max(0, draggedTaskIndex - 10);
+        const end = Math.min(ganttTasks.length, draggedTaskIndex + 10);
+        return ganttTasks.slice(start, end);
+      }
+      return ganttTasks.slice(0, 20);
+    }
+    return ganttTasks;
+  }, [ganttTasks, activeDragItem]);
+
+  // Mathematical collision detection for precise drop positioning
+  const calculatePreciseDropPosition = useCallback((event: DragEndEvent | DragOverEvent) => {
+    if (!event.over?.data?.current?.isDensityCell) return null;
+    
+    // Only apply to task movement/creation, NOT to handle resizing
+    const dragType = event.active.data.current?.dragType;
+    if (dragType === DRAG_TYPES.TASK_START_HANDLE || dragType === DRAG_TYPES.TASK_END_HANDLE) {
+      return null; // Let handle logic handle precise positioning
+    }
+    
+    // Get the exact mouse position - try both current and translated rects
+    const draggedElement = event.active.rect.current.translated || event.active.rect.current.initial;
+    if (!draggedElement) return null;
+    
+    // For task movement, use the main timeline container (not task-specific container)
+    const timelineContainer = scrollContainerRef.current?.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) return null;
+    
+    // Calculate exact column based on mouse position relative to timeline
+    const rect = timelineContainer.getBoundingClientRect();
+    const relativeX = draggedElement.left - rect.left;
+    const columnWidth = rect.width / dateRange.length;
+    const exactColumn = Math.floor(relativeX / columnWidth);
+    
+    // Clamp to valid range
+    const clampedColumn = Math.max(0, Math.min(exactColumn, dateRange.length - 1));
+    
+    return {
+      dateIndex: clampedColumn,
+      date: dateRange[clampedColumn]?.date.toISOString().split('T')[0]
+    };
+  }, [dateRange]);
+
+  // Memoized priority color lookup for performance
+  const priorityColorMap = useMemo(() => {
+    const map = new Map<string, any>();
+    priorities.forEach(p => {
+      map.set(p.priority.toLowerCase(), {
+        backgroundColor: p.color,
+        color: getContrastColor(p.color)
+      });
+    });
+    // Add fallback
+    map.set('__fallback__', { backgroundColor: '#007bff', color: '#ffffff' });
+    return map;
+  }, [priorities]);
+
+  const getPriorityColor = useCallback((priority: string) => {
+    return priorityColorMap.get(priority?.toLowerCase()) || priorityColorMap.get('__fallback__');
+  }, [priorityColorMap]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
@@ -336,43 +1109,89 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }
   };
 
+  // Helper function to get original task from GanttTask
+  const getOriginalTask = (ganttTask: GanttTask): Task | null => {
+    return Object.values(columns)
+      .flatMap(column => column.tasks)
+      .find(t => t.id === ganttTask.id) || null;
+  };
+
   // DnD-Kit handlers
-  const handleDragStart = (event: DragStartEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     const dragData = event.active.data.current as GanttDragItem;
     setActiveDragItem(dragData);
     setCurrentHoverDate(null);
-    console.log('🎯 Drag started:', dragData);
-  };
+    
+    // Immediately disable polling for smooth drag experience (like Kanban view)
+    if (onTaskDragStart && dragData?.taskId) {
+      // Fast lookup for the original task to disable polling immediately
+        const taskForParent = Object.values(columns)
+          .flatMap(col => col.tasks)
+        .find(t => t.id === dragData.taskId);
+        
+        if (taskForParent) {
+          onTaskDragStart(taskForParent);
+      }
+    }
+  }, [onTaskDragStart, columns]);
 
-  const handleDragOver = (event: DragOverEvent) => {
+  // Throttle drag over updates for better performance
+  const throttledSetHoverDate = useCallback((date: string) => {
+    requestAnimationFrame(() => {
+      setCurrentHoverDate(date);
+    });
+  }, []);
+
+  const handleDragOver = useCallback((event: DragOverEvent) => {
     const { over } = event;
     if (over && activeDragItem) {
-      const dropData = over.data.current as { date: string; dateIndex: number };
-      setCurrentHoverDate(dropData.date);
-      console.log('🖱️ Dragging over date:', dropData.date, 'for task:', activeDragItem.taskId);
-    } else {
-      console.log('🚫 No over target or activeDragItem:', { over: over?.id, activeDragItem: !!activeDragItem });
+      const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
+      
+      // For visual feedback during drag, prioritize direct dropData for responsiveness
+      let targetDate = dropData.date;
+      
+      // Only use precise calculation for final positioning (not for visual feedback)
+      // This ensures smooth cursor following during drag
+      const dragType = activeDragItem.dragType;
+      if (dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
+        // For task movement, use dropData.date directly for better visual feedback
+        targetDate = dropData.date;
+      }
+      
+      // Only update if the date has actually changed to avoid unnecessary re-renders
+      if (currentHoverDate !== targetDate) {
+        // Use requestAnimationFrame for smoother updates
+        requestAnimationFrame(() => {
+          throttledSetHoverDate(targetDate);
+        });
+      }
     }
-  };
+  }, [activeDragItem, currentHoverDate, throttledSetHoverDate]);
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { over } = event;
     
-    console.log('🎯 Drag ended:', { over: over?.id, activeDragItem });
-    
-    // Always clear hover state immediately
-    setCurrentHoverDate(null);
+    // Don't clear hover state immediately - keep visual feedback until update completes
+    // setCurrentHoverDate(null); // Moved to after update
     
     if (!over || !activeDragItem) {
-      console.log('❌ Drag ended without valid drop target or drag item');
       setActiveDragItem(null);
+      setCurrentHoverDate(null); // Clear hover state when no valid drag
+      
+      // Still call drag end handler to clear state
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+      }
+      
       return;
     }
 
-    const dropData = over.data.current as { date: string; dateIndex: number };
-    const targetDate = dropData.date;
+    // Use mathematical collision detection for density cells, otherwise use direct drop data
+    const precisePosition = calculatePreciseDropPosition(event);
+    const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
+    const targetDate = precisePosition?.date || dropData.date;
     
-    console.log('🎯 Drag ended:', { dragItem: activeDragItem, targetDate });
+    // Note: onTaskDragStart already called in handleDragStart, no need to call again here
 
     try {
       // Find the original task
@@ -381,77 +1200,379 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         .find(t => t.id === activeDragItem.taskId);
 
       if (!originalTask) {
-        console.error('❌ Original task not found');
         return;
       }
 
-      const updateData: any = { ...originalTask };
-
-      // Update the appropriate date based on what was dragged
-      console.log('🔧 Before update:', { 
-        dragType: activeDragItem.dragType, 
-        targetDate, 
-        currentStart: originalTask.startDate, 
-        currentDue: originalTask.dueDate 
-      });
+      // Calculate the updated task efficiently
+      const updatedTask = { ...originalTask };
 
       if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE) {
-        // Start handle logic - if dragged past end, clamp to end (creates 1-day task)
         const currentEndDate = originalTask.dueDate;
-        if (currentEndDate && targetDate > currentEndDate) {
-          // User dragged start past end - clamp to end date (1-day task at original end)
-          updateData.startDate = currentEndDate;
-          console.log('📅 Clamping startDate to endDate for 1-day task:', currentEndDate);
-        } else {
-          updateData.startDate = targetDate;
-          console.log('📅 Setting startDate to:', targetDate, 'keeping dueDate:', originalTask.dueDate);
-        }
+        updatedTask.startDate = (currentEndDate && targetDate > currentEndDate) ? currentEndDate : targetDate;
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE) {
-        // End handle logic - if dragged before start, clamp to start (creates 1-day task)
         const currentStartDate = originalTask.startDate;
-        if (currentStartDate && targetDate < currentStartDate) {
-          // User dragged end before start - clamp to start date (1-day task at original start)
-          updateData.dueDate = currentStartDate;
-          console.log('📅 Clamping endDate to startDate for 1-day task:', currentStartDate);
-        } else {
-          updateData.dueDate = targetDate;
-          console.log('📅 Setting dueDate to:', targetDate, 'keeping startDate:', originalTask.startDate);
-        }
+        updatedTask.dueDate = (currentStartDate && targetDate < currentStartDate) ? currentStartDate : targetDate;
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
-        // Move entire task - calculate duration and shift both dates
         const originalStart = new Date(activeDragItem.originalStartDate);
         const originalEnd = new Date(activeDragItem.originalEndDate);
-        const taskDuration = Math.abs(originalEnd.getTime() - originalStart.getTime());
+        const taskDuration = originalEnd.getTime() - originalStart.getTime();
         const newStartDate = new Date(targetDate);
         const newEndDate = new Date(newStartDate.getTime() + taskDuration);
         
-        updateData.startDate = targetDate;
-        updateData.dueDate = newEndDate.toISOString().split('T')[0];
+        updatedTask.startDate = targetDate;
+        updatedTask.dueDate = newEndDate.toISOString().split('T')[0];
       }
 
-      console.log('🔄 Updating task with data:', updateData);
-
-      // Optimistic UI update
+      // Use optimistic update (non-blocking) to prevent message handler violations
       if (onUpdateTask) {
-        onUpdateTask(updateData);
-      }
-
-      // API call
-      await updateTask(updateData);
-      console.log('✅ Task updated successfully');
+        // Schedule the update for the next tick to avoid blocking the drag completion
+        setTimeout(() => {
+          try {
+            onUpdateTask(updatedTask);
+            
+            // Clear drag state AFTER the update to prevent flash of original content
+            setTimeout(() => {
+              if (onTaskDragEnd) {
+                onTaskDragEnd();
+              }
+              setActiveDragItem(null);
+              setCurrentHoverDate(null);
+            }, 16); // One frame delay to ensure update is processed
 
     } catch (error) {
-      console.error('❌ Failed to update task:', error);
-    } finally {
+            console.error('Failed to update task:', error);
+            // Clear drag state even if update fails
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+            }
+            setActiveDragItem(null);
+            setCurrentHoverDate(null);
+          }
+        }, 0);
+      } else {
+        // No update function, clear drag state immediately
+        if (onTaskDragEnd) {
+          onTaskDragEnd();
+        }
+        setActiveDragItem(null);
+        setCurrentHoverDate(null);
+      }
+
+    } catch (error) {
+      console.error('Failed to update task:', error);
+      // Clear drag state on error
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+      }
       setActiveDragItem(null);
       setCurrentHoverDate(null);
     }
+  }, [activeDragItem, columns, onTaskDragStart, onTaskDragEnd, onUpdateTask]);
+
+  const handleTaskDrop = useCallback((dragData: GanttDragItem, targetDate: string) => {
+    // This will be called by DateColumn, but the actual logic is in handleDragEnd
+    // Keeping this minimal for performance
+  }, []);
+
+  // Get default priority name  
+  const getDefaultPriorityName = (): string => {
+    const defaultPriority = priorities.find(p => !!p.initial);
+    return defaultPriority?.priority || 'Medium';
   };
 
-  const handleTaskDrop = (dragData: GanttDragItem, targetDate: string) => {
-    // This will be called by DateColumn, but the actual logic is in handleDragEnd
-    console.log('📍 Task dropped on date:', { dragData, targetDate });
+  // Handle task creation with date range support
+  const createTaskWithDateRange = useCallback(async (startDate: string, endDate: string) => {
+    // Find the first column (position 0) to add the task to
+    const firstColumn = Object.values(columns).find(col => col.position === 0);
+    if (!firstColumn) {
+      return;
+    }
+
+    // If we have advanced task creation capabilities, use them
+    if (currentUser && members && boardId) {
+      
+      // Find current user member
+      const currentUserMember = members.find(m => m.user_id === currentUser.id);
+      if (!currentUserMember) {
+        console.error('Current user not found in members list');
+        return;
+      }
+
+      // Create task with prefilled date range
+      const newTask: Task = {
+        id: generateUUID(),
+        title: 'New Task',
+        description: '',
+        memberId: currentUserMember.id,
+        startDate: startDate, // Pre-fill with start date
+        dueDate: endDate,     // Pre-fill with end date (or same as start for single day)
+        effort: 1,
+        columnId: firstColumn.id,
+        position: 0,
+        priority: getDefaultPriorityName(),
+        requesterId: currentUserMember.id,
+        boardId: boardId,
+        comments: []
+      };
+
+      try {
+        // Use createTaskAtTop for better positioning
+        const createdTask = await createTaskAtTop(newTask);
+        
+        // Refresh data to get updated state
+        if (onRefreshData) {
+          await onRefreshData();
+        }
+        
+        // Open the task in detail view for editing
+        onSelectTask(createdTask);
+        
+      } catch (error) {
+        console.error('Failed to create task:', error);
+      }
+    } else if (onAddTask) {
+      // Fallback to basic task creation
+      await onAddTask(firstColumn.id);
+    }
+  }, [columns, currentUser, members, boardId, onRefreshData, onSelectTask, onAddTask]);
+
+  // Handle mouse down for task creation (start of potential drag)
+  const handleTaskCreationMouseDown = (dateString: string, event: React.MouseEvent) => {
+    // Prevent if we're already dragging a task
+    if (activeDragItem) return;
+    
+    event.preventDefault();
+    setIsCreatingTask(true);
+    setTaskCreationStart(dateString);
+    setTaskCreationEnd(dateString); // Start with same date
+    console.log('🎯 Started task creation at:', dateString);
   };
+
+  // Handle mouse enter during task creation drag
+  const handleTaskCreationMouseEnter = (dateString: string) => {
+    if (isCreatingTask && taskCreationStart) {
+      setTaskCreationEnd(dateString);
+      console.log('🖱️ Task creation drag to:', dateString);
+    }
+  };
+
+  // Handle mouse up to complete task creation
+  const handleTaskCreationMouseUp = async (event: React.MouseEvent) => {
+    if (isCreatingTask && taskCreationStart && taskCreationEnd) {
+      event.preventDefault();
+      
+      // Determine start and end dates (handle drag in either direction)
+      const startDateObj = parseLocalDate(taskCreationStart);
+      const endDateObj = parseLocalDate(taskCreationEnd);
+      
+      const finalStartDate = startDateObj <= endDateObj ? taskCreationStart : taskCreationEnd;
+      const finalEndDate = startDateObj <= endDateObj ? taskCreationEnd : taskCreationStart;
+      
+      console.log('🆕 Creating task from', finalStartDate, 'to', finalEndDate);
+      
+      // Clear creation state
+      setIsCreatingTask(false);
+      setTaskCreationStart(null);
+      setTaskCreationEnd(null);
+      
+      // Create the task
+      await createTaskWithDateRange(finalStartDate, finalEndDate);
+    } else {
+      // Clear state if something went wrong
+      setIsCreatingTask(false);
+      setTaskCreationStart(null);
+      setTaskCreationEnd(null);
+    }
+  };
+
+  // Handle creating a new task when clicking on empty grid space (backward compatibility)
+  const handleCreateTaskOnDate = async (dateString: string) => {
+    // For single click, create task with same start and due date
+    await createTaskWithDateRange(dateString, dateString);
+  };
+
+  // Handle task jump from dropdown
+  const handleJumpToTask = useCallback((task: GanttTask) => {
+    if (!task.startDate || !task.endDate) {
+      console.warn('Cannot jump to task without dates:', task);
+      return;
+    }
+
+    // Use async wrapper to handle the promise
+    (async () => {
+    try {
+      // Scroll horizontally to the task
+      await scrollToTask(task.startDate!, task.endDate!);
+      
+      // Highlight the task for 1 second
+      setHighlightedTaskId(task.id);
+      setTimeout(() => {
+        setHighlightedTaskId(null);
+      }, 1000);
+      
+      // Scroll vertically to task if not visible
+      setTimeout(() => {
+        const taskElement = document.querySelector(`[data-task-id="${task.id}"]`);
+        
+        if (taskElement) {
+          const taskRect = taskElement.getBoundingClientRect();
+          const viewportHeight = window.innerHeight;
+          
+          // Check if task is outside the visible viewport (with buffer)
+          const buffer = 100;
+          const isAboveViewport = taskRect.top < buffer;
+          const isBelowViewport = taskRect.bottom > viewportHeight - buffer;
+          
+          if (isAboveViewport || isBelowViewport) {
+            // Find the scrollable parent (could be document or a parent container)
+            let scrollableParent = taskElement.parentElement;
+            while (scrollableParent && scrollableParent !== document.body) {
+              const style = window.getComputedStyle(scrollableParent);
+              if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') {
+                break;
+              }
+              scrollableParent = scrollableParent.parentElement;
+            }
+            
+            // If no scrollable parent found, use window scrolling
+            if (!scrollableParent || scrollableParent === document.body) {
+              // Scroll the page to bring task into view
+              const targetY = window.pageYOffset + taskRect.top - (viewportHeight / 2) + (taskRect.height / 2);
+              window.scrollTo({
+                top: Math.max(0, targetY),
+                behavior: 'smooth'
+              });
+            } else {
+              // Scroll within the parent container
+              const containerRect = scrollableParent.getBoundingClientRect();
+              const relativeTop = taskRect.top - containerRect.top;
+              const targetScrollTop = scrollableParent.scrollTop + relativeTop - (containerRect.height / 2) + (taskRect.height / 2);
+              
+              scrollableParent.scrollTo({
+                top: Math.max(0, targetScrollTop),
+                behavior: 'smooth'
+              });
+            }
+          }
+        }
+      }, 100); // Small delay to ensure horizontal scroll completes first
+      
+      console.log('🎯 Jumped to task:', task.ticket);
+    } catch (error) {
+      console.error('Failed to jump to task:', error);
+    }
+    })();
+  }, [scrollToTask]);
+
+  // Add global mouse up listener for task creation
+  useEffect(() => {
+    const handleGlobalMouseUp = (event: MouseEvent) => {
+      if (isCreatingTask) {
+        // Convert to React event for compatibility
+        const reactEvent = {
+          preventDefault: () => event.preventDefault(),
+          stopPropagation: () => event.stopPropagation()
+        } as React.MouseEvent;
+        handleTaskCreationMouseUp(reactEvent);
+      }
+    };
+
+    if (isCreatingTask) {
+      document.addEventListener('mouseup', handleGlobalMouseUp);
+      return () => document.removeEventListener('mouseup', handleGlobalMouseUp);
+    }
+  }, [isCreatingTask, taskCreationStart, taskCreationEnd]);
+
+  // Prevent browser back/forward navigation on macOS swipe - attach to entire Gantt component
+  useEffect(() => {
+    const ganttComponent = document.querySelector('.gantt-chart-container');
+    if (!ganttComponent) return;
+
+    const handleWheel = (event: Event) => {
+      const wheelEvent = event as WheelEvent;
+      // Only handle horizontal scrolling/swiping
+      if (Math.abs(wheelEvent.deltaX) > Math.abs(wheelEvent.deltaY)) {
+        const scrollContainer = scrollContainerRef.current;
+        if (!scrollContainer) return;
+
+        const { scrollLeft, scrollWidth, clientWidth } = scrollContainer;
+        const maxScrollLeft = scrollWidth - clientWidth;
+        
+        // Check if we're at scroll boundaries
+        const isAtLeftBoundary = scrollLeft <= 0 && wheelEvent.deltaX < 0;
+        const isAtRightBoundary = scrollLeft >= maxScrollLeft && wheelEvent.deltaX > 0;
+        
+        // Always prevent browser navigation when scrolling horizontally in Gantt
+        if (isAtLeftBoundary || isAtRightBoundary) {
+          event.preventDefault();
+          event.stopPropagation();
+          
+          // Trigger content loading for smooth UX
+          if (isAtLeftBoundary && wheelEvent.deltaX < -5) {
+            loadEarlier();
+          } else if (isAtRightBoundary && wheelEvent.deltaX > 5) {
+            loadLater();
+          }
+        }
+      }
+    };
+
+    const handleTouchStart = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      // Disable default swipe-to-navigate behavior on iOS/macOS
+      if (touchEvent.touches.length === 2) {
+        event.preventDefault();
+      }
+    };
+
+    const handleTouchMove = (event: Event) => {
+      const touchEvent = event as TouchEvent;
+      // Prevent overscroll bounce and swipe navigation
+      const scrollContainer = scrollContainerRef.current;
+      if (!scrollContainer) return;
+      
+      const { scrollLeft, scrollWidth, clientWidth } = scrollContainer;
+      const maxScrollLeft = scrollWidth - clientWidth;
+      
+      if (touchEvent.touches.length === 2) {
+        // Two-finger gesture - check boundaries
+        if (scrollLeft <= 0 || scrollLeft >= maxScrollLeft) {
+          event.preventDefault();
+        }
+      }
+    };
+
+    // Add event listeners directly (no RAF wrapper for better performance)
+    ganttComponent.addEventListener('wheel', handleWheel, { passive: false });
+    ganttComponent.addEventListener('touchstart', handleTouchStart, { passive: false });
+    ganttComponent.addEventListener('touchmove', handleTouchMove, { passive: false });
+
+    return () => {
+      ganttComponent.removeEventListener('wheel', handleWheel);
+      ganttComponent.removeEventListener('touchstart', handleTouchStart);
+      ganttComponent.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [loadEarlier, loadLater]);
+
+  // Show loading state while dateRange is initializing or during board transitions
+  if (dateRange.length === 0 || isBoardTransitioning) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <div className="border-b border-gray-200 p-4">
+          <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {isBoardTransitioning ? 'Switching board...' : 'Loading timeline...'}
+          </p>
+        </div>
+        <div className="p-8 text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <p className="mt-2 text-gray-600">
+            {isBoardTransitioning ? 'Loading board data...' : 'Initializing Gantt view...'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DndContext 
@@ -462,13 +1583,133 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       onDragOver={handleDragOver} 
       onDragEnd={handleDragEnd}
     >
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="gantt-chart-container bg-white rounded-lg border border-gray-200 overflow-visible">
       {/* Header */}
       <div className="border-b border-gray-200 p-4">
-        <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
-        <p className="text-sm text-gray-600 mt-1">
-          Timeline view showing task schedules from {formatDate(dateRange[0].date)} to {formatDate(dateRange[dateRange.length - 1].date)}
-        </p>
+        <div className="flex items-center justify-between gap-4">
+          {/* Title and Description */}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              {dateRange.length > 0 ? (
+                `Timeline view from ${formatDate(dateRange[0].date)} to ${formatDate(dateRange[dateRange.length - 1].date)}`
+              ) : (
+                'Loading timeline...'
+              )}
+            </p>
+          </div>
+          
+          {/* Navigation Controls */}
+          <div className="flex items-center gap-4">
+            {/* Task Navigation: < Task > */}
+            <div className="flex items-center gap-1">
+              {/* Jump to Earliest Task */}
+              <button
+                onClick={() => {
+                  if (ganttTasks.length > 0) {
+                    const earliestTask = ganttTasks.reduce((earliest, task) => 
+                      (!earliest.startDate || (task.startDate && task.startDate < earliest.startDate)) ? task : earliest
+                    );
+                    if (earliestTask.startDate) {
+                      scrollToTask(earliestTask.startDate, earliestTask.endDate || earliestTask.startDate, 'start-left');
+                    }
+                  }
+                }}
+                disabled={ganttTasks.length === 0}
+                className="p-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Jump to earliest task"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+
+              {/* Task Label */}
+              <span className="text-sm text-gray-600 font-medium px-2">Task</span>
+
+              {/* Jump to Latest Task */}
+              <button
+                onClick={() => {
+                  if (ganttTasks.length > 0) {
+                    const latestTask = ganttTasks.reduce((latest, task) => 
+                      (!latest.endDate || (task.endDate && task.endDate > latest.endDate)) ? task : latest
+                    );
+                    if (latestTask.endDate) {
+                      scrollToTask(latestTask.startDate || latestTask.endDate, latestTask.endDate, 'end-right');
+                    }
+                  }
+                }}
+                disabled={ganttTasks.length === 0}
+                className="p-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Jump to latest task"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Date Navigation: < Earlier Today Later > */}
+            <div className="flex items-center gap-2">
+              {/* Earlier Button */}
+              <button
+                onClick={scrollEarlier}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to earlier dates"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                </svg>
+                Earlier
+              </button>
+
+              {/* Today Button */}
+              <button
+                onClick={scrollToToday}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to today"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Today
+              </button>
+
+              {/* Later Button */}
+              <button
+                onClick={scrollLater}
+                className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+                title="Scroll to later dates"
+              >
+                Later
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Loading Indicator - Fixed position to prevent layout shift */}
+            <div className="relative w-20 flex justify-center">
+              {isLoading && (
+                <div className="absolute flex items-center gap-1 px-2 py-1 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-md whitespace-nowrap">
+                  <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  Loading
+                </div>
+              )}
+            </div>
+
+            {/* Task Jump Dropdown */}
+            {ganttTasks.length > 0 && (
+              <div className="flex-shrink-0">
+                <TaskJumpDropdown
+                  tasks={ganttTasks.filter(task => task.startDate && task.endDate)}
+                  onTaskSelect={handleJumpToTask}
+                  className="w-56"
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Gantt Chart */}
@@ -478,8 +1719,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           className="sticky left-0 z-10 bg-white border-r border-gray-200"
           style={{ width: `${taskColumnWidth}px` }}
         >
-          {/* Task Header */}
-          <div className="p-3 font-medium text-gray-700 border-b border-gray-200 bg-gray-50 flex items-center justify-between h-12">
+          {/* Task Header - matches Month/Day headers (h-6 + h-8 = 24px + 32px = 56px) */}
+          <div className="font-medium text-gray-700 border-b border-gray-200 bg-gray-50 flex items-center justify-between px-3" style={{ height: '56px' }}>
             <span>Task</span>
             {/* Resize handle */}
             <div
@@ -489,10 +1730,16 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             />
           </div>
           
+          {/* Task Creation Header Row - matches creation row in timeline */}
+          <div className="h-12 bg-blue-50 border-b-4 border-blue-400 flex items-center justify-end px-3">
+            <span className="text-sm text-blue-700 font-medium">Add tasks here →</span>
+          </div>
+          
           {/* Task Info Rows */}
-          {ganttTasks.map((task, taskIndex) => (
+          {visibleTasks && visibleTasks.length > 0 ? visibleTasks.map((task, taskIndex) => (
             <div 
               key={`task-info-${task.id}`}
+              data-task-id={task.id}
               className={`p-2 border-b border-gray-100 ${
                 taskViewMode === 'compact' ? 'h-12' : 
                 taskViewMode === 'shrink' ? 'h-16' : 
@@ -502,7 +1749,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               <div className="flex items-center">
                 <button
                   onClick={() => handleTaskClick(task)}
-                  className="text-left w-full"
+                  className={`text-left w-full rounded px-1 py-1 transition-all duration-300 ${
+                    highlightedTaskId === task.id 
+                      ? 'bg-yellow-200 ring-2 ring-yellow-400 ring-inset' 
+                      : 'hover:bg-gray-100'
+                  }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <div className="text-sm font-medium text-gray-900">{task.ticket}</div>
@@ -532,79 +1783,204 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 </button>
               </div>
             </div>
-          ))}
+          )) : (
+            <div className="p-4 text-center text-gray-500">
+              <div className="mb-2">📅 No tasks yet</div>
+              <div className="text-xs">The timeline is ready for your tasks!</div>
+            </div>
+          )}
         </div>
         
         {/* Scrollable Timeline */}
-        <div className="flex-1 overflow-x-auto">
-          <div className="min-w-[800px]">
-            {/* Date Header */}
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 overflow-x-auto relative"
+          style={{
+            willChange: activeDragItem ? 'scroll-position' : 'auto',
+            contain: 'layout style' // Performance optimization for contained rendering
+          }}
+        >
+          
+          <div 
+            className="min-w-[800px]" 
+            style={{ width: `${Math.max(800, dateRange.length * 40 + 200)}px` }}
+          >
+            {/* Month/Year Header Row */}
             <div 
-              className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-12"
-              style={{ gridTemplateColumns: `repeat(${dateRange.length}, 1fr)` }}
+              className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6"
+              style={{ 
+                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                minWidth: '800px'
+              }}
             >
-            {dateRange.map((dateCol, index) => (
-              <div
-                key={index}
-                className={`p-1 text-xs text-center border-r border-gray-100 ${
-                  dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
-                  dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
-                }`}
-                style={{ minWidth: '20px' }}
-              >
-                <div>{dateCol.date.getDate()}</div>
-                {index % 7 === 0 && (
-                  <div className="text-xs text-gray-500 mt-1">
-                    {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}
-                  </div>
-                )}
-              </div>
-            ))}
+              {dateRange.map((dateCol, index) => (
+                <div
+                  key={index}
+                  className="text-xs text-center py-1 border-r border-gray-200"
+                  style={{ minWidth: '20px' }}
+                >
+                  {(dateCol.date.getDate() === 1 || dateCol.date.getDate() === 15) && (
+                    <span className="text-gray-600 font-medium">
+                      {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}'{dateCol.date.getFullYear().toString().slice(-2)}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            
+            {/* Day Numbers Row */}
+            <div 
+              className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
+              style={{ 
+                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                minWidth: '800px'
+              }}
+            >
+            {dateRange.map((dateCol, index) => {
+              const actualIndex = index;
+              
+              return (
+                <div
+                  key={actualIndex}
+                  className={`p-1 text-xs text-center border-r border-gray-100 ${
+                    dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
+                    dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
+                  }`}
+                  style={{ minWidth: '20px' }}
+                >
+                  <div>{dateCol.date.getDate()}</div>
+                </div>
+              );
+            })}
             </div>
 
+            {/* Task Creation Row */}
+            <div 
+              className="grid bg-white transition-colors relative h-12 border-b-4 border-blue-400"
+              style={{ 
+                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                minWidth: '800px'
+              }}
+            >
+                {dateRange.map((dateCol, relativeIndex) => {
+                const dateIndex = relativeIndex;
+                const dateString = dateCol.date.toISOString().split('T')[0];
+                
+                return (
+                  <div
+                    key={`create-${dateIndex}`}
+                    className={`border-r border-gray-100 hover:bg-blue-50 transition-colors flex items-center justify-center group relative ${
+                      isCreatingTask ? 'cursor-crosshair bg-blue-100' : 'cursor-pointer'
+                    } ${
+                      dateCol.isToday ? 'bg-blue-50' : 
+                      dateCol.isWeekend ? 'bg-gray-50' : ''
+                    }`}
+                    style={{ minWidth: '20px' }}
+                    onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
+                    onMouseEnter={() => handleTaskCreationMouseEnter(dateString)}
+                    onClick={() => !isCreatingTask && handleCreateTaskOnDate(dateString)}
+                    title={isCreatingTask ? "Drag to set date range" : `Create task on ${dateCol.date.toLocaleDateString()}`}
+                  >
+                    {/* Plus icon - visible on hover */}
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                      <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                    </div>
+                    
+                    {/* Date range feedback during drag */}
+                    {(() => {
+                      if (!isCreatingTask || !taskCreationStart || !taskCreationEnd) return null;
+                      
+                      const startDate = new Date(taskCreationStart);
+                      const endDate = new Date(taskCreationEnd);
+                      const currentDate = new Date(dateString);
+                      const isInRange = currentDate >= startDate && currentDate <= endDate;
+                      
+                      if (isInRange) {
+                        const daysDiff = Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1;
+                        const isStart = currentDate.getTime() === startDate.getTime();
+                        const isEnd = currentDate.getTime() === endDate.getTime();
+                        
+                        return (
+                          <div className={`absolute inset-0 flex items-center justify-center ${
+                            isStart || isEnd ? 'bg-blue-400 opacity-80' : 'bg-blue-300 opacity-70'
+                          }`}>
+                            {(isStart || (daysDiff === 1)) && (
+                              <span className="text-xs font-bold text-white">
+                                {daysDiff} day{daysDiff !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                );
+              })}
+            </div>
+
+          {/* Timeline Content Area */}
+          <div className="min-w-[800px]">
             {/* Task Timeline Rows */}
-            {ganttTasks.map((task, taskIndex) => {
+            {visibleTasks && visibleTasks.length > 0 ? visibleTasks.map((task, taskIndex) => {
               const gridPosition = getTaskBarGridPosition(task);
               
               return (
                 <div 
                   key={task.id} 
+                  data-task-id={task.id}
                   className={`grid border-b border-gray-100 ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors relative ${
                     taskViewMode === 'compact' ? 'h-12' : 
                     taskViewMode === 'shrink' ? 'h-16' : 
                     'h-20'
                   }`}
-                  style={{ gridTemplateColumns: `repeat(${dateRange.length}, 1fr)` }}
+                  style={{ 
+                    gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                    willChange: activeDragItem ? 'transform' : 'auto' // Performance hint during drag
+                  }}
                 >
-                {/* Background Date Columns - droppable areas */}
-                {dateRange.map((dateCol, dateIndex) => {
+                {/* Background Date Columns - optimized droppable density */}
+                {dateRange.map((dateCol, relativeIndex) => {
+                  const dateIndex = relativeIndex;
                   const dateString = dateCol.date.toISOString().split('T')[0];
                   const dropId = `date-${dateIndex}`;
                   
-                  // Inline droppable component
+                  // Smart density: every 3rd date for large ranges, every date for small ranges
+                  // BUT: always full precision for handle dragging AND task movement (for smooth visual feedback)
+                  const useDensity = dateRange.length > 90;
+                  const isHandleDrag = activeDragItem?.dragType === DRAG_TYPES.TASK_START_HANDLE || 
+                                     activeDragItem?.dragType === DRAG_TYPES.TASK_END_HANDLE;
+                  const isTaskMovement = activeDragItem?.dragType === DRAG_TYPES.TASK_MOVE_HANDLE;
+                  const isDensityDate = !useDensity || isHandleDrag || isTaskMovement || relativeIndex % 3 === 0;
+                  
+                  // Inline droppable component (only for density dates)
                   const DroppableDateCell = () => {
-                    const { isOver, setNodeRef } = useDroppable({
+                    const { setNodeRef } = useDroppable({
                       id: dropId,
                       data: {
                         date: dateString,
-                        dateIndex
-                      }
+                        dateIndex,
+                        isDensityCell: isDensityDate && !isHandleDrag && !isTaskMovement
+                      },
+                      disabled: !activeDragItem || !isDensityDate // Enhanced performance control
                     });
-
 
                     return (
                       <div
                         ref={setNodeRef}
-                        className={`h-16 border-r border-gray-100 ${
+                        className={`h-16 border-r border-gray-100 transition-colors ${
                           dateCol.isToday ? 'bg-blue-50' : 
                           dateCol.isWeekend ? 'bg-gray-50' : ''
                         }`}
                         style={{ 
-                          gridColumn: dateIndex + 2, // +2 to skip task info column
+                          gridColumn: relativeIndex + 1,
                           gridRow: 1,
                           minWidth: '20px' 
                         }}
                       >
+                        {/* Background cell - daily precision */}
                       </div>
                     );
                   };
@@ -657,9 +2033,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       className={`h-6 rounded ${isDragging ? 'opacity-90 ring-2 ring-blue-400' : 'opacity-80 hover:opacity-100'} transition-all flex items-center group relative`}
                       style={{
                         gridColumn: startIndex === endIndex 
-                          ? `${startIndex + 2} / ${startIndex + 3}` // 1-day task: exactly 1 column
-                          : `${startIndex + 2} / ${endIndex + 3}`,   // Multi-day task: normal span
+                          ? `${startIndex + 1} / ${startIndex + 2}` // 1-day task: exactly 1 column
+                          : `${startIndex + 1} / ${endIndex + 2}`,   // Multi-day task: normal span
                         gridRow: 1,
+                        willChange: isDragging ? 'opacity, transform' : 'auto', // Performance hint for drag operations
                         alignSelf: 'center',
                         zIndex: isDragging ? 25 : 10,
                         ...getPriorityColor(task.priority)
@@ -667,16 +2044,27 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       title={`${task.title}\nStart: ${task.startDate?.toLocaleDateString()}\nEnd: ${task.endDate?.toLocaleDateString()}`}
                     >
                         {/* Move handle - positioned with gap */}
+                        {(() => {
+                          const originalTask = getOriginalTask(task);
+                          return originalTask ? (
                         <MoveHandle
                           taskId={task.id}
-                          task={{
-                            id: task.id,
-                            title: task.title,
-                            startDate: task.startDate,
-                            endDate: task.endDate
-                          } as Task}
-                          onTaskMove={handleTaskDrop}
-                        />
+                              task={originalTask}
+                              onTaskMove={(taskId, newStartDate, newEndDate) => {
+                                // Convert to the expected format for handleTaskDrop
+                                const dragData: GanttDragItem = {
+                                  id: `${taskId}-move`,
+                                  taskId,
+                                  taskTitle: task.title,
+                                  originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+                                  originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+                                  dragType: DRAG_TYPES.TASK_MOVE_HANDLE
+                                };
+                                handleTaskDrop(dragData, newStartDate);
+                              }}
+                            />
+                          ) : null;
+                        })()}
                         
                         {/* Conditional handles based on task duration */}
                         {startIndex === endIndex ? (
@@ -684,18 +2072,29 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           null // No left handle for 1-day tasks
                         ) : (
                           /* Multi-day task: Left resize handle */
+                          (() => {
+                            const originalTask = getOriginalTask(task);
+                            return originalTask ? (
                           <TaskHandle
                             taskId={task.id}
-                            task={{
-                              id: task.id,
-                              title: task.title,
-                              startDate: task.startDate,
-                              endDate: task.endDate
-                            } as Task}
+                                task={originalTask}
                             handleType="start"
-                            onDateChange={handleTaskDrop}
+                                onDateChange={(taskId, handleType, newDate) => {
+                                  // Convert to the expected format for handleTaskDrop
+                                  const dragData: GanttDragItem = {
+                                    id: `${taskId}-${handleType}`,
+                                    taskId,
+                                    taskTitle: task.title,
+                                    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+                                    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+                                    dragType: handleType === 'start' ? DRAG_TYPES.TASK_START_HANDLE : DRAG_TYPES.TASK_END_HANDLE
+                                  };
+                                  handleTaskDrop(dragData, newDate);
+                                }}
                             taskColor={getPriorityColor(task.priority)}
                           />
+                            ) : null;
+                          })()
                         )}
                         
                         {/* Task content - conditional title display */}
@@ -713,18 +2112,29 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                         )}
                         
                         {/* Right resize handle - always present */}
+                        {(() => {
+                          const originalTask = getOriginalTask(task);
+                          return originalTask ? (
                         <TaskHandle
                           taskId={task.id}
-                          task={{
-                            id: task.id,
-                            title: task.title,
-                            startDate: task.startDate,
-                            endDate: task.endDate
-                          } as Task}
+                              task={originalTask}
                           handleType="end"
-                          onDateChange={handleTaskDrop}
+                              onDateChange={(taskId, handleType, newDate) => {
+                                // Convert to the expected format for handleTaskDrop
+                                const dragData: GanttDragItem = {
+                                  id: `${taskId}-${handleType}`,
+                                  taskId,
+                                  taskTitle: task.title,
+                                  originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+                                  originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+                                  dragType: handleType === 'start' ? DRAG_TYPES.TASK_START_HANDLE : DRAG_TYPES.TASK_END_HANDLE
+                                };
+                                handleTaskDrop(dragData, newDate);
+                              }}
                           taskColor={getPriorityColor(task.priority)}
                         />
+                          ) : null;
+                        })()}
                       </div>
                     );
                   })()}
@@ -739,17 +2149,82 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 )}
               </div>
             );
-          })}
-
-          {/* Empty state */}
-          {ganttTasks.length === 0 && (
+          }) : (
             <div className="p-8 text-center text-gray-500">
-              <div className="text-lg mb-2">No tasks found</div>
-              <div className="text-sm">Create some tasks with start and end dates to see them in the Gantt chart.</div>
+              <div className="text-lg mb-2">No tasks in view</div>
+              <div className="text-sm">Scroll to see tasks or adjust the date range.</div>
             </div>
           )}
-          </div>
+
+          {/* Empty state */}
+          {(!visibleTasks || visibleTasks.length === 0) && (
+            <>
+              {/* Empty state with interactive grid for task creation */}
+              <div className="text-center text-gray-500 py-4 border-b border-gray-100">
+                <div className="text-sm">📅 Timeline ready for new tasks</div>
+                <div className="text-xs text-gray-400">Click on any date to create a task</div>
+              </div>
+              
+              {/* Interactive timeline grid for task creation */}
+              <div 
+                className="grid bg-white hover:bg-blue-50 transition-colors relative h-16 border-b-4 border-blue-400"
+                style={{ 
+                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  minWidth: '800px'
+                }}
+              >
+                {/* Background Date Columns - droppable areas for new tasks */}
+                {dateRange.map((dateCol, relativeIndex) => {
+                  const dateIndex = relativeIndex;
+                  const dateString = dateCol.date.toISOString().split('T')[0];
+                  const dropId = `date-${dateIndex}`;
+
+                  // Check if this date is in the creation selection (ONLY in empty state)
+                  const isInCreationRange = !!(isCreatingTask && taskCreationStart && taskCreationEnd && (() => {
+                    const startDateObj = parseLocalDate(taskCreationStart);
+                    const endDateObj = parseLocalDate(taskCreationEnd);
+                    const currentDateObj = parseLocalDate(dateString);
+                    
+                    const rangeStart = startDateObj <= endDateObj ? startDateObj : endDateObj;
+                    const rangeEnd = startDateObj <= endDateObj ? endDateObj : startDateObj;
+                    
+                    return currentDateObj >= rangeStart && currentDateObj <= rangeEnd;
+                  })());
+
+                  return (
+                    <div
+                      key={dropId}
+                      className={`relative border-r border-gray-100 h-full transition-colors cursor-pointer ${
+                        isInCreationRange 
+                          ? 'bg-blue-200 border-blue-300' 
+                          : `${dateCol.isToday ? 'bg-blue-50' :
+                               dateCol.isWeekend ? 'bg-gray-50' : 'bg-white'
+                             } hover:bg-blue-100`
+                      }`}
+                      style={{ minWidth: '20px' }}
+                      onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
+                      onMouseEnter={() => handleTaskCreationMouseEnter(dateString)}
+                      onClick={() => !isCreatingTask && handleCreateTaskOnDate(dateString)}
+                      title={isCreatingTask ? "Drag to set date range" : `Create task on ${dateCol.date.toLocaleDateString()}`}
+                    >
+                      {/* Show creation feedback only during active drag */}
+                      {isInCreationRange && (
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-xs text-blue-700 font-medium bg-white px-1 rounded">
+                            {taskCreationStart === taskCreationEnd ? '1 day' : 
+                             Math.abs(parseLocalDate(taskCreationEnd).getTime() - parseLocalDate(taskCreationStart).getTime()) / (1000 * 60 * 60 * 24) + 1 + ' days'}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
+        </div>
+      </div>
       </div>
 
       {/* Legend */}
