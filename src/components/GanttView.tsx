@@ -325,8 +325,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [isInitialRangeSet, setIsInitialRangeSet] = useState(false);
   const [lastSavedScrollDate, setLastSavedScrollDate] = useState<string | null>(null);
+  const lastSavedScrollDateRef = useRef<string | null>(null);
   const [isProgrammaticScroll, setIsProgrammaticScroll] = useState(false);
   const [isBoardTransitioning, setIsBoardTransitioning] = useState(false);
+
+  // Sync ref with state to prevent circular dependencies
+  useEffect(() => {
+    lastSavedScrollDateRef.current = lastSavedScrollDate;
+  }, [lastSavedScrollDate]);
   
   // Generate date range function
   const generateDateRange = useCallback((startDate: Date, endDate: Date) => {
@@ -352,7 +358,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Debounced function to save scroll position to user preferences (avoid loops)
   const saveScrollPosition = useCallback(async (firstVisibleDate: string) => {
-    if (!boardId || !firstVisibleDate || firstVisibleDate === lastSavedScrollDate) {
+    if (!boardId || !firstVisibleDate || firstVisibleDate === lastSavedScrollDateRef.current) {
       return; // Don't save if no boardId, no date, or same date (avoid loops)
     }
 
@@ -371,11 +377,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         }
       });
       
+      // Update both state and ref to prevent loops
+      lastSavedScrollDateRef.current = firstVisibleDate;
       setLastSavedScrollDate(firstVisibleDate);
     } catch (error) {
       console.error('Failed to save scroll position:', error);
     }
-  }, [boardId, lastSavedScrollDate]);
+  }, [boardId]);
 
   // Unified function to save current scroll position (works for both manual scroll and button clicks)
   const saveCurrentScrollPosition = useCallback(() => {
@@ -394,10 +402,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const visibleColumnIndex = Math.floor(scrollLeft / columnWidth);
     const currentLeftmostDate = dateRange[Math.max(0, visibleColumnIndex)]?.date.toISOString().split('T')[0];
     
-    if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDate) {
+    if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDateRef.current) {
       saveScrollPosition(currentLeftmostDate);
     }
-  }, [boardId, dateRange, lastSavedScrollDate, saveScrollPosition, isProgrammaticScroll]);
+  }, [boardId, dateRange, saveScrollPosition, isProgrammaticScroll]);
 
   // Debounced manual scroll handler
   const handleManualScroll = useCallback(() => {

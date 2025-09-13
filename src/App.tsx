@@ -315,11 +315,10 @@ export default function App() {
   // User status update handler with force logout functionality
   const handleUserStatusUpdate = (newUserStatus: UserStatus) => {
     const previousStatus = userStatusRef.current;
-    console.log('🔍 [UserStatus] Update handler called:', { 
-      previousStatus, 
-      newUserStatus, 
-      permissionChanged: previousStatus?.isAdmin !== newUserStatus.isAdmin 
-    });
+    // Reduced logging to avoid performance violations
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [UserStatus] Update handler called');
+    }
     
     // Handle force logout scenarios
     if (newUserStatus.forceLogout || !newUserStatus.isActive) {
@@ -521,6 +520,24 @@ export default function App() {
     }
   };
   
+  // Stable callback functions to prevent infinite useEffect loops in useDataPolling
+  const handleMembersUpdate = useCallback((newMembers: TeamMember[]) => {
+    if (!isProfileBeingEdited) {
+      setMembers(newMembers);
+    }
+  }, [isProfileBeingEdited]);
+
+  const handleActivitiesUpdate = useCallback((newActivities: any[]) => {
+    if (showActivityFeed) {
+      setActivities(newActivities);
+    }
+  }, [showActivityFeed]);
+
+  const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
+    setBoardRelationships(newRelationships);
+    setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
+  }, []);
+
   // Data polling for real-time collaboration and permission refresh
   const { isPolling, lastPollTime } = useDataPolling({
     enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
@@ -535,26 +552,28 @@ export default function App() {
     currentRelationships: boardRelationships,
     includeSystem,
     onBoardsUpdate: setBoards,
-    onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
+    onMembersUpdate: handleMembersUpdate,
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
-    onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
-    onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
-    onRelationshipsUpdate: (newRelationships) => {
-      setBoardRelationships(newRelationships);
-      setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
-    }, // Auto-refresh task relationships
+    onActivitiesUpdate: handleActivitiesUpdate,
+    onSharedFiltersUpdate: setSharedFilterViews,
+    onRelationshipsUpdate: handleRelationshipsUpdate,
   });
 
   // Separate lightweight polling for user status on all pages
+  // TEMPORARILY DISABLED - Conflicts with auto-refresh system
+  /*
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const pollUserStatus = async () => {
       try {
         const newUserStatus = await getUserStatus();
-        console.log('🔍 [UserStatus] Polled status:', newUserStatus);
+        // Reduced logging to avoid performance violations
+        if (process.env.NODE_ENV === 'development') {
+          console.log('🔍 [UserStatus] Polled status');
+        }
         handleUserStatusUpdate(newUserStatus);
       } catch (error) {
         console.error('❌ [UserStatus] Polling failed:', error);
@@ -564,11 +583,12 @@ export default function App() {
     // Initial check
     pollUserStatus();
 
-    // Poll every 5 seconds (less frequent than main polling)
-    const statusInterval = setInterval(pollUserStatus, 5000);
+    // Poll every 30 seconds to reduce main thread blocking
+    const statusInterval = setInterval(pollUserStatus, 30000);
 
     return () => clearInterval(statusInterval);
   }, [isAuthenticated]);
+  */
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {
