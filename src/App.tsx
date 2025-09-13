@@ -38,7 +38,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode } from './utils/userPreferences';
+import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
 import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
 import { 
   DEFAULT_COLUMNS, 
@@ -117,6 +117,7 @@ export default function App() {
     key: K,
     value: UserPreferences[K]
   ) => {
+    // Global saving state is now handled automatically in saveUserPreferences
     updateUserPreference(key, value, currentUser?.id || null);
   };
 
@@ -217,7 +218,23 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+
+  // Sync local state with global preference saving state
+  useEffect(() => {
+    const updateSavingState = () => {
+      setIsSavingPreferences(isGloballySavingPreferences());
+    };
+    
+    // Initial sync
+    updateSavingState();
+    
+    // Register for updates
+    const unregister = registerSavingStateCallback(updateSavingState);
+    
+    return unregister;
+  }, []);
   const [resetToken, setResetToken] = useState<string>('');
   const [activationToken, setActivationToken] = useState<string>('');
   const [activationEmail, setActivationEmail] = useState<string>('');
@@ -359,9 +376,16 @@ export default function App() {
       console.log('🔍 [UserStatus] No permission change detected');
     }
     
-    // Update both state and ref
+    // Update both state and ref - but only update state if values actually changed
     userStatusRef.current = newUserStatus;
-    setUserStatus(newUserStatus);
+    
+    // Only trigger state update if the values actually changed to prevent unnecessary re-renders
+    if (previousStatus === null || 
+        previousStatus.isActive !== newUserStatus.isActive ||
+        previousStatus.isAdmin !== newUserStatus.isAdmin ||
+        previousStatus.forceLogout !== newUserStatus.forceLogout) {
+      setUserStatus(newUserStatus);
+    }
   };
 
   
@@ -566,13 +590,31 @@ export default function App() {
     if (!isAuthenticated) return;
 
     const pollUserStatus = async () => {
+      // Skip polling if we're currently saving preferences to avoid conflicts
+      if (isSavingPreferences) {
+        if (process.env.NODE_ENV === 'development') {
+          console.log('⏸️ [UserStatus] Skipping poll - preferences being saved');
+        }
+        return;
+      }
+
       try {
+        const startTime = performance.now();
         const newUserStatus = await getUserStatus();
+        const apiTime = performance.now() - startTime;
+        
         // Reduced logging to avoid performance violations
         if (process.env.NODE_ENV === 'development') {
-          console.log('🔍 [UserStatus] Polled status');
+          console.log(`🔍 [UserStatus] Polled status (API: ${apiTime.toFixed(1)}ms)`);
         }
+        
+        const updateStartTime = performance.now();
         handleUserStatusUpdate(newUserStatus);
+        const updateTime = performance.now() - updateStartTime;
+        
+        if (process.env.NODE_ENV === 'development' && updateTime > 50) {
+          console.log(`⚠️ [UserStatus] Update handler took ${updateTime.toFixed(1)}ms`);
+        }
       } catch (error) {
         console.error('❌ [UserStatus] Polling failed:', error);
       }
@@ -581,11 +623,11 @@ export default function App() {
     // Initial check
     pollUserStatus();
 
-    // Poll every 15 seconds for user status updates
-    const statusInterval = setInterval(pollUserStatus, 15000);
+    // Poll every 30 seconds for user status updates (reduced frequency to improve performance)
+    const statusInterval = setInterval(pollUserStatus, 30000);
 
     return () => clearInterval(statusInterval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isSavingPreferences]);
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {
