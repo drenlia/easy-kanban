@@ -23,6 +23,7 @@ interface GanttViewProps {
   currentUser?: any; // Current user for task creation
   members?: any[]; // Team members for task creation
   onRefreshData?: () => Promise<void>; // Refresh data after task creation
+  relationships?: any[]; // Add relationships prop for auto-sync
 }
 
 interface GanttTask {
@@ -51,7 +52,7 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day); // month is 0-indexed
 };
 
-const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData }) => {
+const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [] }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<GanttDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
@@ -2299,6 +2300,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             ganttTasks={ganttTasks}
             taskPositions={calculateTaskPositions()}
             isRelationshipMode={isRelationshipMode}
+            relationships={relationships}
             onCreateRelationship={(fromTaskId, toTaskId) => {
               handleCreateRelationship(fromTaskId, toTaskId);
             }}
