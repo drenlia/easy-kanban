@@ -1,6 +1,27 @@
 import { Priority } from '../types';
 import { updateUserSetting, getUserSettings } from '../api';
 
+// Global state to track preference saving operations
+let globalSavingCallbacks: Set<() => void> = new Set();
+let isSavingGlobally = false;
+
+// Register a callback to be notified when saving state changes
+export const registerSavingStateCallback = (callback: () => void) => {
+  globalSavingCallbacks.add(callback);
+  return () => globalSavingCallbacks.delete(callback);
+};
+
+// Set global saving state and notify all callbacks
+const setGlobalSavingState = (saving: boolean) => {
+  if (isSavingGlobally !== saving) {
+    isSavingGlobally = saving;
+    globalSavingCallbacks.forEach(callback => callback());
+  }
+};
+
+// Get current global saving state
+export const isGloballySavingPreferences = () => isSavingGlobally;
+
 export type TaskViewMode = 'compact' | 'shrink' | 'expand';
 export type ViewMode = 'kanban' | 'list' | 'gantt';
 
@@ -272,6 +293,9 @@ export const initializeNewUserPreferences = async (userId: string): Promise<void
 
 // Save preferences to cookie and database
 export const saveUserPreferences = async (preferences: UserPreferences, userId: string | null = null): Promise<void> => {
+  // Set global saving state to block user status polling
+  setGlobalSavingState(true);
+  
   try {
     // Save to cookie (existing behavior)
     const cookieName = getUserCookieName(userId);
@@ -336,6 +360,9 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
     }
   } catch (error) {
     console.error('Failed to save user preferences:', error);
+  } finally {
+    // Clear global saving state after save completes (success or failure)
+    setGlobalSavingState(false);
   }
 };
 
