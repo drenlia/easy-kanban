@@ -541,7 +541,10 @@ export default function App() {
     onPrioritiesUpdate: setAvailablePriorities,
     onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
     onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
-    onRelationshipsUpdate: setBoardRelationships, // Auto-refresh task relationships
+    onRelationshipsUpdate: (newRelationships) => {
+      setBoardRelationships(newRelationships);
+      setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
+    }, // Auto-refresh task relationships
   });
 
   // Separate lightweight polling for user status on all pages
