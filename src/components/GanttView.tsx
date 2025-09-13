@@ -2,13 +2,14 @@ import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, KeyboardSensor, PointerSensor, useSensor, useSensors, useDroppable, closestCenter } from '@dnd-kit/core';
 import { Task, Columns, PriorityOption } from '../types';
 import { TaskViewMode, loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
-import { updateTask, getAllPriorities, createTaskAtTop } from '../api';
+import { updateTask, getAllPriorities, createTaskAtTop, addTaskRelationship, removeTaskRelationship } from '../api';
 import { generateUUID } from '../utils/uuid';
 import { TaskHandle } from './gantt/TaskHandle';
 import { MoveHandle } from './gantt/MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './gantt/types';
 import { usePerformanceMonitor } from '../hooks/usePerformanceMonitor';
 import { TaskJumpDropdown } from './gantt/TaskJumpDropdown';
+import { TaskDependencyArrows } from './gantt/TaskDependencyArrows';
 
 interface GanttViewProps {
   columns: Columns;
@@ -56,6 +57,59 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
   const [taskColumnWidth, setTaskColumnWidth] = useState(320); // Default 320px, will load from preferences
   const [, setIsResizing] = useState(false);
+  const [isRelationshipMode, setIsRelationshipMode] = useState(false);
+  const [selectedParentTask, setSelectedParentTask] = useState<string | null>(null);
+
+  // Handle ESC key to exit relationship mode
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && isRelationshipMode) {
+        setIsRelationshipMode(false);
+        setSelectedParentTask(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isRelationshipMode]);
+  
+  // Handle relationship creation
+  const handleCreateRelationship = async (parentTaskId: string, childTaskId: string) => {
+    try {
+      
+      // Create parent relationship (parent -> child)
+      await addTaskRelationship(parentTaskId, 'parent', childTaskId);
+      
+      
+      // Refresh the data to show the new arrow
+      if (onRefreshData) {
+        onRefreshData();
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to create relationship:', error);
+      // TODO: Show user-friendly error message
+    }
+  };
+
+  // Handle relationship deletion
+  const handleDeleteRelationship = async (relationshipId: string, fromTaskId: string) => {
+    try {
+      
+      await removeTaskRelationship(fromTaskId, relationshipId);
+      
+      
+      // Refresh the data to remove the arrow
+      if (onRefreshData) {
+        onRefreshData();
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to delete relationship:', error);
+    }
+  };
   
   // Task creation drag state
   const [isCreatingTask, setIsCreatingTask] = useState(false);
@@ -317,11 +371,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       });
       
       setLastSavedScrollDate(firstVisibleDate);
-      console.log('💾 [DEBUG] Saved to user preferences:', {
-        boardId,
-        savedDate: firstVisibleDate,
-        sessionId: sessionId
-      });
     } catch (error) {
       console.error('Failed to save scroll position:', error);
     }
@@ -344,44 +393,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const visibleColumnIndex = Math.floor(scrollLeft / columnWidth);
     const currentLeftmostDate = dateRange[Math.max(0, visibleColumnIndex)]?.date.toISOString().split('T')[0];
     
-    // Debug logging to identify the problem
-    console.log('🔍 [DEBUG] Position calculation:', {
-      scrollLeft,
-      totalWidth,
-      dateRangeLength: dateRange.length,
-      columnWidth,
-      visibleColumnIndex,
-      currentLeftmostDate,
-      firstDateInRange: dateRange[0]?.date.toISOString().split('T')[0],
-      lastDateInRange: dateRange[dateRange.length - 1]?.date.toISOString().split('T')[0],
-      boardId
-    });
-    
     if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDate) {
-      console.log('📝 [DEBUG] Triggering position save:', {
-        boardId,
-        currentLeftmostDate,
-        lastSavedScrollDate,
-        trigger: isProgrammaticScroll ? 'programmatic' : 'manual'
-      });
       saveScrollPosition(currentLeftmostDate);
-    } else {
-      console.log('⏭️ [DEBUG] Skipping position save:', {
-        boardId,
-        currentLeftmostDate,
-        lastSavedScrollDate,
-        reason: !currentLeftmostDate ? 'no date' : 'same as last saved'
-      });
     }
   }, [boardId, dateRange, lastSavedScrollDate, saveScrollPosition, isProgrammaticScroll]);
 
   // Debounced manual scroll handler
   const handleManualScroll = useCallback(() => {
-    if (isProgrammaticScroll) {
-      console.log('🚫 [DEBUG] Skipping manual scroll save (programmatic scroll active)');
-      return; // Skip during button operations
-    }
-    console.log('📜 [DEBUG] Manual scroll detected - calling saveCurrentScrollPosition');
+    if (isProgrammaticScroll) return; // Skip during button operations
     saveCurrentScrollPosition();
   }, [isProgrammaticScroll, saveCurrentScrollPosition]);
 
@@ -396,7 +415,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Reset initialization flag when board changes
   useEffect(() => {
-    console.log('🔄 [DEBUG] Board changed to:', boardId, '- resetting state');
     setIsBoardTransitioning(true); // Start transition
     setIsInitialRangeSet(false);
     setLastSavedScrollDate(null);
@@ -428,8 +446,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }
     
     const initializeDateRange = async () => {
-      console.log('🔄 [DEBUG] Initializing date range for board:', boardId);
-      
       // Check for saved scroll position for this specific board
       let centerDate = new Date(); // Default to today
       let savedPositionDate = null;
@@ -437,33 +453,19 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       // Use viewportCenter if available (e.g., from Today button or Jump to task)
       if (viewportCenter) {
         centerDate = new Date(viewportCenter);
-        console.log('📍 [DEBUG] Using viewportCenter:', centerDate.toISOString().split('T')[0]);
       } else if (boardId) {
-        console.log('🔍 [DEBUG] Loading saved position for board:', boardId);
         try {
           const preferences = await loadUserPreferencesAsync();
           const savedPosition = preferences.ganttScrollPositions?.[boardId];
-          
-          console.log('📋 [DEBUG] Retrieved preferences:', {
-            boardId,
-            hasGanttScrollPositions: !!preferences.ganttScrollPositions,
-            savedPosition,
-            allSavedBoards: Object.keys(preferences.ganttScrollPositions || {})
-          });
           
           if (savedPosition?.date) {
             // Use saved position as center date for this board
             centerDate = parseLocalDate(savedPosition.date);
             savedPositionDate = savedPosition.date;
-            console.log('✅ [DEBUG] Using saved position as center:', savedPositionDate);
-          } else {
-            console.log('⚠️ [DEBUG] No saved position found for board:', boardId);
           }
         } catch (error) {
           console.error('Failed to load saved scroll position:', error);
         }
-      } else {
-        console.log('⚠️ [DEBUG] No boardId provided for restoration');
       }
       
       // Find task date bounds
@@ -519,19 +521,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       
       // If we restored a saved position, scroll to show it as leftmost column
       if (savedPositionDate) {
-        console.log('🎯 [DEBUG] Attempting to restore scroll position:', savedPositionDate);
         setTimeout(() => {
           if (scrollContainerRef.current && initialRange.length > 0) {
             const restoredDate = savedPositionDate;
             const targetIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === restoredDate);
-            
-            console.log('📐 [DEBUG] Scroll restoration calculation:', {
-              restoredDate,
-              targetIndex,
-              dateRangeLength: initialRange.length,
-              firstDate: initialRange[0]?.date.toISOString().split('T')[0],
-              lastDate: initialRange[initialRange.length - 1]?.date.toISOString().split('T')[0]
-            });
             
             if (targetIndex >= 0) {
               const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
@@ -540,43 +533,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 const columnWidth = totalWidth / initialRange.length;
                 const targetScrollLeft = targetIndex * columnWidth;
                 
-                console.log('📍 [DEBUG] Setting scroll position:', {
-                  totalWidth,
-                  columnWidth,
-                  targetScrollLeft,
-                  beforeScrollLeft: scrollContainerRef.current.scrollLeft
-                });
-                
                 scrollContainerRef.current.scrollLeft = targetScrollLeft;
-                
-                // Verify the scroll actually happened
-                setTimeout(() => {
-                  if (scrollContainerRef.current) {
-                    console.log('✅ [DEBUG] Scroll position after restoration:', {
-                      actualScrollLeft: scrollContainerRef.current.scrollLeft,
-                      targetScrollLeft,
-                      success: Math.abs(scrollContainerRef.current.scrollLeft - targetScrollLeft) < 10
-                    });
-                  }
-                }, 50);
-              } else {
-                console.log('❌ [DEBUG] Timeline container not found for scroll restoration');
               }
-            } else {
-              console.log('❌ [DEBUG] Restored date not found in date range:', {
-                restoredDate,
-                availableDates: initialRange.slice(0, 5).map(d => d.date.toISOString().split('T')[0])
-              });
             }
-          } else {
-            console.log('❌ [DEBUG] Cannot restore scroll - no container or empty range:', {
-              hasContainer: !!scrollContainerRef.current,
-              rangeLength: initialRange.length
-            });
           }
         }, 100); // Small delay to ensure DOM is updated
-      } else {
-        console.log('ℹ️ [DEBUG] No saved position to restore');
       }
       
       // If we used viewportCenter (e.g., Today button or Jump to task), scroll to center it and save position
@@ -593,13 +554,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 const columnWidth = totalWidth / initialRange.length;
                 const scrollLeft = targetIndex * columnWidth;
                 const targetScroll = scrollLeft - (scrollContainerRef.current.clientWidth / 2); // Center it
-                
-                console.log('🎯 [DEBUG] Centering on target date:', {
-                  targetDate: targetDateStr,
-                  targetIndex,
-                  scrollLeft,
-                  targetScroll: Math.max(0, targetScroll)
-                });
                 
                 scrollContainerRef.current.scrollLeft = Math.max(0, targetScroll);
               }
@@ -721,8 +675,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   // Navigation functions
   const scrollToToday = useCallback(async () => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    console.log('📅 [DEBUG] Smooth scroll to today:', todayStr);
     
     // Check if today is already in current range
     const todayIndex = dateRange.findIndex(d => d.isToday);
@@ -950,6 +902,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     canLoadLater: true
   }), [dateRange]);
 
+
   // Calculate task bar grid position
   // Optimized task bar grid position calculation using fast O(1) lookups
   const getTaskBarGridPosition = useCallback((task: GanttTask) => {
@@ -1036,6 +989,43 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }
     return ganttTasks;
   }, [ganttTasks, activeDragItem]);
+
+  // Get actual DOM positions of task bars for dependency arrows
+  const calculateTaskPositions = useCallback(() => {
+    const positions = new Map<string, {x: number, y: number, width: number, height: number}>();
+    
+    if (!visibleTasks || visibleTasks.length === 0) {
+      return positions;
+    }
+    
+    // Get the timeline container for coordinate reference
+    const timelineContainer = scrollContainerRef.current;
+    if (!timelineContainer) return positions;
+    
+    const containerRect = timelineContainer.getBoundingClientRect();
+    
+    visibleTasks.forEach((task) => {
+      // Find the actual task bar element
+      const taskRowElement = timelineContainer.querySelector(`[data-task-id="${task.id}"]`);
+      if (!taskRowElement) return;
+      
+      // Find the colored task bar within the row
+      const taskBarElement = taskRowElement.querySelector('.h-6.rounded');
+      if (!taskBarElement) return;
+      
+      const taskBarRect = taskBarElement.getBoundingClientRect();
+      
+      // Calculate position relative to the timeline container
+      const x = taskBarRect.left - containerRect.left + timelineContainer.scrollLeft;
+      const y = taskBarRect.top - containerRect.top;
+      const width = taskBarRect.width;
+      const height = taskBarRect.height;
+      
+      positions.set(task.id, { x, y, width, height });
+    });
+    
+    return positions;
+  }, [visibleTasks, scrollContainerRef]);
 
   // Mathematical collision detection for precise drop positioning
   const calculatePreciseDropPosition = useCallback((event: DragEndEvent | DragOverEvent) => {
@@ -1601,6 +1591,21 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           {/* Navigation Controls */}
           <div className="flex items-center gap-4">
+            {/* Relationship Mode Toggle */}
+            <button
+              onClick={() => setIsRelationshipMode(!isRelationshipMode)}
+              className={`px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                isRelationshipMode
+                  ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
+                  : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+              }`}
+              title={isRelationshipMode ? 'Exit relationship mode' : 'Create task relationships'}
+            >
+              <svg className="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              {isRelationshipMode ? 'Exit' : 'Link'}
+            </button>
             {/* Task Navigation: < Task > */}
             <div className="flex items-center gap-1">
               {/* Jump to Earliest Task */}
@@ -1800,7 +1805,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             contain: 'layout style' // Performance optimization for contained rendering
           }}
         >
-          
           <div 
             className="min-w-[800px]" 
             style={{ width: `${Math.max(800, dateRange.length * 40 + 200)}px` }}
@@ -2043,8 +2047,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       }}
                       title={`${task.title}\nStart: ${task.startDate?.toLocaleDateString()}\nEnd: ${task.endDate?.toLocaleDateString()}`}
                     >
-                        {/* Move handle - positioned with gap */}
-                        {(() => {
+                        {/* Move handle - positioned with gap (disabled in relationship mode) */}
+                        {!isRelationshipMode && (() => {
                           const originalTask = getOriginalTask(task);
                           return originalTask ? (
                         <MoveHandle
@@ -2066,8 +2070,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           ) : null;
                         })()}
                         
-                        {/* Conditional handles based on task duration */}
-                        {startIndex === endIndex ? (
+                        {/* Conditional handles based on task duration (disabled in relationship mode) */}
+                        {!isRelationshipMode && (startIndex === endIndex ? (
                           /* 1-day task: Only right handle for extending */
                           null // No left handle for 1-day tasks
                         ) : (
@@ -2095,24 +2099,90 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                           />
                             ) : null;
                           })()
-                        )}
+                        ))}
                         
                         {/* Task content - conditional title display */}
                         {startIndex === endIndex || taskViewMode === 'shrink' || taskViewMode === 'compact' ? (
                           /* 1-day task or compact/shrink mode: No visible title (only tooltip) */
-                          <div className="flex-1 min-w-0"></div>
+                          <div className="flex-1 min-w-0 flex items-center">
+                            {/* Link icon for relationship mode - positioned on left */}
+                            {isRelationshipMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  
+                                  if (!selectedParentTask) {
+                                    // First click - select as parent
+                                    setSelectedParentTask(task.id);
+                                  } else if (selectedParentTask === task.id) {
+                                    // Clicking same task - deselect
+                                    setSelectedParentTask(null);
+                                  } else {
+                                    // Second click - create relationship
+                                    handleCreateRelationship(selectedParentTask, task.id);
+                                    setSelectedParentTask(null);
+                                  }
+                                }}
+                                className={`p-1 ml-1 rounded transition-colors ${
+                                  selectedParentTask === task.id 
+                                    ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
+                                    : 'hover:bg-white hover:bg-opacity-20'
+                                }`}
+                                title={selectedParentTask === task.id ? 'Selected as parent - click another task to link' : 'Click to select as parent task'}
+                              >
+                                <svg className={`w-3 h-3 ${selectedParentTask === task.id ? 'text-gray-900' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
+                            <div className="flex-1"></div>
+                          </div>
                         ) : (
-                          /* Multi-day task in expand mode: Show title */
+                          /* Multi-day task in expand mode: Show title with optional link icon */
+                          <div className="flex items-center flex-1 min-w-0">
+                            {/* Link icon for relationship mode - positioned on left */}
+                            {isRelationshipMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  
+                                  if (!selectedParentTask) {
+                                    // First click - select as parent
+                                    setSelectedParentTask(task.id);
+                                  } else if (selectedParentTask === task.id) {
+                                    // Clicking same task - deselect
+                                    setSelectedParentTask(null);
+                                  } else {
+                                    // Second click - create relationship
+                                    handleCreateRelationship(selectedParentTask, task.id);
+                                    setSelectedParentTask(null);
+                                  }
+                                }}
+                                className={`p-1 ml-1 mr-2 rounded transition-colors ${
+                                  selectedParentTask === task.id 
+                                    ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
+                                    : 'hover:bg-white hover:bg-opacity-20'
+                                }`}
+                                title={selectedParentTask === task.id ? 'Selected as parent - click another task to link' : 'Click to select as parent task'}
+                              >
+                                <svg className={`w-3 h-3 ${selectedParentTask === task.id ? 'text-gray-900' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
                           <div 
                             className="text-xs truncate px-2 flex-1"
                             style={{ color: getPriorityColor(task.priority).color }}
                           >
                             {task.title}
+                            </div>
                           </div>
                         )}
                         
-                        {/* Right resize handle - always present */}
-                        {(() => {
+                        {/* Right resize handle - always present (disabled in relationship mode) */}
+                        {!isRelationshipMode && (() => {
                           const originalTask = getOriginalTask(task);
                           return originalTask ? (
                         <TaskHandle
@@ -2222,6 +2292,18 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               </div>
             </>
           )}
+          
+          {/* Task Dependency Arrows Overlay - Inside scroll container */}
+          <TaskDependencyArrows
+            key={`arrows-${Object.keys(columns).join('-')}-${ganttTasks.length}`}
+            ganttTasks={ganttTasks}
+            taskPositions={calculateTaskPositions()}
+            isRelationshipMode={isRelationshipMode}
+            onCreateRelationship={(fromTaskId, toTaskId) => {
+              handleCreateRelationship(fromTaskId, toTaskId);
+            }}
+            onDeleteRelationship={handleDeleteRelationship}
+          />
         </div>
         </div>
       </div>
