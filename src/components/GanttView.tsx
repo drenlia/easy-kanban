@@ -2111,8 +2111,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                         ))}
                         
                         {/* Task content - conditional title display */}
-                        {startIndex === endIndex || taskViewMode === 'shrink' || taskViewMode === 'compact' ? (
-                          /* 1-day task or compact/shrink mode: No visible title (only tooltip) */
+                        {startIndex === endIndex ? (
+                          /* 1-day task: No visible title (only tooltip) - but always show title regardless of taskViewMode */
                           <div className="flex-1 min-w-0 flex items-center">
                             {/* Link icon for relationship mode - positioned on left */}
                             {isRelationshipMode && (
@@ -2145,7 +2145,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                                 </svg>
                               </button>
                             )}
-                            <div className="flex-1"></div>
+                            {/* Always show title on task bars, even for 1-day tasks */}
+                            <div 
+                              className="text-xs truncate px-2 flex-1"
+                              style={{ color: getPriorityColor(task.priority).color }}
+                            >
+                              {task.title}
+                            </div>
                           </div>
                         ) : (
                           /* Multi-day task in expand mode: Show title with optional link icon */

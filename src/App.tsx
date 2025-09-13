@@ -562,8 +562,6 @@ export default function App() {
   });
 
   // Separate lightweight polling for user status on all pages
-  // TEMPORARILY DISABLED - Conflicts with auto-refresh system
-  /*
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -583,12 +581,11 @@ export default function App() {
     // Initial check
     pollUserStatus();
 
-    // Poll every 30 seconds to reduce main thread blocking
-    const statusInterval = setInterval(pollUserStatus, 30000);
+    // Poll every 15 seconds for user status updates
+    const statusInterval = setInterval(pollUserStatus, 15000);
 
     return () => clearInterval(statusInterval);
   }, [isAuthenticated]);
-  */
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {

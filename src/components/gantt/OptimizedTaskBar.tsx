@@ -159,7 +159,8 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
             onClick={handleClick}
             title={`${task.ticket}: ${task.title} (${formatDate(task.startDate!)} - ${formatDate(task.endDate!)})`}
           >
-            {taskViewMode === 'compact' ? task.ticket : `${task.ticket}: ${task.title}`}
+            {/* Always show full title on task bars, regardless of left column view mode */}
+            {`${task.ticket}: ${task.title}`}
           </div>
           
           {/* End resize handle */}
