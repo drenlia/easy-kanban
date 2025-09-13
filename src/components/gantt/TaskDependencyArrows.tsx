@@ -33,6 +33,7 @@ interface TaskDependencyArrowsProps {
   isRelationshipMode?: boolean;
   onCreateRelationship?: (fromTaskId: string, toTaskId: string) => void;
   onDeleteRelationship?: (relationshipId: string, fromTaskId: string) => void;
+  relationships?: TaskRelationship[]; // Add relationships prop for auto-sync
 }
 
 interface DependencyArrow {
@@ -52,11 +53,12 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   taskPositions,
   isRelationshipMode = false,
   onCreateRelationship,
-  onDeleteRelationship
+  onDeleteRelationship,
+  relationships = []
 }) => {
   
   
-  const [relationships, setRelationships] = useState<TaskRelationship[]>([]);
+  const [localRelationships, setLocalRelationships] = useState<TaskRelationship[]>([]);
   const [arrows, setArrows] = useState<DependencyArrow[]>([]);
   const [hoveredArrow, setHoveredArrow] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -76,40 +78,21 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
   // Mouse event handlers no longer needed - using click-based approach with link icons
 
-  // Load relationships for all visible tasks
+  // Use relationships from props (auto-synced via polling)
   useEffect(() => {
-    const loadRelationships = async () => {
-      
-      if (ganttTasks.length === 0) {
-        setRelationships([]);
-        return;
-      }
+    if (ganttTasks.length === 0) {
+      setLocalRelationships([]);
+      return;
+    }
 
+    // Filter to only show relationships between visible tasks
+    const visibleTaskIds = new Set(ganttTasks.map(t => t.id));
+    const visibleRelationships = relationships.filter(rel => 
+      visibleTaskIds.has(rel.task_id) && visibleTaskIds.has(rel.to_task_id)
+    );
 
-      const allRelationships: TaskRelationship[] = [];
-      
-      // Load relationships for each task
-      for (const task of ganttTasks) {
-        try {
-          const taskRels = await getTaskRelationships(task.id);
-          allRelationships.push(...taskRels);
-        } catch (error) {
-          console.error(`Failed to load relationships for task ${task.id}:`, error);
-        }
-      }
-
-      // Filter to only show relationships between visible tasks
-      const visibleTaskIds = new Set(ganttTasks.map(t => t.id));
-      const visibleRelationships = allRelationships.filter(rel => 
-        visibleTaskIds.has(rel.task_id) && visibleTaskIds.has(rel.to_task_id)
-      );
-
-
-      setRelationships(visibleRelationships);
-    };
-
-    loadRelationships();
-  }, [ganttTasks]);
+    setLocalRelationships(visibleRelationships);
+  }, [ganttTasks, relationships]);
 
   // Get task position from props (calculated by parent GanttView)
   const getTaskPosition = (task: GanttTask): TaskPosition | null => {
@@ -179,7 +162,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     const newArrows: DependencyArrow[] = [];
     const processedPairs = new Set<string>(); // Prevent duplicate arrows
 
-    relationships.forEach((rel) => {
+    localRelationships.forEach((rel) => {
       const fromTask = ganttTasks.find(t => t.id === rel.task_id);
       const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
 
@@ -224,7 +207,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     });
 
     setArrows(newArrows);
-  }, [relationships, ganttTasks, taskPositions, positionKey]);
+  }, [localRelationships, ganttTasks, taskPositions, positionKey]);
 
   // Arrow marker definition
   const ArrowMarker = ({ id, color }: { id: string; color: string }) => (
@@ -278,7 +261,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
       {/* Connection drawing no longer needed - using simple click approach */}
 
-      {/* Render dependency arrows */}
+      {/* Render all arrow paths first */}
       {arrows.map((arrow) => (
         <g key={`arrow-${arrow.id}`}>
           {/* Arrow path */}
@@ -315,83 +298,85 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
               }, 100);
             }}
           />
-          
-          {/* Delete button on hover */}
-          {hoveredArrow === arrow.id && onDeleteRelationship && (
-            <g>
-              {(() => {
-                // Get the actual task position from taskPositions map
-                const toTaskPosition = taskPositions.get(arrow.toTaskId);
-                if (!toTaskPosition) return null;
-                
-                // Position delete button 20px to the left of the target task's left edge
-                const deleteX = toTaskPosition.x - 20;
-                const deleteY = toTaskPosition.y + toTaskPosition.height / 2;
-                
-                
-                return (
-                  <>
-                    {/* Extended hover area around delete button */}
-                    <rect
-                      x={deleteX - 15}
-                      y={deleteY - 15}
-                      width={30}
-                      height={30}
-                      fill="transparent"
-                      className="pointer-events-auto"
-                      onMouseEnter={() => {
-                        if (hoverTimeoutRef.current) {
-                          clearTimeout(hoverTimeoutRef.current);
-                        }
-                        setHoveredArrow(arrow.id);
-                      }}
-                      onMouseLeave={() => {
-                        hoverTimeoutRef.current = setTimeout(() => {
-                          setHoveredArrow(null);
-                        }, 100);
-                      }}
-                    />
-                    {/* Delete button background */}
-                    <circle
-                      cx={deleteX}
-                      cy={deleteY}
-                      r="6"
-                      fill="rgba(239, 68, 68, 0.9)"
-                      stroke="white"
-                      strokeWidth="1"
-                      className="cursor-pointer"
-                      style={{ pointerEvents: 'auto' }}
-                      onMouseEnter={() => {
-                        if (hoverTimeoutRef.current) {
-                          clearTimeout(hoverTimeoutRef.current);
-                        }
-                        setHoveredArrow(arrow.id);
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        onDeleteRelationship(arrow.relationshipId, arrow.fromTaskId);
-                      }}
-                    />
-                    {/* X icon */}
-                    <text
-                      x={deleteX}
-                      y={deleteY + 1}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fill="white"
-                      fontSize="8"
-                      fontWeight="bold"
-                      className="pointer-events-none"
-                    >
-                      ×
-                    </text>
-                  </>
-                );
-              })()}
-            </g>
-          )}
         </g>
+      ))}
+      
+      {/* Render all delete buttons last (on top) */}
+      {arrows.map((arrow) => (
+        hoveredArrow === arrow.id && onDeleteRelationship && (
+          <g key={`delete-button-${arrow.id}`}>
+            {(() => {
+              // Get the actual task position from taskPositions map
+              const toTaskPosition = taskPositions.get(arrow.toTaskId);
+              if (!toTaskPosition) return null;
+              
+              // Position delete button 20px to the left of the target task's left edge
+              const deleteX = toTaskPosition.x - 20;
+              const deleteY = toTaskPosition.y + toTaskPosition.height / 2;
+              
+              
+              return (
+                <>
+                  {/* Extended hover area around delete button */}
+                  <rect
+                    x={deleteX - 15}
+                    y={deleteY - 15}
+                    width={30}
+                    height={30}
+                    fill="transparent"
+                    className="pointer-events-auto"
+                    onMouseEnter={() => {
+                      if (hoverTimeoutRef.current) {
+                        clearTimeout(hoverTimeoutRef.current);
+                      }
+                      setHoveredArrow(arrow.id);
+                    }}
+                    onMouseLeave={() => {
+                      hoverTimeoutRef.current = setTimeout(() => {
+                        setHoveredArrow(null);
+                      }, 100);
+                    }}
+                  />
+                  {/* Delete button background */}
+                  <circle
+                    cx={deleteX}
+                    cy={deleteY}
+                    r="6"
+                    fill="rgba(239, 68, 68, 0.9)"
+                    stroke="white"
+                    strokeWidth="1"
+                    className="cursor-pointer"
+                    style={{ pointerEvents: 'auto' }}
+                    onMouseEnter={() => {
+                      if (hoverTimeoutRef.current) {
+                        clearTimeout(hoverTimeoutRef.current);
+                      }
+                      setHoveredArrow(arrow.id);
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onDeleteRelationship(arrow.relationshipId, arrow.fromTaskId);
+                    }}
+                  />
+                  {/* X icon */}
+                  <text
+                    x={deleteX}
+                    y={deleteY + 1}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="white"
+                    fontSize="8"
+                    fontWeight="bold"
+                    className="pointer-events-none"
+                  >
+                    ×
+                  </text>
+                </>
+              );
+            })()}
+          </g>
+        )
       ))}
 
     </svg>

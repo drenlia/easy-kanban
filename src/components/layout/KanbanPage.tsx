@@ -125,6 +125,9 @@ interface KanbanPageProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  
+  // Auto-synced relationships
+  boardRelationships?: any[];
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -221,6 +224,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onLinkToolHover,
   onLinkToolHoverEnd,
   getTaskRelationshipType,
+  
+  // Auto-synced relationships
+  boardRelationships = [],
 }) => {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -536,6 +542,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               currentUser={currentUser}
               members={members}
               onRefreshData={onRefreshBoardData}
+              relationships={boardRelationships}
             />
           ) : (
             <>

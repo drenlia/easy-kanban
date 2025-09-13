@@ -581,6 +581,11 @@ export const removeTaskRelationship = async (taskId: string, relationshipId: str
   return response.data;
 };
 
+export const getBoardTaskRelationships = async (boardId: string) => {
+  const response = await api.get(`/boards/${boardId}/relationships`);
+  return response.data;
+};
+
 // Get complete task flow chart data (optimized)
 export const getTaskFlowChart = async (taskId: string): Promise<{
   rootTaskId: string;

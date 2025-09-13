@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Board, TeamMember, Columns, SiteSettings, PriorityOption } from '../types';
 import { POLLING_INTERVAL } from '../constants';
 import * as api from '../api';
-import { getAllPriorities, getActivityFeed, getSharedFilterViews, SavedFilterView } from '../api';
+import { getAllPriorities, getActivityFeed, getSharedFilterViews, SavedFilterView, getBoardTaskRelationships } from '../api';
 
 interface ActivityItem {
   id: number;
@@ -13,6 +13,14 @@ interface ActivityItem {
   board_title: string;
   column_title: string;
   taskId: string;
+  created_at: string;
+}
+
+interface TaskRelationship {
+  id: number;
+  task_id: string;
+  relationship: string;
+  to_task_id: string;
   created_at: string;
 }
 
@@ -32,6 +40,7 @@ interface UseDataPollingProps {
   currentPriorities: PriorityOption[];
   currentActivities?: ActivityItem[];
   currentSharedFilters?: SavedFilterView[];
+  currentRelationships?: TaskRelationship[];
   includeSystem: boolean;
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
@@ -40,6 +49,7 @@ interface UseDataPollingProps {
   onPrioritiesUpdate: (priorities: PriorityOption[]) => void;
   onActivitiesUpdate?: (activities: ActivityItem[]) => void;
   onSharedFiltersUpdate?: (sharedFilters: SavedFilterView[]) => void;
+  onRelationshipsUpdate?: (relationships: TaskRelationship[]) => void;
 }
 
 interface UseDataPollingReturn {
@@ -57,6 +67,7 @@ export const useDataPolling = ({
   currentPriorities,
   currentActivities = [],
   currentSharedFilters = [],
+  currentRelationships = [],
   includeSystem,
   onBoardsUpdate,
   onMembersUpdate,
@@ -65,6 +76,7 @@ export const useDataPolling = ({
   onPrioritiesUpdate,
   onActivitiesUpdate,
   onSharedFiltersUpdate,
+  onRelationshipsUpdate,
 }: UseDataPollingProps): UseDataPollingReturn => {
   const [isPolling, setIsPolling] = useState(false);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -79,13 +91,14 @@ export const useDataPolling = ({
 
     const pollForUpdates = async () => {
       try {
-        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters] = await Promise.all([
+        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([
           api.getBoards(),
           api.getMembers(includeSystem), // Use current includeSystem state
           api.getPublicSettings(),
           getAllPriorities(),
           onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([]),
-          onSharedFiltersUpdate ? getSharedFilterViews() : Promise.resolve([])
+          onSharedFiltersUpdate ? getSharedFilterViews() : Promise.resolve([]),
+          onRelationshipsUpdate && selectedBoard ? getBoardTaskRelationships(selectedBoard) : Promise.resolve([])
         ]);
 
         // Update boards list if it changed
@@ -140,6 +153,16 @@ export const useDataPolling = ({
           }
         }
 
+        // Update relationships if they changed
+        if (onRelationshipsUpdate && loadedRelationships) {
+          const currentRelationshipsString = JSON.stringify(currentRelationships);
+          const newRelationshipsString = JSON.stringify(loadedRelationships);
+
+          if (currentRelationshipsString !== newRelationshipsString) {
+            onRelationshipsUpdate(loadedRelationships);
+          }
+        }
+
 
         // Update columns for the current board if it changed
         if (selectedBoard) {
@@ -178,12 +201,14 @@ export const useDataPolling = ({
     currentColumns,
     currentSiteSettings,
     currentSharedFilters,
+    currentRelationships,
     includeSystem,
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,
     onSiteSettingsUpdate,
     onSharedFiltersUpdate,
+    onRelationshipsUpdate,
   ]);
 
   return {

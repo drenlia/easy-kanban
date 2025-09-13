@@ -235,6 +235,7 @@ export default function App() {
   // Hover highlighting for relationships
   const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
   const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
+  const [boardRelationships, setBoardRelationships] = useState<any[]>([]);
   
   // Debug showColumnDeleteConfirm changes
   useEffect(() => {
@@ -531,6 +532,7 @@ export default function App() {
     currentPriorities: availablePriorities,
     currentActivities: activities,
     currentSharedFilters: sharedFilterViews,
+    currentRelationships: boardRelationships,
     includeSystem,
     onBoardsUpdate: setBoards,
     onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
@@ -539,6 +541,7 @@ export default function App() {
     onPrioritiesUpdate: setAvailablePriorities,
     onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
     onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
+    onRelationshipsUpdate: setBoardRelationships, // Auto-refresh task relationships
   });
 
   // Separate lightweight polling for user status on all pages
@@ -2842,6 +2845,9 @@ export default function App() {
                                     onLinkToolHover={handleLinkToolHover}
                                     onLinkToolHoverEnd={handleLinkToolHoverEnd}
                                     getTaskRelationshipType={getTaskRelationshipType}
+                                    
+                                    // Auto-synced relationships
+                                    boardRelationships={boardRelationships}
       />
 
       <ModalManager
