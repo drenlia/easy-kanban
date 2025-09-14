@@ -692,26 +692,25 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const todayIndex = dateRange.findIndex(d => d.isToday);
     
     if (todayIndex >= 0 && scrollContainerRef.current) {
-      // Today is already visible - just smooth scroll to center it
+      // Today is already visible - calculate scroll position using actual grid layout
       const container = scrollContainerRef.current;
-      const timelineContainer = container.querySelector('.gantt-timeline-container');
-      if (timelineContainer) {
-        const totalWidth = timelineContainer.scrollWidth;
-        const columnWidth = totalWidth / dateRange.length;
-        const scrollLeft = todayIndex * columnWidth;
-        const targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
-        
-        setIsProgrammaticScroll(true);
-        container.scrollTo({
-          left: Math.max(0, targetScroll),
-          behavior: 'smooth'
-        });
-        
-        setTimeout(() => {
-          saveCurrentScrollPosition();
-          setIsProgrammaticScroll(false);
-        }, 300);
-      }
+      
+      // Use same width calculation as the data cells
+      const containerWidth = Math.max(800, dateRange.length * 40 + 200);
+      const columnWidth = containerWidth / dateRange.length;
+      const scrollLeft = todayIndex * columnWidth;
+      const targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
+      
+      setIsProgrammaticScroll(true);
+      container.scrollTo({
+        left: Math.max(0, targetScroll),
+        behavior: 'smooth'
+      });
+      
+      setTimeout(() => {
+        saveCurrentScrollPosition();
+        setIsProgrammaticScroll(false);
+      }, 300);
     } else {
       // Today not in range - instead of expanding massive ranges, create a new focused range around today
       const currentStart = dateRange[0]?.date;
@@ -1631,20 +1630,91 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       onDragEnd={handleDragEnd}
     >
       <div className="gantt-chart-container bg-white rounded-lg border border-gray-200 overflow-visible">
-        {/* Header - Externalized to separate component */}
-        <GanttHeader
-          dateRange={dateRange}
-          formatDate={formatDate}
-          ganttTasks={ganttTasks}
-          scrollToToday={scrollToToday}
-          scrollEarlier={scrollEarlier}
-          scrollLater={scrollLater}
-          scrollToTask={scrollToTask}
-          isRelationshipMode={isRelationshipMode}
-          setIsRelationshipMode={setIsRelationshipMode}
-          isLoading={isLoading}
-          onJumpToTask={handleJumpToTask}
-        />
+        {/* Sticky Header - Sticks under page header when scrolling */}
+        <div className="sticky top-16 z-50 bg-white">
+          <GanttHeader
+            dateRange={dateRange}
+            formatDate={formatDate}
+            ganttTasks={ganttTasks}
+            scrollToToday={scrollToToday}
+            scrollEarlier={scrollEarlier}
+            scrollLater={scrollLater}
+            scrollToTask={scrollToTask}
+            isRelationshipMode={isRelationshipMode}
+            setIsRelationshipMode={setIsRelationshipMode}
+            isLoading={isLoading}
+            onJumpToTask={handleJumpToTask}
+          />
+        </div>
+
+        {/* Second Sticky Layer - Task Column Header + Timeline Headers */}
+        <div className="sticky top-[148px] z-40 bg-white border-b border-gray-200 flex">
+          {/* Task Column Header */}
+          <div
+            className="bg-gray-50 border-r border-gray-200 flex items-center justify-between px-3 font-medium text-gray-700"
+            style={{ width: `${taskColumnWidth}px`, height: '56px' }}
+          >
+            <span>Task</span>
+            <div
+              className="w-1 h-6 bg-gray-300 hover:bg-gray-400 cursor-col-resize transition-colors"
+              onMouseDown={handleResizeStart}
+              title="Drag to resize task column"
+            />
+          </div>
+          
+          {/* Scrollable Date Headers */}
+          <div className="flex-1 overflow-x-hidden" data-sticky-header="true">
+            <div
+              className="min-w-[800px]"
+              style={{ width: `${Math.max(800, dateRange.length * 40 + 200)}px` }}
+            >
+              {/* Month/Year Row */}
+              <div 
+                className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6"
+                style={{ 
+                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  minWidth: '800px'
+                }}
+              >
+                {dateRange.map((dateCol, index) => (
+                  <div
+                    key={`sticky-month-${index}`}
+                    className="text-xs font-medium text-gray-600 flex items-center justify-center border-r border-gray-100"
+                    style={{ minWidth: '20px' }}
+                  >
+                    {(index === 0 || dateCol.date.getDate() === 1 || dateCol.date.getDate() === 15) && (
+                      <span>
+                        {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}'{dateCol.date.getFullYear().toString().slice(-2)}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Day Numbers Row */}
+              <div 
+                className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
+                style={{ 
+                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  minWidth: '800px'
+                }}
+              >
+                {dateRange.map((dateCol, index) => (
+                  <div
+                    key={`sticky-day-${index}`}
+                    className={`text-xs text-center border-r border-gray-100 flex items-center justify-center ${
+                      dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
+                      dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
+                    }`}
+                    style={{ minWidth: '20px' }}
+                  >
+                    <div>{dateCol.date.getDate()}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
 
       {/* Gantt Chart */}
       <div className="relative flex">
@@ -1653,16 +1723,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           className="sticky left-0 z-10 bg-white border-r border-gray-200"
           style={{ width: `${taskColumnWidth}px` }}
         >
-          {/* Task Header - matches Month/Day headers (h-6 + h-8 = 24px + 32px = 56px) */}
-          <div className="font-medium text-gray-700 border-b border-gray-200 bg-gray-50 flex items-center justify-between px-3" style={{ height: '56px' }}>
-            <span>Task</span>
-            {/* Resize handle */}
-            <div
-              className="w-1 h-6 bg-gray-300 hover:bg-gray-400 cursor-col-resize transition-colors"
-              onMouseDown={handleResizeStart}
-              title="Drag to resize task column"
-            />
-          </div>
           
           {/* Task Creation Header Row - matches creation row in timeline */}
           <div className="h-12 bg-blue-50 border-b-4 border-blue-400 flex items-center justify-end px-3">
@@ -1733,59 +1793,19 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             willChange: activeDragItem ? 'scroll-position' : 'auto',
             contain: 'layout style' // Performance optimization for contained rendering
           }}
+          onScroll={(e) => {
+            const scrollLeft = e.currentTarget.scrollLeft;
+            // Sync the sticky header timeline
+            const stickyHeader = document.querySelector('[data-sticky-header="true"]');
+            if (stickyHeader) {
+              stickyHeader.scrollLeft = scrollLeft;
+            }
+          }}
         >
           <div 
             className="min-w-[800px]" 
             style={{ width: `${Math.max(800, dateRange.length * 40 + 200)}px` }}
           >
-            {/* Month/Year Header Row */}
-            <div 
-              className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6"
-              style={{ 
-                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
-                minWidth: '800px'
-              }}
-            >
-              {dateRange.map((dateCol, index) => (
-                <div
-                  key={index}
-                  className="text-xs text-center py-1 border-r border-gray-200"
-                  style={{ minWidth: '20px' }}
-                >
-                  {(dateCol.date.getDate() === 1 || dateCol.date.getDate() === 15) && (
-                    <span className="text-gray-600 font-medium">
-                      {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}'{dateCol.date.getFullYear().toString().slice(-2)}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-            
-            {/* Day Numbers Row */}
-            <div 
-              className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
-              style={{ 
-                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
-                minWidth: '800px'
-              }}
-            >
-            {dateRange.map((dateCol, index) => {
-              const actualIndex = index;
-              
-              return (
-                <div
-                  key={actualIndex}
-                  className={`p-1 text-xs text-center border-r border-gray-100 ${
-                    dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
-                    dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
-                  }`}
-                  style={{ minWidth: '20px' }}
-                >
-                  <div>{dateCol.date.getDate()}</div>
-                </div>
-              );
-            })}
-            </div>
 
             {/* Task Creation Row */}
             <div 
