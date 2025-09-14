@@ -543,6 +543,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               members={members}
               onRefreshData={onRefreshBoardData}
               relationships={boardRelationships}
+              onCopyTask={onCopyTask}
+              onRemoveTask={onRemoveTask}
             />
           ) : (
             <>

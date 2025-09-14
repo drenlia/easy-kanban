@@ -218,13 +218,16 @@ router.post('/', async (req, res) => {
     const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
     const ticket = generateTaskTicket(db, taskPrefix);
     
+    // Ensure dueDate defaults to startDate if not provided
+    const dueDate = task.dueDate || task.startDate;
+    
     // Create the task
     wrapQuery(db.prepare(`
       INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
       task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-      task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
+      task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
     );
     
     // Log the activity (console only for now)
@@ -259,6 +262,9 @@ router.post('/add-at-top', async (req, res) => {
     const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
     const ticket = generateTaskTicket(db, taskPrefix);
     
+    // Ensure dueDate defaults to startDate if not provided
+    const dueDate = task.dueDate || task.startDate;
+    
     db.transaction(() => {
       wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
       wrapQuery(db.prepare(`
@@ -266,7 +272,7 @@ router.post('/add-at-top', async (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
       `), 'INSERT').run(
         task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-        task.startDate, task.dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
+        task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
       );
     })();
     
