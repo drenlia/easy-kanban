@@ -8,6 +8,10 @@ interface GanttTask {
   endDate: Date | null;
   ticket: string;
   columnId: string;
+  status: string;
+  priority: string;
+  columnPosition: number;
+  taskPosition: number;
 }
 
 interface TaskRelationship {
@@ -29,11 +33,13 @@ interface TaskPosition {
 
 interface TaskDependencyArrowsProps {
   ganttTasks: GanttTask[];
-  taskPositions: Map<string, {x: number, y: number, width: number, height: number}>;
+  taskPositions: Map<string, {x: number, y: number, width: number, height: number}>;                                                                           
   isRelationshipMode?: boolean;
   onCreateRelationship?: (fromTaskId: string, toTaskId: string) => void;
   onDeleteRelationship?: (relationshipId: string, fromTaskId: string) => void;
   relationships?: TaskRelationship[]; // Add relationships prop for auto-sync
+  dateRange?: { date: Date }[]; // Add date range for position calculation
+  taskViewMode?: 'compact' | 'shrink' | 'expand';
 }
 
 interface DependencyArrow {
@@ -54,7 +60,9 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   isRelationshipMode = false,
   onCreateRelationship,
   onDeleteRelationship,
-  relationships = []
+  relationships = [],
+  dateRange = [],
+  taskViewMode = 'expand'
 }) => {
   
   
@@ -76,10 +84,31 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     return () => clearTimeout(timer);
   }, [ganttTasks.length]); // Only depend on task count, not positions
 
-  // Mouse event handlers no longer needed - using click-based approach with link icons
-
-  // Use relationships from props (auto-synced via polling)
+  // Listen for scroll events to recalculate arrows when timeline changes
   useEffect(() => {
+    const timelineContainer = document.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) return;
+
+    let scrollTimeout: NodeJS.Timeout;
+    
+    const handleScroll = () => {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => {
+        setPositionKey(prev => prev + 1);
+      }, 100);
+    };
+
+    timelineContainer.addEventListener('scroll', handleScroll);
+    
+    return () => {
+      timelineContainer.removeEventListener('scroll', handleScroll);
+      clearTimeout(scrollTimeout);
+    };
+  }, []);
+
+  // Use relationships from props (auto-synced via polling) - KEEP THIS IMPROVEMENT
+  useEffect(() => {
+    
     if (ganttTasks.length === 0) {
       setLocalRelationships([]);
       return;
@@ -94,77 +123,129 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     setLocalRelationships(visibleRelationships);
   }, [ganttTasks, relationships]);
 
-  // Get task position from props (calculated by parent GanttView)
+  // Calculate task position directly from timeline - COMPLETELY INDEPENDENT
   const getTaskPosition = (task: GanttTask): TaskPosition | null => {
-    const pos = taskPositions.get(task.id);
-    if (!pos) return null;
+    
+    // Get the timeline container
+    const timelineContainer = document.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) {
+      return null;
+    }
+    
+    // Get the date range from props
+    if (!dateRange || dateRange.length === 0) {
+      return null;
+    }
     
     
-    return {
-      x: pos.x,
-      y: pos.y,
-      width: pos.width,
-      height: pos.height,
+    // Calculate column width
+    const containerWidth = timelineContainer.scrollWidth;
+    const columnWidth = containerWidth / dateRange.length;
+    
+    // Find task dates
+    const taskStartDate = task.startDate;
+    const taskEndDate = task.endDate;
+    
+    if (!taskStartDate || !taskEndDate) {
+      return null;
+    }
+    
+    // Find date indices
+    const startDateStr = taskStartDate.toISOString().split('T')[0];
+    const endDateStr = taskEndDate.toISOString().split('T')[0];
+    
+    const startIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === startDateStr);
+    const endIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === endDateStr);
+    
+    
+    if (startIndex === -1 || endIndex === -1) {
+      return null;
+    }
+    
+    // Calculate X position (absolute timeline position)
+    const x = startIndex * columnWidth;
+    const width = (endIndex - startIndex + 1) * columnWidth;
+    
+    // Find the task in the DOM to get Y position
+    const taskElement = document.querySelector(`[data-task-id="${task.id}"]`);
+    if (!taskElement) {
+      return null;
+    }
+    
+    const taskRect = taskElement.getBoundingClientRect();
+    const containerRect = timelineContainer.getBoundingClientRect();
+    
+    // Calculate Y position relative to container
+    const y = taskRect.top - containerRect.top;
+    const height = taskRect.height;
+    
+    // Check if we need to account for scroll position
+    const scrollTop = timelineContainer.scrollTop || 0;
+    const adjustedY = y - scrollTop;
+    
+    // Add a fixed offset to compensate for vertical misalignment
+    // The arrows are appearing below the tasks, so we need to move them up
+    const verticalOffset = -60; // Perfectly centered with task bars
+    const finalY = adjustedY + verticalOffset;
+    
+    const position = {
+      x,
+      y: finalY, // Use final Y coordinate with SVG offset
+      width,
+      height,
       taskId: task.id
     };
+    
+    return position;
   };
 
-  // Generate SVG path for arrow
+  // Generate SVG path for arrow - CORRECT SPECIFICATION
   const generateArrowPath = (from: TaskPosition, to: TaskPosition): string => {
     // Estimate column width from task positioning (assuming uniform grid)
     const estimatedColumnWidth = from.width / Math.max(1, Math.round(from.width / 50)); // Rough estimate
     
-    // Parent-child arrows: from RIGHT EDGE CENTER of parent task to LEFT CENTER of child
-    const fromX = from.x + from.width; // Right edge of parent task
+    // CORRECT SPECIFICATION:
+    // 1. Start: End date of parent (right edge), vertically centered
+    // 2. Step out: Half a data cell to the right
+    // 3. Horizontal routing: Go left/right under the parent task
+    // 4. Approach: Stop at half a data cell before child's start date
+    // 5. Connect: Vertical line down/up to child's start date (left edge), vertically centered
+    
+    const fromX = from.x + from.width; // Right edge of parent task (end date)
     const fromY = from.y + (from.height / 2); // Vertical center of parent task
-    const toX = to.x + 5; // Slightly into the child task to account for arrowhead
+    const toX = to.x; // Left edge of child task (start date)
     const toY = to.y + (to.height / 2); // Vertical center of child task
 
-    const stepOutDistance = estimatedColumnWidth * 0.5; // Step out half a cell width
-    const stepOutX = fromX + stepOutDistance; // Go right from parent
-    const clearanceOffset = estimatedColumnWidth * 0.4; // Clearance before child
+    // Step out half a data cell from parent's end date
+    const stepOutDistance = estimatedColumnWidth * 0.5;
+    const stepOutX = fromX + stepOutDistance;
     
-    // Check if child starts before parent ends (accounting for step-out distance)
-    // Only consider it "early" if child starts before the step-out point
-    const childStartsEarly = to.x < stepOutX;
+    // Approach half a data cell before child's start date
+    const approachDistance = estimatedColumnWidth * 0.5;
+    const approachX = toX - approachDistance;
     
+    // Route horizontally under the parent task
+    const routeY = fromY + 30; // 30px below parent task center (26px + 4px more)
     
-    if (childStartsEarly) {
-      // Child overlaps with parent - route around intelligently
-      const backtrackX = to.x - clearanceOffset; // Go back before child
-      
-      // Determine if child is above or below parent
-      const childIsAbove = toY < fromY;
-      
-      
-      if (childIsAbove) {
-        // Route above parent task
-        const routeY = from.y - 20; // Go above parent task
-        // Path: right from parent → up above parent → left past child → up to child level → right into child
-        return `M ${fromX} ${fromY} L ${stepOutX} ${fromY} L ${stepOutX} ${routeY} L ${backtrackX} ${routeY} L ${backtrackX} ${toY} L ${toX} ${toY}`;
-      } else {
-        // Route below parent task
-        const routeY = from.y + from.height + 20; // Go below parent task
-        // Path: right from parent → down below parent → left past child → down to child level → right into child
-        return `M ${fromX} ${fromY} L ${stepOutX} ${fromY} L ${stepOutX} ${routeY} L ${backtrackX} ${routeY} L ${backtrackX} ${toY} L ${toX} ${toY}`;
-      }
-    } else {
-      // Normal case - child after parent, direct path
-      const approachX = Math.max(stepOutX, to.x - clearanceOffset); // Don't go backwards
-      
-      // Path: right from parent → up/down to child level → right to child
-      return `M ${fromX} ${fromY} L ${stepOutX} ${fromY} L ${stepOutX} ${toY} L ${approachX} ${toY} L ${toX} ${toY}`;
-    }
+    // Connect 2px lower to both tasks
+    const fromYAdjusted = fromY + 2; // 2px lower from parent center
+    const toYAdjusted = toY + 2; // 2px lower to child center
+    
+    // Path: right from parent end → down under parent → left/right to approach point → up to child start
+    return `M ${fromX} ${fromYAdjusted} L ${stepOutX} ${fromYAdjusted} L ${stepOutX} ${routeY} L ${approachX} ${routeY} L ${approachX} ${toYAdjusted} L ${toX} ${toYAdjusted}`;
   };
 
-  // Calculate arrows based on relationships and task positions
+  // Calculate arrows based on relationships and task positions - SIMPLE VERSION
   useEffect(() => {
+    if (!localRelationships || !ganttTasks) return;
+    
     const newArrows: DependencyArrow[] = [];
     const processedPairs = new Set<string>(); // Prevent duplicate arrows
 
     localRelationships.forEach((rel) => {
       const fromTask = ganttTasks.find(t => t.id === rel.task_id);
       const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
+
 
       if (!fromTask || !toTask) {
         return;
@@ -173,12 +254,14 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
       const fromPos = getTaskPosition(fromTask);
       const toPos = getTaskPosition(toTask);
 
+
       if (!fromPos || !toPos) {
         return;
       }
 
       // Only show parent->child arrows (finish-to-start dependencies)
       if (rel.relationship === 'parent') {
+        
         // Create unique pair identifier to prevent duplicates
         const pairKey = `${rel.task_id}-${rel.to_task_id}`;
         if (processedPairs.has(pairKey)) {
@@ -192,7 +275,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
         const arrow = {
           id: `${rel.id}-${pairKey}`, // Ensure unique ID
-          relationshipId: rel.id, // Store the actual relationship ID for deletion
+          relationshipId: rel.id, // Store the actual relationship ID for deletion                                                                             
           fromTaskId: rel.task_id,
           toTaskId: rel.to_task_id,
           relationship: rel.relationship as any,
@@ -203,6 +286,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
         };
 
         newArrows.push(arrow);
+      } else {
       }
     });
 
@@ -261,7 +345,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
       {/* Connection drawing no longer needed - using simple click approach */}
 
-      {/* Render all arrow paths first */}
+      {/* Render dependency arrows */}
       {arrows.map((arrow) => (
         <g key={`arrow-${arrow.id}`}>
           {/* Arrow path */}
@@ -298,85 +382,83 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
               }, 100);
             }}
           />
+          
+          {/* Delete button on hover */}
+          {hoveredArrow === arrow.id && onDeleteRelationship && (
+            <g>
+              {(() => {
+                // Get the actual task position from taskPositions map
+                const toTaskPosition = taskPositions.get(arrow.toTaskId);
+                if (!toTaskPosition) return null;
+                
+                // Position delete button 20px to the left of the target task's left edge
+                const deleteX = toTaskPosition.x - 20;
+                const deleteY = toTaskPosition.y + toTaskPosition.height / 2;
+                
+                
+                return (
+                  <>
+                    {/* Extended hover area around delete button */}
+                    <rect
+                      x={deleteX - 15}
+                      y={deleteY - 15}
+                      width={30}
+                      height={30}
+                      fill="transparent"
+                      className="pointer-events-auto"
+                      onMouseEnter={() => {
+                        if (hoverTimeoutRef.current) {
+                          clearTimeout(hoverTimeoutRef.current);
+                        }
+                        setHoveredArrow(arrow.id);
+                      }}
+                      onMouseLeave={() => {
+                        hoverTimeoutRef.current = setTimeout(() => {
+                          setHoveredArrow(null);
+                        }, 100);
+                      }}
+                    />
+                    {/* Delete button background */}
+                    <circle
+                      cx={deleteX}
+                      cy={deleteY}
+                      r="6"
+                      fill="rgba(239, 68, 68, 0.9)"
+                      stroke="white"
+                      strokeWidth="1"
+                      className="cursor-pointer"
+                      style={{ pointerEvents: 'auto' }}
+                      onMouseEnter={() => {
+                        if (hoverTimeoutRef.current) {
+                          clearTimeout(hoverTimeoutRef.current);
+                        }
+                        setHoveredArrow(arrow.id);
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        onDeleteRelationship(arrow.relationshipId, arrow.fromTaskId);
+                      }}
+                    />
+                    {/* X icon */}
+                    <text
+                      x={deleteX}
+                      y={deleteY + 1}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="white"
+                      fontSize="8"
+                      fontWeight="bold"
+                      className="pointer-events-none"
+                    >
+                      ×
+                    </text>
+                  </>
+                );
+              })()}
+            </g>
+          )}
         </g>
-      ))}
-      
-      {/* Render all delete buttons last (on top) */}
-      {arrows.map((arrow) => (
-        hoveredArrow === arrow.id && onDeleteRelationship && (
-          <g key={`delete-button-${arrow.id}`}>
-            {(() => {
-              // Get the actual task position from taskPositions map
-              const toTaskPosition = taskPositions.get(arrow.toTaskId);
-              if (!toTaskPosition) return null;
-              
-              // Position delete button 20px to the left of the target task's left edge
-              const deleteX = toTaskPosition.x - 20;
-              const deleteY = toTaskPosition.y + toTaskPosition.height / 2;
-              
-              
-              return (
-                <>
-                  {/* Extended hover area around delete button */}
-                  <rect
-                    x={deleteX - 15}
-                    y={deleteY - 15}
-                    width={30}
-                    height={30}
-                    fill="transparent"
-                    className="pointer-events-auto"
-                    onMouseEnter={() => {
-                      if (hoverTimeoutRef.current) {
-                        clearTimeout(hoverTimeoutRef.current);
-                      }
-                      setHoveredArrow(arrow.id);
-                    }}
-                    onMouseLeave={() => {
-                      hoverTimeoutRef.current = setTimeout(() => {
-                        setHoveredArrow(null);
-                      }, 100);
-                    }}
-                  />
-                  {/* Delete button background */}
-                  <circle
-                    cx={deleteX}
-                    cy={deleteY}
-                    r="6"
-                    fill="rgba(239, 68, 68, 0.9)"
-                    stroke="white"
-                    strokeWidth="1"
-                    className="cursor-pointer"
-                    style={{ pointerEvents: 'auto' }}
-                    onMouseEnter={() => {
-                      if (hoverTimeoutRef.current) {
-                        clearTimeout(hoverTimeoutRef.current);
-                      }
-                      setHoveredArrow(arrow.id);
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      onDeleteRelationship(arrow.relationshipId, arrow.fromTaskId);
-                    }}
-                  />
-                  {/* X icon */}
-                  <text
-                    x={deleteX}
-                    y={deleteY + 1}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fill="white"
-                    fontSize="8"
-                    fontWeight="bold"
-                    className="pointer-events-none"
-                  >
-                    ×
-                  </text>
-                </>
-              );
-            })()}
-          </g>
-        )
       ))}
 
     </svg>
