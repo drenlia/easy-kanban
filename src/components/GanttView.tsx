@@ -322,12 +322,29 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [dateRange, setDateRange] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [viewportCenter, setViewportCenter] = useState<Date | null>(null); // Track center of current view
+
+  // Consistent column width calculation function
+  const getColumnWidth = useCallback(() => {
+    if (!scrollContainerRef.current || dateRange.length === 0) {
+      return 40; // Default fallback
+    }
+    
+    const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
+    if (!timelineContainer) {
+      return 40; // Default fallback
+    }
+    
+    const totalWidth = timelineContainer.scrollWidth;
+    return totalWidth / dateRange.length;
+  }, [dateRange.length]);
+
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [isInitialRangeSet, setIsInitialRangeSet] = useState(false);
   const [lastSavedScrollDate, setLastSavedScrollDate] = useState<string | null>(null);
   const lastSavedScrollDateRef = useRef<string | null>(null);
   const [isProgrammaticScroll, setIsProgrammaticScroll] = useState(false);
   const [isBoardTransitioning, setIsBoardTransitioning] = useState(false);
+  const [isRestoringPosition, setIsRestoringPosition] = useState(false);
 
   // Sync ref with state to prevent circular dependencies
   useEffect(() => {
@@ -357,12 +374,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   }, []);
 
   // Debounced function to save scroll position to user preferences (avoid loops)
-  const saveScrollPosition = useCallback(async (firstVisibleDate: string) => {
+  const saveScrollPosition = useCallback(async (firstVisibleDate: string, exactScrollLeft?: number) => {
     if (!boardId || !firstVisibleDate || firstVisibleDate === lastSavedScrollDateRef.current) {
       return; // Don't save if no boardId, no date, or same date (avoid loops)
     }
 
     try {
+      console.log(`💾 [GanttScroll] Saving scroll position for board ${boardId}: ${firstVisibleDate}${exactScrollLeft !== undefined ? ` at scroll: ${exactScrollLeft}` : ''}`);
       const currentPreferences = await loadUserPreferencesAsync();
       const sessionId = Date.now().toString(); // Unique session identifier
       
@@ -372,6 +390,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           ...currentPreferences.ganttScrollPositions,
           [boardId]: {
             date: firstVisibleDate,
+            scrollLeft: exactScrollLeft,
             sessionId: sessionId
           }
         }
@@ -380,48 +399,116 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       // Update both state and ref to prevent loops
       lastSavedScrollDateRef.current = firstVisibleDate;
       setLastSavedScrollDate(firstVisibleDate);
+      console.log(`✅ [GanttScroll] Successfully saved scroll position: ${firstVisibleDate}${exactScrollLeft !== undefined ? ` at scroll: ${exactScrollLeft}` : ''}`);
     } catch (error) {
-      console.error('Failed to save scroll position:', error);
+      console.error('❌ [GanttScroll] Failed to save scroll position:', error);
     }
   }, [boardId]);
 
   // Unified function to save current scroll position (works for both manual scroll and button clicks)
   const saveCurrentScrollPosition = useCallback(() => {
-    if (!scrollContainerRef.current || !boardId || dateRange.length === 0 || isProgrammaticScroll) {
+    console.log(`🔍 [GanttScroll] saveCurrentScrollPosition called - boardId: ${boardId}, dateRange.length: ${dateRange.length}, isProgrammaticScroll: ${isProgrammaticScroll}, isRestoringPosition: ${isRestoringPosition}`);
+    
+    if (!scrollContainerRef.current || !boardId || dateRange.length === 0 || isProgrammaticScroll || isRestoringPosition) {
+      console.log(`🚫 [GanttScroll] saveCurrentScrollPosition blocked - scrollContainerRef: ${!!scrollContainerRef.current}, boardId: ${boardId}, dateRange.length: ${dateRange.length}, isProgrammaticScroll: ${isProgrammaticScroll}, isRestoringPosition: ${isRestoringPosition}`);
       return;
     }
 
     const scrollLeft = scrollContainerRef.current.scrollLeft;
     
     // Calculate actual column width dynamically (not hard-coded)
-    const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
-    if (!timelineContainer) return;
+    // Look for timeline container in the sticky header, not the main scroll container
+    const stickyHeader = document.querySelector('[data-sticky-header="true"]') as HTMLElement;
+    let timelineContainer = null;
+    if (stickyHeader) {
+      const timelineContainers = stickyHeader.querySelectorAll('.gantt-timeline-container');
+      for (const container of timelineContainers) {
+        if (container.scrollWidth > 0) {
+          timelineContainer = container;
+          break;
+        }
+      }
+    }
+    
+    if (!timelineContainer) {
+      console.log(`🚫 [GanttScroll] Timeline container not found in sticky header`);
+      return;
+    }
     
     const totalWidth = timelineContainer.scrollWidth;
     const columnWidth = totalWidth / dateRange.length;
     const visibleColumnIndex = Math.floor(scrollLeft / columnWidth);
     const currentLeftmostDate = dateRange[Math.max(0, visibleColumnIndex)]?.date.toISOString().split('T')[0];
     
+    console.log(`🔍 [GanttScroll] Calculated position - scrollLeft: ${scrollLeft}, columnWidth: ${columnWidth.toFixed(2)}, visibleColumnIndex: ${visibleColumnIndex}, currentLeftmostDate: ${currentLeftmostDate}, lastSaved: ${lastSavedScrollDateRef.current}`);
+    
     if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDateRef.current) {
+      console.log(`💾 [GanttScroll] Triggering saveScrollPosition for: ${currentLeftmostDate} at scroll position: ${scrollLeft}`);
       // Add a small delay to batch rapid scroll position changes
       setTimeout(() => {
-        saveScrollPosition(currentLeftmostDate);
+        saveScrollPosition(currentLeftmostDate, scrollLeft);
       }, 100);
+    } else {
+      console.log(`⏭️ [GanttScroll] Skipping save - same date or no date`);
     }
-  }, [boardId, dateRange, saveScrollPosition, isProgrammaticScroll]);
+  }, [boardId, dateRange, saveScrollPosition, isProgrammaticScroll, isRestoringPosition]);
+
+
+  // Helper function to wait for DOM updates and calculate accurate scroll position
+  const waitForDOMAndScrollToToday = useCallback(async (targetRange: any[], delay: number = 200) => {
+    // Wait for DOM to be fully updated
+    await new Promise(resolve => setTimeout(resolve, delay));
+    
+    const newTodayIndex = targetRange.findIndex(d => d.isToday);
+    
+    if (newTodayIndex >= 0 && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const timelineContainer = container.querySelector('.gantt-timeline-container');
+      if (timelineContainer) {
+        // Force a reflow to ensure the DOM is fully updated
+        timelineContainer.offsetHeight;
+        
+        const totalWidth = timelineContainer.scrollWidth;
+        const columnWidth = totalWidth / targetRange.length;
+        const scrollLeft = newTodayIndex * columnWidth;
+        const targetScroll = scrollLeft - (container.clientWidth / 2);
+        
+        console.log(`🎯 [Today] Scrolling to today: index=${newTodayIndex}, columnWidth=${columnWidth.toFixed(2)}, scrollLeft=${scrollLeft.toFixed(2)}, targetScroll=${targetScroll.toFixed(2)}`);
+        
+        setIsProgrammaticScroll(true);
+        container.scrollTo({
+          left: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
+        
+        setTimeout(() => {
+          saveCurrentScrollPosition();
+          setIsProgrammaticScroll(false);
+        }, 300);
+      }
+    }
+  }, [saveCurrentScrollPosition]);
 
   // Debounced manual scroll handler
   const handleManualScroll = useCallback(() => {
-    if (isProgrammaticScroll) return; // Skip during button operations
+    console.log(`🔄 [GanttScroll] handleManualScroll called - isProgrammaticScroll: ${isProgrammaticScroll}, isRestoringPosition: ${isRestoringPosition}`);
+    if (isProgrammaticScroll || isRestoringPosition) {
+      console.log(`🚫 [GanttScroll] handleManualScroll blocked - isProgrammaticScroll: ${isProgrammaticScroll}, isRestoringPosition: ${isRestoringPosition}`);
+      return; // Skip during button operations or position restoration
+    }
     saveCurrentScrollPosition();
-  }, [isProgrammaticScroll, saveCurrentScrollPosition]);
+  }, [isProgrammaticScroll, isRestoringPosition, saveCurrentScrollPosition]);
 
   // Debounced version - only save 500ms after scrolling stops
   const debouncedScrollHandler = useMemo(() => {
     let timeoutId: NodeJS.Timeout;
     return () => {
+      console.log(`🔄 [GanttScroll] Scroll event detected`);
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(handleManualScroll, 500);
+      timeoutId = setTimeout(() => {
+        console.log(`⏰ [GanttScroll] Debounced scroll handler triggered`);
+        handleManualScroll();
+      }, 500);
     };
   }, [handleManualScroll]);
 
@@ -431,6 +518,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     setIsInitialRangeSet(false);
     setLastSavedScrollDate(null);
     setIsProgrammaticScroll(false);
+    setIsRestoringPosition(false);
     setViewportCenter(null); // Clear viewport center to allow saved position restoration
   }, [boardId]);
 
@@ -461,12 +549,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       // Check for saved scroll position for this specific board
       let centerDate = new Date(); // Default to today
       let savedPositionDate = null;
+      let savedScrollLeft: number | undefined = undefined;
       
       // Use viewportCenter if available (e.g., from Today button or Jump to task)
       if (viewportCenter) {
         centerDate = new Date(viewportCenter);
       } else if (boardId) {
         try {
+          console.log(`🔄 [GanttScroll] Loading saved scroll position for board ${boardId}...`);
           const preferences = await loadUserPreferencesAsync();
           const savedPosition = preferences.ganttScrollPositions?.[boardId];
           
@@ -474,9 +564,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             // Use saved position as center date for this board
             centerDate = parseLocalDate(savedPosition.date);
             savedPositionDate = savedPosition.date;
+            savedScrollLeft = savedPosition.scrollLeft;
+            console.log(`✅ [GanttScroll] Restored scroll position: ${savedPosition.date}${savedPosition.scrollLeft !== undefined ? ` at scroll: ${savedPosition.scrollLeft}` : ''}`);
+          } else {
+            console.log(`ℹ️ [GanttScroll] No saved scroll position found for board ${boardId}, using today`);
           }
         } catch (error) {
-          console.error('Failed to load saved scroll position:', error);
+          console.error('❌ [GanttScroll] Failed to load saved scroll position:', error);
         }
       }
       
@@ -506,11 +600,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         }
       }
       
-      setViewportCenter(centerDate);
-      
-      // Clear viewportCenter after using it to avoid interfering with future board loads
-      if (viewportCenter) {
-        setTimeout(() => setViewportCenter(null), 100); // Clear after range is set
+      // Only set viewportCenter if we don't have a saved position (to avoid interfering with restoration)
+      if (!savedPositionDate) {
+        console.log(`🎯 [GanttScroll] No saved position, setting viewportCenter to: ${centerDate.toISOString().split('T')[0]}`);
+        setViewportCenter(centerDate);
+        
+        // Clear viewportCenter after using it to avoid interfering with future board loads
+        if (viewportCenter) {
+          setTimeout(() => setViewportCenter(null), 100); // Clear after range is set
+        }
+      } else {
+        console.log(`🎯 [GanttScroll] Saved position found, skipping viewportCenter to avoid interference`);
       }
       
       // Initial range: 2 months total (1 month before and after center) - PERFORMANCE FIX
@@ -531,147 +631,272 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       setIsInitialRangeSet(true); // Mark initial range as set
       setIsBoardTransitioning(false); // End transition
       
-      // If we restored a saved position, scroll to show it as leftmost column
+      // If we restored a saved position, scroll to the saved date regardless of range size
       if (savedPositionDate) {
         setTimeout(() => {
           if (scrollContainerRef.current && initialRange.length > 0) {
+            // Set restoration flag to prevent scroll events from interfering
+            setIsRestoringPosition(true);
+            
+            // Always find the saved date in the current range and scroll to it
             const restoredDate = savedPositionDate;
             const targetIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === restoredDate);
             
             if (targetIndex >= 0) {
-              const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
+              // Look for timeline container in sticky header
+              const stickyHeader = document.querySelector('[data-sticky-header="true"]') as HTMLElement;
+              let timelineContainer = null;
+              if (stickyHeader) {
+                const timelineContainers = stickyHeader.querySelectorAll('.gantt-timeline-container');
+                for (const container of timelineContainers) {
+                  if (container.scrollWidth > 0) {
+                    timelineContainer = container;
+                    break;
+                  }
+                }
+              }
+              
               if (timelineContainer) {
                 const totalWidth = timelineContainer.scrollWidth;
                 const columnWidth = totalWidth / initialRange.length;
                 const targetScrollLeft = targetIndex * columnWidth;
                 
+                console.log(`🎯 [GanttScroll] Restoring to saved date ${restoredDate} at index ${targetIndex}, scroll: ${targetScrollLeft.toFixed(2)}`);
                 scrollContainerRef.current.scrollLeft = targetScrollLeft;
+              } else {
+                console.warn(`🎯 [GanttScroll] Timeline container not found, using fallback scroll position`);
+                // Fallback to saved scroll position if available
+                if (savedScrollLeft !== undefined) {
+                  scrollContainerRef.current.scrollLeft = savedScrollLeft;
+                }
+              }
+            } else {
+              console.log(`🎯 [GanttScroll] Saved date ${restoredDate} not found in current range, using saved scroll position`);
+              // Fallback to saved scroll position if date not found
+              if (savedScrollLeft !== undefined) {
+                scrollContainerRef.current.scrollLeft = savedScrollLeft;
               }
             }
+            
+            // Clear restoration flag after a delay to allow position to stabilize
+            setTimeout(() => {
+              console.log(`✅ [GanttScroll] Position restoration complete, clearing restoration flag`);
+              setIsRestoringPosition(false);
+            }, 200);
           }
         }, 100); // Small delay to ensure DOM is updated
       }
       
-      // If we used viewportCenter (e.g., Today button or Jump to task), scroll to center it and save position
-      if (viewportCenter && centerDate.getTime() === viewportCenter.getTime()) {
-        setTimeout(() => {
-          if (scrollContainerRef.current && initialRange.length > 0) {
-            const targetDateStr = centerDate.toISOString().split('T')[0];
-            const targetIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === targetDateStr);
-            
-            if (targetIndex >= 0) {
-              const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
-              if (timelineContainer) {
-                const totalWidth = timelineContainer.scrollWidth;
-                const columnWidth = totalWidth / initialRange.length;
-                const scrollLeft = targetIndex * columnWidth;
-                const targetScroll = scrollLeft - (scrollContainerRef.current.clientWidth / 2); // Center it
-                
-                scrollContainerRef.current.scrollLeft = Math.max(0, targetScroll);
-              }
-            }
-          }
-          
-          // Save position after centering
-          setTimeout(() => {
-            saveCurrentScrollPosition();
-          }, 100);
-        }, 200); // Wait for DOM to update
-      }
     };
     
     // Call the async initialization function
     initializeDateRange();
-  }, [ganttTasks, generateDateRange, isInitialRangeSet, boardId, viewportCenter, saveCurrentScrollPosition]);
+  }, [ganttTasks, generateDateRange, isInitialRangeSet, boardId, saveCurrentScrollPosition]);
+
+  // Separate effect to handle viewportCenter scrolling after dateRange is updated
+  useEffect(() => {
+    if (viewportCenter && dateRange.length > 0 && scrollContainerRef.current) {
+      const targetDateStr = viewportCenter.toISOString().split('T')[0];
+      const targetIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === targetDateStr);
+      
+      if (targetIndex >= 0) {
+        // Wait for DOM to be fully updated with retry mechanism
+        const waitForTimelineContainer = (retries = 0) => {
+          const container = scrollContainerRef.current;
+          if (!container) return;
+          
+          // Force a reflow to ensure DOM is fully updated
+          container.offsetHeight;
+          
+          // Look for the timeline container in the sticky header (not in the main scroll container)
+          const stickyHeader = document.querySelector('[data-sticky-header="true"]');
+          let timelineContainer = null;
+          
+          if (stickyHeader) {
+            const timelineContainers = stickyHeader.querySelectorAll('.gantt-timeline-container');
+            
+            // Find the container with actual scroll width (the day numbers row)
+            for (const container of timelineContainers) {
+              if (container.scrollWidth > 0) {
+                timelineContainer = container;
+                break;
+              }
+            }
+          }
+          
+          if (!timelineContainer) {
+            if (retries < 10) {
+              setTimeout(() => waitForTimelineContainer(retries + 1), 100);
+              return;
+            } else {
+              console.error('❌ [Today] Timeline container not found after 10 retries');
+              setViewportCenter(null);
+              return;
+            }
+          }
+          
+          // Get the actual rendered width of the timeline
+          const totalWidth = timelineContainer.scrollWidth;
+          const columnWidth = totalWidth / dateRange.length;
+          
+          // Calculate the exact position of today's column
+          const todayColumnLeft = targetIndex * columnWidth;
+          const todayColumnCenter = todayColumnLeft + (columnWidth / 2);
+          const containerCenter = container.clientWidth / 2;
+          const targetScroll = todayColumnCenter - containerCenter;
+          
+          setIsProgrammaticScroll(true);
+          container.scrollTo({
+            left: Math.max(0, targetScroll),
+            behavior: 'smooth'
+          });
+          
+          // Verify the scroll position after animation and make corrections if needed
+          setTimeout(() => {
+            const actualScroll = container.scrollLeft;
+            const actualTodayPosition = actualScroll + containerCenter;
+            const expectedTodayPosition = todayColumnCenter;
+            const offset = Math.abs(actualTodayPosition - expectedTodayPosition);
+            
+            if (offset > 20) {
+              // Make a correction scroll to get exactly centered
+              const correctionScroll = targetScroll;
+              container.scrollTo({
+                left: Math.max(0, correctionScroll),
+                behavior: 'smooth'
+              });
+              
+              // Final verification after correction
+              setTimeout(() => {
+                setIsProgrammaticScroll(false);
+                // Save position after programmatic scroll flag is cleared
+                setTimeout(() => {
+                  saveCurrentScrollPosition();
+                }, 50);
+                setViewportCenter(null);
+              }, 200);
+            } else {
+              setIsProgrammaticScroll(false);
+              // Save position after programmatic scroll flag is cleared
+              setTimeout(() => {
+                saveCurrentScrollPosition();
+              }, 50);
+              setViewportCenter(null);
+            }
+          }, 600); // Increased delay to ensure smooth scroll completes
+        };
+        
+        // Start the retry mechanism
+        setTimeout(() => waitForTimelineContainer(), 100);
+      } else {
+        console.error(`❌ [Today] Target date ${targetDateStr} not found in dateRange`);
+        setViewportCenter(null); // Clear if not found
+      }
+    }
+  }, [dateRange, viewportCenter, saveCurrentScrollPosition]);
 
   // Load earlier dates (2 months)
-  const loadEarlier = useCallback(() => {
+  const loadEarlier = useCallback(async () => {
     if (dateRange.length === 0) return;
     
     setIsLoading(true);
     
+    try {
       const firstDate = dateRange[0].date;
-    const newStartDate = new Date(firstDate);
-    newStartDate.setMonth(newStartDate.getMonth() - 2);
-    newStartDate.setDate(1); // Start of month
-    
-    const newEndDate = new Date(firstDate);
-    newEndDate.setDate(newEndDate.getDate() - 1); // Day before current first date
-    
-    const newDates = generateDateRange(newStartDate, newEndDate);
-    
-    // Prepend new dates
-    const updatedRange = [...newDates, ...dateRange];
-    
-    // Memory management: Keep max 4 months (trim from end if needed) - PERFORMANCE FIX
-    const maxDays = 120;
-    const finalRange = updatedRange.length > maxDays 
-      ? updatedRange.slice(0, maxDays) 
-      : updatedRange;
-    
-    setDateRange(finalRange);
-    
-    // Adjust scroll position to maintain current view
-    if (scrollContainerRef.current) {
-      const scrollAdjustment = newDates.length * 20; // 20px per column
-      scrollContainerRef.current.scrollLeft += scrollAdjustment;
-    }
-    
-    // Save new scroll position after loading earlier dates
-    setTimeout(() => {
-      if (finalRange.length > 0) {
-        const newFirstVisibleDate = finalRange[0].date.toISOString().split('T')[0];
-        saveScrollPosition(newFirstVisibleDate);
+      const newStartDate = new Date(firstDate);
+      newStartDate.setMonth(newStartDate.getMonth() - 2);
+      newStartDate.setDate(1); // Start of month
+      
+      const newEndDate = new Date(firstDate);
+      newEndDate.setDate(newEndDate.getDate() - 1); // Day before current first date
+      
+      const newDates = generateDateRange(newStartDate, newEndDate);
+      
+      // Prepend new dates
+      const updatedRange = [...newDates, ...dateRange];
+      
+      // Memory management: Keep max 4 months (trim from end if needed) - PERFORMANCE FIX
+      const maxDays = 120;
+      const finalRange = updatedRange.length > maxDays 
+        ? updatedRange.slice(0, maxDays) 
+        : updatedRange;
+      
+      setDateRange(finalRange);
+      
+      // Wait for DOM update before adjusting scroll position
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Adjust scroll position to maintain current view using consistent column width
+      if (scrollContainerRef.current) {
+        const columnWidth = getColumnWidth();
+        const scrollAdjustment = newDates.length * columnWidth;
+        scrollContainerRef.current.scrollLeft += scrollAdjustment;
       }
-    }, 100); // Small delay to let scroll adjustment complete
-    
-    setIsLoading(false);
-  }, [dateRange, generateDateRange, saveScrollPosition]);
+      
+      // Save new scroll position after loading earlier dates
+      setTimeout(() => {
+        if (finalRange.length > 0) {
+          // Use the unified save function instead of direct saveScrollPosition call
+          saveCurrentScrollPosition();
+        }
+      }, 100);
+      
+    } finally {
+      setIsLoading(false);
+    }
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition, getColumnWidth]);
 
   // Load later dates (2 months)
-  const loadLater = useCallback(() => {
+  const loadLater = useCallback(async () => {
     if (dateRange.length === 0) return;
     
     setIsLoading(true);
     
+    try {
       const lastDate = dateRange[dateRange.length - 1].date;
-    const newStartDate = new Date(lastDate);
-    newStartDate.setDate(newStartDate.getDate() + 1); // Day after current last date
-    
-    const newEndDate = new Date(lastDate);
-    newEndDate.setMonth(newEndDate.getMonth() + 2);
-    const daysInMonth = new Date(newEndDate.getFullYear(), newEndDate.getMonth() + 1, 0).getDate();
-    newEndDate.setDate(daysInMonth); // Last day of month
-    
-    const newDates = generateDateRange(newStartDate, newEndDate);
-    
-    // Append new dates
-    const updatedRange = [...dateRange, ...newDates];
-    
-    // Memory management: Keep max 4 months (trim from start if needed) - PERFORMANCE FIX
-    const maxDays = 120;
-    const finalRange = updatedRange.length > maxDays 
-      ? updatedRange.slice(-maxDays) 
-      : updatedRange;
-    
-    // Adjust scroll if we trimmed from start
-    if (updatedRange.length > maxDays && scrollContainerRef.current) {
-      const trimmed = updatedRange.length - maxDays;
-      scrollContainerRef.current.scrollLeft -= trimmed * 20;
-    }
-    
-    setDateRange(finalRange);
-    
-    // Save new scroll position after loading later dates
-    setTimeout(() => {
-      if (finalRange.length > 0) {
-        const newFirstVisibleDate = finalRange[0].date.toISOString().split('T')[0];
-        saveScrollPosition(newFirstVisibleDate);
+      const newStartDate = new Date(lastDate);
+      newStartDate.setDate(newStartDate.getDate() + 1); // Day after current last date
+      
+      const newEndDate = new Date(lastDate);
+      newEndDate.setMonth(newEndDate.getMonth() + 2);
+      const daysInMonth = new Date(newEndDate.getFullYear(), newEndDate.getMonth() + 1, 0).getDate();
+      newEndDate.setDate(daysInMonth); // Last day of month
+      
+      const newDates = generateDateRange(newStartDate, newEndDate);
+      
+      // Append new dates
+      const updatedRange = [...dateRange, ...newDates];
+      
+      // Memory management: Keep max 4 months (trim from start if needed) - PERFORMANCE FIX
+      const maxDays = 120;
+      const finalRange = updatedRange.length > maxDays 
+        ? updatedRange.slice(-maxDays) 
+        : updatedRange;
+      
+      setDateRange(finalRange);
+      
+      // Wait for DOM update before adjusting scroll position
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Adjust scroll if we trimmed from start using consistent column width
+      if (updatedRange.length > maxDays && scrollContainerRef.current) {
+        const columnWidth = getColumnWidth();
+        const trimmed = updatedRange.length - maxDays;
+        scrollContainerRef.current.scrollLeft -= trimmed * columnWidth;
       }
-    }, 100); // Small delay to let scroll adjustment complete
-    
-    setIsLoading(false);
-  }, [dateRange, generateDateRange, saveScrollPosition]);
+      
+      // Save new scroll position after loading later dates
+      setTimeout(() => {
+        if (finalRange.length > 0) {
+          // Use the unified save function instead of direct saveScrollPosition call
+          saveCurrentScrollPosition();
+        }
+      }, 100);
+      
+    } finally {
+      setIsLoading(false);
+    }
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition, getColumnWidth]);
 
   // Create a memoized date-to-index map for O(1) lookups instead of O(n) linear search
   const dateToIndexMap = useMemo(() => {
@@ -692,14 +917,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const todayIndex = dateRange.findIndex(d => d.isToday);
     
     if (todayIndex >= 0 && scrollContainerRef.current) {
-      // Today is already visible - calculate scroll position using actual grid layout
+      // Today is already visible - scroll directly to center it
       const container = scrollContainerRef.current;
       
-      // Use same width calculation as the data cells
-      const containerWidth = Math.max(800, dateRange.length * 40 + 200);
-      const columnWidth = containerWidth / dateRange.length;
+      // Use consistent column width calculation
+      const columnWidth = getColumnWidth();
       const scrollLeft = todayIndex * columnWidth;
       const targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
+      
+      console.log(`🎯 [Today] Scrolling to today: index=${todayIndex}, columnWidth=${columnWidth.toFixed(2)}, scrollLeft=${scrollLeft.toFixed(2)}, targetScroll=${targetScroll.toFixed(2)}`);
       
       setIsProgrammaticScroll(true);
       container.scrollTo({
@@ -708,112 +934,59 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       });
       
       setTimeout(() => {
-        saveCurrentScrollPosition();
         setIsProgrammaticScroll(false);
+        setTimeout(() => {
+          saveCurrentScrollPosition();
+        }, 50);
       }, 300);
     } else {
-      // Today not in range - instead of expanding massive ranges, create a new focused range around today
-      const currentStart = dateRange[0]?.date;
-      const currentEnd = dateRange[dateRange.length - 1]?.date;
+      // Today not in range - create a new focused range around today and scroll directly
+      console.log(`🎯 [Today] Today not in range, creating new range around today`);
       
-      if (currentStart && currentEnd && dateRange.length > 0) {
-        // Calculate the distance to today to determine if we should expand or reset
-        const daysDiff = Math.abs((today.getTime() - currentStart.getTime()) / (1000 * 60 * 60 * 24));
-        const MAX_EXPANSION_DAYS = 180; // Limit expansion to ~6 months to prevent performance issues
-        
-        if (daysDiff <= MAX_EXPANSION_DAYS) {
-          // Small expansion - safe to expand range
-          let newStart = new Date(Math.min(currentStart.getTime(), today.getTime()));
-          let newEnd = new Date(Math.max(currentEnd.getTime(), today.getTime()));
-          
-          // Add modest buffer around today
-          newStart.setMonth(newStart.getMonth() - 1);
-          newEnd.setMonth(newEnd.getMonth() + 1);
-          
-          // Generate expanded range
-          const expandedRange = generateDateRange(newStart, newEnd);
-          setDateRange(expandedRange);
-          
-          // After range updates, scroll to today
-          setTimeout(() => {
-            const newTodayIndex = expandedRange.findIndex(d => d.isToday);
+      // Create a new 4-month range centered on today
+      const newStart = new Date(today);
+      const newEnd = new Date(today);
+      newStart.setMonth(newStart.getMonth() - 2);
+      newEnd.setMonth(newEnd.getMonth() + 2);
+      
+      const focusedRange = generateDateRange(newStart, newEnd);
+      setDateRange(focusedRange);
+      
+      // Wait for the new range to be set, then scroll directly to today
+      setTimeout(() => {
+        if (scrollContainerRef.current) {
+          const newTodayIndex = focusedRange.findIndex(d => d.isToday);
+          if (newTodayIndex >= 0) {
+            const container = scrollContainerRef.current;
+            const columnWidth = getColumnWidth();
+            const scrollLeft = newTodayIndex * columnWidth;
+            const targetScroll = scrollLeft - (container.clientWidth / 2);
             
-            if (newTodayIndex >= 0 && scrollContainerRef.current) {
-              const container = scrollContainerRef.current;
-              const timelineContainer = container.querySelector('.gantt-timeline-container');
-              if (timelineContainer) {
-                const totalWidth = timelineContainer.scrollWidth;
-                const columnWidth = totalWidth / expandedRange.length;
-                const scrollLeft = newTodayIndex * columnWidth;
-                const targetScroll = scrollLeft - (container.clientWidth / 2);
-                
-                setIsProgrammaticScroll(true);
-                container.scrollTo({
-                  left: Math.max(0, targetScroll),
-                  behavior: 'smooth'
-                });
-                
-                setTimeout(() => {
-                  saveCurrentScrollPosition();
-                  setIsProgrammaticScroll(false);
-                }, 300);
-              }
-            }
-          }, 100);
-        } else {
-          // Large jump (>6 months) - create new focused range around today for performance
-          console.log(`🚀 [Today] Large jump detected (${Math.round(daysDiff)} days), creating focused range around today`);
-          
-          // Create a new 4-month range centered on today
-          const newStart = new Date(today);
-          const newEnd = new Date(today);
-          newStart.setMonth(newStart.getMonth() - 2);
-          newEnd.setMonth(newEnd.getMonth() + 2);
-          
-          const focusedRange = generateDateRange(newStart, newEnd);
-          setDateRange(focusedRange);
-          
-          // After range updates, scroll to today
-          setTimeout(() => {
-            const newTodayIndex = focusedRange.findIndex(d => d.isToday);
+            console.log(`🎯 [Today] Scrolling to today in new range: index=${newTodayIndex}, targetScroll=${targetScroll.toFixed(2)}`);
             
-            if (newTodayIndex >= 0 && scrollContainerRef.current) {
-              const container = scrollContainerRef.current;
-              const timelineContainer = container.querySelector('.gantt-timeline-container');
-              if (timelineContainer) {
-                const totalWidth = timelineContainer.scrollWidth;
-                const columnWidth = totalWidth / focusedRange.length;
-                const scrollLeft = newTodayIndex * columnWidth;
-                const targetScroll = scrollLeft - (container.clientWidth / 2);
-                
-                setIsProgrammaticScroll(true);
-                container.scrollTo({
-                  left: Math.max(0, targetScroll),
-                  behavior: 'instant' // Use instant scroll for large jumps to avoid animation overhead
-                });
-                
-                setTimeout(() => {
-                  saveCurrentScrollPosition();
-                  setIsProgrammaticScroll(false);
-                }, 50); // Shorter timeout for instant scroll
-              }
-            }
-          }, 50); // Shorter timeout for instant scroll
+            setIsProgrammaticScroll(true);
+            container.scrollTo({
+              left: Math.max(0, targetScroll),
+              behavior: 'smooth'
+            });
+            
+            setTimeout(() => {
+              setIsProgrammaticScroll(false);
+              setTimeout(() => {
+                saveCurrentScrollPosition();
+              }, 50);
+            }, 300);
+          }
         }
-      } else {
-        // No current range - fall back to regeneration (first load)
-        setViewportCenter(today);
-        setDateRange([]);
-        setIsInitialRangeSet(false);
-      }
+      }, 100);
     }
-  }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition, getColumnWidth]);
   
   const scrollToTask = useCallback(async (startDate: Date, endDate: Date, position?: string) => {
     if (!scrollContainerRef.current) return;
     
     const targetDateStr = startDate.toISOString().split('T')[0];
-    console.log('🎯 [DEBUG] Smooth scroll to task:', targetDateStr);
+    console.log(`🎯 [TaskJump] Scrolling to task: ${targetDateStr}, position: ${position || 'default'}`);
     
     // Check if target date is already in current range
     const targetIndex = dateRange.findIndex(d => 
@@ -821,14 +994,41 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     );
     
     if (targetIndex >= 0) {
-      // Target is already visible - just smooth scroll to it
+      // Target is already visible - scroll directly to it
+      console.log(`🎯 [TaskJump] Task already in range at index: ${targetIndex}`);
       const container = scrollContainerRef.current;
-      const timelineContainer = container.querySelector('.gantt-timeline-container');
+      
+      // Use consistent column width calculation (look in sticky header)
+      const stickyHeader = document.querySelector('[data-sticky-header="true"]') as HTMLElement;
+      let timelineContainer = null;
+      if (stickyHeader) {
+        const timelineContainers = stickyHeader.querySelectorAll('.gantt-timeline-container');
+        for (const container of timelineContainers) {
+          if (container.scrollWidth > 0) {
+            timelineContainer = container;
+            break;
+          }
+        }
+      }
+      
       if (timelineContainer) {
         const totalWidth = timelineContainer.scrollWidth;
         const columnWidth = totalWidth / dateRange.length;
         const scrollLeft = targetIndex * columnWidth;
-        const targetScroll = scrollLeft - (container.clientWidth / 3);
+        
+        // Calculate target scroll position based on position parameter
+        let targetScroll;
+        if (position === 'start-left') {
+          targetScroll = scrollLeft; // Position at left edge
+        } else if (position === 'center') {
+          targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
+        } else if (position === 'end-right') {
+          targetScroll = scrollLeft - (container.clientWidth * 2 / 3); // Position at right side (2/3 from left)
+        } else {
+          targetScroll = scrollLeft - (container.clientWidth / 3); // Default: 1/3 from left
+        }
+        
+        console.log(`🎯 [TaskJump] Scrolling to position: scrollLeft=${scrollLeft.toFixed(2)}, targetScroll=${targetScroll.toFixed(2)}`);
         
         setIsProgrammaticScroll(true);
         container.scrollTo({
@@ -837,12 +1037,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         });
         
         setTimeout(() => {
-          saveCurrentScrollPosition();
           setIsProgrammaticScroll(false);
+          setTimeout(() => {
+            saveCurrentScrollPosition();
+          }, 50);
         }, 300);
+      } else {
+        console.error(`❌ [TaskJump] Timeline container not found in sticky header`);
       }
     } else {
-      // Target not in range - expand range to include it smoothly
+      // Target not in range - expand range to include it
+      console.log(`🎯 [TaskJump] Task not in range, expanding range to include: ${targetDateStr}`);
       const currentStart = dateRange[0]?.date;
       const currentEnd = dateRange[dateRange.length - 1]?.date;
       
@@ -855,6 +1060,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         newStart.setMonth(newStart.getMonth() - 1);
         newEnd.setMonth(newEnd.getMonth() + 1);
         
+        console.log(`🎯 [TaskJump] Expanding range from ${newStart.toISOString().split('T')[0]} to ${newEnd.toISOString().split('T')[0]}`);
+        
         // Generate expanded range
         const expandedRange = generateDateRange(newStart, newEnd);
         setDateRange(expandedRange);
@@ -866,13 +1073,40 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           );
           
           if (newTargetIndex >= 0 && scrollContainerRef.current) {
+            console.log(`🎯 [TaskJump] Found task in expanded range at index: ${newTargetIndex}`);
             const container = scrollContainerRef.current;
-            const timelineContainer = container.querySelector('.gantt-timeline-container');
+            
+            // Use consistent column width calculation (look in sticky header)
+            const stickyHeader = document.querySelector('[data-sticky-header="true"]') as HTMLElement;
+            let timelineContainer = null;
+            if (stickyHeader) {
+              const timelineContainers = stickyHeader.querySelectorAll('.gantt-timeline-container');
+              for (const container of timelineContainers) {
+                if (container.scrollWidth > 0) {
+                  timelineContainer = container;
+                  break;
+                }
+              }
+            }
+            
             if (timelineContainer) {
               const totalWidth = timelineContainer.scrollWidth;
               const columnWidth = totalWidth / expandedRange.length;
               const scrollLeft = newTargetIndex * columnWidth;
-              const targetScroll = scrollLeft - (container.clientWidth / 3);
+              
+              // Calculate target scroll position based on position parameter
+              let targetScroll;
+              if (position === 'start-left') {
+                targetScroll = scrollLeft; // Position at left edge
+              } else if (position === 'center') {
+                targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
+              } else if (position === 'end-right') {
+                targetScroll = scrollLeft - (container.clientWidth * 2 / 3); // Position at right side (2/3 from left)
+              } else {
+                targetScroll = scrollLeft - (container.clientWidth / 3); // Default: 1/3 from left
+              }
+              
+              console.log(`🎯 [TaskJump] Scrolling to expanded position: scrollLeft=${scrollLeft.toFixed(2)}, targetScroll=${targetScroll.toFixed(2)}`);
               
               setIsProgrammaticScroll(true);
               container.scrollTo({
@@ -880,13 +1114,22 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 behavior: 'smooth'
               });
               
+              // Wait for scroll to complete, then save position normally
               setTimeout(() => {
-                saveCurrentScrollPosition();
                 setIsProgrammaticScroll(false);
-              }, 300);
+                // Save the current position (the expanded range will be saved, but restoration will find the date)
+                setTimeout(() => {
+                  console.log(`🎯 [TaskJump] Saving position after task jump`);
+                  saveCurrentScrollPosition();
+                }, 200);
+              }, 500);
+            } else {
+              console.error(`❌ [TaskJump] Timeline container not found in sticky header after expansion`);
             }
+          } else {
+            console.error(`❌ [TaskJump] Task not found in expanded range: ${targetDateStr}`);
           }
-        }, 100); // Small delay for DOM update
+        }, 200); // Increased delay for DOM update
       }
     }
   }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
@@ -899,10 +1142,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     setIsProgrammaticScroll(true);
     
     const currentScroll = scrollContainerRef.current.scrollLeft;
-    const newScroll = Math.max(0, currentScroll - 600); // Scroll left by ~30 days
+    const columnWidth = getColumnWidth();
+    const scrollAmount = columnWidth * 15; // Scroll by ~15 days worth
+    const newScroll = Math.max(0, currentScroll - scrollAmount);
     
     // If we're scrolling near the beginning, trigger load earlier
-    if (newScroll < 400 && dateRange.length > 0) { // Within 20 days of start
+    const threshold = columnWidth * 10; // Within 10 days of start
+    if (newScroll < threshold && dateRange.length > 0) {
       loadEarlier();
     }
     
@@ -917,7 +1163,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       saveCurrentScrollPosition();
       setIsProgrammaticScroll(false); // Reset flag after scroll completes
     }, 300); // Wait for smooth scroll to complete
-  }, [loadEarlier, dateRange.length, saveCurrentScrollPosition]);
+  }, [loadEarlier, dateRange.length, saveCurrentScrollPosition, getColumnWidth]);
   
   const scrollLater = useCallback(() => {
     if (!scrollContainerRef.current) return;
@@ -927,10 +1173,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     const currentScroll = scrollContainerRef.current.scrollLeft;
     const maxScroll = scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth;
-    const newScroll = Math.min(maxScroll, currentScroll + 600); // Scroll right by ~30 days
+    const columnWidth = getColumnWidth();
+    const scrollAmount = columnWidth * 15; // Scroll by ~15 days worth
+    const newScroll = Math.min(maxScroll, currentScroll + scrollAmount);
     
     // If we're scrolling near the end, trigger load later
-    if (newScroll > maxScroll - 400 && dateRange.length > 0) { // Within 20 days of end
+    const threshold = columnWidth * 10; // Within 10 days of end
+    if (newScroll > maxScroll - threshold && dateRange.length > 0) {
       loadLater();
     }
     
@@ -945,7 +1194,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       saveCurrentScrollPosition();
       setIsProgrammaticScroll(false); // Reset flag after scroll completes
     }, 300); // Wait for smooth scroll to complete
-  }, [loadLater, dateRange.length, saveCurrentScrollPosition]);
+  }, [loadLater, dateRange.length, saveCurrentScrollPosition, getColumnWidth]);
 
 
   // Simple viewport (all dates always visible)
@@ -1444,20 +1693,29 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       return;
     }
 
+    console.log(`🎯 [TaskJump] Starting jump to task: ${task.ticket} (${task.title})`);
+
     // Use async wrapper to handle the promise
     (async () => {
     try {
-      // Scroll horizontally to the task
+      // First, scroll horizontally to the task
+      console.log(`🎯 [TaskJump] Step 1: Scrolling horizontally to task date`);
       await scrollToTask(task.startDate!, task.endDate!);
       
-      // Highlight the task for 1 second
-      setHighlightedTaskId(task.id);
+      // Wait for horizontal scroll to complete before highlighting
       setTimeout(() => {
-        setHighlightedTaskId(null);
-      }, 1000);
+        console.log(`🎯 [TaskJump] Step 2: Highlighting task`);
+        // Highlight the task for 1 second
+        setHighlightedTaskId(task.id);
+        setTimeout(() => {
+          setHighlightedTaskId(null);
+          console.log(`🎯 [TaskJump] Step 3: Task highlight completed`);
+        }, 1000);
+      }, 400); // Wait for horizontal scroll to complete
       
-      // Scroll vertically to task if not visible
+      // Scroll vertically to task if not visible (after horizontal scroll completes)
       setTimeout(() => {
+        console.log(`🎯 [TaskJump] Step 4: Checking vertical scroll needs`);
         const taskElement = document.querySelector(`[data-task-id="${task.id}"]`);
         
         if (taskElement) {
@@ -1469,7 +1727,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           const isAboveViewport = taskRect.top < buffer;
           const isBelowViewport = taskRect.bottom > viewportHeight - buffer;
           
+          console.log(`🎯 [TaskJump] Task position: top=${taskRect.top.toFixed(2)}, bottom=${taskRect.bottom.toFixed(2)}, viewportHeight=${viewportHeight}, isAbove=${isAboveViewport}, isBelow=${isBelowViewport}`);
+          
           if (isAboveViewport || isBelowViewport) {
+            console.log(`🎯 [TaskJump] Step 5: Scrolling vertically to task`);
+            
             // Find the scrollable parent (could be document or a parent container)
             let scrollableParent = taskElement.parentElement;
             while (scrollableParent && scrollableParent !== document.body) {
@@ -1484,6 +1746,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             if (!scrollableParent || scrollableParent === document.body) {
               // Scroll the page to bring task into view
               const targetY = window.pageYOffset + taskRect.top - (viewportHeight / 2) + (taskRect.height / 2);
+              console.log(`🎯 [TaskJump] Scrolling window to Y: ${targetY.toFixed(2)}`);
               window.scrollTo({
                 top: Math.max(0, targetY),
                 behavior: 'smooth'
@@ -1494,18 +1757,23 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               const relativeTop = taskRect.top - containerRect.top;
               const targetScrollTop = scrollableParent.scrollTop + relativeTop - (containerRect.height / 2) + (taskRect.height / 2);
               
+              console.log(`🎯 [TaskJump] Scrolling container to Y: ${targetScrollTop.toFixed(2)}`);
               scrollableParent.scrollTo({
                 top: Math.max(0, targetScrollTop),
                 behavior: 'smooth'
               });
             }
+          } else {
+            console.log(`🎯 [TaskJump] Task is already visible vertically, no vertical scroll needed`);
           }
+        } else {
+          console.warn(`🎯 [TaskJump] Task element not found: [data-task-id="${task.id}"]`);
         }
-      }, 100); // Small delay to ensure horizontal scroll completes first
+      }, 600); // Wait longer for horizontal scroll to complete
       
-      console.log('🎯 Jumped to task:', task.ticket);
+      console.log(`🎯 [TaskJump] Jump to task completed: ${task.ticket}`);
     } catch (error) {
-      console.error('Failed to jump to task:', error);
+      console.error('❌ [TaskJump] Failed to jump to task:', error);
     }
     })();
   }, [scrollToTask]);
@@ -1663,7 +1931,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           </div>
           
           {/* Scrollable Date Headers */}
-          <div className="flex-1 overflow-x-hidden" data-sticky-header="true">
+          <div className="flex-1 overflow-x-auto" data-sticky-header="true">
             <div
               className="min-w-[800px]"
               style={{ width: `${Math.max(800, dateRange.length * 40 + 200)}px` }}
@@ -1796,10 +2064,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           onScroll={(e) => {
             const scrollLeft = e.currentTarget.scrollLeft;
             // Sync the sticky header timeline
-            const stickyHeader = document.querySelector('[data-sticky-header="true"]');
+            const stickyHeader = document.querySelector('[data-sticky-header="true"]') as HTMLElement;
             if (stickyHeader) {
               stickyHeader.scrollLeft = scrollLeft;
             }
+            // Also sync any other timeline containers
+            const timelineContainers = document.querySelectorAll('.gantt-timeline-container');
+            timelineContainers.forEach(container => {
+              if (container instanceof HTMLElement) {
+                container.scrollLeft = scrollLeft;
+              }
+            });
           }}
         >
           <div 
