@@ -269,6 +269,9 @@ router.get('/google/callback', async (req, res) => {
     const userRoles = roles.map(r => r.name);
     console.log('🔐 [GOOGLE SSO] User roles found:', userRoles);
     
+    // Clear force_logout flag on successful login
+    db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
+    
     // Generate JWT token - must match local login structure
     console.log('🔐 [GOOGLE SSO] Generating JWT token...');
     const jwtPayload = { 

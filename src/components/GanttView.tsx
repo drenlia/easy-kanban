@@ -10,6 +10,7 @@ import { GanttDragItem, DRAG_TYPES } from './gantt/types';
 import { usePerformanceMonitor } from '../hooks/usePerformanceMonitor';
 import { GanttHeader } from './gantt/GanttHeader';
 import { TaskDependencyArrows } from './gantt/TaskDependencyArrows';
+import { Copy, Trash2 } from 'lucide-react';
 
 interface GanttViewProps {
   columns: Columns;
@@ -24,6 +25,8 @@ interface GanttViewProps {
   members?: any[]; // Team members for task creation
   onRefreshData?: () => Promise<void>; // Refresh data after task creation
   relationships?: any[]; // Add relationships prop for auto-sync
+  onCopyTask?: (task: Task) => Promise<void>; // Copy task handler
+  onRemoveTask?: (taskId: string, clickEvent?: React.MouseEvent) => Promise<void>; // Remove task handler
 }
 
 interface GanttTask {
@@ -52,7 +55,7 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day); // month is 0-indexed
 };
 
-const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [] }) => {
+const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [], onCopyTask, onRemoveTask }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<GanttDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
@@ -60,6 +63,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [, setIsResizing] = useState(false);
   const [isRelationshipMode, setIsRelationshipMode] = useState(false);
   const [selectedParentTask, setSelectedParentTask] = useState<string | null>(null);
+  
+  // Local relationships state for optimistic updates
+  const [localRelationships, setLocalRelationships] = useState<any[]>([]);
+  const lastRelationshipClickRef = useRef<number>(0);
+  
+  // Sync local relationships with prop relationships
+  useEffect(() => {
+    setLocalRelationships(relationships);
+  }, [relationships]);
 
   // Handle ESC key to exit relationship mode
   useEffect(() => {
@@ -76,39 +88,99 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     };
   }, [isRelationshipMode]);
   
-  // Handle relationship creation
+  // Handle relationship creation with optimistic updates
   const handleCreateRelationship = async (parentTaskId: string, childTaskId: string) => {
+    // Debounce rapid clicks (prevent multiple clicks within 500ms)
+    const now = Date.now();
+    if (now - lastRelationshipClickRef.current < 500) {
+      console.log('ℹ️ Click debounced, too soon after last click');
+      return;
+    }
+    lastRelationshipClickRef.current = now;
+    
+    // Check if relationship already exists to prevent duplicates
+    const existingRelationship = localRelationships.find(rel => 
+      rel.task_id === parentTaskId && rel.to_task_id === childTaskId
+    );
+    
+    if (existingRelationship) {
+      console.log('ℹ️ Relationship already exists, skipping creation');
+      return;
+    }
+    
+    // Create optimistic relationship object (matching TaskDependencyArrows interface)
+    const optimisticRelationship = {
+      id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+      task_id: parentTaskId,
+      to_task_id: childTaskId,
+      relationship: 'parent' as const,
+      task_ticket: '', // Will be filled by the component
+      related_task_ticket: '', // Will be filled by the component
+      createdAt: new Date().toISOString()
+    };
+    
+    // Immediately add to local state for instant UI update
+    setLocalRelationships(prev => [...prev, optimisticRelationship]);
+    
     try {
+      // Create parent relationship (parent -> child) in background
+      const createdRelationship = await addTaskRelationship(parentTaskId, 'parent', childTaskId);
       
-      // Create parent relationship (parent -> child)
-      await addTaskRelationship(parentTaskId, 'parent', childTaskId);
+      // Replace optimistic relationship with real one
+      setLocalRelationships(prev => 
+        prev.map(rel => 
+          rel.id === optimisticRelationship.id 
+            ? { ...createdRelationship, relationship: 'parent' as const }
+            : rel
+        )
+      );
       
+      // Note: No need to refresh data since arrows already show from optimistic update
       
-      // Refresh the data to show the new arrow
-      if (onRefreshData) {
-        onRefreshData();
-      }
-      
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Failed to create relationship:', error);
-      // TODO: Show user-friendly error message
+      
+      // Handle specific error cases
+      if (error?.response?.status === 409) {
+        console.log('ℹ️ Relationship already exists on server, refreshing data to sync');
+        // Don't revert the optimistic update - keep the arrow visible
+        // But trigger a refresh to get the real relationship data from server
+        if (onRefreshData) {
+          onRefreshData();
+        }
+      } else {
+        // Revert optimistic update on other errors
+        setLocalRelationships(prev => 
+          prev.filter(rel => rel.id !== optimisticRelationship.id)
+        );
+        
+        // Show user-friendly error message
+        alert(`Failed to create relationship: ${error?.response?.data?.message || error.message || 'Unknown error'}`);
+      }
     }
   };
 
-  // Handle relationship deletion
+  // Handle relationship deletion with optimistic updates
   const handleDeleteRelationship = async (relationshipId: string, fromTaskId: string) => {
+    // Store the relationship to restore if deletion fails
+    const relationshipToDelete = localRelationships.find(rel => rel.id === relationshipId);
+    
+    // Immediately remove from local state for instant UI update
+    setLocalRelationships(prev => prev.filter(rel => rel.id !== relationshipId));
+    
     try {
-      
+      // Delete relationship in background
       await removeTaskRelationship(fromTaskId, relationshipId);
       
-      
-      // Refresh the data to remove the arrow
-      if (onRefreshData) {
-        onRefreshData();
-      }
+      // Note: No need to refresh data since arrow already removed from optimistic update
       
     } catch (error) {
       console.error('❌ Failed to delete relationship:', error);
+      
+      // Revert optimistic update on error
+      if (relationshipToDelete) {
+        setLocalRelationships(prev => [...prev, relationshipToDelete]);
+      }
     }
   };
   
@@ -316,6 +388,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       return a.ticket.localeCompare(b.ticket); // Finally by ticket as fallback
     });
   }, 'ganttTasks calculation', 'computation')(), [columns, measureFunction]);
+
 
   // Smart dynamic date loading with continuous timeline
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1332,6 +1405,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     return positions;
   }, [visibleTasks, scrollContainerRef]);
 
+  // Memoized task positions for arrows
+  const taskPositions = useMemo(() => calculateTaskPositions(), [calculateTaskPositions]);
+
   // Mathematical collision detection for precise drop positioning
   const calculatePreciseDropPosition = useCallback((event: DragEndEvent | DragOverEvent) => {
     if (!event.over?.data?.current?.isDensityCell) return null;
@@ -1600,7 +1676,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         description: '',
         memberId: currentUserMember.id,
         startDate: startDate, // Pre-fill with start date
-        dueDate: endDate,     // Pre-fill with end date (or same as start for single day)
+        dueDate: endDate || startDate, // Pre-fill with end date, fallback to start date
         effort: 1,
         columnId: firstColumn.id,
         position: 0,
@@ -1913,8 +1989,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             isLoading={isLoading}
             onJumpToTask={handleJumpToTask}
           />
-        </div>
-
+          </div>
+          
         {/* Second Sticky Layer - Task Column Header + Timeline Headers */}
         <div className="sticky top-[148px] z-40 bg-white border-b border-gray-200 flex">
           {/* Task Column Header */}
@@ -1928,8 +2004,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               onMouseDown={handleResizeStart}
               title="Drag to resize task column"
             />
-          </div>
-          
+            </div>
+
           {/* Scrollable Date Headers */}
           <div className="flex-1 overflow-x-auto" data-sticky-header="true">
             <div
@@ -1957,8 +2033,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     )}
                   </div>
                 ))}
-              </div>
-              
+            </div>
+
               {/* Day Numbers Row */}
               <div 
                 className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
@@ -1977,12 +2053,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     style={{ minWidth: '20px' }}
                   >
                     <div>{dateCol.date.getDate()}</div>
-                  </div>
+              </div>
                 ))}
               </div>
-            </div>
           </div>
         </div>
+      </div>
 
       {/* Gantt Chart */}
       <div className="relative flex">
@@ -2008,10 +2084,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 'h-20'
               } ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}
             >
-              <div className="flex items-center">
+              <div className="flex items-center justify-between">
                 <button
                   onClick={() => handleTaskClick(task)}
-                  className={`text-left w-full rounded px-1 py-1 transition-all duration-300 ${
+                  className={`text-left flex-1 rounded px-1 py-1 transition-all duration-300 ${
                     highlightedTaskId === task.id 
                       ? 'bg-yellow-200 ring-2 ring-yellow-400 ring-inset' 
                       : 'hover:bg-gray-100'
@@ -2043,6 +2119,44 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     </div>
                   )}
                 </button>
+                
+                {/* Action buttons */}
+                <div className="flex items-center gap-1 ml-2">
+                  {onCopyTask && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Find the original task data from columns to get proper priority object
+                        const originalTask = Object.values(columns)
+                          .flatMap(col => col.tasks || [])
+                          .find(t => t.id === task.id);
+                        
+                        if (originalTask) {
+                          // Use the original task data with proper priority object
+                          onCopyTask(originalTask);
+                        } else {
+                          console.error('Original task not found for copying');
+                        }
+                      }}
+                      className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      title="Copy Task"
+                    >
+                      <Copy size={14} className="text-gray-500 hover:text-gray-700" />
+                    </button>
+                  )}
+                  {onRemoveTask && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRemoveTask(task.id, e);
+                      }}
+                      className="p-1 hover:bg-red-100 rounded transition-colors"
+                      title="Delete Task"
+                    >
+                      <Trash2 size={14} className="text-gray-500 hover:text-red-600" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )) : (
@@ -2328,9 +2442,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                         
                         {/* Task content - conditional title display */}
                         {gridPosition.startDayIndex === gridPosition.endDayIndex ? (
-                          /* 1-day task: Minimal layout - only relationship button if needed */
-                          <div className="flex-1 min-w-0 flex items-center justify-center">
-                            {/* Link icon for relationship mode - positioned on left */}
+                          /* 1-day task: Link icons at both ends */
+                          <div className="flex-1 min-w-0 flex items-center justify-between">
+                            {/* Start link icon for relationship mode - positioned on left */}
                             {isRelationshipMode && (
                               <button
                                 onClick={(e) => {
@@ -2361,12 +2475,46 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                                 </svg>
                               </button>
                             )}
-                            {/* 1-day tasks: No title - too small to read anyway */}
+                            
+                            {/* Center space - no title for 1-day tasks as they're too small */}
+                            <div className="flex-1"></div>
+                            
+                            {/* End link icon for relationship mode - positioned on right */}
+                            {isRelationshipMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  
+                                  if (!selectedParentTask) {
+                                    // First click - select as parent
+                                    setSelectedParentTask(task.id);
+                                  } else if (selectedParentTask === task.id) {
+                                    // Clicking same task - deselect
+                                    setSelectedParentTask(null);
+                                  } else {
+                                    // Second click - create relationship
+                                    handleCreateRelationship(selectedParentTask, task.id);
+                                    setSelectedParentTask(null);
+                                  }
+                                }}
+                                className={`p-1 mr-1 rounded transition-colors ${
+                                  selectedParentTask === task.id 
+                                    ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
+                                    : 'hover:bg-white hover:bg-opacity-20'
+                                }`}
+                                title={selectedParentTask === task.id ? 'Selected as parent - click another task to link' : 'Click to select as parent task'}
+                              >
+                                <svg className={`w-3 h-3 ${selectedParentTask === task.id ? 'text-gray-900' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         ) : (
-                          /* Multi-day task (2+ days): Always show title regardless of view mode */
+                          /* Multi-day task (2+ days): Link icons at both ends with title in center */
                           <div className="flex items-center flex-1 min-w-0">
-                            {/* Link icon for relationship mode - positioned on left */}
+                            {/* Start link icon for relationship mode - positioned on left */}
                             {isRelationshipMode && (
                               <button
                                 onClick={(e) => {
@@ -2397,12 +2545,46 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                                 </svg>
                               </button>
                             )}
+                            
+                            {/* Task title in center */}
                           <div 
                             className="text-xs truncate px-2 flex-1"
                             style={{ color: getPriorityColor(task.priority).color }}
                           >
                             {task.title}
                             </div>
+                            
+                            {/* End link icon for relationship mode - positioned on right */}
+                            {isRelationshipMode && (
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  
+                                  if (!selectedParentTask) {
+                                    // First click - select as parent
+                                    setSelectedParentTask(task.id);
+                                  } else if (selectedParentTask === task.id) {
+                                    // Clicking same task - deselect
+                                    setSelectedParentTask(null);
+                                  } else {
+                                    // Second click - create relationship
+                                    handleCreateRelationship(selectedParentTask, task.id);
+                                    setSelectedParentTask(null);
+                                  }
+                                }}
+                                className={`p-1 ml-2 mr-1 rounded transition-colors ${
+                                  selectedParentTask === task.id 
+                                    ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
+                                    : 'hover:bg-white hover:bg-opacity-20'
+                                }`}
+                                title={selectedParentTask === task.id ? 'Selected as parent - click another task to link' : 'Click to select as parent task'}
+                              >
+                                <svg className={`w-3 h-3 ${selectedParentTask === task.id ? 'text-gray-900' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         )}
                         
@@ -2520,11 +2702,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           {/* Task Dependency Arrows Overlay - Inside scroll container */}
           <TaskDependencyArrows
-            key={`arrows-${Object.keys(columns).join('-')}-${ganttTasks.length}`}
+            key={`arrows-${Object.keys(columns).join('-')}`}
             ganttTasks={ganttTasks}
-            taskPositions={calculateTaskPositions()}
+            taskPositions={taskPositions}
             isRelationshipMode={isRelationshipMode}
-            relationships={relationships}
+            relationships={localRelationships}
             onCreateRelationship={(fromTaskId, toTaskId) => {
               handleCreateRelationship(fromTaskId, toTaskId);
             }}

@@ -128,6 +128,7 @@ const createTables = (db) => {
       auth_provider TEXT DEFAULT 'local',
       google_avatar_url TEXT,
       is_active INTEGER DEFAULT 1,
+      force_logout INTEGER DEFAULT 0,
       deactivated_at DATETIME NULL,
       deactivated_by TEXT NULL,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -607,6 +608,13 @@ const initializeDefaultData = (db) => {
   try {
     // Add taskFilter column to views table (migration)
     db.prepare('ALTER TABLE views ADD COLUMN taskFilter TEXT').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add force_logout column to users table (migration)
+    db.prepare('ALTER TABLE users ADD COLUMN force_logout INTEGER DEFAULT 0').run();
   } catch (error) {
     // Column already exists, ignore error
   }

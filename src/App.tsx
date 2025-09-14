@@ -348,7 +348,7 @@ export default function App() {
       // Show appropriate message
       const message = !newUserStatus.isActive 
         ? 'Your account has been deactivated. Please contact an administrator.'
-        : 'Your session has been terminated by an administrator.';
+        : 'Your role has been changed. Please log in again to access your updated permissions.';
       
       // Force logout with message
       handleLogout(message);
@@ -359,6 +359,7 @@ export default function App() {
     if (previousStatus !== null && previousStatus.isAdmin !== newUserStatus.isAdmin) {
       const permissionChange = newUserStatus.isAdmin ? 'promoted to admin' : 'demoted to user';
       console.log(`🔄 User permission changed: ${permissionChange}`);
+      console.log(`🔄 Previous isAdmin: ${previousStatus.isAdmin}, New isAdmin: ${newUserStatus.isAdmin}`);
       console.log('🔄 Calling handleProfileUpdated to refresh user roles...');
       
       // Refresh the current user data to update roles in the UI
@@ -1431,12 +1432,14 @@ export default function App() {
       return;
     }
     
+    const startDate = new Date().toISOString().split('T')[0];
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: '',
       memberId: currentUserMember.id,
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: startDate,
+      dueDate: startDate, // Set dueDate to be the same as startDate
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
@@ -1554,7 +1557,9 @@ export default function App() {
       id: tempId,
       title: copyTitle,
       comments: [],
-      position: newPosition
+      position: newPosition,
+      // If the original task doesn't have a dueDate, set it to startDate
+      dueDate: task.dueDate || task.startDate
     };
 
 
