@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, ToggleLeft, ToggleRight } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 
 interface HeaderProps {
@@ -15,6 +15,9 @@ interface HeaderProps {
   onRefresh: () => Promise<void>;
   onHelpClick: () => void;
   onInviteUser?: (email: string) => Promise<void>;
+  // Auto-refresh toggle
+  isAutoRefreshEnabled: boolean;
+  onToggleAutoRefresh: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -30,6 +33,8 @@ const Header: React.FC<HeaderProps> = ({
   onRefresh,
   onHelpClick,
   onInviteUser,
+  isAutoRefreshEnabled,
+  onToggleAutoRefresh,
 }) => {
   const [showInviteDropdown, setShowInviteDropdown] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -294,6 +299,19 @@ const Header: React.FC<HeaderProps> = ({
               </div>
             </>
           )}
+          
+          {/* Auto-refresh toggle */}
+          <button
+            onClick={onToggleAutoRefresh}
+            className="p-1 hover:bg-gray-50 rounded transition-colors text-gray-500 hover:text-gray-700"
+            title={isAutoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
+          >
+            {isAutoRefreshEnabled ? (
+              <ToggleRight size={16} className="text-blue-500" />
+            ) : (
+              <ToggleLeft size={16} className="text-gray-400" />
+            )}
+          </button>
           
           {/* Simple polling status indicator */}
           <div 

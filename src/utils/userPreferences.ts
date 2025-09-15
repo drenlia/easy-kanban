@@ -63,6 +63,7 @@ export interface UserPreferences {
   appSettings: {
     taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
     showActivityFeed?: boolean; // User override for system SHOW_ACTIVITY_FEED setting
+    autoRefreshEnabled?: boolean; // User preference for auto-refresh toggle
   };
   notifications: {
     newTaskAssigned: boolean; // Notify when a new task is assigned to me
@@ -150,6 +151,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   appSettings: {
     // taskDeleteConfirm: undefined - let it inherit from system setting by default
     // showActivityFeed: undefined - let it inherit from system setting by default
+    autoRefreshEnabled: true, // Default to auto-refresh enabled
   },
   notifications: {
     newTaskAssigned: true,
@@ -326,6 +328,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           // App Settings (only save if explicitly set)
           saveIfDefined('taskDeleteConfirm', preferences.appSettings.taskDeleteConfirm),
           saveIfDefined('showActivityFeed', preferences.appSettings.showActivityFeed),
+          saveIfDefined('autoRefreshEnabled', preferences.appSettings.autoRefreshEnabled),
           
           // Activity Feed Settings
           saveIfDefined('activityFeedMinimized', preferences.activityFeed.isMinimized),
@@ -500,7 +503,8 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         appSettings: {
           ...preferences.appSettings,
           taskDeleteConfirm: smartMerge(preferences.appSettings.taskDeleteConfirm, dbSettings.taskDeleteConfirm, defaults.appSettings.taskDeleteConfirm),
-          showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed)
+          showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed),
+          autoRefreshEnabled: smartMerge(preferences.appSettings.autoRefreshEnabled, dbSettings.autoRefreshEnabled, defaults.appSettings.autoRefreshEnabled)
         },
         
         // Activity Feed Settings

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getTaskRelationships } from '../../api';
 
 interface GanttTask {
   id: string;
@@ -74,7 +73,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
 
   // Connection drawing state (simplified for icon-based approach)
-  const [hoveredTask, setHoveredTask] = useState<string | null>(null);
+  // const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
   // Trigger position recalculation when tasks change
   useEffect(() => {
@@ -93,9 +92,10 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     
     const handleScroll = () => {
       clearTimeout(scrollTimeout);
+      // Debounce scroll events to reduce unnecessary recalculations
       scrollTimeout = setTimeout(() => {
         setPositionKey(prev => prev + 1);
-      }, 100);
+      }, 150); // Balanced debounce time
     };
 
     timelineContainer.addEventListener('scroll', handleScroll);
@@ -123,109 +123,28 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     setLocalRelationships(visibleRelationships);
   }, [ganttTasks, relationships]);
 
-  // Calculate task position directly from timeline - COMPLETELY INDEPENDENT
-  const getTaskPosition = (task: GanttTask): TaskPosition | null => {
-    
-    // Get the timeline container
-    const timelineContainer = document.querySelector('.gantt-timeline-container');
-    if (!timelineContainer) {
-      return null;
-    }
-    
-    // Get the date range from props
-    if (!dateRange || dateRange.length === 0) {
-      return null;
-    }
-    
-    
-    // Calculate column width
-    const containerWidth = timelineContainer.scrollWidth;
-    const columnWidth = containerWidth / dateRange.length;
-    
-    // Find task dates
-    const taskStartDate = task.startDate;
-    const taskEndDate = task.endDate;
-    
-    if (!taskStartDate || !taskEndDate) {
-      return null;
-    }
-    
-    // Find date indices
-    const startDateStr = taskStartDate.toISOString().split('T')[0];
-    const endDateStr = taskEndDate.toISOString().split('T')[0];
-    
-    const startIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === startDateStr);
-    const endIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === endDateStr);
-    
-    
-    if (startIndex === -1 || endIndex === -1) {
-      return null;
-    }
-    
-    // Calculate X position (absolute timeline position)
-    const x = startIndex * columnWidth;
-    const width = (endIndex - startIndex + 1) * columnWidth;
-    
-    // Find the task in the DOM to get Y position
-    const taskElement = document.querySelector(`[data-task-id="${task.id}"]`);
-    if (!taskElement) {
-      return null;
-    }
-    
-    const taskRect = taskElement.getBoundingClientRect();
-    const containerRect = timelineContainer.getBoundingClientRect();
-    
-    // Calculate Y position relative to container
-    const y = taskRect.top - containerRect.top;
-    const height = taskRect.height;
-    
-    // Check if we need to account for scroll position
-    const scrollTop = timelineContainer.scrollTop || 0;
-    const adjustedY = y - scrollTop;
-    
-    // Add a fixed offset to compensate for vertical misalignment
-    // The arrows are appearing below the tasks, so we need to move them up
-    const verticalOffset = -60; // Perfectly centered with task bars
-    const finalY = adjustedY + verticalOffset;
-    
-    const position = {
-      x,
-      y: finalY, // Use final Y coordinate with SVG offset
-      width,
-      height,
-      taskId: task.id
-    };
-    
-    return position;
-  };
 
-  // Generate SVG path for arrow - CORRECT SPECIFICATION
+
+  // Generate SVG path for arrow using same positioning as tasks
   const generateArrowPath = (from: TaskPosition, to: TaskPosition): string => {
-    // Estimate column width from task positioning (assuming uniform grid)
-    const estimatedColumnWidth = from.width / Math.max(1, Math.round(from.width / 50)); // Rough estimate
-    
-    // CORRECT SPECIFICATION:
-    // 1. Start: End date of parent (right edge), vertically centered
-    // 2. Step out: Half a data cell to the right
-    // 3. Horizontal routing: Go left/right under the parent task
-    // 4. Approach: Stop at half a data cell before child's start date
-    // 5. Connect: Vertical line down/up to child's start date (left edge), vertically centered
+    // Use fixed 20px column width (same as tasks)
+    const COLUMN_WIDTH = 20;
     
     const fromX = from.x + from.width; // Right edge of parent task (end date)
     const fromY = from.y + (from.height / 2); // Vertical center of parent task
     const toX = to.x; // Left edge of child task (start date)
     const toY = to.y + (to.height / 2); // Vertical center of child task
 
-    // Step out half a data cell from parent's end date
-    const stepOutDistance = estimatedColumnWidth * 0.5;
+    // Add breathing room: step out further from parent's end date
+    const stepOutDistance = COLUMN_WIDTH * 1.5; // 30px - more breathing room
     const stepOutX = fromX + stepOutDistance;
     
-    // Approach half a data cell before child's start date
-    const approachDistance = estimatedColumnWidth * 0.5;
+    // Add breathing room: approach further before child's start date
+    const approachDistance = COLUMN_WIDTH * 1.5; // 30px - more breathing room
     const approachX = toX - approachDistance;
     
     // Route horizontally under the parent task
-    const routeY = fromY + 30; // 30px below parent task center (26px + 4px more)
+    const routeY = fromY + 30; // 30px below parent task center
     
     // Connect 2px lower to both tasks
     const fromYAdjusted = fromY + 2; // 2px lower from parent center
@@ -235,9 +154,18 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     return `M ${fromX} ${fromYAdjusted} L ${stepOutX} ${fromYAdjusted} L ${stepOutX} ${routeY} L ${approachX} ${routeY} L ${approachX} ${toYAdjusted} L ${toX} ${toYAdjusted}`;
   };
 
-  // Calculate arrows based on relationships and task positions - SIMPLE VERSION
+  // Calculate arrows based on relationships using actual task positions from DOM
   useEffect(() => {
-    if (!localRelationships || !ganttTasks) return;
+    console.log('🔍 [Arrow Debug] useEffect triggered:', {
+      localRelationships: localRelationships?.length || 0,
+      ganttTasks: ganttTasks?.length || 0,
+      taskPositions: taskPositions?.size || 0
+    });
+    
+    if (!localRelationships || !ganttTasks || taskPositions.size === 0) {
+      console.log('🔍 [Arrow Debug] Missing data, skipping arrow calculation');
+      return;
+    }
     
     const newArrows: DependencyArrow[] = [];
     const processedPairs = new Set<string>(); // Prevent duplicate arrows
@@ -246,22 +174,12 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
       const fromTask = ganttTasks.find(t => t.id === rel.task_id);
       const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
 
-
       if (!fromTask || !toTask) {
-        return;
-      }
-
-      const fromPos = getTaskPosition(fromTask);
-      const toPos = getTaskPosition(toTask);
-
-
-      if (!fromPos || !toPos) {
         return;
       }
 
       // Only show parent->child arrows (finish-to-start dependencies)
       if (rel.relationship === 'parent') {
-        
         // Create unique pair identifier to prevent duplicates
         const pairKey = `${rel.task_id}-${rel.to_task_id}`;
         if (processedPairs.has(pairKey)) {
@@ -269,27 +187,46 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
         }
         processedPairs.add(pairKey);
 
-        const path = generateArrowPath(fromPos, toPos);
-        const color = rel.relationship === 'parent' ? '#3B82F6' : 
-                     rel.relationship === 'related' ? '#6B7280' : '#10B981';
+        // Use actual task positions from DOM (same as task bars use)
+        const fromPos = taskPositions.get(fromTask.id);
+        const toPos = taskPositions.get(toTask.id);
+
+        if (!fromPos || !toPos) {
+          return;
+        }
+
+        // Just check that positions exist - no viewport filtering for now
+        console.log('🔍 [Arrow Debug] Creating arrow:', {
+          fromTask: `${fromTask.ticket}: ${fromTask.title}`,
+          toTask: `${toTask.ticket}: ${toTask.title}`,
+          fromPosX: fromPos.x,
+          toPosX: toPos.x
+        });
+
+        // Add taskId to positions for TypeScript compatibility
+        const fromPosWithId = { ...fromPos, taskId: fromTask.id };
+        const toPosWithId = { ...toPos, taskId: toTask.id };
+
+        const path = generateArrowPath(fromPosWithId, toPosWithId);
+        const color = '#3B82F6'; // Blue for parent relationships
 
         const arrow = {
-          id: `${rel.id}-${pairKey}`, // Ensure unique ID
-          relationshipId: rel.id, // Store the actual relationship ID for deletion                                                                             
+          id: `${rel.id}-${pairKey}`,
+          relationshipId: rel.id,
           fromTaskId: rel.task_id,
           toTaskId: rel.to_task_id,
           relationship: rel.relationship as any,
-          fromPosition: fromPos,
-          toPosition: toPos,
+          fromPosition: fromPosWithId,
+          toPosition: toPosWithId,
           path,
           color
         };
 
         newArrows.push(arrow);
-      } else {
       }
     });
 
+    console.log(`🔍 [Arrow Debug] Created ${newArrows.length} arrows`);
     setArrows(newArrows);
   }, [localRelationships, ganttTasks, taskPositions, positionKey]);
 
@@ -311,7 +248,6 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     </defs>
   );
 
-  // Always render the component so we can see debug dots
 
   return (
     <div 
