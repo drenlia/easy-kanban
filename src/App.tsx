@@ -39,7 +39,7 @@ import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
-import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
+import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -84,6 +84,9 @@ export default function App() {
   // Activity Feed state
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
   const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
+  
+  // Auto-refresh toggle state (loaded from user preferences)
+  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
   const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
     x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
     y: 66 
@@ -510,6 +513,32 @@ export default function App() {
     initializeAdminDefaults();
   }, []); // Run once on mount
 
+  // Load auto-refresh setting from user preferences
+  useEffect(() => {
+    if (currentUser) {
+      const prefs = loadUserPreferences(currentUser.id);
+      setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true);
+    }
+  }, [currentUser]);
+
+  // Auto-refresh toggle handler
+  const handleToggleAutoRefresh = useCallback(async () => {
+    const newValue = !isAutoRefreshEnabled;
+    setIsAutoRefreshEnabled(newValue);
+    
+    // Save to user preferences
+    if (currentUser) {
+      try {
+        await updateUserPreference('appSettings', {
+          ...loadUserPreferences(currentUser.id).appSettings,
+          autoRefreshEnabled: newValue
+        }, currentUser.id);
+      } catch (error) {
+        console.error('Failed to save auto-refresh preference:', error);
+      }
+    }
+  }, [isAutoRefreshEnabled, currentUser]);
+
   // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
     setShowActivityFeed(enabled);
@@ -559,13 +588,29 @@ export default function App() {
   }, [showActivityFeed]);
 
   const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
+    console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
     setBoardRelationships(newRelationships);
     setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
   }, []);
 
+  // Load relationships initially when board is selected (regardless of auto-refresh status)
+  useEffect(() => {
+    if (selectedBoard && currentPage === 'kanban') {
+      console.log('🔗 [App] Loading initial relationships for board:', selectedBoard);
+      getBoardTaskRelationships(selectedBoard)
+        .then(relationships => {
+          console.log('🔗 [App] Initial relationships loaded:', relationships.length);
+          handleRelationshipsUpdate(relationships);
+        })
+        .catch(error => {
+          console.error('🔗 [App] Failed to load initial relationships:', error);
+        });
+    }
+  }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
+
   // Data polling for real-time collaboration and permission refresh
   const { isPolling, lastPollTime } = useDataPolling({
-    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
+    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled,
     selectedBoard,
     currentBoards: boards,
     currentMembers: members,
@@ -2708,6 +2753,8 @@ export default function App() {
           onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
           onInviteUser={handleInviteUser}
+          isAutoRefreshEnabled={isAutoRefreshEnabled}
+          onToggleAutoRefresh={handleToggleAutoRefresh}
         />
       </>
     );
@@ -2769,6 +2816,8 @@ export default function App() {
         onLogout={handleLogout}
         onPageChange={handlePageChange}
         onRefresh={handleRefreshData}
+        isAutoRefreshEnabled={isAutoRefreshEnabled}
+        onToggleAutoRefresh={handleToggleAutoRefresh}
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
       />
