@@ -74,9 +74,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [localTaskOrder, setLocalTaskOrder] = useState<string[]>([]);
   const [forceArrowRecalculation, setForceArrowRecalculation] = useState(0);
   
-  // Sync local relationships with prop relationships
+  // Only sync relationships on initial load, not on every update
   useEffect(() => {
-    setLocalRelationships(relationships);
+    if (localRelationships.length === 0) {
+      setLocalRelationships(relationships);
+    }
   }, [relationships]);
 
 
@@ -143,11 +145,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       // Create parent relationship (parent -> child) in background
       const createdRelationship = await addTaskRelationship(parentTaskId, 'parent', childTaskId);
       
-      // Replace optimistic relationship with real one
+      // Mark optimistic relationship as confirmed (keep it, just change the ID)
       setLocalRelationships(prev => 
         prev.map(rel => 
           rel.id === optimisticRelationship.id 
-            ? { ...createdRelationship, relationship: 'parent' as const }
+            ? { ...rel, id: `confirmed-${Date.now()}` }
             : rel
         )
       );
@@ -2573,7 +2575,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       <span>
                         {dateCol.date.toLocaleDateString('en-US', { month: 'short' })}'{dateCol.date.getFullYear().toString().slice(-2)}
                       </span>
-                    )}
+              )}
             </div>
                 ))}
             </div>
