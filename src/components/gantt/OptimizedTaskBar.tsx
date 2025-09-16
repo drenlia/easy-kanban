@@ -79,8 +79,8 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
     return {
       startIndex: startIdx,
       endIndex: endIdx,
-      offsetLeft: `${startIdx * 20}px`,
-      offsetWidth: `${Math.max(1, (endIdx - startIdx + 1) * 20)}px` // Allow 1-day tasks (minimum 1px width)
+      offsetLeft: `${startIdx * 40}px`,
+      offsetWidth: `${Math.max(1, (endIdx - startIdx + 1) * 40)}px` // Allow 1-day tasks (minimum 1px width)
     };
   }, [gridPosition, isDragging, currentHoverDate, activeDragItem, task.startDate]);
 
