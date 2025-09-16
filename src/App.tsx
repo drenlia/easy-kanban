@@ -1560,15 +1560,23 @@ export default function App() {
     const previousColumns = { ...columns };
     
     // Update UI immediately
-    setColumns(prev => ({
-      ...prev,
-      [task.columnId]: {
-        ...prev[task.columnId],
-        tasks: prev[task.columnId].tasks.map(t => 
-          t.id === task.id ? task : t
-        )
+    setColumns(prev => {
+      // Safety check: ensure the column exists
+      if (!prev[task.columnId]) {
+        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        return prev; // Return unchanged state if column doesn't exist
       }
-    }));
+      
+      return {
+        ...prev,
+        [task.columnId]: {
+          ...prev[task.columnId],
+          tasks: prev[task.columnId].tasks.map(t => 
+            t.id === task.id ? task : t
+          )
+        }
+      };
+    });
     
     try {
       await withLoading('tasks', async () => {
@@ -1914,14 +1922,12 @@ export default function App() {
     }
   };
 
-    // Handle reordering within the same column - let backend handle positions
+    // Handle reordering within the same column - update positions and recalculate
   const handleSameColumnReorder = async (task: Task, columnId: string, newIndex: number) => {
     const columnTasks = [...(columns[columnId]?.tasks || [])]
       .sort((a, b) => (a.position || 0) - (b.position || 0));
     
     const currentIndex = columnTasks.findIndex(t => t.id === task.id);
-    
-
 
     // Check if reorder is actually needed
     if (currentIndex === newIndex) {
@@ -1930,27 +1936,35 @@ export default function App() {
 
     // Optimistic update - reorder in UI immediately
     const oldIndex = currentIndex;
-
     const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
+    
+    // Recalculate positions for all tasks in the group
+    const tasksWithUpdatedPositions = reorderedTasks.map((t, index) => ({
+      ...t,
+      position: index
+    }));
     
     setColumns(prev => ({
       ...prev,
       [columnId]: {
         ...prev[columnId],
-        tasks: reorderedTasks
+        tasks: tasksWithUpdatedPositions
       }
     }));
 
-    // Let backend handle all position calculations
+    // Send the updated task with new position to backend
     try {
-      // Send the target position (not array index) to backend
-      await reorderTasks(task.id, newIndex, columnId);
+      // Update the task with its new position
+      await updateTask({
+        ...task,
+        position: newIndex
+      });
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
-          }, DRAG_COOLDOWN_DURATION);
+      }, DRAG_COOLDOWN_DURATION);
       
       // Refresh to get clean state from backend
       await refreshBoardData();
@@ -2552,6 +2566,7 @@ export default function App() {
 
 
 
+      
       const filteredColumns: any = {};
       
       for (const [columnId, column] of Object.entries(columns)) {
@@ -2570,7 +2585,8 @@ export default function App() {
         }
         
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
-        if (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
+        // Only run member filtering if we have selected members AND at least one filter type is enabled
+        if (selectedMembers.length > 0 && (includeAssignees || includeWatchers || includeCollaborators || includeRequesters)) {
           columnTasks = await customFilterTasks(columnTasks);
         }
         
