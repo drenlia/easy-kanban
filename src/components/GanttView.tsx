@@ -1538,7 +1538,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           const columnWidth = 40; // Fixed 40px column width
           const taskHeight = taskViewMode === 'compact' ? 48 : 
-                            taskViewMode === 'shrink' ? 64 : 80;
+                            taskViewMode === 'shrink' ? 80 : 80;
           
           const x = startDateIndex * columnWidth;
           const y = taskIndex * taskHeight;
@@ -1578,7 +1578,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           const columnWidth = 40; // Fixed 40px column width
           const taskHeight = taskViewMode === 'compact' ? 48 : 
-                            taskViewMode === 'shrink' ? 64 : 80;
+                            taskViewMode === 'shrink' ? 80 : 80;
           
           const x = startDateIndex * columnWidth;
           const y = taskIndex * taskHeight;
@@ -1743,19 +1743,19 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     // Batch state updates to prevent conflicts
     requestAnimationFrame(() => {
-      setActiveDragItem(dragData);
-      setCurrentHoverDate(null);
+    setActiveDragItem(dragData);
+    setCurrentHoverDate(null);
     });
     
     // Only call onTaskDragStart for non-sortable items to prevent conflicts
     if (onTaskDragStart && (dragData as GanttDragItem).taskId) {
       // For other drag types, use taskId
-      const taskForParent = Object.values(columns)
-        .flatMap(col => col.tasks)
+        const taskForParent = Object.values(columns)
+          .flatMap(col => col.tasks)
         .find(t => t.id === (dragData as GanttDragItem).taskId);
-      
-      if (taskForParent) {
-        onTaskDragStart(taskForParent);
+        
+        if (taskForParent) {
+          onTaskDragStart(taskForParent);
       }
     }
     // Note: For sortable task rows, we don't call onTaskDragStart to prevent conflicts
@@ -1915,7 +1915,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           // Add target column tasks
           newTargetTasks.forEach((task, index) => {
             const fullTask = Object.values(columns)
-              .flatMap(col => col.tasks)
+        .flatMap(col => col.tasks)
               .find(t => t.id === task.id);
             
             if (fullTask) {
@@ -2576,7 +2576,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     )}
             </div>
                 ))}
-                </div>
+            </div>
 
               {/* Day Numbers Row */}
               <div 
@@ -2595,12 +2595,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     }`}
                     style={{ minWidth: '20px' }}
                   >
-                    {/* Horizontal line between date columns */}
-                    {index > 0 && (
-                      <div className="absolute left-0 top-0 right-0 h-0.5 bg-blue-300"></div>
-                    )}
                     <div>{dateCol.date.getDate()}</div>
-            </div>
+              </div>
                 ))}
               </div>
           </div>
@@ -2705,7 +2701,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     style={style}
                     className={`relative p-2 border-b border-gray-100 ${
                 taskViewMode === 'compact' ? 'h-12' : 
-                taskViewMode === 'shrink' ? 'h-16' : 
+                taskViewMode === 'shrink' ? 'h-20' : 
                 'h-20'
                     } ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-all duration-200 ease-out ${
                       (isDragging || isThisTaskDragging) ? '!border-2 !border-blue-500 !shadow-lg !rounded-lg bg-blue-50' : ''
@@ -2731,7 +2727,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 {/* ROW REORDERING ZONE - Only for vertical dragging */}
                 <button
                   onClick={() => handleTaskClick(task)}
-                  className={`text-left flex-1 rounded px-1 py-1 transition-all duration-300 ${
+                  className={`text-left flex-1 min-w-0 rounded px-1 py-1 transition-all duration-300 ${
                     highlightedTaskId === task.id 
                       ? 'bg-yellow-200 ring-2 ring-yellow-400 ring-inset' 
                       : 'hover:bg-gray-100'
@@ -2754,13 +2750,24 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       </span>
                     )}
                   </div>
-                  {taskViewMode !== 'shrink' && taskViewMode !== 'compact' && (
-                    <div className="text-sm text-gray-600 break-words">{task.title}</div>
-                  )}
-                  {taskViewMode !== 'compact' && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      📋 {task.status}
-                    </div>
+                  {/* Compact: Only TASK-XXXXX with dates */}
+                  {taskViewMode === 'compact' ? null : (
+                    <>
+                      {/* Shrink: TASK-XXXXX with dates + Title truncated + Status */}
+                      {taskViewMode === 'shrink' && (
+                        <>
+                          <div className="text-sm text-gray-600 overflow-hidden whitespace-nowrap text-ellipsis w-full min-w-0">{task.title}</div>
+                          <div className="text-xs text-gray-500 mt-2">📋 {task.status}</div>
+                        </>
+                      )}
+                      {/* Expand/Normal: Full info as currently displayed */}
+                      {taskViewMode === 'expand' && (
+                        <>
+                          <div className="text-sm text-gray-600 break-words">{task.title}</div>
+                          <div className="text-xs text-gray-500 mt-1">📋 {task.status}</div>
+                        </>
+                      )}
+                    </>
                   )}
                 </button>
                 
@@ -2967,7 +2974,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     <div className="bg-pink-300 h-0.5 w-full"></div>
                   )}
                   
-                  
                   {/* Tasks in this group */}
                   {tasks.map((task, taskIndex) => {
               const gridPosition = getTaskBarGridPosition(task);
@@ -2978,7 +2984,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   data-task-id={task.id}
                   className={`grid border-b border-gray-100 ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors relative ${
                     taskViewMode === 'compact' ? 'h-12' : 
-                    taskViewMode === 'shrink' ? 'h-16' : 
+                    taskViewMode === 'shrink' ? 'h-20' : 
                     'h-20'
                   }`}
                   style={{ 
@@ -3450,8 +3456,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             }}
             onDeleteRelationship={handleDeleteRelationship}
           />
+          </div>
         </div>
-        </div>
+        
       </div>
       </div>
 
