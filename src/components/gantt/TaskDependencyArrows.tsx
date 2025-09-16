@@ -143,27 +143,28 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     const approachDistance = COLUMN_WIDTH * 1.5; // 30px - more breathing room
     const approachX = toX - approachDistance;
     
-    // Route horizontally under the parent task
-    const routeY = fromY + 30; // 30px below parent task center
+    // Smart arrow direction: draw upwards if parent is below child
+    const isParentBelowChild = fromY > toY;
+    const routeY = isParentBelowChild 
+      ? fromY - 30  // 30px above parent task center
+      : fromY + 30; // 30px below parent task center
     
-    // Connect 2px lower to both tasks
-    const fromYAdjusted = fromY + 2; // 2px lower from parent center
-    const toYAdjusted = toY + 2; // 2px lower to child center
+    // Connect with appropriate vertical offset
+    const fromYAdjusted = isParentBelowChild 
+      ? fromY - 2  // 2px higher from parent center
+      : fromY + 2; // 2px lower from parent center
+    const toYAdjusted = isParentBelowChild 
+      ? toY - 2    // 2px higher to child center
+      : toY + 2;   // 2px lower to child center
     
-    // Path: right from parent end → down under parent → left/right to approach point → up to child start
+    // Path: right from parent end → up/down from parent → left/right to approach point → up/down to child start
     return `M ${fromX} ${fromYAdjusted} L ${stepOutX} ${fromYAdjusted} L ${stepOutX} ${routeY} L ${approachX} ${routeY} L ${approachX} ${toYAdjusted} L ${toX} ${toYAdjusted}`;
   };
 
   // Calculate arrows based on relationships using actual task positions from DOM
   useEffect(() => {
-    console.log('🔍 [Arrow Debug] useEffect triggered:', {
-      localRelationships: localRelationships?.length || 0,
-      ganttTasks: ganttTasks?.length || 0,
-      taskPositions: taskPositions?.size || 0
-    });
     
     if (!localRelationships || !ganttTasks || taskPositions.size === 0) {
-      console.log('🔍 [Arrow Debug] Missing data, skipping arrow calculation');
       return;
     }
     
@@ -196,12 +197,6 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
         }
 
         // Just check that positions exist - no viewport filtering for now
-        console.log('🔍 [Arrow Debug] Creating arrow:', {
-          fromTask: `${fromTask.ticket}: ${fromTask.title}`,
-          toTask: `${toTask.ticket}: ${toTask.title}`,
-          fromPosX: fromPos.x,
-          toPosX: toPos.x
-        });
 
         // Add taskId to positions for TypeScript compatibility
         const fromPosWithId = { ...fromPos, taskId: fromTask.id };
@@ -226,7 +221,6 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
       }
     });
 
-    console.log(`🔍 [Arrow Debug] Created ${newArrows.length} arrows`);
     setArrows(newArrows);
   }, [localRelationships, ganttTasks, taskPositions, positionKey]);
 

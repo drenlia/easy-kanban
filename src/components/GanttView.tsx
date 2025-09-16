@@ -478,6 +478,40 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [laterLoadCount, setLaterLoadCount] = useState(0);
   const [lastLoadTime, setLastLoadTime] = useState(0);
   const [isButtonNavigation, setIsButtonNavigation] = useState(false);
+  const [hoveredSeparator, setHoveredSeparator] = useState<string | null>(null);
+  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
+  const [isDraggingOverGroup, setIsDraggingOverGroup] = useState<string | null>(null);
+
+
+  // Droppable group component for vertical drag and drop
+  const DroppableGroup = ({ columnId, children }: { columnId: string; children: React.ReactNode }) => {
+    const { setNodeRef, isOver } = useDroppable({
+      id: `group-${columnId}`,
+      data: {
+        type: 'group-drop',
+        columnId: columnId
+      }
+    });
+
+    // Clear all hover states when dragging stops completely
+    React.useEffect(() => {
+      if (!activeDragItem) {
+        setHoveredGroup(null);
+        setIsDraggingOverGroup(null);
+      }
+    }, [activeDragItem]);
+
+    return (
+      <div 
+        ref={setNodeRef}
+        className={`relative ${
+          isOver ? 'bg-blue-50' : ''
+        }`}
+      >
+        {children}
+      </div>
+    );
+  };
 
   // Memoized column width calculation to prevent repeated DOM measurements
   const [columnWidth, setColumnWidth] = useState(40);
@@ -1706,25 +1740,25 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   // DnD-Kit handlers
   const handleDragStart = useCallback((event: DragStartEvent) => {
     const dragData = event.active.data.current as any;
-    setActiveDragItem(dragData);
-    setCurrentHoverDate(null);
     
-    // Immediately disable polling for smooth drag experience (like Kanban view)
-    if (onTaskDragStart) {
-      if ((dragData as SortableTaskRowItem).type === 'task-row') {
-        // For sortable items, the task is in dragData.task
-        onTaskDragStart((dragData as SortableTaskRowItem).task);
-      } else if ((dragData as GanttDragItem).taskId) {
-        // For other drag types, use taskId
-        const taskForParent = Object.values(columns)
-          .flatMap(col => col.tasks)
-          .find(t => t.id === (dragData as GanttDragItem).taskId);
-        
-        if (taskForParent) {
-          onTaskDragStart(taskForParent);
-        }
+    // Batch state updates to prevent conflicts
+    requestAnimationFrame(() => {
+      setActiveDragItem(dragData);
+      setCurrentHoverDate(null);
+    });
+    
+    // Only call onTaskDragStart for non-sortable items to prevent conflicts
+    if (onTaskDragStart && (dragData as GanttDragItem).taskId) {
+      // For other drag types, use taskId
+      const taskForParent = Object.values(columns)
+        .flatMap(col => col.tasks)
+        .find(t => t.id === (dragData as GanttDragItem).taskId);
+      
+      if (taskForParent) {
+        onTaskDragStart(taskForParent);
       }
     }
+    // Note: For sortable task rows, we don't call onTaskDragStart to prevent conflicts
   }, [onTaskDragStart, columns]);
 
   // Throttle drag over updates for better performance
@@ -1768,8 +1802,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const { over } = event;
     
-    // Don't clear hover state immediately - keep visual feedback until update completes
-    // setCurrentHoverDate(null); // Moved to after update
     
     if (!over || !activeDragItem) {
       setActiveDragItem(null);
@@ -1783,34 +1815,217 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       return;
     }
 
-    // Handle sortable row reordering
-    if ((activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && over.data.current?.type === 'task-row-reorder') {
-      const draggedTask = (activeDragItem as SortableTaskRowItem).task;
-      const targetTask = over.data.current.task;
+    // Handle cross-column drop on separator
+    if ((activeDragItem?.dragType === DRAG_TYPES.TASK_BODY || activeDragItem?.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) && over.data.current?.type === 'separator-drop') {
+      const draggedTask = activeDragItem.task;
+      const targetColumnId = over.data.current.columnId;
       
-      if (draggedTask.id !== targetTask.id) {
-        const draggedIndex = reorderedGanttTasks.findIndex(t => t.id === draggedTask.id);
-        const targetIndex = reorderedGanttTasks.findIndex(t => t.id === targetTask.id);
-        
-        
-        // Update the local task order
-        setLocalTaskOrder(prevOrder => {
-          const newOrder = [...prevOrder];
-          const [movedTaskId] = newOrder.splice(draggedIndex, 1);
-          newOrder.splice(targetIndex, 0, movedTaskId);
+      if (draggedTask.columnId !== targetColumnId) {
+        // Find the target column
+        const targetColumn = columns[targetColumnId];
+        if (targetColumn && onUpdateTask) {
+          // Move task to target column at the end
+          const targetPosition = targetColumn.tasks.length;
           
-          return newOrder;
-        });
-
-        // Force arrow recalculation after a short delay to ensure DOM is updated
-        setTimeout(() => {
-          setForceArrowRecalculation(prev => prev + 1);
-        }, 100);
+          // Update the dragged task
+          onUpdateTask({
+            ...draggedTask,
+            columnId: targetColumnId,
+            position: targetPosition
+          });
+          
+          // Recalculate positions for source column
+          const sourceColumn = columns[draggedTask.columnId];
+          if (sourceColumn) {
+            const sourceTasks = sourceColumn.tasks
+              .filter(t => t.id !== draggedTask.id)
+              .sort((a, b) => (a.position || 0) - (b.position || 0));
+            
+            sourceTasks.forEach((task, index) => {
+              if (task.position !== index) {
+                onUpdateTask({
+                  ...task,
+                  position: index
+                });
+              }
+            });
+          }
+          
+          // Recalculate positions for target column
+          const targetTasks = [...targetColumn.tasks, { ...draggedTask, columnId: targetColumnId, position: targetPosition }]
+            .sort((a, b) => (a.position || 0) - (b.position || 0));
+          
+          targetTasks.forEach((task, index) => {
+            if (task.position !== index) {
+              onUpdateTask({
+                ...task,
+                position: index
+              });
+            }
+          });
+        }
       }
       
       // Clear drag state
       setActiveDragItem(null);
       setCurrentHoverDate(null);
+      setHoveredSeparator(null);
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+      }
+      return;
+    }
+
+    // Handle cross-group drop (move task to different column)
+    // Check if we're dragging from a different group, even if the drop is on a task row
+    const isCrossGroupDrag = activeDragItem?.type === 'task-row-reorder' && 
+      (activeDragItem as SortableTaskRowItem).task.columnId !== over.data.current?.columnId;
+    
+    if (activeDragItem?.type === 'task-row-reorder' && 
+        (over.data.current?.type === 'group-drop' || isCrossGroupDrag)) {
+      const draggedTask = (activeDragItem as SortableTaskRowItem).task;
+      const targetColumnId = over.data.current?.type === 'group-drop' 
+        ? over.data.current.columnId 
+        : (over.data.current as any)?.columnId; // Get columnId from task row data
+      
+      // Only proceed if moving to a different column
+      if (draggedTask.columnId === targetColumnId) {
+        setActiveDragItem(null);
+        setCurrentHoverDate(null);
+        if (onTaskDragEnd) {
+          onTaskDragEnd();
+        }
+        return;
+      }
+      
+      if (onUpdateTask) {
+        // Find the target column
+        const targetColumn = columns[targetColumnId];
+        
+        if (targetColumn) {
+          // Get all tasks in target column, sorted by position
+          const targetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+          
+          // Create new task order: dragged task at position 0, then all existing tasks
+          const newTargetTasks = [draggedTask, ...targetTasks];
+          
+          // Collect all tasks that need to be updated
+          const tasksToUpdate = [];
+          
+          // Add target column tasks
+          newTargetTasks.forEach((task, index) => {
+            const fullTask = Object.values(columns)
+              .flatMap(col => col.tasks)
+              .find(t => t.id === task.id);
+            
+            if (fullTask) {
+              tasksToUpdate.push({
+                ...fullTask,
+                columnId: targetColumnId,
+                position: index
+              });
+            }
+          });
+          
+          // Add source column tasks
+          const sourceColumn = columns[draggedTask.columnId];
+          if (sourceColumn) {
+            const sourceTasks = sourceColumn.tasks
+              .filter(t => t.id !== draggedTask.id)
+              .sort((a, b) => (a.position || 0) - (b.position || 0));
+            
+            sourceTasks.forEach((task, index) => {
+              const fullTask = Object.values(columns)
+                .flatMap(col => col.tasks)
+                .find(t => t.id === task.id);
+              
+              if (fullTask) {
+                tasksToUpdate.push({
+                  ...fullTask,
+                  position: index
+                });
+              }
+            });
+          }
+          
+          // Update all tasks in sequence
+          for (const task of tasksToUpdate) {
+            await onUpdateTask(task);
+          }
+          
+          // Refresh data to ensure UI is in sync with backend
+          if (onRefreshData) {
+            await onRefreshData();
+          }
+        }
+      }
+      
+      // Clear drag state
+      setActiveDragItem(null);
+      setCurrentHoverDate(null);
+      setHoveredGroup(null);
+      setIsDraggingOverGroup(null);
+      if (onTaskDragEnd) {
+        onTaskDragEnd();
+      }
+      return;
+    }
+
+    // Handle within-group row reordering (same column only)
+    if ((activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && over.data.current?.type === 'task-row-reorder') {
+      const draggedTask = (activeDragItem as SortableTaskRowItem).task;
+      const targetTask = over.data.current.task;
+      
+      // Only proceed if both tasks are in the same column
+      if (draggedTask.columnId !== targetTask.columnId) {
+        return;
+      }
+      
+      if (draggedTask.id !== targetTask.id) {
+        // Find the column for the dragged task
+        const taskColumn = Object.values(columns).find(col => 
+          col.tasks.some(t => t.id === draggedTask.id)
+        );
+        
+        if (taskColumn) {
+          // Get all tasks in the same column, sorted by current order
+          const columnTasks = [...taskColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
+          
+          // Find indices within the column only
+          const draggedIndex = columnTasks.findIndex(t => t.id === draggedTask.id);
+          const targetIndex = columnTasks.findIndex(t => t.id === targetTask.id);
+          
+          if (draggedIndex !== -1 && targetIndex !== -1) {
+            // Create new order with updated positions within the column
+            const newOrder = [...columnTasks];
+            const [movedTask] = newOrder.splice(draggedIndex, 1);
+            newOrder.splice(targetIndex, 0, movedTask);
+            
+            // Update positions for all tasks in the column
+            newOrder.forEach((task, index) => {
+              if (task.position !== index) {
+                // Find the full task object from the original columns
+                const fullTask = Object.values(columns)
+                  .flatMap(col => col.tasks)
+                  .find(t => t.id === task.id);
+                
+                if (fullTask) {
+                  onUpdateTask({
+                    ...fullTask,
+                    position: index
+                  });
+                }
+              }
+            });
+          }
+        }
+      }
+      
+      // Clear drag state
+      setActiveDragItem(null);
+      setCurrentHoverDate(null);
+      setHoveredGroup(null);
+      setIsDraggingOverGroup(null);
       if (onTaskDragEnd) {
         onTaskDragEnd();
       }
@@ -1833,7 +2048,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
       const targetDate = precisePosition?.date || dropData.date;
       
-      // Simple debug for handle issues
       if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE || activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE || activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
       }
       
@@ -2425,10 +2639,21 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               const columnName = column ? column.name : `Column ${columnId}`;
               
               return (
-                <React.Fragment key={columnId}>
+                <DroppableGroup key={columnId} columnId={columnId}>
                   {/* Column Group Separator - only show if not the first group */}
                   {groupIndex > 0 && (
-                    <div className="bg-pink-300 h-0.5 w-full"></div>
+                    <div className="bg-pink-300 h-0.5 w-full flex-shrink-0"></div>
+                  )}
+                  
+                  {/* Drop Zone - show in all groups when dragging (except source group) */}
+                  {(activeDragItem?.type === 'task-row-reorder') && 
+                   activeDragItem && 
+                   (activeDragItem as SortableTaskRowItem).task.columnId !== columnId && (
+                    <div className="h-8 bg-blue-50 border-2 border-dashed border-blue-400 rounded flex items-center justify-center mb-1">
+                      <div className="text-blue-600 text-xs font-medium">
+                        📋 Drop here to move to {columns[columnId]?.name || 'this group'}
+                      </div>
+                    </div>
                   )}
                   
                   {/* Tasks in this group */}
@@ -2448,6 +2673,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     type: 'task-row-reorder',
                     task: task,
                     taskIndex: taskIndex,
+                    columnId: columnId, // Add columnId to task data for cross-group detection
                   },
                   disabled: false
                 });
@@ -2456,6 +2682,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 const isThisTaskDragging = activeDragItem && 
                   (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && 
                   (activeDragItem as SortableTaskRowItem).task.id === task.id;
+                
+                // Prevent re-rendering during drag for smoother experience
+                const shouldRender = !isThisTaskDragging || !isDragging;
 
                 // Check if this specific task is being dragged over (drop target)
                 // We need to check if the drag is currently over this specific task
@@ -2463,9 +2692,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
                 const style = {
                   transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
-                  transition: transition || 'transform 200ms ease',
+                  transition: isDragging ? 'none' : (transition || 'transform 200ms ease'), // Disable transition during drag
                   zIndex: (isDragging || isThisTaskDragging) ? 1000 : 'auto',
-                  opacity: 1, // Keep all tasks fully visible for now
+                  opacity: isDragging ? 0.8 : 1, // Slightly transparent when dragging for better visual feedback
                 };
 
                 return (
@@ -2526,7 +2755,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     )}
                   </div>
                   {taskViewMode !== 'shrink' && taskViewMode !== 'compact' && (
-                    <div className="text-sm text-gray-600 truncate">{task.title}</div>
+                    <div className="text-sm text-gray-600 break-words">{task.title}</div>
                   )}
                   {taskViewMode !== 'compact' && (
                     <div className="text-xs text-gray-500 mt-1">
@@ -2583,7 +2812,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
                     return <SortableTaskRow key={`task-info-${task.id}`} />;
                   })}
-                </React.Fragment>
+                </DroppableGroup>
               );
             })}
             {reorderedGanttTasks.length === 0 && (
@@ -2737,6 +2966,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   {groupIndex > 0 && (
                     <div className="bg-pink-300 h-0.5 w-full"></div>
                   )}
+                  
                   
                   {/* Tasks in this group */}
                   {tasks.map((task, taskIndex) => {

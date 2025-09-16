@@ -228,7 +228,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   // Auto-synced relationships
   boardRelationships = [],
 }) => {
-  console.log('🔗 [KanbanPage] boardRelationships received:', boardRelationships.length, 'relationships');
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   
@@ -532,7 +531,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             </div>
           ) : viewMode === 'gantt' ? (
             <>
-              {console.log('🔗 [KanbanPage] Passing relationships to GanttView:', boardRelationships.length, boardRelationships)}
               <GanttView
               columns={filteredColumns}
               onSelectTask={onSelectTask}
