@@ -76,7 +76,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   
   // Sync local relationships with prop relationships
   useEffect(() => {
-    console.log('🔗 [GanttView] Received relationships prop:', relationships.length, relationships);
     setLocalRelationships(relationships);
   }, [relationships]);
 
@@ -478,35 +477,16 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [earlierLoadCount, setEarlierLoadCount] = useState(0);
   const [laterLoadCount, setLaterLoadCount] = useState(0);
   const [lastLoadTime, setLastLoadTime] = useState(0);
+  const [isButtonNavigation, setIsButtonNavigation] = useState(false);
 
   // Memoized column width calculation to prevent repeated DOM measurements
   const [columnWidth, setColumnWidth] = useState(40);
   const columnWidthTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Consistent column width calculation function (debounced)
+  // Fixed column width to ensure timeline and grid synchronization
   const getColumnWidth = useCallback(() => {
-    if (!scrollContainerRef.current || dateRange.length === 0) {
-      return columnWidth; // Use cached value
-    }
-    
-    const timelineContainer = scrollContainerRef.current.querySelector('.gantt-timeline-container');
-    if (!timelineContainer) {
-      return columnWidth; // Use cached value
-    }
-    
-    // Debounce column width calculation
-    if (columnWidthTimeoutRef.current) {
-      clearTimeout(columnWidthTimeoutRef.current);
-    }
-    
-    columnWidthTimeoutRef.current = setTimeout(() => {
-      const totalWidth = timelineContainer.scrollWidth;
-      const newColumnWidth = totalWidth / dateRange.length;
-      setColumnWidth(newColumnWidth);
-    }, 16); // ~60fps debouncing
-    
-    return columnWidth; // Return cached value immediately
-  }, [dateRange.length, columnWidth]);
+    return 40; // Fixed 40px column width for perfect alignment
+  }, []);
 
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [isInitialRangeSet, setIsInitialRangeSet] = useState(false);
@@ -601,7 +581,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     const currentLeftmostDate = dateRange[Math.max(0, visibleColumnIndex)]?.date.toISOString().split('T')[0];
     
     if (currentLeftmostDate && currentLeftmostDate !== lastSavedScrollDateRef.current) {
-      console.log(`📍 [GanttView] Saving scroll position: ${scrollLeft}px for leftmost date: ${currentLeftmostDate}`);
       saveScrollPosition(currentLeftmostDate, scrollLeft);
     }
   }, [boardId, dateRange, saveScrollPosition, isProgrammaticScroll, isRestoringPosition]);
@@ -643,20 +622,20 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Simple debounced scroll handler - only saves after user stops scrolling
   const handleManualScroll = useCallback(() => {
-    if (isProgrammaticScroll || isRestoringPosition) {
-      return; // Skip during programmatic operations or restoration
+    if (isProgrammaticScroll || isRestoringPosition || isLoading || isButtonNavigation) {
+      return; // Skip during programmatic operations, restoration, loading, or button navigation
     }
     saveCurrentScrollPosition();
-  }, [isProgrammaticScroll, isRestoringPosition, saveCurrentScrollPosition]);
+  }, [isProgrammaticScroll, isRestoringPosition, isLoading, isButtonNavigation, saveCurrentScrollPosition]);
 
-  // Debounced version - only save 500ms after scrolling stops
+  // Debounced version - only save 1s after scrolling stops
   const debouncedScrollHandler = useMemo(() => {
     let timeoutId: NodeJS.Timeout;
     return () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         handleManualScroll();
-      }, 500);
+      }, 1000);
     };
   }, [handleManualScroll]);
 
@@ -806,7 +785,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 const columnWidth = totalWidth / initialRange.length;
                 const targetScrollLeft = targetIndex * columnWidth;
                 
-                console.log(`📍 [GanttView] Restoring to saved leftmost date: ${savedPositionDate}, scrollLeft: ${targetScrollLeft}px`);
                 scrollContainerRef.current.scrollLeft = targetScrollLeft;
               }
             }
@@ -927,7 +905,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Load earlier dates (2 months)
   const loadEarlier = useCallback(async () => {
-    if (dateRange.length === 0) return;
+    if (dateRange.length === 0 || isButtonNavigation) return;
+    
+    // Store current scroll position BEFORE loading
+    const currentScrollLeft = scrollContainerRef.current?.scrollLeft || 0;
     
     setIsLoading(true);
     
@@ -954,13 +935,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       setDateRange(finalRange);
       
       // Wait for DOM update before adjusting scroll position
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 25));
       
-      // Adjust scroll position to maintain current view using consistent column width
+      // Restore the exact scroll position to prevent jumping
       if (scrollContainerRef.current) {
-        const columnWidth = getColumnWidth();
-        const scrollAdjustment = newDates.length * columnWidth;
-        scrollContainerRef.current.scrollLeft += scrollAdjustment;
+        scrollContainerRef.current.scrollLeft = currentScrollLeft;
       }
       
       // Save new scroll position after loading earlier dates
@@ -974,11 +953,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     } finally {
       setIsLoading(false);
     }
-  }, [dateRange, generateDateRange, saveCurrentScrollPosition, getColumnWidth]);
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
 
   // Load later dates (2 months)
   const loadLater = useCallback(async () => {
-    if (dateRange.length === 0) return;
+    if (dateRange.length === 0 || isButtonNavigation) return;
+    
+    // Store current scroll position BEFORE loading
+    const currentScrollLeft = scrollContainerRef.current?.scrollLeft || 0;
     
     setIsLoading(true);
     
@@ -1006,13 +988,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       setDateRange(finalRange);
       
       // Wait for DOM update before adjusting scroll position
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 25));
       
-      // Adjust scroll if we trimmed from start using consistent column width
-      if (updatedRange.length > maxDays && scrollContainerRef.current) {
-        const columnWidth = getColumnWidth();
-        const trimmed = updatedRange.length - maxDays;
-        scrollContainerRef.current.scrollLeft -= trimmed * columnWidth;
+      // Restore the exact scroll position to prevent jumping
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollLeft = currentScrollLeft;
       }
       
       // Save new scroll position after loading later dates
@@ -1026,7 +1006,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     } finally {
       setIsLoading(false);
     }
-  }, [dateRange, generateDateRange, saveCurrentScrollPosition, getColumnWidth]);
+  }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
 
   // Create a memoized date-to-index map for O(1) lookups instead of O(n) linear search
   const dateToIndexMap = useMemo(() => {
@@ -1051,7 +1031,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       const container = scrollContainerRef.current;
       
       // Use consistent column width calculation
-      const columnWidth = getColumnWidth();
+      const columnWidth = 40; // Fixed 40px column width
       const scrollLeft = todayIndex * columnWidth;
       const targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
       
@@ -1086,7 +1066,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           const newTodayIndex = focusedRange.findIndex(d => d.isToday);
           if (newTodayIndex >= 0) {
             const container = scrollContainerRef.current;
-            const columnWidth = getColumnWidth();
+            const columnWidth = 40; // Fixed 40px column width
             const scrollLeft = newTodayIndex * columnWidth;
             const targetScroll = scrollLeft - (container.clientWidth / 2);
             
@@ -1250,102 +1230,124 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }
   }, [dateRange, generateDateRange, saveCurrentScrollPosition]);
   
+  // Unified navigation function that handles both scrolling and date loading
+  const navigateToPast = useCallback(async () => {
+    if (!scrollContainerRef.current || dateRange.length === 0) return;
+    
+    setIsProgrammaticScroll(true);
+    setIsButtonNavigation(true);
+    setIsLoading(true);
+    
+    try {
+      const currentScroll = scrollContainerRef.current.scrollLeft;
+      const viewportWidth = scrollContainerRef.current.clientWidth;
+      const columnWidth = 40; // Fixed 40px column width
+      
+      // Calculate how much we can scroll back within current range
+      const maxScrollBack = currentScroll;
+      const targetScroll = Math.max(0, currentScroll - viewportWidth);
+      
+      if (targetScroll > 0) {
+        // We can scroll within current range
+        scrollContainerRef.current.scrollTo({
+          left: targetScroll,
+          behavior: 'smooth'
+        });
+      } else {
+        // We're at the beginning - need to load earlier dates
+        await loadEarlier();
+        
+        // After loading, scroll to show the new dates
+        setTimeout(() => {
+          if (scrollContainerRef.current) {
+            const newScroll = Math.max(0, scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth - viewportWidth);
+            scrollContainerRef.current.scrollTo({
+              left: newScroll,
+              behavior: 'smooth'
+            });
+          }
+        }, 100);
+      }
+      
+      // Save position after navigation
+      setTimeout(() => {
+        saveCurrentScrollPosition();
+        setIsProgrammaticScroll(false);
+        setIsButtonNavigation(false);
+        setIsLoading(false);
+      }, 500);
+      
+    } catch (error) {
+      console.error('Error navigating to past:', error);
+      setIsProgrammaticScroll(false);
+      setIsButtonNavigation(false);
+      setIsLoading(false);
+    }
+  }, [loadEarlier, saveCurrentScrollPosition]);
+
   // Enhanced scroll functions with smooth scrolling and dynamic loading
   const scrollEarlier = useCallback(() => {
-    if (!scrollContainerRef.current) return;
-    
-    // Set flag FIRST to prevent any manual scroll handler interference
-    setIsProgrammaticScroll(true);
-    
-    const currentScroll = scrollContainerRef.current.scrollLeft;
-    const columnWidth = getColumnWidth();
-    const scrollAmount = columnWidth * 15; // Scroll by ~15 days worth
-    
-    // Always load more dates if we're near the beginning (more aggressive loading)
-    const threshold = columnWidth * 20; // Within 20 days of start (increased threshold)
-    if (currentScroll < threshold && dateRange.length > 0) {
-      loadEarlier().then(() => {
-        // After loading, scroll to the new position
-        const newScroll = Math.max(0, currentScroll + (columnWidth * 60) - scrollAmount); // Adjust for new dates
-        
-        scrollContainerRef.current!.scrollTo({
-          left: newScroll,
-          behavior: 'smooth'
-        });
-        
-        // Save position after navigation
-        setTimeout(() => {
-          saveCurrentScrollPosition();
-          setIsProgrammaticScroll(false);
-        }, 300);
-      });
-      return;
-    }
-    
-    // Normal scrolling within current range - NO BLOCKING
-    const newScroll = currentScroll - scrollAmount; // Remove Math.max blocking
-    
-    // Smooth scroll to new position
-    scrollContainerRef.current.scrollTo({
-      left: newScroll,
-      behavior: 'smooth'
-    });
-    
-    // Save position after navigation using unified function
-    setTimeout(() => {
-      saveCurrentScrollPosition();
-      setIsProgrammaticScroll(false); // Reset flag after scroll completes
-    }, 300); // Wait for smooth scroll to complete
-  }, [loadEarlier, dateRange.length, saveCurrentScrollPosition, getColumnWidth]);
+    navigateToPast();
+  }, [navigateToPast]);
   
-  const scrollLater = useCallback(() => {
-    if (!scrollContainerRef.current) return;
+  // Unified navigation function that handles both scrolling and date loading
+  const navigateToFuture = useCallback(async () => {
+    if (!scrollContainerRef.current || dateRange.length === 0) return;
     
-    // Set flag FIRST to prevent any manual scroll handler interference
     setIsProgrammaticScroll(true);
+    setIsButtonNavigation(true);
+    setIsLoading(true);
     
-    const currentScroll = scrollContainerRef.current.scrollLeft;
-    const maxScroll = scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth;
-    const columnWidth = getColumnWidth();
-    const scrollAmount = columnWidth * 15; // Scroll by ~15 days worth
-    
-    // Always load more dates if we're near the end (more aggressive loading)
-    const threshold = columnWidth * 20; // Within 20 days of end (increased threshold)
-    if (currentScroll > maxScroll - threshold && dateRange.length > 0) {
-      loadLater().then(() => {
-        // After loading, scroll to the new position - NO BLOCKING
-        const newMaxScroll = scrollContainerRef.current!.scrollWidth - scrollContainerRef.current!.clientWidth;
-        const newScroll = currentScroll + scrollAmount; // Remove Math.min blocking
-        
-        scrollContainerRef.current!.scrollTo({
-          left: newScroll,
+    try {
+      const currentScroll = scrollContainerRef.current.scrollLeft;
+      const viewportWidth = scrollContainerRef.current.clientWidth;
+      const maxScroll = scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth;
+      const targetScroll = Math.min(maxScroll, currentScroll + viewportWidth);
+      
+      if (targetScroll < maxScroll) {
+        // We can scroll within current range
+        scrollContainerRef.current.scrollTo({
+          left: targetScroll,
           behavior: 'smooth'
         });
+      } else {
+        // We're at the end - need to load later dates
+        await loadLater();
         
-        // Save position after navigation
+        // After loading, scroll to show the new dates
         setTimeout(() => {
-          saveCurrentScrollPosition();
-          setIsProgrammaticScroll(false);
-        }, 300);
-      });
-      return;
+          if (scrollContainerRef.current) {
+            const newScroll = Math.min(
+              scrollContainerRef.current.scrollWidth - scrollContainerRef.current.clientWidth,
+              viewportWidth
+            );
+            scrollContainerRef.current.scrollTo({
+              left: newScroll,
+              behavior: 'smooth'
+            });
+          }
+        }, 100);
+      }
+      
+      // Save position after navigation
+      setTimeout(() => {
+        saveCurrentScrollPosition();
+        setIsProgrammaticScroll(false);
+        setIsButtonNavigation(false);
+        setIsLoading(false);
+      }, 500);
+      
+    } catch (error) {
+      console.error('Error navigating to future:', error);
+      setIsProgrammaticScroll(false);
+      setIsButtonNavigation(false);
+      setIsLoading(false);
     }
-    
-    // Normal scrolling within current range - NO BLOCKING
-    const newScroll = currentScroll + scrollAmount; // Remove Math.min blocking
-    
-    // Smooth scroll to new position
-    scrollContainerRef.current.scrollTo({
-      left: newScroll,
-      behavior: 'smooth'
-    });
-    
-    // Save position after navigation using unified function
-    setTimeout(() => {
-      saveCurrentScrollPosition();
-      setIsProgrammaticScroll(false); // Reset flag after scroll completes
-    }, 300); // Wait for smooth scroll to complete
-  }, [loadLater, dateRange.length, saveCurrentScrollPosition, getColumnWidth]);
+  }, [loadLater, saveCurrentScrollPosition]);
+
+  const scrollLater = useCallback(() => {
+    navigateToFuture();
+  }, [navigateToFuture]);
 
 
   // Simple viewport (all dates always visible)
@@ -1500,7 +1502,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           if (startDateIndex === -1 || endDateIndex === -1) return;
           
-          const columnWidth = timelineContainer.scrollWidth / dateRange.length;
+          const columnWidth = 40; // Fixed 40px column width
           const taskHeight = taskViewMode === 'compact' ? 48 : 
                             taskViewMode === 'shrink' ? 64 : 80;
           
@@ -1540,7 +1542,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           if (startDateIndex === -1 || endDateIndex === -1) return;
           
-          const columnWidth = timelineContainer.scrollWidth / dateRange.length;
+          const columnWidth = 40; // Fixed 40px column width
           const taskHeight = taskViewMode === 'compact' ? 48 : 
                             taskViewMode === 'shrink' ? 64 : 80;
           
@@ -1675,7 +1677,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
-      day: 'numeric' 
+      day: 'numeric',
+      year: 'numeric'
     });
   };
 
@@ -2222,6 +2225,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           } else if (isAtRightBoundary && wheelEvent.deltaX > 5) {
             loadLater();
           }
+        } else {
+          // Reduce scroll sensitivity by dividing deltaX by 3
+          const reducedDeltaX = wheelEvent.deltaX / 3;
+          scrollContainer.scrollLeft += reducedDeltaX;
+          event.preventDefault();
+          event.stopPropagation();
         }
       }
     };
@@ -2336,7 +2345,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               <div 
                 className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6"
                 style={{ 
-                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
                 }}
               >
@@ -2359,7 +2368,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               <div 
                 className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
                 style={{ 
-                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
                 }}
               >
@@ -2596,32 +2605,34 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             contain: 'layout style' // Performance optimization for contained rendering
           }}
           onScroll={(e) => {
+            // Skip loading during loading state or button navigation to prevent conflicts
+            if (isLoading || isButtonNavigation) return;
+            
             const scrollLeft = e.currentTarget.scrollLeft;
             const container = e.currentTarget;
             const maxScroll = container.scrollWidth - container.clientWidth;
-            const columnWidth = getColumnWidth();
+            const columnWidth = 40; // Fixed 40px column width
             
-            // Check if user is near the boundaries and load more dates
-            const threshold = columnWidth * 20; // Within 20 days of edge
+            // Check if user is near the boundaries and load more dates seamlessly
+            const threshold = columnWidth * 15; // Very aggressive threshold for ultra-smooth scrolling
             const now = Date.now();
             
-            // Loading protection: max 3 loads per direction, 2 second cooldown
-            if (scrollLeft < threshold && dateRange.length > 0 && earlierLoadCount < 3 && now - lastLoadTime > 2000) {
+            // Seamless loading: allow continuous scrolling with minimal cooldown
+            if (scrollLeft < threshold && dateRange.length > 0 && now - lastLoadTime > 100) {
               // User is near the beginning - load earlier dates
               setLastLoadTime(now);
               setEarlierLoadCount(prev => prev + 1);
               loadEarlier().then(() => {
-                // After loading, adjust scroll position to maintain view
-                const newScroll = scrollLeft + (columnWidth * 60); // Adjust for new dates
-                container.scrollLeft = newScroll;
+                // loadEarlier() already handles scroll position adjustment internally
+                // No need to adjust again here
               });
-            } else if (scrollLeft > maxScroll - threshold && dateRange.length > 0 && laterLoadCount < 3 && now - lastLoadTime > 2000) {
+            } else if (scrollLeft > maxScroll - threshold && dateRange.length > 0 && now - lastLoadTime > 100) {
               // User is near the end - load later dates
               setLastLoadTime(now);
               setLaterLoadCount(prev => prev + 1);
               loadLater().then(() => {
-                // After loading, maintain current scroll position
-                container.scrollLeft = scrollLeft;
+                // loadLater() already handles scroll position adjustment internally
+                // No need to adjust again here
               });
             }
             
@@ -2648,7 +2659,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             <div 
               className="grid bg-white transition-colors relative h-12 border-b-4 border-blue-400"
               style={{ 
-                gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                 minWidth: '800px'
               }}
             >
@@ -2741,7 +2752,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     'h-20'
                   }`}
                   style={{ 
-                    gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                    gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                     minWidth: '800px', // Match header minWidth to ensure column alignment
                     willChange: activeDragItem ? 'transform' : 'auto' // Performance hint during drag
                   }}
@@ -3127,7 +3138,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
               <div 
                 className="grid bg-white hover:bg-blue-50 transition-colors relative h-16 border-b-4 border-blue-400"
                 style={{ 
-                  gridTemplateColumns: `repeat(${dateRange.length}, 1fr)`,
+                  gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
                 }}
               >
