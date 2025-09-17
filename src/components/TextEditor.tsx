@@ -138,18 +138,10 @@ export default function TextEditor({
   React.useEffect(() => {
     const currentKey = JSON.stringify(existingAttachments.map(att => att.id).sort());
     
-    console.log('🔄 TextEditor: existingAttachments changed');
-    console.log('🔄 Previous key:', prevExistingAttachmentsRef.current);
-    console.log('🔄 Current key:', currentKey);
-    console.log('🔄 existingAttachments:', existingAttachments.map(att => ({id: att.id, name: att.name})));
-    
     // Only update if the attachments actually changed
     if (prevExistingAttachmentsRef.current !== currentKey) {
       prevExistingAttachmentsRef.current = currentKey;
-      console.log('🔄 TextEditor: Updating displayedAttachments');
       setDisplayedAttachments(prev => {
-        console.log('🔄 Previous displayedAttachments:', prev.map(att => ({id: att.id, name: att.name, isNew: att.isNew})));
-        
         // When parent attachments change, trust the parent's state completely
         // Only keep "New" attachments if they're truly new and not represented in parent
         const existingNames = existingAttachments.map(att => att.name);
@@ -163,11 +155,8 @@ export default function TextEditor({
           ...existingAttachments.map(att => ({ ...att, isNew: false })),
           ...newAttachmentsToKeep
         ];
-        console.log('🔄 TextEditor: New displayedAttachments:', newDisplayed.map(att => ({id: att.id, name: att.name, isNew: att.isNew})));
         return newDisplayed;
       });
-    } else {
-      console.log('🔄 TextEditor: No change detected, skipping update');
     }
   }, [existingAttachments]);
 

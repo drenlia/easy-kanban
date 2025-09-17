@@ -31,15 +31,15 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
-import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode } from './utils/userPreferences';
-import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask } from './api';
+import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
+import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -84,6 +84,9 @@ export default function App() {
   // Activity Feed state
   const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
   const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
+  
+  // Auto-refresh toggle state (loaded from user preferences)
+  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
   const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
     x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
     y: 66 
@@ -117,6 +120,7 @@ export default function App() {
     key: K,
     value: UserPreferences[K]
   ) => {
+    // Global saving state is now handled automatically in saveUserPreferences
     updateUserPreference(key, value, currentUser?.id || null);
   };
 
@@ -165,7 +169,7 @@ export default function App() {
       await refreshBoardData();
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to delete task:', error);
+      // console.error('Failed to delete task:', error);
       throw error; // Re-throw so the hook can handle the error state
     }
   };
@@ -217,7 +221,23 @@ export default function App() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
+  const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+
+  // Sync local state with global preference saving state
+  useEffect(() => {
+    const updateSavingState = () => {
+      setIsSavingPreferences(isGloballySavingPreferences());
+    };
+    
+    // Initial sync
+    updateSavingState();
+    
+    // Register for updates
+    const unregister = registerSavingStateCallback(updateSavingState);
+    
+    return unregister;
+  }, []);
   const [resetToken, setResetToken] = useState<string>('');
   const [activationToken, setActivationToken] = useState<string>('');
   const [activationEmail, setActivationEmail] = useState<string>('');
@@ -235,13 +255,14 @@ export default function App() {
   // Hover highlighting for relationships
   const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
   const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
+  const [boardRelationships, setBoardRelationships] = useState<any[]>([]);
   
   // Debug showColumnDeleteConfirm changes
   useEffect(() => {
     if (showColumnDeleteConfirm) {
-      console.log(`📋 showColumnDeleteConfirm changed to: ${showColumnDeleteConfirm}`);
+      // console.log(`📋 showColumnDeleteConfirm changed to: ${showColumnDeleteConfirm}`);
     } else {
-      console.log(`📋 showColumnDeleteConfirm cleared`);
+      // console.log(`📋 showColumnDeleteConfirm cleared`);
     }
   }, [showColumnDeleteConfirm]);
 
@@ -253,7 +274,7 @@ export default function App() {
       
       // Only sync if there's a difference (remove deleted members)
       if (validSelectedMembers.length !== selectedMembers.length) {
-        console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
+        // console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
         setSelectedMembers(validSelectedMembers);
         updateCurrentUserPreference('selectedMembers', validSelectedMembers);
       }
@@ -314,15 +335,14 @@ export default function App() {
   // User status update handler with force logout functionality
   const handleUserStatusUpdate = (newUserStatus: UserStatus) => {
     const previousStatus = userStatusRef.current;
-    console.log('🔍 [UserStatus] Update handler called:', { 
-      previousStatus, 
-      newUserStatus, 
-      permissionChanged: previousStatus?.isAdmin !== newUserStatus.isAdmin 
-    });
+    // Reduced logging to avoid performance violations
+    if (process.env.NODE_ENV === 'development') {
+      // console.log('🔍 [UserStatus] Update handler called');
+    }
     
     // Handle force logout scenarios
     if (newUserStatus.forceLogout || !newUserStatus.isActive) {
-      console.log('🔐 User deactivated or force logout detected. Logging out...');
+      // console.log('🔐 User deactivated or force logout detected. Logging out...');
       
       // Clear all local storage and session data
       localStorage.clear();
@@ -331,7 +351,7 @@ export default function App() {
       // Show appropriate message
       const message = !newUserStatus.isActive 
         ? 'Your account has been deactivated. Please contact an administrator.'
-        : 'Your session has been terminated by an administrator.';
+        : 'Your role has been changed. Please log in again to access your updated permissions.';
       
       // Force logout with message
       handleLogout(message);
@@ -341,27 +361,35 @@ export default function App() {
     // Handle permission changes (soft updates) - only if we have a previous status to compare
     if (previousStatus !== null && previousStatus.isAdmin !== newUserStatus.isAdmin) {
       const permissionChange = newUserStatus.isAdmin ? 'promoted to admin' : 'demoted to user';
-      console.log(`🔄 User permission changed: ${permissionChange}`);
-      console.log('🔄 Calling handleProfileUpdated to refresh user roles...');
+      // console.log(`🔄 User permission changed: ${permissionChange}`);
+      // console.log(`🔄 Previous isAdmin: ${previousStatus.isAdmin}, New isAdmin: ${newUserStatus.isAdmin}`);
+      // console.log('🔄 Calling handleProfileUpdated to refresh user roles...');
       
       // Refresh the current user data to update roles in the UI
       handleProfileUpdated().then(() => {
-        console.log('✅ User profile refreshed successfully');
+        // console.log('✅ User profile refreshed successfully');
       }).catch(error => {
-        console.error('❌ Failed to refresh user profile after permission change:', error);
+        // console.error('❌ Failed to refresh user profile after permission change:', error);
       });
       
       // Optional: Show a notification about permission change
       // You could add a toast notification here if desired
     } else if (previousStatus === null) {
-      console.log('🔍 [UserStatus] Initial status set, no action needed');
+      // console.log('🔍 [UserStatus] Initial status set, no action needed');
     } else {
-      console.log('🔍 [UserStatus] No permission change detected');
+      // console.log('🔍 [UserStatus] No permission change detected');
     }
     
-    // Update both state and ref
+    // Update both state and ref - but only update state if values actually changed
     userStatusRef.current = newUserStatus;
-    setUserStatus(newUserStatus);
+    
+    // Only trigger state update if the values actually changed to prevent unnecessary re-renders
+    if (previousStatus === null || 
+        previousStatus.isActive !== newUserStatus.isActive ||
+        previousStatus.isAdmin !== newUserStatus.isAdmin ||
+        previousStatus.forceLogout !== newUserStatus.forceLogout) {
+      setUserStatus(newUserStatus);
+    }
   };
 
   
@@ -440,15 +468,15 @@ export default function App() {
           // Load saved position or use default
           if (settings.activityFeedPosition) {
             try {
-              console.log('Loading saved activity feed position:', settings.activityFeedPosition);
+              // console.log('Loading saved activity feed position:', settings.activityFeedPosition);
               const savedPosition = JSON.parse(settings.activityFeedPosition);
-              console.log('Parsed position:', savedPosition);
+              // console.log('Parsed position:', savedPosition);
               setActivityFeedPosition(savedPosition);
             } catch (error) {
-              console.warn('Failed to parse saved activity feed position:', error);
+              // console.warn('Failed to parse saved activity feed position:', error);
             }
           } else {
-            console.log('No saved activity feed position found, using default');
+            // console.log('No saved activity feed position found, using default');
           }
 
           // Load saved dimensions or use default
@@ -457,13 +485,13 @@ export default function App() {
               width: settings.activityFeedWidth || 208,
               height: settings.activityFeedHeight || (typeof window !== 'undefined' ? window.innerHeight - 200 : 400)
             };
-            console.log('Loading saved activity feed dimensions:', savedDimensions);
+            // console.log('Loading saved activity feed dimensions:', savedDimensions);
             setActivityFeedDimensions(savedDimensions);
           } else {
-            console.log('No saved activity feed dimensions found, using default');
+            // console.log('No saved activity feed dimensions found, using default');
           }
         } catch (error) {
-          console.error('Failed to load user settings:', error);
+          // console.error('Failed to load user settings:', error);
         }
       }
     };
@@ -476,14 +504,40 @@ export default function App() {
     const initializeAdminDefaults = async () => {
       try {
         await loadAdminDefaults();
-        console.log('Admin defaults loaded for new users');
+        // console.log('Admin defaults loaded for new users');
       } catch (error) {
-        console.warn('Failed to load admin defaults:', error);
+        // console.warn('Failed to load admin defaults:', error);
       }
     };
     
     initializeAdminDefaults();
   }, []); // Run once on mount
+
+  // Load auto-refresh setting from user preferences
+  useEffect(() => {
+    if (currentUser) {
+      const prefs = loadUserPreferences(currentUser.id);
+      setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true);
+    }
+  }, [currentUser]);
+
+  // Auto-refresh toggle handler
+  const handleToggleAutoRefresh = useCallback(async () => {
+    const newValue = !isAutoRefreshEnabled;
+    setIsAutoRefreshEnabled(newValue);
+    
+    // Save to user preferences
+    if (currentUser) {
+      try {
+        await updateUserPreference('appSettings', {
+          ...loadUserPreferences(currentUser.id).appSettings,
+          autoRefreshEnabled: newValue
+        }, currentUser.id);
+      } catch (error) {
+        // console.error('Failed to save auto-refresh preference:', error);
+      }
+    }
+  }, [isAutoRefreshEnabled, currentUser]);
 
   // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
@@ -502,7 +556,7 @@ export default function App() {
       await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
       setLastSeenActivityId(activityId);
     } catch (error) {
-      console.error('Failed to mark activities as read:', error);
+      // console.error('Failed to mark activities as read:', error);
     }
   };
 
@@ -516,13 +570,47 @@ export default function App() {
       setClearActivityId(activityId);
       setLastSeenActivityId(activityId);
     } catch (error) {
-      console.error('Failed to clear activities:', error);
+      // console.error('Failed to clear activities:', error);
     }
   };
   
+  // Stable callback functions to prevent infinite useEffect loops in useDataPolling
+  const handleMembersUpdate = useCallback((newMembers: TeamMember[]) => {
+    if (!isProfileBeingEdited) {
+      setMembers(newMembers);
+    }
+  }, [isProfileBeingEdited]);
+
+  const handleActivitiesUpdate = useCallback((newActivities: any[]) => {
+    if (showActivityFeed) {
+      setActivities(newActivities);
+    }
+  }, [showActivityFeed]);
+
+  const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
+    // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
+    setBoardRelationships(newRelationships);
+    setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
+  }, []);
+
+  // Load relationships initially when board is selected (regardless of auto-refresh status)
+  useEffect(() => {
+    if (selectedBoard && currentPage === 'kanban') {
+      // console.log('🔗 [App] Loading initial relationships for board:', selectedBoard);
+      getBoardTaskRelationships(selectedBoard)
+        .then(relationships => {
+          // console.log('🔗 [App] Initial relationships loaded:', relationships.length);
+          handleRelationshipsUpdate(relationships);
+        })
+        .catch(error => {
+          // console.error('🔗 [App] Failed to load initial relationships:', error);
+        });
+    }
+  }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
+
   // Data polling for real-time collaboration and permission refresh
   const { isPolling, lastPollTime } = useDataPolling({
-    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause,
+    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled,
     selectedBoard,
     currentBoards: boards,
     currentMembers: members,
@@ -531,14 +619,16 @@ export default function App() {
     currentPriorities: availablePriorities,
     currentActivities: activities,
     currentSharedFilters: sharedFilterViews,
+    currentRelationships: boardRelationships,
     includeSystem,
     onBoardsUpdate: setBoards,
-    onMembersUpdate: isProfileBeingEdited ? () => {} : setMembers, // Skip member updates when profile is being edited
+    onMembersUpdate: handleMembersUpdate,
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
-    onActivitiesUpdate: showActivityFeed ? setActivities : undefined, // Only poll activities when feed is visible
-    onSharedFiltersUpdate: setSharedFilterViews, // Auto-refresh shared filters
+    onActivitiesUpdate: handleActivitiesUpdate,
+    onSharedFiltersUpdate: setSharedFilterViews,
+    onRelationshipsUpdate: handleRelationshipsUpdate,
   });
 
   // Separate lightweight polling for user status on all pages
@@ -546,23 +636,44 @@ export default function App() {
     if (!isAuthenticated) return;
 
     const pollUserStatus = async () => {
+      // Skip polling if we're currently saving preferences to avoid conflicts
+      if (isSavingPreferences) {
+        if (process.env.NODE_ENV === 'development') {
+          // console.log('⏸️ [UserStatus] Skipping poll - preferences being saved');
+        }
+        return;
+      }
+
       try {
+        const startTime = performance.now();
         const newUserStatus = await getUserStatus();
-        console.log('🔍 [UserStatus] Polled status:', newUserStatus);
+        const apiTime = performance.now() - startTime;
+        
+        // Reduced logging to avoid performance violations
+        if (process.env.NODE_ENV === 'development') {
+          // console.log(`🔍 [UserStatus] Polled status (API: ${apiTime.toFixed(1)}ms)`);
+        }
+        
+        const updateStartTime = performance.now();
         handleUserStatusUpdate(newUserStatus);
+        const updateTime = performance.now() - updateStartTime;
+        
+        if (process.env.NODE_ENV === 'development' && updateTime > 50) {
+          // console.log(`⚠️ [UserStatus] Update handler took ${updateTime.toFixed(1)}ms`);
+        }
       } catch (error) {
-        console.error('❌ [UserStatus] Polling failed:', error);
+        // console.error('❌ [UserStatus] Polling failed:', error);
       }
     };
 
     // Initial check
     pollUserStatus();
 
-    // Poll every 5 seconds (less frequent than main polling)
-    const statusInterval = setInterval(pollUserStatus, 5000);
+    // Poll every 30 seconds for user status updates (reduced frequency to improve performance)
+    const statusInterval = setInterval(pollUserStatus, 30000);
 
     return () => clearInterval(statusInterval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isSavingPreferences]);
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {
@@ -591,10 +702,10 @@ export default function App() {
         if (updatedTask) {
           // Only update if the task data has actually changed
           if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
-            console.log('🔄 Auto-updating selectedTask with fresh data from polling', {
-              taskId: updatedTask.id,
-              commentCount: updatedTask.comments?.length || 0
-            });
+            // console.log('🔄 Auto-updating selectedTask with fresh data from polling', {
+            //   taskId: updatedTask.id,
+            //   commentCount: updatedTask.comments?.length || 0
+            // });
             setSelectedTask(updatedTask);
           }
           break;
@@ -647,7 +758,7 @@ export default function App() {
       // Refresh members list to show the new user
       await handleRefreshData();
     } catch (error) {
-      console.error('Failed to invite user:', error);
+      // console.error('Failed to invite user:', error);
       throw error;
     }
   };
@@ -673,11 +784,11 @@ export default function App() {
 
   // Task linking handlers
   const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
-    console.log('🔗 handleStartLinking called:', {
-      taskTicket: task.ticket,
-      taskId: task.id,
-      startPosition
-    });
+    // console.log('🔗 handleStartLinking called:', {
+    //   taskTicket: task.ticket,
+    //   taskId: task.id,
+    //   startPosition
+    // });
     setIsLinkingMode(true);
     setLinkingSourceTask(task);
     setLinkingLine({
@@ -686,7 +797,7 @@ export default function App() {
       endX: startPosition.x,
       endY: startPosition.y
     });
-    console.log('✅ Linking mode activated');
+    // console.log('✅ Linking mode activated');
   };
 
   const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
@@ -700,15 +811,15 @@ export default function App() {
   };
 
   const handleFinishLinking = async (targetTask: Task | null, relationshipType: 'parent' | 'child' | 'related' = 'parent') => {
-    console.log('🔗 handleFinishLinking called:', { 
-      linkingSourceTask: linkingSourceTask?.ticket, 
-      targetTask: targetTask?.ticket, 
-      relationshipType 
-    });
+    // console.log('🔗 handleFinishLinking called:', { 
+    //   linkingSourceTask: linkingSourceTask?.ticket, 
+    //   targetTask: targetTask?.ticket, 
+    //   relationshipType 
+    // });
     
     if (linkingSourceTask && targetTask && linkingSourceTask.id !== targetTask.id) {
       try {
-        console.log('🚀 Making API call to create relationship...');
+        // console.log('🚀 Making API call to create relationship...');
         const token = localStorage.getItem('authToken');
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (token) {
@@ -724,7 +835,7 @@ export default function App() {
           })
         });
         
-        console.log('📡 API Response status:', response.status);
+        // console.log('📡 API Response status:', response.status);
         
         if (!response.ok) {
           let errorMessage = 'Failed to create task relationship';
@@ -741,39 +852,39 @@ export default function App() {
             }
           }
           
-          console.error('❌ API Error response:', {
-            status: response.status,
-            statusText: response.statusText,
-            error: errorMessage
-          });
+          // console.error('❌ API Error response:', {
+          //   status: response.status,
+          //   statusText: response.statusText,
+          //   error: errorMessage
+          // });
           throw new Error(errorMessage);
         }
         
         const result = await response.json();
-        console.log('✅ API Success result:', result);
-        console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
+        // console.log('✅ API Success result:', result);
+        // console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
         
         // Set success feedback message
         setLinkingFeedbackMessage(`${linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
       } catch (error) {
-        console.error('❌ Error creating task relationship:', error);
+        // console.error('❌ Error creating task relationship:', error);
         // Set specific error feedback message
         const errorMessage = error instanceof Error ? error.message : 'Failed to create task relationship';
         setLinkingFeedbackMessage(errorMessage);
       }
     } else {
-      console.log('⚠️ Relationship creation skipped:', {
-        hasSource: !!linkingSourceTask,
-        hasTarget: !!targetTask,
-        sameTask: linkingSourceTask?.id === targetTask?.id
-      });
+      // console.log('⚠️ Relationship creation skipped:', {
+      //   hasSource: !!linkingSourceTask,
+      //   hasTarget: !!targetTask,
+      //   sameTask: linkingSourceTask?.id === targetTask?.id
+      // });
       
       // Set cancellation feedback message
       setLinkingFeedbackMessage('Task link cancelled');
     }
     
     // Reset linking state (but keep feedback message visible)
-    console.log('🔄 Resetting linking state...');
+    // console.log('🔄 Resetting linking state...');
     setIsLinkingMode(false);
     setLinkingSourceTask(null);
     setLinkingLine(null);
@@ -813,7 +924,7 @@ export default function App() {
           [task.id]: relationships.data || []
         }));
       } catch (error) {
-        console.error('Failed to load task relationships for hover:', error);
+        // console.error('Failed to load task relationships for hover:', error);
       }
     }
   };
@@ -893,7 +1004,7 @@ export default function App() {
       setIncludeWatchers(userSpecificPrefs.includeWatchers);
       setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
       setIncludeRequesters(userSpecificPrefs.includeRequesters);
-      console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
+      // console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
       setIncludeSystem(userSpecificPrefs.includeSystem);
       setTaskViewMode(userSpecificPrefs.taskViewMode);
       setViewMode(userSpecificPrefs.viewMode);
@@ -942,7 +1053,7 @@ export default function App() {
           }
         } else {
           // Project ID not found - redirect to kanban with error or message
-          console.warn(`Project ${projectRoute.projectId} not found`);
+          // console.warn(`Project ${projectRoute.projectId} not found`);
           setCurrentPage('kanban');
           setSelectedBoard(null);
           window.history.replaceState(null, '', '#kanban');
@@ -953,15 +1064,15 @@ export default function App() {
       // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
       
-      // Debug to server console
-      fetch('/api/debug/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: '🔍 Route parsing', 
-          data: { hash: window.location.hash, route } 
-        })
-      }).catch(() => {}); // Silent fail
+      // Debug to server console - DISABLED
+      // fetch('/api/debug/log', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ 
+      //     message: '🔍 Route parsing', 
+      //     data: { hash: window.location.hash, route } 
+      //   })
+      // }).catch(() => {}); // Silent fail
       
       // 1. Handle page routing
       if (route.isPage) {
@@ -982,39 +1093,39 @@ export default function App() {
           const token = route.queryParams.get('token');
           const email = route.queryParams.get('email');
           
-          // Debug to server console
-          fetch('/api/debug/log', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              message: '🔍 Activation route detected', 
-              data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
-            })
-          }).catch(() => {});
+          // Debug to server console - DISABLED
+          // fetch('/api/debug/log', {
+          //   method: 'POST',
+          //   headers: { 'Content-Type': 'application/json' },
+          //   body: JSON.stringify({ 
+          //     message: '🔍 Activation route detected', 
+          //     data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
+          //   })
+          // }).catch(() => {});
           
           if (token && email) {
             setActivationToken(token);
             setActivationEmail(email);
             
-            // Debug success to server console
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                message: '✅ Activation token and email set', 
-                data: { token: token.substring(0, 10) + '...', email } 
-              })
-            }).catch(() => {});
+            // Debug success to server console - DISABLED
+            // fetch('/api/debug/log', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({ 
+            //     message: '✅ Activation token and email set', 
+            //     data: { token: token.substring(0, 10) + '...', email } 
+            //   })
+            // }).catch(() => {});
           } else {
-            // Debug failure to server console
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                message: '❌ Missing activation token or email', 
-                data: { hasToken: !!token, hasEmail: !!email } 
-              })
-            }).catch(() => {});
+            // Debug failure to server console - DISABLED
+            // fetch('/api/debug/log', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({ 
+            //     message: '❌ Missing activation token or email', 
+            //     data: { hasToken: !!token, hasEmail: !!email } 
+            //   })
+            // }).catch(() => {});
           }
           
           // Mark activation parsing as complete
@@ -1108,7 +1219,7 @@ export default function App() {
     const loadInitialData = async () => {
       await withLoading('general', async () => {
         try {
-          console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
+          // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
           const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
             getMembers(includeSystem),
           getBoards(),
@@ -1119,7 +1230,7 @@ export default function App() {
           
 
           
-          console.log(`📋 Loaded ${loadedMembers.length} members with includeSystem=${includeSystem}`);
+          // console.log(`📋 Loaded ${loadedMembers.length} members with includeSystem=${includeSystem}`);
           setMembers(loadedMembers);
           setBoards(loadedBoards);
           setAvailablePriorities(loadedPriorities || []);
@@ -1136,7 +1247,7 @@ export default function App() {
 
           // Member selection is now handled by a separate useEffect
         } catch (error) {
-          console.error('Failed to load initial data:', error);
+          // console.error('Failed to load initial data:', error);
         }
       });
       await fetchQueryLogs();
@@ -1148,24 +1259,31 @@ export default function App() {
   // Update columns when selected board changes
   useEffect(() => {
     if (selectedBoard) {
-      // Find the selected board in the current boards array
-      const board = boards.find(b => b.id === selectedBoard);
-      if (board) {
-        // Update columns immediately from the boards array
-        setColumns(board.columns || {});
-      } else {
-        // If board not found in current array, refresh from server
+      // When polling is disabled, always refresh from server to get fresh data
+      // When polling is enabled, use cached data for better performance
+      if (!isAutoRefreshEnabled) {
+        // Polling disabled - always refresh from server to ensure fresh data
         refreshBoardData();
+      } else {
+        // Polling enabled - use cached data for better performance
+        const board = boards.find(b => b.id === selectedBoard);
+        if (board) {
+          // Update columns immediately from the boards array
+          setColumns(board.columns || {});
+        } else {
+          // If board not found in current array, refresh from server
+          refreshBoardData();
+        }
       }
     }
-  }, [selectedBoard, boards]);
+  }, [selectedBoard, boards, isAutoRefreshEnabled]);
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
     if (members.length > 0 && currentUser && selectedMembers.length === 0) {
       // Default to ALL members for better first-time experience
       const allMemberIds = members.map(m => m.id);
-      console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
+      // console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
       setSelectedMembers(allMemberIds);
       updateCurrentUserPreference('selectedMembers', allMemberIds);
     }
@@ -1212,17 +1330,18 @@ export default function App() {
         }
       }
     } catch (error) {
-      console.error('Failed to refresh board data:', error);
+      // console.error('Failed to refresh board data:', error);
     }
   };
 
   const fetchQueryLogs = async () => {
-    try {
-      const logs = await getQueryLogs();
-      setQueryLogs(logs);
-    } catch (error) {
-      console.error('Failed to fetch query logs:', error);
-    }
+    // DISABLED: Debug query logs fetching
+    // try {
+    //   const logs = await getQueryLogs();
+    //   setQueryLogs(logs);
+    // } catch (error) {
+    //   // console.error('Failed to fetch query logs:', error);
+    // }
   };
 
 
@@ -1286,7 +1405,7 @@ export default function App() {
       }, BOARD_CREATION_PAUSE_DURATION);
       
     } catch (error) {
-      console.error('Failed to add board:', error);
+      // console.error('Failed to add board:', error);
       setBoardCreationPause(false); // Resume polling even on error
     }
   };
@@ -1299,7 +1418,7 @@ export default function App() {
       ));
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to update board:', error);
+      // console.error('Failed to update board:', error);
     }
   };
 
@@ -1328,7 +1447,7 @@ export default function App() {
       await reorderBoards(boardId, newPosition);
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to reorder boards:', error);
+      // console.error('Failed to reorder boards:', error);
       // Rollback by refreshing on error
       await refreshBoardData();
     }
@@ -1352,7 +1471,7 @@ export default function App() {
       }
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to remove board:', error);
+      // console.error('Failed to remove board:', error);
     }
   };
 
@@ -1362,16 +1481,18 @@ export default function App() {
     // Always assign new tasks to the logged-in user, not the filtered selection
     const currentUserMember = members.find(m => m.user_id === currentUser.id);
     if (!currentUserMember) {
-      console.error('Current user not found in members list');
+      // console.error('Current user not found in members list');
       return;
     }
     
+    const startDate = new Date().toISOString().split('T')[0];
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: '',
       memberId: currentUserMember.id,
-      startDate: new Date().toISOString().split('T')[0],
+      startDate: startDate,
+      dueDate: startDate, // Set dueDate to be the same as startDate
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
@@ -1429,14 +1550,13 @@ export default function App() {
         }));
       }
       
-      // Resume polling after brief delay
+      // Resume polling after delay to ensure server processing is complete
       setTimeout(() => {
         setTaskCreationPause(false);
-
       }, TASK_CREATION_PAUSE_DURATION);
       
     } catch (error) {
-      console.error('Failed to create task at top:', error);
+      // console.error('Failed to create task at top:', error);
       setTaskCreationPause(false);
       await refreshBoardData();
     }
@@ -1446,16 +1566,33 @@ export default function App() {
     // Optimistic update
     const previousColumns = { ...columns };
     
+    // console.log('🔄 [App] handleEditTask called with:', {
+    //   taskId: task.id,
+    //   title: task.title,
+    //   startDate: task.startDate,
+    //   dueDate: task.dueDate,
+    //   columnId: task.columnId,
+    //   boardId: task.boardId
+    // });
+    
     // Update UI immediately
-    setColumns(prev => ({
-      ...prev,
-      [task.columnId]: {
-        ...prev[task.columnId],
-        tasks: prev[task.columnId].tasks.map(t => 
-          t.id === task.id ? task : t
-        )
+    setColumns(prev => {
+      // Safety check: ensure the column exists
+      if (!prev[task.columnId]) {
+        // console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        return prev; // Return unchanged state if column doesn't exist
       }
-    }));
+      
+      return {
+        ...prev,
+        [task.columnId]: {
+          ...prev[task.columnId],
+          tasks: prev[task.columnId].tasks.map(t => 
+            t.id === task.id ? task : t
+          )
+        }
+      };
+    });
     
     try {
       await withLoading('tasks', async () => {
@@ -1465,7 +1602,7 @@ export default function App() {
     } catch (error) {
       // Rollback on error
       setColumns(previousColumns);
-      console.error('Failed to update task:', error);
+      // console.error('Failed to update task:', error);
     }
   };
 
@@ -1489,7 +1626,9 @@ export default function App() {
       id: tempId,
       title: copyTitle,
       comments: [],
-      position: newPosition
+      position: newPosition,
+      // If the original task doesn't have a dueDate, set it to startDate
+      dueDate: task.dueDate || task.startDate
     };
 
 
@@ -1551,7 +1690,7 @@ export default function App() {
       
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to copy task:', error);
+      // console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
       await refreshBoardData();
     }
@@ -1564,7 +1703,7 @@ export default function App() {
       // Refresh the task data to show the new tag
       await refreshBoardData();
     } catch (error) {
-      console.error('Failed to add tag to task:', error);
+      // console.error('Failed to add tag to task:', error);
     }
   };
 
@@ -1575,23 +1714,45 @@ export default function App() {
       // Refresh the task data to remove the tag
       await refreshBoardData();
     } catch (error) {
-      console.error('Failed to remove tag from task:', error);
+      // console.error('Failed to remove tag from task:', error);
     }
   };
 
   const handleTaskDragStart = (task: Task) => {
+    // console.log('🎯 [App] handleTaskDragStart called with task:', task.id);
     setDraggedTask(task);
     // Pause polling during drag to prevent state conflicts
   };
 
   // Clear drag state (for Gantt drag end)
   const handleTaskDragEnd = () => {
+    // console.log('🎯 [App] handleTaskDragEnd called - clearing draggedTask');
     setDraggedTask(null);
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
     }, DRAG_COOLDOWN_DURATION);
   };
+  
+  // Failsafe: Clear drag state on any click if drag is stuck
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      if (draggedTask) {
+        // Check if clicking on a board tab
+        const target = e.target as HTMLElement;
+        const isTabClick = target.closest('[class*="board-tab"]') || 
+                          target.closest('button')?.id?.startsWith('board-');
+        
+        if (isTabClick) {
+          // console.log('🚨 [App] Failsafe: Clearing stuck drag state on tab click');
+          setDraggedTask(null);
+        }
+      }
+    };
+    
+    document.addEventListener('click', handleGlobalClick, true);
+    return () => document.removeEventListener('click', handleGlobalClick, true);
+  }, [draggedTask]);
 
   // Set drag cooldown (for Gantt operations)
   const handleSetDragCooldown = (active: boolean, duration?: number) => {
@@ -1637,7 +1798,7 @@ export default function App() {
     document.documentElement.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
     
     dragStartedRef.current = true;
-    console.log('🎯 Mouse + square cursor set for task:', task.title);
+    // console.log('🎯 Mouse + square cursor set for task:', task.title);
   };
   
   // Clear custom cursor
@@ -1648,7 +1809,7 @@ export default function App() {
       document.documentElement.style.removeProperty('cursor');
       
       dragStartedRef.current = false;
-      console.log('🎯 Custom cursor cleared');
+      // console.log('🎯 Custom cursor cleared');
     }
   };
 
@@ -1681,13 +1842,13 @@ export default function App() {
     // Check if dropping on a board tab for cross-board move
     if (over.data?.current?.type === 'board') {
       const targetBoardId = over.data.current.boardId;
-      console.log('🎯 Board drop detected:', { targetBoardId, selectedBoard, overData: over.data.current });
+      // console.log('🎯 Board drop detected:', { targetBoardId, selectedBoard, overData: over.data.current });
       if (targetBoardId && targetBoardId !== selectedBoard) {
-        console.log('🚀 Cross-board move initiated:', active.id, '→', targetBoardId);
+        // console.log('🚀 Cross-board move initiated:', active.id, '→', targetBoardId);
         handleTaskDropOnBoard(active.id as string, targetBoardId);
         return;
       } else {
-        console.log('❌ Cross-board move blocked:', { targetBoardId, selectedBoard, same: targetBoardId === selectedBoard });
+        // console.log('❌ Cross-board move blocked:', { targetBoardId, selectedBoard, same: targetBoardId === selectedBoard });
       }
     }
 
@@ -1799,14 +1960,12 @@ export default function App() {
     }
   };
 
-    // Handle reordering within the same column - let backend handle positions
+    // Handle reordering within the same column - update positions and recalculate
   const handleSameColumnReorder = async (task: Task, columnId: string, newIndex: number) => {
     const columnTasks = [...(columns[columnId]?.tasks || [])]
       .sort((a, b) => (a.position || 0) - (b.position || 0));
     
     const currentIndex = columnTasks.findIndex(t => t.id === task.id);
-    
-
 
     // Check if reorder is actually needed
     if (currentIndex === newIndex) {
@@ -1815,32 +1974,39 @@ export default function App() {
 
     // Optimistic update - reorder in UI immediately
     const oldIndex = currentIndex;
-
     const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
+    
+    // Recalculate positions for all tasks in the group
+    const tasksWithUpdatedPositions = reorderedTasks.map((t, index) => ({
+      ...t,
+      position: index
+    }));
     
     setColumns(prev => ({
       ...prev,
       [columnId]: {
         ...prev[columnId],
-        tasks: reorderedTasks
+        tasks: tasksWithUpdatedPositions
       }
     }));
 
-    // Let backend handle all position calculations
+    // Send the updated task with new position to backend
     try {
-      // Send the target position (not array index) to backend
-      await reorderTasks(task.id, newIndex, columnId);
+      // Update the task with its new position
+      await updateTask({
+        ...task,
+        position: newIndex
+      });
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
-          }, DRAG_COOLDOWN_DURATION);
-      
-      // Refresh to get clean state from backend
-      await refreshBoardData();
+        // Note: We don't refresh immediately to preserve the optimistic update
+        // The next poll will sync the state if needed
+      }, DRAG_COOLDOWN_DURATION);
     } catch (error) {
-      console.error('❌ Failed to reorder tasks:', error);
+      // console.error('❌ Failed to reorder tasks:', error);
       await refreshBoardData();
     }
   };
@@ -1865,7 +2031,7 @@ export default function App() {
 
     const targetColumn = columns[targetColumnId];
     if (!targetColumn) {
-      console.error('Target column not found:', targetColumnId);
+      // console.error('Target column not found:', targetColumnId);
       return;
     }
 
@@ -1959,24 +2125,30 @@ export default function App() {
       }
         
         
-      // Refresh to ensure consistency
-      await refreshBoardData();
+      // Add cooldown to prevent polling interference
+      setDragCooldown(true);
+      setTimeout(() => {
+        setDragCooldown(false);
+        // Note: We don't refresh immediately to preserve the optimistic update
+        // The next poll will sync the state if needed
+      }, DRAG_COOLDOWN_DURATION);
     } catch (error) {
-      console.error('Failed to update cross-column move:', error);
+      // console.error('Failed to update cross-column move:', error);
+      // On error, we do want to refresh to get the correct state
       await refreshBoardData();
     }
   };
 
-  const handleEditColumn = async (columnId: string, title: string) => {
+  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean) => {
     try {
-      await updateColumn(columnId, title);
+      await updateColumn(columnId, title, is_finished);
       setColumns(prev => ({
         ...prev,
-        [columnId]: { ...prev[columnId], title }
+        [columnId]: { ...prev[columnId], title, is_finished }
       }));
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to update column:', error);
+      // console.error('Failed to update column:', error);
     }
   };
 
@@ -1988,23 +2160,23 @@ export default function App() {
   // Show column delete confirmation (or delete immediately if no tasks)
   const handleRemoveColumn = async (columnId: string) => {
     const taskCount = getColumnTaskCount(columnId);
-    console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
+    // console.log(`🗑️ Delete column ${columnId}, task count: ${taskCount}`);
     
     if (taskCount === 0) {
       // No tasks - delete immediately without confirmation
-      console.log(`🗑️ Deleting empty column immediately`);
+      // console.log(`🗑️ Deleting empty column immediately`);
       await handleConfirmColumnDelete(columnId);
     } else {
       // Has tasks - show confirmation dialog
-      console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
-      console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
+      // console.log(`🗑️ Showing confirmation dialog for column with ${taskCount} tasks`);
+      // console.log(`🗑️ Setting showColumnDeleteConfirm to: ${columnId}`);
       setShowColumnDeleteConfirm(columnId);
     }
   };
 
   // Confirm column deletion
   const handleConfirmColumnDelete = async (columnId: string) => {
-    console.log(`✅ Confirming deletion of column ${columnId}`);
+    // console.log(`✅ Confirming deletion of column ${columnId}`);
     try {
       await deleteColumn(columnId);
       const { [columnId]: removed, ...remainingColumns } = columns;
@@ -2012,30 +2184,30 @@ export default function App() {
       setShowColumnDeleteConfirm(null);
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to delete column:', error);
+      // console.error('Failed to delete column:', error);
     }
   };
 
   // Cancel column deletion
   const handleCancelColumnDelete = () => {
-    console.log(`❌ Cancelling column deletion`);
+    // console.log(`❌ Cancelling column deletion`);
     setShowColumnDeleteConfirm(null);
   };
 
   // Handle cross-board task drop
   const handleTaskDropOnBoard = async (taskId: string, targetBoardId: string) => {
     try {
-      console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
+      // console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
       await moveTaskToBoard(taskId, targetBoardId);
       
       // Refresh both boards to reflect the change
       await refreshBoardData();
       
       // Show success message
-      console.log(`✅ Task moved successfully to ${targetBoardId}`);
+      // console.log(`✅ Task moved successfully to ${targetBoardId}`);
       
     } catch (error) {
-      console.error('Failed to move task to board:', error);
+      // console.error('Failed to move task to board:', error);
       // You could add a toast notification here
     }
   };
@@ -2090,7 +2262,7 @@ export default function App() {
       await refreshBoardData(); // Refresh to ensure consistent state
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to create column:', error);
+      // console.error('Failed to create column:', error);
     }
   };
 
@@ -2138,7 +2310,7 @@ export default function App() {
       await reorderColumns(active.id as string, newIndex, selectedBoard);
       await fetchQueryLogs();
     } catch (error) {
-      console.error('Failed to reorder columns:', error);
+      // console.error('Failed to reorder columns:', error);
       // Revert on error
       await refreshBoardData();
     }
@@ -2206,7 +2378,7 @@ export default function App() {
       };
       setSearchFilters(searchFilters);
     } catch (error) {
-      console.error('Failed to load saved filter view:', error);
+      // console.error('Failed to load saved filter view:', error);
       // Clear the invalid preference
       updateCurrentUserPreference('currentFilterViewId', null);
     }
@@ -2317,7 +2489,7 @@ export default function App() {
   };
 
   const handleToggleSystem = async (include: boolean) => {
-    console.log(`🔄 Toggling system user: ${include}`);
+    // console.log(`🔄 Toggling system user: ${include}`);
     setIncludeSystem(include);
     updateCurrentUserPreference('includeSystem', include);
     
@@ -2327,7 +2499,7 @@ export default function App() {
       setSelectedMembers(prev => {
         if (!prev.includes(SYSTEM_MEMBER_ID)) {
           const newSelection = [...prev, SYSTEM_MEMBER_ID];
-          console.log(`✅ Auto-selecting SYSTEM user`);
+          // console.log(`✅ Auto-selecting SYSTEM user`);
           updateCurrentUserPreference('selectedMembers', newSelection);
           return newSelection;
         }
@@ -2337,7 +2509,7 @@ export default function App() {
       // Checkbox OFF: Auto-deselect SYSTEM user
       setSelectedMembers(prev => {
         const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
-        console.log(`❌ Auto-deselecting SYSTEM user`);
+        // console.log(`❌ Auto-deselecting SYSTEM user`);
         updateCurrentUserPreference('selectedMembers', newSelection);
         return newSelection;
       });
@@ -2397,7 +2569,7 @@ export default function App() {
                 includeTask = true;
               }
         } catch (error) {
-              console.error('Error checking task watchers:', error);
+              // console.error('Error checking task watchers:', error);
             }
           }
           
@@ -2409,7 +2581,7 @@ export default function App() {
                 includeTask = true;
               }
             } catch (error) {
-              console.error('Error checking task collaborators:', error);
+              // console.error('Error checking task collaborators:', error);
             }
           }
           
@@ -2437,6 +2609,7 @@ export default function App() {
 
 
 
+      
       const filteredColumns: any = {};
       
       for (const [columnId, column] of Object.entries(columns)) {
@@ -2455,7 +2628,8 @@ export default function App() {
         }
         
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
-        if (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
+        // Only run member filtering if we have selected members AND at least one filter type is enabled
+        if (selectedMembers.length > 0 && (includeAssignees || includeWatchers || includeCollaborators || includeRequesters)) {
           columnTasks = await customFilterTasks(columnTasks);
         }
         
@@ -2638,6 +2812,8 @@ export default function App() {
           onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
           onInviteUser={handleInviteUser}
+          isAutoRefreshEnabled={isAutoRefreshEnabled}
+          onToggleAutoRefresh={handleToggleAutoRefresh}
         />
       </>
     );
@@ -2679,7 +2855,7 @@ export default function App() {
             await fetchQueryLogs();
             await refreshBoardData();
           } catch (error) {
-            console.error('Failed to reorder column:', error);
+            // console.error('Failed to reorder column:', error);
             await refreshBoardData();
           }
         }}
@@ -2699,6 +2875,8 @@ export default function App() {
         onLogout={handleLogout}
         onPageChange={handlePageChange}
         onRefresh={handleRefreshData}
+        isAutoRefreshEnabled={isAutoRefreshEnabled}
+        onToggleAutoRefresh={handleToggleAutoRefresh}
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
       />
@@ -2714,7 +2892,7 @@ export default function App() {
                   const loadedMembers = await getMembers(includeSystem);
                   setMembers(loadedMembers);
                 } catch (error) {
-                  console.error('❌ Failed to refresh members:', error);
+                  // console.error('❌ Failed to refresh members:', error);
                 }
               }}
               onSettingsChanged={refreshSiteSettings}
@@ -2842,6 +3020,9 @@ export default function App() {
                                     onLinkToolHover={handleLinkToolHover}
                                     onLinkToolHoverEnd={handleLinkToolHoverEnd}
                                     getTaskRelationshipType={getTaskRelationshipType}
+                                    
+                                    // Auto-synced relationships
+                                    boardRelationships={boardRelationships}
       />
 
       <ModalManager

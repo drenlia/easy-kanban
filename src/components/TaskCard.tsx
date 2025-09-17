@@ -54,9 +54,10 @@ interface TaskCardProps {
   availablePriorities?: PriorityOption[];
   selectedTask?: Task | null;
   availableTags?: Tag[];
+  siteSettings?: { [key: string]: string };
+  columnIsFinished?: boolean;
   onTagAdd?: (tagId: string) => void;
   onTagRemove?: (tagId: string) => void;
-  siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
   
   // Task linking props
@@ -93,6 +94,7 @@ export default function TaskCard({
   onTagAdd,
   onTagRemove,
   siteSettings,
+  columnIsFinished = false,
   boards,
   
   // Task linking props
@@ -262,11 +264,25 @@ export default function TaskCard({
     return formatToYYYYMMDDHHmmss(dateStr);
   };
 
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
+
   // Check if task is overdue (due date is before today)
+  // Tasks in finished columns are never considered overdue
   const isOverdue = () => {
+    if (columnIsFinished) return false; // Never overdue if in finished column
     if (!task.dueDate) return false;
     const today = new Date();
-    const dueDate = new Date(task.dueDate);
+    const dueDate = parseLocalDate(task.dueDate);
     // Set time to beginning of day for fair comparison
     today.setHours(0, 0, 0, 0);
     dueDate.setHours(0, 0, 0, 0);
@@ -794,7 +810,7 @@ export default function TaskCard({
   const getCardBackgroundColor = () => {
     if (isSelected) return 'bg-gray-100';
     if (member.id === SYSTEM_MEMBER_ID) return 'bg-yellow-50';
-    if (isOverdue()) return 'bg-red-50';
+    // Overdue highlighting is now handled by the LATE banner overlay
     return 'bg-white';
   };
 
@@ -806,7 +822,7 @@ export default function TaskCard({
         className={`task-card sortable-item ${
           isSelected ? 'bg-gray-100' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
-          isOverdue() ? 'bg-red-50' : 'bg-white'
+          'bg-white'
         } p-4 rounded-lg shadow-sm cursor-default relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         } ${
@@ -848,7 +864,7 @@ export default function TaskCard({
         } : undefined}
       >
         {/* Task Identifier Overlay - Top Right Corner */}
-        {task.ticket && siteSettings?.USE_PREFIXES === 'true' && (
+        {task.ticket && (
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
               href={generateTaskUrl(task.ticket, getProjectIdentifier())}
@@ -1251,6 +1267,52 @@ export default function TaskCard({
             >
               {task.priority}
             </button>
+            
+            {/* Completed Column Banner Overlay - positioned over priority */}
+            {columnIsFinished && (
+              <div className="absolute inset-0 pointer-events-none z-30">
+                {/* Diagonal banner background */}
+                <div className="absolute top-0 right-0 w-full h-full">
+                  <div 
+                    className="absolute top-0 right-0 w-0 h-0"
+                    style={{
+                      borderLeft: '60px solid transparent',
+                      borderBottom: '100% solid rgba(34, 197, 94, 0.2)',
+                      transform: 'translateX(0)'
+                    }}
+                  />
+                </div>
+                {/* "DONE" stamp */}
+                <div className="absolute top-0.5 right-0.5">
+                  <div className="bg-green-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+                    DONE
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Overdue Task Banner Overlay - positioned over priority */}
+            {!columnIsFinished && isOverdue() && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+              <div className="absolute inset-0 pointer-events-none z-30">
+                {/* Diagonal banner background */}
+                <div className="absolute top-0 right-0 w-full h-full">
+                  <div 
+                    className="absolute top-0 right-0 w-0 h-0"
+                    style={{
+                      borderLeft: '60px solid transparent',
+                      borderBottom: '100% solid rgba(239, 68, 68, 0.2)',
+                      transform: 'translateX(0)'
+                    }}
+                  />
+                </div>
+                {/* "LATE" stamp */}
+                <div className="absolute top-0.5 right-0.5">
+                  <div className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+                    LATE
+                  </div>
+                </div>
+              </div>
+            )}
 
             {showPrioritySelect && (
               <div 

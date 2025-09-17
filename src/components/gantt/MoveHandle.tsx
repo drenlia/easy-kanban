@@ -22,12 +22,16 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
     return '';
   };
 
+  const startStr = dateToString(task.startDate);
+  const endStr = dateToString(task.dueDate);
+  
+  
   const dragData: GanttDragItem = {
     id: `${taskId}-move`,
     taskId,
     taskTitle: task.title,
-    originalStartDate: dateToString(task.startDate),
-    originalEndDate: dateToString(task.dueDate), // Note: Task uses dueDate, not endDate
+    originalStartDate: startStr,
+    originalEndDate: endStr, // Note: Task uses dueDate, not endDate
     dragType: DRAG_TYPES.TASK_MOVE_HANDLE
   };
 

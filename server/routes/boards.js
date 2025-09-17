@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   try {
     const { db } = req.app.locals;
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
-    const columnsStmt = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
+    const columnsStmt = wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
         // Updated query to include tags, watchers, and collaborators
     const tasksStmt = wrapQuery(
@@ -124,7 +124,7 @@ router.get('/:boardId/columns', (req, res) => {
     
     // Get columns for this board
     const columns = wrapQuery(
-      db.prepare('SELECT id, title, boardId, position FROM columns WHERE boardId = ? ORDER BY position ASC'), 
+      db.prepare('SELECT id, title, boardId, position, is_finished FROM columns WHERE boardId = ? ORDER BY position ASC'), 
       'SELECT'
     ).all(boardId);
     
@@ -258,6 +258,34 @@ router.post('/reorder', (req, res) => {
   } catch (error) {
     console.error('Error reordering board:', error);
     res.status(500).json({ error: 'Failed to reorder board' });
+  }
+});
+
+// Get all task relationships for a board
+router.get('/:boardId/relationships', (req, res) => {
+  const { boardId } = req.params;
+  try {
+    const { db } = req.app.locals;
+    
+    // Get all relationships for tasks in this board
+    const relationships = wrapQuery(db.prepare(`
+      SELECT 
+        tr.id,
+        tr.task_id,
+        tr.relationship,
+        tr.to_task_id,
+        tr.created_at
+      FROM task_rels tr
+      JOIN tasks t1 ON tr.task_id = t1.id
+      JOIN tasks t2 ON tr.to_task_id = t2.id
+      WHERE t1.boardId = ? AND t2.boardId = ?
+      ORDER BY tr.created_at DESC
+    `), 'SELECT').all(boardId, boardId);
+    
+    res.json(relationships);
+  } catch (error) {
+    console.error('Error fetching board relationships:', error);
+    res.status(500).json({ error: 'Failed to fetch board relationships' });
   }
 });
 

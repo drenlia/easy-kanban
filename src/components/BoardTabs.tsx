@@ -578,12 +578,11 @@ export default function BoardTabs({
   // Get the current board's project identifier
   const currentBoard = boards.find(board => board.id === selectedBoard);
   const currentProject = currentBoard?.project;
-  const showPrefixes = siteSettings?.USE_PREFIXES === 'true';
 
   return (
     <div className="mb-6">
       {/* Project Identifier - discrete display above tabs */}
-      {currentProject && showPrefixes && (
+      {currentProject && (
         <div className="mb-2 flex justify-center">
           <a 
             href={`/project/#${currentProject}`}

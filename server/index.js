@@ -95,6 +95,9 @@ app.post('/api/auth/login', async (req, res) => {
     
     const userRoles = roles.map(r => r.name);
     
+    // Clear force_logout flag on successful login
+    db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
+    
     // Generate JWT token
     const token = jwt.sign(
       { 
@@ -832,6 +835,16 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
       if (roleId) {
         wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
       }
+
+      // Force logout the affected user by invalidating their session
+      // We'll do this by setting a flag in the database that the frontend can check
+      wrapQuery(db.prepare(`
+        UPDATE users 
+        SET force_logout = 1, updated_at = datetime('now')
+        WHERE id = ?
+      `), 'UPDATE').run(userId);
+
+      console.log(`🔄 User ${userId} role changed to ${role} - forcing logout`);
     }
 
     res.json({ message: 'User role updated successfully' });
@@ -1360,7 +1373,7 @@ app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requ
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -1630,7 +1643,7 @@ app.get('/api/user/status', authenticateToken, (req, res) => {
   try {
     // Get current user status and permissions
     const user = wrapQuery(db.prepare(`
-      SELECT u.is_active, r.name as role 
+      SELECT u.is_active, u.force_logout, r.name as role 
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
@@ -1644,7 +1657,7 @@ app.get('/api/user/status', authenticateToken, (req, res) => {
     res.json({
       isActive: Boolean(user.is_active),
       isAdmin: user.role === 'admin',
-      forceLogout: !user.is_active // Force logout if user is deactivated
+      forceLogout: !user.is_active || Boolean(user.force_logout) // Force logout if user is deactivated or role changed
     });
   } catch (error) {
     console.error('Error fetching user status:', error);

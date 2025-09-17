@@ -91,7 +91,7 @@ interface MainLayoutProps {
   onTagAdd: (taskId: string) => (tagId: string) => Promise<void>;
   onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
-  onEditColumn: (columnId: string, title: string) => Promise<void>;
+  onEditColumn: (columnId: string, title: string, is_finished?: boolean) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   onTaskDragStart: (task: Task) => void;

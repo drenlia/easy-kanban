@@ -1,5 +1,27 @@
 import { Priority } from '../types';
 import { updateUserSetting, getUserSettings } from '../api';
+import api from '../api';
+
+// Global state to track preference saving operations
+let globalSavingCallbacks: Set<() => void> = new Set();
+let isSavingGlobally = false;
+
+// Register a callback to be notified when saving state changes
+export const registerSavingStateCallback = (callback: () => void) => {
+  globalSavingCallbacks.add(callback);
+  return () => globalSavingCallbacks.delete(callback);
+};
+
+// Set global saving state and notify all callbacks
+const setGlobalSavingState = (saving: boolean) => {
+  if (isSavingGlobally !== saving) {
+    isSavingGlobally = saving;
+    globalSavingCallbacks.forEach(callback => callback());
+  }
+};
+
+// Get current global saving state
+export const isGloballySavingPreferences = () => isSavingGlobally;
 
 export type TaskViewMode = 'compact' | 'shrink' | 'expand';
 export type ViewMode = 'kanban' | 'list' | 'gantt';
@@ -42,6 +64,7 @@ export interface UserPreferences {
   appSettings: {
     taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
     showActivityFeed?: boolean; // User override for system SHOW_ACTIVITY_FEED setting
+    autoRefreshEnabled?: boolean; // User preference for auto-refresh toggle
   };
   notifications: {
     newTaskAssigned: boolean; // Notify when a new task is assigned to me
@@ -129,6 +152,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   appSettings: {
     // taskDeleteConfirm: undefined - let it inherit from system setting by default
     // showActivityFeed: undefined - let it inherit from system setting by default
+    autoRefreshEnabled: true, // Default to auto-refresh enabled
   },
   notifications: {
     newTaskAssigned: true,
@@ -165,9 +189,9 @@ let ADMIN_DEFAULT_PREFERENCES: Partial<UserPreferences> | null = null;
 // Function to load admin defaults from system settings
 export const loadAdminDefaults = async (): Promise<void> => {
   try {
-    // This would call your existing settings API to get admin-configured defaults
-    const response = await fetch('/api/settings');
-    const settings = await response.json();
+    // Use the api instance to get admin-configured defaults with proper authentication
+    const response = await api.get('/admin/settings');
+    const settings = response.data;
     
     // Parse admin defaults from settings (if they exist)
     ADMIN_DEFAULT_PREFERENCES = {};
@@ -272,6 +296,9 @@ export const initializeNewUserPreferences = async (userId: string): Promise<void
 
 // Save preferences to cookie and database
 export const saveUserPreferences = async (preferences: UserPreferences, userId: string | null = null): Promise<void> => {
+  // Set global saving state to block user status polling
+  setGlobalSavingState(true);
+  
   try {
     // Save to cookie (existing behavior)
     const cookieName = getUserCookieName(userId);
@@ -302,6 +329,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           // App Settings (only save if explicitly set)
           saveIfDefined('taskDeleteConfirm', preferences.appSettings.taskDeleteConfirm),
           saveIfDefined('showActivityFeed', preferences.appSettings.showActivityFeed),
+          saveIfDefined('autoRefreshEnabled', preferences.appSettings.autoRefreshEnabled),
           
           // Activity Feed Settings
           saveIfDefined('activityFeedMinimized', preferences.activityFeed.isMinimized),
@@ -336,6 +364,9 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
     }
   } catch (error) {
     console.error('Failed to save user preferences:', error);
+  } finally {
+    // Clear global saving state after save completes (success or failure)
+    setGlobalSavingState(false);
   }
 };
 
@@ -473,7 +504,8 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         appSettings: {
           ...preferences.appSettings,
           taskDeleteConfirm: smartMerge(preferences.appSettings.taskDeleteConfirm, dbSettings.taskDeleteConfirm, defaults.appSettings.taskDeleteConfirm),
-          showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed)
+          showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed),
+          autoRefreshEnabled: smartMerge(preferences.appSettings.autoRefreshEnabled, dbSettings.autoRefreshEnabled, defaults.appSettings.autoRefreshEnabled)
         },
         
         // Activity Feed Settings
