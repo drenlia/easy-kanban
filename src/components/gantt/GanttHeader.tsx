@@ -138,7 +138,12 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
             {/* Earlier Button */}
             <button
               onClick={scrollEarlier}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+              disabled={isLoading}
+              className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                isLoading 
+                  ? 'text-gray-400 bg-gray-100 border border-gray-200 cursor-not-allowed' 
+                  : 'text-gray-700 bg-white hover:bg-gray-50 border border-gray-300'
+              }`}
               title="Scroll to earlier dates"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,7 +155,12 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
             {/* Today Button */}
             <button
               onClick={scrollToToday}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+              disabled={isLoading}
+              className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                isLoading 
+                  ? 'text-gray-400 bg-gray-300 cursor-not-allowed' 
+                  : 'text-white bg-blue-500 hover:bg-blue-600'
+              }`}
               title="Scroll to today"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -162,7 +172,12 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
             {/* Later Button */}
             <button
               onClick={scrollLater}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+              disabled={isLoading}
+              className={`flex items-center gap-1 px-3 py-2 text-sm font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                isLoading 
+                  ? 'text-gray-400 bg-gray-100 border border-gray-200 cursor-not-allowed' 
+                  : 'text-gray-700 bg-white hover:bg-gray-50 border border-gray-300'
+              }`}
               title="Scroll to later dates"
             >
               Later

@@ -162,66 +162,84 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   };
 
   // Calculate arrows based on relationships using actual task positions from DOM
+  // Smart update: only recalculate arrows for tasks that have actually moved
   useEffect(() => {
     
     if (!localRelationships || !ganttTasks || taskPositions.size === 0) {
       return;
     }
     
-    const newArrows: DependencyArrow[] = [];
-    const processedPairs = new Set<string>(); // Prevent duplicate arrows
+    setArrows(prevArrows => {
+      const newArrows: DependencyArrow[] = [];
+      const processedPairs = new Set<string>(); // Prevent duplicate arrows
+      const arrowsById = new Map(prevArrows.map(a => [a.id, a]));
 
-    localRelationships.forEach((rel) => {
-      const fromTask = ganttTasks.find(t => t.id === rel.task_id);
-      const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
+      localRelationships.forEach((rel) => {
+        const fromTask = ganttTasks.find(t => t.id === rel.task_id);
+        const toTask = ganttTasks.find(t => t.id === rel.to_task_id);
 
-      if (!fromTask || !toTask) {
-        return;
-      }
-
-      // Only show parent->child arrows (finish-to-start dependencies)
-      if (rel.relationship === 'parent') {
-        // Create unique pair identifier to prevent duplicates
-        const pairKey = `${rel.task_id}-${rel.to_task_id}`;
-        if (processedPairs.has(pairKey)) {
-          return;
-        }
-        processedPairs.add(pairKey);
-
-        // Use actual task positions from DOM (same as task bars use)
-        const fromPos = taskPositions.get(fromTask.id);
-        const toPos = taskPositions.get(toTask.id);
-
-        if (!fromPos || !toPos) {
+        if (!fromTask || !toTask) {
           return;
         }
 
-        // Just check that positions exist - no viewport filtering for now
+        // Only show parent->child arrows (finish-to-start dependencies)
+        if (rel.relationship === 'parent') {
+          // Create unique pair identifier to prevent duplicates
+          const pairKey = `${rel.task_id}-${rel.to_task_id}`;
+          if (processedPairs.has(pairKey)) {
+            return;
+          }
+          processedPairs.add(pairKey);
 
-        // Add taskId to positions for TypeScript compatibility
-        const fromPosWithId = { ...fromPos, taskId: fromTask.id };
-        const toPosWithId = { ...toPos, taskId: toTask.id };
+          // Use actual task positions from DOM (same as task bars use)
+          const fromPos = taskPositions.get(fromTask.id);
+          const toPos = taskPositions.get(toTask.id);
 
-        const path = generateArrowPath(fromPosWithId, toPosWithId);
-        const color = '#3B82F6'; // Blue for parent relationships
+          if (!fromPos || !toPos) {
+            return;
+          }
 
-        const arrow = {
-          id: `${rel.id}-${pairKey}`,
-          relationshipId: rel.id,
-          fromTaskId: rel.task_id,
-          toTaskId: rel.to_task_id,
-          relationship: rel.relationship as any,
-          fromPosition: fromPosWithId,
-          toPosition: toPosWithId,
-          path,
-          color
-        };
+          const arrowId = `${rel.id}-${pairKey}`;
+          const existingArrow = arrowsById.get(arrowId);
+          
+          // Add taskId to positions for TypeScript compatibility
+          const fromPosWithId = { ...fromPos, taskId: fromTask.id };
+          const toPosWithId = { ...toPos, taskId: toTask.id };
 
-        newArrows.push(arrow);
-      }
+          // Only recalculate path if positions have actually changed
+          const positionsChanged = !existingArrow || 
+            existingArrow.fromPosition.x !== fromPosWithId.x ||
+            existingArrow.fromPosition.y !== fromPosWithId.y ||
+            existingArrow.fromPosition.width !== fromPosWithId.width ||
+            existingArrow.toPosition.x !== toPosWithId.x ||
+            existingArrow.toPosition.y !== toPosWithId.y;
+
+          if (positionsChanged) {
+            const path = generateArrowPath(fromPosWithId, toPosWithId);
+            const color = '#3B82F6'; // Blue for parent relationships
+
+            const arrow = {
+              id: arrowId,
+              relationshipId: rel.id,
+              fromTaskId: rel.task_id,
+              toTaskId: rel.to_task_id,
+              relationship: rel.relationship as any,
+              fromPosition: fromPosWithId,
+              toPosition: toPosWithId,
+              path,
+              color
+            };
+
+            newArrows.push(arrow);
+          } else {
+            // Reuse existing arrow if positions haven't changed
+            newArrows.push(existingArrow);
+          }
+        }
+      });
+
+      return newArrows;
     });
-
-    setArrows(newArrows);
   }, [localRelationships, ganttTasks, taskPositions, positionKey]);
 
   // Arrow marker definition

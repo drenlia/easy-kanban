@@ -125,7 +125,22 @@ export const createTask = async (task: Task) => {
 };
 
 export const updateTask = async (task: Task) => {
+  // console.log('📡 [API] updateTask called with:', {
+  //   taskId: task.id,
+  //   title: task.title,
+  //   startDate: task.startDate,
+  //   dueDate: task.dueDate,
+  //   isSingleDay: task.startDate === task.dueDate
+  // });
+  
   const { data } = await api.put<Task>(`/tasks/${task.id}`, task);
+  
+  // console.log('📡 [API] updateTask response:', {
+  //   taskId: data.id,
+  //   startDate: data.startDate,
+  //   dueDate: data.dueDate
+  // });
+  
   return data;
 };
 
