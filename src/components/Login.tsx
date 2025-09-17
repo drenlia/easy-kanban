@@ -34,8 +34,16 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
     }
   };
 
-  // Fetch demo credentials
+  // Check if demo mode is enabled
+  const isDemoMode = process.env.DEMO_ENABLED === 'true';
+
+  // Fetch demo credentials only if demo mode is enabled
   useEffect(() => {
+    if (!isDemoMode) {
+      setDemoCredentials(null);
+      return;
+    }
+
     const fetchDemoCredentials = async () => {
       try {
         const response = await fetch('/api/auth/demo-credentials');
@@ -54,7 +62,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
     };
 
     fetchDemoCredentials();
-  }, []);
+  }, [isDemoMode]);
 
   // Check for OAuth errors in URL parameters
   useEffect(() => {
@@ -283,7 +291,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
             </div>
           )}
 
-          {(hasDefaultAdmin || hasDemoUser) && demoCredentials && (
+          {isDemoMode && (hasDefaultAdmin || hasDemoUser) && demoCredentials && (
             <div className="text-center text-sm text-gray-600">
               <p className="font-semibold mb-2">Demo Credentials:</p>
               <div className="space-y-2">

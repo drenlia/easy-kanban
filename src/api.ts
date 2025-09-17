@@ -82,8 +82,8 @@ export const createColumn = async (column: Column) => {
   return data;
 };
 
-export const updateColumn = async (id: string, title: string) => {
-  const { data } = await api.put<Column>(`/columns/${id}`, { title });
+export const updateColumn = async (id: string, title: string, is_finished?: boolean) => {
+  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished });
   return data;
 };
 
@@ -125,7 +125,22 @@ export const createTask = async (task: Task) => {
 };
 
 export const updateTask = async (task: Task) => {
+  // console.log('📡 [API] updateTask called with:', {
+  //   taskId: task.id,
+  //   title: task.title,
+  //   startDate: task.startDate,
+  //   dueDate: task.dueDate,
+  //   isSingleDay: task.startDate === task.dueDate
+  // });
+  
   const { data } = await api.put<Task>(`/tasks/${task.id}`, task);
+  
+  // console.log('📡 [API] updateTask response:', {
+  //   taskId: data.id,
+  //   startDate: data.startDate,
+  //   dueDate: data.dueDate
+  // });
+  
   return data;
 };
 
@@ -181,11 +196,11 @@ export const getCurrentUser = async () => {
   return data;
 };
 
-// Debug
-export const getQueryLogs = async () => {
-  const { data } = await api.get('/debug/logs');
-  return data;
-};
+// Debug - DISABLED
+// export const getQueryLogs = async () => {
+//   const { data } = await api.get('/debug/logs');
+//   return data;
+// };
 
 // Add a new function to handle file uploads
 export const uploadFile = async (file: File) => {
@@ -578,6 +593,11 @@ export const addTaskRelationship = async (taskId: string, relationship: 'parent'
 
 export const removeTaskRelationship = async (taskId: string, relationshipId: string) => {
   const response = await api.delete(`/tasks/${taskId}/relationships/${relationshipId}`);
+  return response.data;
+};
+
+export const getBoardTaskRelationships = async (boardId: string) => {
+  const response = await api.get(`/boards/${boardId}/relationships`);
   return response.data;
 };
 

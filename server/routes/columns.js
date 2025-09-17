@@ -19,6 +19,26 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'A column with this name already exists in this board' });
     }
     
+    // Get finished column names from settings
+    const finishedColumnNamesSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'), 
+      'SELECT'
+    ).get('DEFAULT_FINISHED_COLUMN_NAMES');
+    
+    let finishedColumnNames = ['Done', 'Completed', 'Finished']; // Default values
+    if (finishedColumnNamesSetting?.value) {
+      try {
+        finishedColumnNames = JSON.parse(finishedColumnNamesSetting.value);
+      } catch (error) {
+        console.error('Error parsing finished column names:', error);
+      }
+    }
+    
+    // Check if this column should be marked as finished
+    const isFinished = finishedColumnNames.some(finishedName => 
+      finishedName.toLowerCase() === title.toLowerCase()
+    );
+    
     let finalPosition;
     if (position !== undefined) {
       // Use provided position (for inserting between columns)
@@ -29,8 +49,8 @@ router.post('/', (req, res) => {
       finalPosition = maxPos + 1;
     }
     
-    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition);
-    res.json({ id, title, boardId, position: finalPosition });
+    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished) VALUES (?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0);
+    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished });
   } catch (error) {
     console.error('Error creating column:', error);
     res.status(500).json({ error: 'Failed to create column' });
@@ -40,7 +60,7 @@ router.post('/', (req, res) => {
 // Update column
 router.put('/:id', (req, res) => {
   const { id } = req.params;
-  const { title } = req.body;
+  const { title, is_finished } = req.body;
   try {
     const { db } = req.app.locals;
     
@@ -60,8 +80,31 @@ router.put('/:id', (req, res) => {
       return res.status(400).json({ error: 'A column with this name already exists in this board' });
     }
     
-    wrapQuery(db.prepare('UPDATE columns SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
-    res.json({ id, title });
+    // Get finished column names from settings
+    const finishedColumnNamesSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'), 
+      'SELECT'
+    ).get('DEFAULT_FINISHED_COLUMN_NAMES');
+    
+    let finishedColumnNames = ['Done', 'Completed', 'Finished']; // Default values
+    if (finishedColumnNamesSetting?.value) {
+      try {
+        finishedColumnNames = JSON.parse(finishedColumnNamesSetting.value);
+      } catch (error) {
+        console.error('Error parsing finished column names:', error);
+      }
+    }
+    
+    // Check if this column should be marked as finished
+    const isFinished = finishedColumnNames.some(finishedName => 
+      finishedName.toLowerCase() === title.toLowerCase()
+    );
+    
+    // If is_finished is provided, use it; otherwise, auto-detect based on title
+    const finalIsFinished = is_finished !== undefined ? is_finished : isFinished;
+    
+    wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinished ? 1 : 0, id);
+    res.json({ id, title, is_finished: finalIsFinished });
   } catch (error) {
     console.error('Error updating column:', error);
     res.status(500).json({ error: 'Failed to update column' });

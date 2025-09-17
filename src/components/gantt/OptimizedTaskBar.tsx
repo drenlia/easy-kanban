@@ -79,8 +79,8 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
     return {
       startIndex: startIdx,
       endIndex: endIdx,
-      offsetLeft: `${startIdx * 20}px`,
-      offsetWidth: `${Math.max(20, (endIdx - startIdx + 1) * 20)}px`
+      offsetLeft: `${startIdx * 40}px`,
+      offsetWidth: `${Math.max(1, (endIdx - startIdx + 1) * 40)}px` // Allow 1-day tasks (minimum 1px width)
     };
   }, [gridPosition, isDragging, currentHoverDate, activeDragItem, task.startDate]);
 
@@ -159,7 +159,8 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
             onClick={handleClick}
             title={`${task.ticket}: ${task.title} (${formatDate(task.startDate!)} - ${formatDate(task.endDate!)})`}
           >
-            {taskViewMode === 'compact' ? task.ticket : `${task.ticket}: ${task.title}`}
+            {/* Always show full title on task bars, regardless of left column view mode */}
+            {`${task.ticket}: ${task.title}`}
           </div>
           
           {/* End resize handle */}

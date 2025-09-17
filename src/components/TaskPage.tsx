@@ -22,6 +22,9 @@ interface TaskPageProps {
   onPageChange: (page: 'kanban' | 'admin') => void;
   onRefresh: () => Promise<void>;
   onInviteUser?: (email: string) => Promise<void>;
+  // Auto-refresh toggle
+  isAutoRefreshEnabled: boolean;
+  onToggleAutoRefresh: () => void;
 }
 
 export default function TaskPage({ 
@@ -33,7 +36,9 @@ export default function TaskPage({
   onLogout, 
   onPageChange, 
   onRefresh, 
-  onInviteUser 
+  onInviteUser,
+  isAutoRefreshEnabled,
+  onToggleAutoRefresh
 }: TaskPageProps) {
   console.log('🚀 TaskPage component mounting!');
   console.log('🚀 TaskPage currentUser:', currentUser?.id);
@@ -832,6 +837,8 @@ export default function TaskPage({
         onRefresh={onRefresh}
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={onInviteUser}
+        isAutoRefreshEnabled={isAutoRefreshEnabled}
+        onToggleAutoRefresh={onToggleAutoRefresh}
       />
       
       {/* Task Navigation Bar - Sticky */}

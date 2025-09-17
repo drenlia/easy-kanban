@@ -14,6 +14,9 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars
 
+# Ensure all dependencies are properly installed (including any missing ones)
+RUN npm install --production=false
+
 
 # Expose both ports
 EXPOSE 3010 3222

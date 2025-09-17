@@ -1191,7 +1191,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   return (
     <div 
-      className="fixed right-0 bg-white border-l border-gray-200 flex z-30" 
+      className="fixed right-0 bg-white border-l border-gray-200 flex z-50" 
       style={{ 
         width: `${width}px`,
         top: '65px', // Position below header (adjusted for proper clearance)
@@ -1239,8 +1239,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         {/* Sticky Header */}
         <div className="bg-white border-b border-gray-200 p-3 sticky top-0 z-10 shadow-sm">
           <div className="flex justify-between items-center mb-2">
-            {/* Title - 60% width when prefixes enabled, 100% when disabled */}
-            <div className={siteSettings?.USE_PREFIXES === 'true' ? "w-3/5" : "w-full"}>
+            {/* Title - 60% width when project/task info is shown, 100% when not */}
+            <div className="w-3/5">
               <input
                 type="text"
                 value={editedTask.title}
@@ -1250,35 +1250,34 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               />
             </div>
             
-            {/* Project and Task Links - Right side (only when prefixes enabled) */}
-            {siteSettings?.USE_PREFIXES === 'true' ? (
-              <div className="flex items-center gap-4">
-                {/* Project and Task Identifiers */}
-                {(getProjectIdentifier() || task.ticket) && (
-                  <div className="flex items-center gap-2 font-mono text-sm">
-                    {getProjectIdentifier() && (
-                      <a 
-                        href={generateProjectUrl(getProjectIdentifier())}
-                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                        title={`Go to project ${getProjectIdentifier()}`}
-                      >
-                        {getProjectIdentifier()}
-                      </a>
-                    )}
-                    {getProjectIdentifier() && task.ticket && (
-                      <span className="text-gray-400">→</span>
-                    )}
-                    {task.ticket && (
-                      <a 
-                        href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                        title={`Direct link to ${task.ticket}`}
-                      >
-                        {task.ticket}
-                      </a>
-                    )}
-                  </div>
-                )}
+            {/* Project and Task Links - Right side */}
+            <div className="flex items-center gap-4">
+              {/* Project and Task Identifiers */}
+              {(getProjectIdentifier() || task.ticket) && (
+                <div className="flex items-center gap-2 font-mono text-sm">
+                  {getProjectIdentifier() && (
+                    <a 
+                      href={generateProjectUrl(getProjectIdentifier())}
+                      className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      title={`Go to project ${getProjectIdentifier()}`}
+                    >
+                      {getProjectIdentifier()}
+                    </a>
+                  )}
+                  {getProjectIdentifier() && task.ticket && (
+                    <span className="text-gray-400">→</span>
+                  )}
+                  {task.ticket && (
+                    <a 
+                      href={generateTaskUrl(task.ticket, getProjectIdentifier())}
+                      className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      title={`Direct link to ${task.ticket}`}
+                    >
+                      {task.ticket}
+                    </a>
+                  )}
+                </div>
+              )}
                 
                 {/* Save indicator and close button */}
                 <div className="flex items-center gap-2">
@@ -1293,27 +1292,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   </button>
                 </div>
               </div>
-            ) : (
-              /* When prefixes disabled, only show save indicator and close button */
-              <div className="flex items-center gap-2">
-                {isSavingText && (
-                  <div className="text-xs text-gray-500 flex items-center gap-1">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                    Auto-saving...
-                  </div>
-                )}
-                <button onClick={async () => { await saveChanges(); onClose(); }} className="text-gray-500 hover:text-gray-700">
-                  <X size={20} />
-                </button>
-              </div>
-            )}
-          </div></div>
+            </div>
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto">
           <div className="p-6 pt-0">
-
-          <div className="space-y-4">
+            <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Description
@@ -2005,10 +1989,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
-        </div>
       </div>
+    </div>
     </div>
   );
 }

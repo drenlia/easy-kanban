@@ -81,6 +81,7 @@ export interface Column {
   tasks: Task[];
   boardId: string;
   position?: number;
+  is_finished?: boolean;
 }
 
 export interface Columns {
