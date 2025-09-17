@@ -38,6 +38,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
+import websocketClient from './services/websocketClient';
 import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
 import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
@@ -304,6 +305,7 @@ export default function App() {
   // Authentication hook
   const {
     isAuthenticated,
+    authChecked,
     currentUser,
     siteSettings,
     hasDefaultAdmin,
@@ -342,18 +344,16 @@ export default function App() {
       // console.log('🔍 [UserStatus] Update handler called');
     }
     
-    // Handle force logout scenarios
-    if (newUserStatus.forceLogout || !newUserStatus.isActive) {
-      // console.log('🔐 User deactivated or force logout detected. Logging out...');
+    // Handle force logout scenarios - only for actual deactivation/deletion
+    if (newUserStatus.forceLogout) {
+      // console.log('🔐 Force logout detected. Logging out...');
       
       // Clear all local storage and session data
       localStorage.clear();
       sessionStorage.clear();
       
       // Show appropriate message
-      const message = !newUserStatus.isActive 
-        ? 'Your account has been deactivated. Please contact an administrator.'
-        : 'Your role has been changed. Please log in again to access your updated permissions.';
+      const message = 'Your account has been deactivated. Please contact an administrator.';
       
       // Force logout with message
       handleLogout(message);
@@ -501,19 +501,21 @@ export default function App() {
     loadUserSettings();
   }, [isAuthenticated, currentUser?.id, systemSettings]);
 
-  // Load admin defaults for new user preferences
+  // Load admin defaults for new user preferences (only for admin users)
   useEffect(() => {
+    if (!isAuthenticated || !currentUser?.roles?.includes('admin')) return;
+    
     const initializeAdminDefaults = async () => {
       try {
         await loadAdminDefaults();
-        // console.log('Admin defaults loaded for new users');
+        // console.log('Admin defaults loaded for admin users');
       } catch (error) {
         // console.warn('Failed to load admin defaults:', error);
       }
     };
     
     initializeAdminDefaults();
-  }, []); // Run once on mount
+  }, [isAuthenticated, currentUser?.roles, userStatus?.isAdmin]); // Run when authentication status, user roles, or admin status change
 
   // Load auto-refresh setting from user preferences
   useEffect(() => {
@@ -589,6 +591,15 @@ export default function App() {
     }
   }, [showActivityFeed]);
 
+  const handleSharedFilterViewsUpdate = useCallback((newFilters: SavedFilterView[]) => {
+    setSharedFilterViews(prev => {
+      // Merge new filters with existing ones, avoiding duplicates
+      const existingIds = new Set(prev.map(f => f.id));
+      const newFiltersToAdd = newFilters.filter(f => !existingIds.has(f.id));
+      return [...prev, ...newFiltersToAdd];
+    });
+  }, []);
+
   const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
     // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
     setBoardRelationships(newRelationships);
@@ -610,9 +621,9 @@ export default function App() {
     }
   }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
 
-  // Data polling for real-time collaboration and permission refresh
-  // Completely disable polling when help modal is open to prevent memory leaks
-  // Also disable polling when auto-refresh is disabled
+  // Data polling for backup/fallback only (WebSocket handles real-time updates)
+  // Disable polling when help modal is open or auto-refresh is disabled
+  // Only poll every 60 seconds as backup when WebSocket might be unavailable
   const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
   
   // Debug logging for polling state
@@ -713,6 +724,310 @@ export default function App() {
       }
     };
   }, [isAuthenticated, isSavingPreferences]);
+
+  // Initialize WebSocket connection and real-time updates
+  useEffect(() => {
+    console.log('🔍 WebSocket useEffect - isAuthenticated:', isAuthenticated, 'selectedBoard:', selectedBoard);
+    if (!isAuthenticated) {
+      console.log('⚠️ WebSocket useEffect - not authenticated, skipping');
+      return;
+    }
+
+    // Connect to WebSocket
+    console.log('🔌 Connecting to WebSocket');
+    websocketClient.connect();
+
+    // Join current board when WebSocket is ready
+    const joinBoard = () => {
+      if (selectedBoard) {
+        console.log('🔍 Attempting to join board:', selectedBoard);
+        websocketClient.joinBoard(selectedBoard);
+      } else {
+        console.log('⚠️ No selected board to join');
+      }
+    };
+
+    // Listen for WebSocket ready event
+    const handleWebSocketReady = () => {
+      console.log('🎯 WebSocket ready, joining board');
+      joinBoard();
+    };
+
+    websocketClient.onWebSocketReady(handleWebSocketReady);
+
+    // Set up event handlers
+    const handleTaskCreated = (data: any) => {
+      console.log('📨 Task created via WebSocket:', data);
+      console.log('🔍 Current board ID:', selectedBoard, 'Event board ID:', data.boardId);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskUpdated = (data: any) => {
+      console.log('📨 Task updated via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskDeleted = (data: any) => {
+      console.log('📨 Task deleted via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskRelationshipCreated = (data: any) => {
+      console.log('📨 Task relationship created via WebSocket:', data);
+      // Only refresh if the relationship is for the current board
+      if (data.boardId === selectedBoard) {
+        // Load just the relationships instead of full refresh
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            // Fallback to full refresh on error
+            refreshBoardData();
+          });
+      }
+    };
+
+    const handleTaskRelationshipDeleted = (data: any) => {
+      console.log('📨 Task relationship deleted via WebSocket:', data);
+      // Only refresh if the relationship is for the current board
+      if (data.boardId === selectedBoard) {
+        // Load just the relationships instead of full refresh
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            // Fallback to full refresh on error
+            refreshBoardData();
+          });
+      }
+    };
+
+    const handleColumnUpdated = (data: any) => {
+      console.log('📨 Column updated via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnDeleted = (data: any) => {
+      console.log('📨 Column deleted via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnReordered = (data: any) => {
+      console.log('📨 Column reordered via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleBoardCreated = (data: any) => {
+      console.log('📨 Board created via WebSocket:', data);
+      // Refresh boards list to show new board
+      refreshBoardData();
+    };
+
+    const handleBoardUpdated = (data: any) => {
+      console.log('📨 Board updated via WebSocket:', data);
+      // Refresh boards list
+      refreshBoardData();
+    };
+
+    const handleBoardDeleted = (data: any) => {
+      console.log('📨 Board deleted via WebSocket:', data);
+      // If the deleted board was selected, clear selection
+      if (data.boardId === selectedBoard) {
+        setSelectedBoard(null);
+        setColumns({});
+      }
+      // Refresh boards list
+      refreshBoardData();
+    };
+
+    const handleBoardReordered = (data: any) => {
+      console.log('📨 Board reordered via WebSocket:', data);
+      // Refresh boards list to show new order
+      refreshBoardData();
+    };
+
+    const handleTaskWatcherAdded = (data: any) => {
+      console.log('📨 Task watcher added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskWatcherRemoved = (data: any) => {
+      console.log('📨 Task watcher removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskCollaboratorAdded = (data: any) => {
+      console.log('📨 Task collaborator added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskCollaboratorRemoved = (data: any) => {
+      console.log('📨 Task collaborator removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnCreated = (data: any) => {
+      console.log('📨 Column created via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleMemberUpdated = (data: any) => {
+      console.log('📨 Member updated via WebSocket:', data);
+      // Refresh members list
+      handleMembersUpdate(data.members || []);
+    };
+
+    const handleActivityUpdated = (data: any) => {
+      console.log('📨 Activity updated via WebSocket:', data);
+      // Refresh activity feed
+      handleActivitiesUpdate(data.activities || []);
+    };
+
+    const handleMemberCreated = (data: any) => {
+      console.log('📨 Member created via WebSocket:', data);
+      // Refresh members list
+      handleMembersUpdate([data.member]);
+    };
+
+    const handleMemberDeleted = (data: any) => {
+      console.log('📨 Member deleted via WebSocket:', data);
+      // Refresh members list
+      handleMembersUpdate([]);
+    };
+
+    const handleFilterCreated = (data: any) => {
+      console.log('📨 Filter created via WebSocket:', data);
+      // Refresh shared filters list
+      if (data.filter && data.filter.shared) {
+        handleSharedFilterViewsUpdate([data.filter]);
+      }
+    };
+
+    const handleFilterUpdated = (data: any) => {
+      console.log('📨 Filter updated via WebSocket:', data);
+      console.log('📨 Filter shared status:', data.filter?.shared, 'type:', typeof data.filter?.shared);
+      // Handle filter sharing/unsharing
+      if (data.filter) {
+        if (data.filter.shared) {
+          // Filter was shared or updated - add/update it
+          console.log('📨 Adding/updating shared filter:', data.filter.filterName);
+          handleSharedFilterViewsUpdate([data.filter]);
+        } else {
+          // Filter was unshared - remove it from the list
+          console.log('📨 Removing unshared filter:', data.filter.filterName);
+          setSharedFilterViews(prev => prev.filter(f => f.id !== data.filter.id));
+        }
+      }
+    };
+
+    const handleFilterDeleted = (data: any) => {
+      console.log('📨 Filter deleted via WebSocket:', data);
+      // Remove from shared filters list
+      if (data.filterId) {
+        setSharedFilterViews(prev => prev.filter(f => f.id !== data.filterId));
+      }
+    };
+
+    // Register event listeners
+    websocketClient.onTaskCreated(handleTaskCreated);
+    websocketClient.onTaskUpdated(handleTaskUpdated);
+    websocketClient.onTaskDeleted(handleTaskDeleted);
+    websocketClient.onTaskRelationshipCreated(handleTaskRelationshipCreated);
+    websocketClient.onTaskRelationshipDeleted(handleTaskRelationshipDeleted);
+    websocketClient.onColumnUpdated(handleColumnUpdated);
+    websocketClient.onColumnDeleted(handleColumnDeleted);
+    websocketClient.onColumnReordered(handleColumnReordered);
+    websocketClient.onBoardCreated(handleBoardCreated);
+    websocketClient.onBoardUpdated(handleBoardUpdated);
+    websocketClient.onBoardDeleted(handleBoardDeleted);
+    websocketClient.onBoardReordered(handleBoardReordered);
+    websocketClient.onColumnCreated(handleColumnCreated);
+    websocketClient.onTaskWatcherAdded(handleTaskWatcherAdded);
+    websocketClient.onTaskWatcherRemoved(handleTaskWatcherRemoved);
+    websocketClient.onTaskCollaboratorAdded(handleTaskCollaboratorAdded);
+    websocketClient.onTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
+    websocketClient.onMemberUpdated(handleMemberUpdated);
+    websocketClient.onMemberCreated(handleMemberCreated);
+    websocketClient.onMemberDeleted(handleMemberDeleted);
+    websocketClient.onActivityUpdated(handleActivityUpdated);
+    websocketClient.onFilterCreated(handleFilterCreated);
+    websocketClient.onFilterUpdated(handleFilterUpdated);
+    websocketClient.onFilterDeleted(handleFilterDeleted);
+
+    return () => {
+      // Clean up event listeners
+      websocketClient.offTaskCreated(handleTaskCreated);
+      websocketClient.offTaskUpdated(handleTaskUpdated);
+      websocketClient.offTaskDeleted(handleTaskDeleted);
+      websocketClient.offTaskRelationshipCreated(handleTaskRelationshipCreated);
+      websocketClient.offTaskRelationshipDeleted(handleTaskRelationshipDeleted);
+      websocketClient.offColumnUpdated(handleColumnUpdated);
+      websocketClient.offColumnDeleted(handleColumnDeleted);
+      websocketClient.offColumnReordered(handleColumnReordered);
+      websocketClient.offBoardCreated(handleBoardCreated);
+      websocketClient.offBoardUpdated(handleBoardUpdated);
+      websocketClient.offBoardDeleted(handleBoardDeleted);
+      websocketClient.offBoardReordered(handleBoardReordered);
+      websocketClient.offColumnCreated(handleColumnCreated);
+      websocketClient.offTaskWatcherAdded(handleTaskWatcherAdded);
+      websocketClient.offTaskWatcherRemoved(handleTaskWatcherRemoved);
+      websocketClient.offTaskCollaboratorAdded(handleTaskCollaboratorAdded);
+      websocketClient.offTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
+      websocketClient.offMemberUpdated(handleMemberUpdated);
+      websocketClient.offMemberCreated(handleMemberCreated);
+      websocketClient.offMemberDeleted(handleMemberDeleted);
+      websocketClient.offActivityUpdated(handleActivityUpdated);
+      websocketClient.offFilterCreated(handleFilterCreated);
+      websocketClient.offFilterUpdated(handleFilterUpdated);
+      websocketClient.offFilterDeleted(handleFilterDeleted);
+      websocketClient.offWebSocketReady(handleWebSocketReady);
+    };
+  }, [isAuthenticated, selectedBoard]);
 
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {
@@ -1256,6 +1571,7 @@ export default function App() {
     if (!isAuthenticated || !currentUser?.id) return;
     
     const loadInitialData = async () => {
+      console.log('🔄 Loading initial data...');
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
@@ -1309,6 +1625,16 @@ export default function App() {
         if (board) {
           // Update columns immediately from the boards array
           setColumns(board.columns || {});
+          
+          // Always load relationships when switching boards (even with polling enabled)
+          getBoardTaskRelationships(selectedBoard)
+            .then(relationships => {
+              setBoardRelationships(relationships);
+            })
+            .catch(error => {
+              console.warn('Failed to load relationships:', error);
+              setBoardRelationships([]);
+            });
         } else {
           // If board not found in current array, refresh from server
           refreshBoardData();
@@ -1365,10 +1691,20 @@ export default function App() {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
             setColumns(board.columns || {});
+            
+            // Also load relationships for the selected board
+            try {
+              const relationships = await getBoardTaskRelationships(selectedBoard);
+              setBoardRelationships(relationships);
+            } catch (error) {
+              console.warn('Failed to load relationships:', error);
+              setBoardRelationships([]);
+            }
           } else {
             // Selected board no longer exists, clear selection
             setSelectedBoard(null);
             setColumns({});
+            setBoardRelationships([]);
           }
         }
       }

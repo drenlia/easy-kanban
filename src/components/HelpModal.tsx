@@ -53,24 +53,24 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
       </section>
 
       {/* Navigation */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
           <ArrowRight className="text-green-500" />
           Navigation & Interface
-        </h3>
-        <div className="space-y-3 text-gray-600">
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p><strong>Board Selector:</strong> Switch between different project boards using the tab interface at the top. Each board can have its own columns and tasks. Use the scroll arrows to navigate through many boards.</p>
           <p><strong>View Modes:</strong> Toggle between Kanban (visual board), List (table format), and Gantt (timeline) views using the Tools panel.</p>
           <p><strong>Search & Filter:</strong> Use the search interface to filter tasks by text, dates, members, priorities, tags, and more. Save filter views for quick access.</p>
           <p><strong>User Profile:</strong> Access your profile settings, preferences, and account information via the user menu in the top-right.</p>
           <p><strong>Activity Feed:</strong> View real-time updates, changes, and team activity in the draggable activity panel.</p>
           <p><strong>Admin Panel:</strong> Administrators can access user management, system settings, and configuration options.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
-      {/* Team Management */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          {/* Team Management */}
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
           <Users className="text-purple-500" />
           Team Management & Member Selection
         </h3>
@@ -115,36 +115,36 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
         <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
           <Columns className="text-blue-500" />
           Kanban Board Overview
-        </h3>
-        <div className="space-y-3 text-gray-600">
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p>The Kanban view displays tasks as cards organized in columns representing different stages of your workflow. This visual approach helps teams understand work progress at a glance.</p>
           <p>Your board starts with 4 default columns: <strong>To Do</strong>, <strong>In Progress</strong>, <strong>Testing</strong>, and <strong>Completed</strong>. Columns can be customized, reordered, and deleted as needed.</p>
           <p>Tasks can be dragged between columns to update their status, and within columns to change priority order.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
       {/* Column Management */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <Columns className="text-purple-500" />
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <Columns className="text-purple-500" />
           Column Management
-        </h3>
-        <div className="space-y-3 text-gray-600">
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p><strong>Create Columns:</strong> Click the three-dot menu (⋮) in any column header and select "Add Column" to create a new column. The new column will be inserted after the current column.</p>
           <p><strong>Rename Columns:</strong> Double-click column headers to edit their names directly.</p>
           <p><strong>Reorder Columns:</strong> Drag column headers to reorder them according to your workflow (admin only).</p>
           <p><strong>Delete Columns:</strong> Use the three-dot menu (⋮) in the column header and select "Delete Column" to remove columns (admin only).</p>
           <p><strong>Finished Columns:</strong> Columns with names like "Done", "Completed", or "Finished" are automatically marked as finished. Tasks in these columns won't be considered overdue.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
-      {/* Task Management */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <ClipboardList className="text-orange-500" />
-          Task Management
-        </h3>
-        <div className="space-y-3 text-gray-600">
+          {/* Task Management */}
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <ClipboardList className="text-orange-500" />
+              Task Management
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p><strong>Create Tasks:</strong> First select team members using the checkboxes, then click the "+" button in any column header to create a new task. The task will be automatically assigned to the currently logged-in user.</p>
           <p><strong>Edit Tasks:</strong> Click the pen icon for quick edits, or the info icon for detailed editing with rich text, attachments, and comments.</p>
           <p><strong>Move Tasks:</strong> Drag and drop tasks between columns to update their status. Visual feedback shows valid drop zones.</p>
@@ -166,16 +166,16 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
           <p><strong>Within-Column Reordering:</strong> Drag tasks up or down within a column to change their priority.</p>
           <p><strong>Visual Feedback:</strong> The interface shows drop zones and highlights where tasks can be placed.</p>
           <p><strong>Auto-Save:</strong> Changes are automatically saved when you drop tasks in new positions.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
-      {/* Task Details */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <MessageSquare className="text-indigo-500" />
-          Task Details & Communication
-        </h3>
-        <div className="space-y-3 text-gray-600">
+          {/* Task Details */}
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <MessageSquare className="text-indigo-500" />
+              Task Details & Communication
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p><strong>Task Information:</strong> Set title, description, effort, priority, start date, due date, and assign requester. Rich text editor supports formatting and links.</p>
           <p><strong>Comments:</strong> Add rich text comments with file attachments to discuss task progress, ask questions, or provide updates.</p>
           <p><strong>Attachments:</strong> Upload files and documents related to the task using the paperclip icon. Multiple file types supported.</p>
@@ -310,13 +310,13 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
           <p><strong>Reorder Tasks:</strong> Drag tasks vertically to change their priority order within columns.</p>
           <p><strong>Copy Tasks:</strong> Use the copy button to duplicate tasks with all their properties.</p>
           <p><strong>Delete Tasks:</strong> Use the delete button to remove tasks from the timeline.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
       {/* Dependencies */}
-      <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <ArrowRight className="text-teal-500" />
+          <section>
+            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+              <ArrowRight className="text-teal-500" />
           Task Dependencies
         </h3>
         <div className="space-y-3 text-gray-600">
@@ -333,18 +333,18 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
         <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
           <Calendar className="text-indigo-500" />
           Timeline Features
-        </h3>
-        <div className="space-y-3 text-gray-600">
+            </h3>
+            <div className="space-y-3 text-gray-600">
           <p><strong>Timeline Navigation:</strong> Scroll horizontally through time periods and zoom in/out for different time scales.</p>
           <p><strong>Today Indicator:</strong> A vertical line shows the current date on the timeline for reference.</p>
           <p><strong>Late Badge:</strong> Overdue tasks are highlighted to draw attention to tasks that are past their due date.</p>
           <p><strong>Column Organization:</strong> Tasks are organized by columns (workflow stages) for better project structure.</p>
           <p><strong>Real-time Updates:</strong> Changes from team members are reflected immediately in the timeline.</p>
-        </div>
-      </section>
+            </div>
+          </section>
 
       {/* Performance Features */}
-      <section>
+          <section>
         <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
           <Settings className="text-green-500" />
           Performance & Optimization
@@ -355,8 +355,8 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
           <p><strong>Real-time Updates:</strong> Changes from team members are reflected immediately in the timeline.</p>
           <p><strong>Keyboard Shortcuts:</strong> Use keyboard shortcuts for quick navigation and editing.</p>
           <p><strong>Performance Monitoring:</strong> Built-in performance monitoring ensures smooth operation with large datasets.</p>
-        </div>
-      </section>
+            </div>
+          </section>
     </div>
   );
 
@@ -376,7 +376,7 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
       <div ref={modalRef} className="bg-white rounded-lg shadow-xl w-4/5 max-w-6xl max-h-[90vh] flex flex-col">
         {/* Sticky Header */}
         <div className="flex items-center justify-between p-6 border-b bg-white sticky top-0 z-10">

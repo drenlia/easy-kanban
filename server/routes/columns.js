@@ -1,10 +1,11 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
 // Create column
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
     const { db } = req.app.locals;
@@ -50,6 +51,16 @@ router.post('/', (req, res) => {
     }
     
     wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished) VALUES (?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing column-created to Redis for board:', boardId);
+    await redisService.publish('column-created', {
+      boardId: boardId,
+      column: { id, title, boardId, position: finalPosition, is_finished: isFinished },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Column-created published to Redis');
+    
     res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished });
   } catch (error) {
     console.error('Error creating column:', error);
@@ -58,7 +69,7 @@ router.post('/', (req, res) => {
 });
 
 // Update column
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { title, is_finished } = req.body;
   try {
@@ -104,6 +115,16 @@ router.put('/:id', (req, res) => {
     const finalIsFinished = is_finished !== undefined ? is_finished : isFinished;
     
     wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinished ? 1 : 0, id);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing column-updated to Redis for board:', column.boardId);
+    await redisService.publish('column-updated', {
+      boardId: column.boardId,
+      column: { id, title, is_finished: finalIsFinished },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Column-updated published to Redis');
+    
     res.json({ id, title, is_finished: finalIsFinished });
   } catch (error) {
     console.error('Error updating column:', error);
@@ -112,11 +133,28 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete column
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
+    
+    // Get the column's board ID before deleting
+    const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    if (!column) {
+      return res.status(404).json({ error: 'Column not found' });
+    }
+    
     wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing column-deleted to Redis for board:', column.boardId);
+    await redisService.publish('column-deleted', {
+      boardId: column.boardId,
+      columnId: id,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Column-deleted published to Redis');
+    
     res.json({ message: 'Column deleted successfully' });
   } catch (error) {
     console.error('Error deleting column:', error);
@@ -125,7 +163,7 @@ router.delete('/:id', (req, res) => {
 });
 
 // Reorder columns
-router.post('/reorder', (req, res) => {
+router.post('/reorder', async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
     const { db } = req.app.locals;
@@ -154,6 +192,16 @@ router.post('/reorder', (req, res) => {
       // Update the moved column to its new position
       wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
     })();
+
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing column-reordered to Redis for board:', boardId);
+    await redisService.publish('column-reordered', {
+      boardId: boardId,
+      columnId: columnId,
+      newPosition: newPosition,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Column-reordered published to Redis');
 
     res.json({ message: 'Column reordered successfully' });
   } catch (error) {

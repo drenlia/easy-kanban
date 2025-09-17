@@ -7,6 +7,7 @@ import { dirname } from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import http from 'http';
 
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
@@ -26,6 +27,10 @@ import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
+
+// Import real-time services
+import redisService from './services/redisService.js';
+import websocketService from './services/websocketService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -836,15 +841,14 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
         wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
       }
 
-      // Force logout the affected user by invalidating their session
-      // We'll do this by setting a flag in the database that the frontend can check
+      // Update the user's updated_at timestamp
       wrapQuery(db.prepare(`
         UPDATE users 
-        SET force_logout = 1, updated_at = datetime('now')
+        SET updated_at = datetime('now')
         WHERE id = ?
       `), 'UPDATE').run(userId);
 
-      console.log(`🔄 User ${userId} role changed to ${role} - forcing logout`);
+      console.log(`🔄 User ${userId} role changed to ${role} - no logout required`);
     }
 
     res.json({ message: 'User role updated successfully' });
@@ -1031,7 +1035,7 @@ app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['
       taskCount = (assignedTasks?.count || 0) + (requestedTasks?.count || 0);
     }
     
-    res.json({ taskCount });
+    res.json({ count: taskCount }); // Fixed: return 'count' instead of 'taskCount'
   } catch (error) {
     console.error('Error getting user task count:', error);
     res.status(500).json({ error: 'Failed to get task count' });
@@ -1039,7 +1043,7 @@ app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['
 });
 
 // Delete user
-app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   
   try {
@@ -1048,11 +1052,44 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
 
-    // Delete user (cascade will handle related records)
+    // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
+    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    
+    // Get the member ID for the user being deleted (before deletion)
+    const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    if (userMember) {
+      // Get the SYSTEM user's member ID
+      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(SYSTEM_USER_ID);
+      
+      if (systemMember) {
+        // Reassign all tasks assigned to this user to the SYSTEM user
+        wrapQuery(db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
+        
+        // Reassign all tasks requested by this user to the SYSTEM user
+        wrapQuery(db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
+        
+        console.log(`✅ Reassigned tasks from user ${userId} to SYSTEM user`);
+      } else {
+        console.warn('⚠️ SYSTEM user member not found, tasks will be orphaned');
+      }
+    }
+
+    // Delete user (cascade will handle related records including the member)
     const result = wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Publish member-deleted event for real-time updates
+    if (userMember) {
+      console.log('📤 Publishing member-deleted to Redis for user deletion');
+      await redisService.publish('member-deleted', {
+        memberId: userMember.id,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Member-deleted published to Redis');
     }
     
     res.json({ message: 'User deleted successfully' });
@@ -2001,7 +2038,9 @@ app.get('/health', (req, res) => {
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
-      database: 'connected'
+      database: 'connected',
+      redis: redisService.isRedisConnected(),
+      websocket: websocketService.getClientCount()
     });
   } catch (error) {
     res.status(500).json({ 
@@ -2033,9 +2072,32 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3222;
 
-app.listen(PORT, '0.0.0.0', () => {
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize real-time services
+async function initializeServices() {
+  try {
+    // Initialize Redis
+    await redisService.connect();
+    
+    // Initialize WebSocket
+    websocketService.initialize(server);
+    
+    console.log('✅ Real-time services initialized');
+  } catch (error) {
+    console.error('❌ Failed to initialize real-time services:', error);
+    // Continue without real-time features
+  }
+}
+
+// Start server
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
+  
+  // Initialize real-time services
+  await initializeServices();
 });
