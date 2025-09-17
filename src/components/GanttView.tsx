@@ -200,6 +200,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         // Don't revert the optimistic update - keep the arrow visible
         // But trigger a refresh to get the real relationship data from server
         if (onRefreshData) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔄 [GanttView] Calling onRefreshData (task creation)');
+          }
           onRefreshData();
         }
       } else {
@@ -2484,6 +2487,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           
           // Refresh data to ensure UI is in sync with backend
           if (onRefreshData) {
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🔄 [GanttView] Calling onRefreshData (task update)');
+            }
             await onRefreshData();
           }
         }
@@ -2877,6 +2883,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         
         // Refresh data to get updated state
         if (onRefreshData) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log('🔄 [GanttView] Calling onRefreshData');
+          }
           await onRefreshData();
         }
         
@@ -2889,7 +2898,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       // Fallback to basic task creation
       await onAddTask(firstColumn.id);
     }
-  }, [columns, currentUser, members, boardId, onRefreshData, onSelectTask, onAddTask]);
+  }, [columns, currentUser, members, boardId, onSelectTask, onAddTask]);
 
   // Handle mouse down for task creation (start of potential drag)
   const handleTaskCreationMouseDown = (dateString: string, event: React.MouseEvent) => {
