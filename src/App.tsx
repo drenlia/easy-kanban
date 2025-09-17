@@ -743,7 +743,7 @@ export default function App() {
       
       // Capitalize first letter of each part
       const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
-      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : '';
+      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
       
       // Generate a temporary password (user will change it during activation)
       const tempPassword = crypto.randomUUID().substring(0, 12);
