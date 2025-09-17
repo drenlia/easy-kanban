@@ -29,6 +29,7 @@ interface GanttViewProps {
   relationships?: any[]; // Add relationships prop for auto-sync
   onCopyTask?: (task: Task) => Promise<void>; // Copy task handler
   onRemoveTask?: (taskId: string, clickEvent?: React.MouseEvent) => Promise<void>; // Remove task handler
+  siteSettings?: { [key: string]: string }; // Site settings for badge system
 }
 
 interface GanttTask {
@@ -57,7 +58,24 @@ const parseLocalDate = (dateString: string): Date => {
   return new Date(year, month - 1, day); // month is 0-indexed
 };
 
-const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [], onCopyTask, onRemoveTask }) => {
+// Helper function to check if a task is overdue
+const isTaskOverdue = (task: GanttTask) => {
+  if (!task.endDate) return false;
+  const today = new Date();
+  const dueDate = new Date(task.endDate);
+  // Set time to beginning of day for fair comparison
+  today.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate < today;
+};
+
+// Helper function to check if a column is finished
+const isColumnFinished = (columnId: string, columns: Columns) => {
+  const column = columns[columnId];
+  return column?.is_finished || false;
+};
+
+const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [], onCopyTask, onRemoveTask, siteSettings }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<AnyDragItem | null>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
@@ -3705,7 +3723,26 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       }}
                       title={`${task.title}\nStart: ${task.startDate?.toLocaleDateString()}\nEnd: ${task.endDate?.toLocaleDateString()}`}
                     >
-                        {/* Move handle - positioned with gap (disabled in relationship mode) */}
+                      {/* Task Bar Badge System */}
+                      {/* DONE Badge - for completed tasks */}
+                      {isColumnFinished(task.columnId, columns) && (
+                        <div className="absolute top-0 right-0 pointer-events-none z-30">
+                          <div className="bg-green-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12 -translate-y-1 translate-x-1">
+                            DONE
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* LATE Badge - for overdue tasks */}
+                      {!isColumnFinished(task.columnId, columns) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+                        <div className="absolute top-0 right-0 pointer-events-none z-30">
+                          <div className="bg-red-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12 -translate-y-1 translate-x-1">
+                            LATE
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Move handle - positioned with gap (disabled in relationship mode) */}
                         {!isRelationshipMode && (() => {
                           const originalTask = getOriginalTask(task);
                           return originalTask ? (

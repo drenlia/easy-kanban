@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
   try {
     const { db } = req.app.locals;
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
-    const columnsStmt = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
+    const columnsStmt = wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
         // Updated query to include tags, watchers, and collaborators
     const tasksStmt = wrapQuery(
@@ -124,7 +124,7 @@ router.get('/:boardId/columns', (req, res) => {
     
     // Get columns for this board
     const columns = wrapQuery(
-      db.prepare('SELECT id, title, boardId, position FROM columns WHERE boardId = ? ORDER BY position ASC'), 
+      db.prepare('SELECT id, title, boardId, position, is_finished FROM columns WHERE boardId = ? ORDER BY position ASC'), 
       'SELECT'
     ).all(boardId);
     

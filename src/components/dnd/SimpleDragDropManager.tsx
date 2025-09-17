@@ -148,108 +148,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     };
   }, []);
 
-  // Add visual debug lines to show tab area bounds
-  const addDebugLines = (bounds: { top: number; bottom: number }) => {
-    // Remove any existing debug lines
-    removeDebugLines();
-    
-    // Create extended top line (30px above actual tabs)
-    const topLine = document.createElement('div');
-    topLine.id = 'tab-debug-top';
-    topLine.style.cssText = `
-      position: fixed;
-      top: ${bounds.top}px;
-      left: 0;
-      width: 100px;
-      height: 2px;
-      background: #00ff00;
-      z-index: 9999;
-      pointer-events: none;
-    `;
-    
-    // Create actual tab top line (for reference)
-    const actualTabLine = document.createElement('div');
-    actualTabLine.id = 'tab-debug-actual';
-    actualTabLine.style.cssText = `
-      position: fixed;
-      top: ${bounds.top + 30}px;
-      left: 0;
-      width: 80px;
-      height: 1px;
-      background: #ffff00;
-      z-index: 9999;
-      pointer-events: none;
-    `;
-    
-    // Create bottom line (actual tab bottom - keep this accurate)
-    const bottomLine = document.createElement('div');
-    bottomLine.id = 'tab-debug-bottom';
-    bottomLine.style.cssText = `
-      position: fixed;
-      top: ${bounds.bottom}px;
-      left: 0;
-      width: 100px;
-      height: 2px;
-      background: #ff0000;
-      z-index: 9999;
-      pointer-events: none;
-    `;
-    
-    // Create extended area indicator (includes 30px extension)
-    const areaIndicator = document.createElement('div');
-    areaIndicator.id = 'tab-debug-area';
-    areaIndicator.style.cssText = `
-      position: fixed;
-      top: ${bounds.top}px;
-      left: 0;
-      width: 50px;
-      height: ${bounds.bottom - bounds.top}px;
-      background: rgba(0, 255, 0, 0.2);
-      z-index: 9998;
-      pointer-events: none;
-      border: 1px solid #00ff00;
-    `;
-    
-    document.body.appendChild(topLine);
-    document.body.appendChild(actualTabLine);
-    document.body.appendChild(bottomLine);
-    document.body.appendChild(areaIndicator);
-    
-    // console.log('🟢 DEBUG LINES ADDED:', { 
-    // topY: bounds.top, 
-    // bottomY: bounds.bottom, 
-    // height: bounds.bottom - bounds.top 
-    // });
-  };
-  
-  // Remove debug lines
-  const removeDebugLines = () => {
-    ['tab-debug-top', 'tab-debug-actual', 'tab-debug-bottom', 'tab-debug-area', 'mouse-indicator'].forEach(id => {
-      const element = document.getElementById(id);
-      if (element) element.remove();
-    });
-  };
-  
-  // Update mouse position indicator
-  const updateMouseIndicator = (mouseY: number, isInTabArea: boolean) => {
-    let indicator = document.getElementById('mouse-indicator');
-    if (!indicator) {
-      indicator = document.createElement('div');
-      indicator.id = 'mouse-indicator';
-      document.body.appendChild(indicator);
-    }
-    
-    indicator.style.cssText = `
-      position: fixed;
-      top: ${mouseY - 1}px;
-      left: 110px;
-      width: 60px;
-      height: 2px;
-      background: ${isInTabArea ? '#00ff00' : '#0066ff'};
-      z-index: 9999;
-      pointer-events: none;
-    `;
-  };
 
   const handleDragStart = (event: DragStartEvent) => {
     const activeData = event.active.data?.current;
@@ -295,9 +193,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     // Detect bounds at drag start
     const bounds = detectTabBounds();
     
-    // Add visual debug lines to show tab area
-    addDebugLines(bounds);
-    
     // Reset all states at drag start to ensure clean state
     onBoardTabHover?.(false);
     onDragPreviewChange?.(null);
@@ -338,9 +233,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     if (isTaskDrag) {
       // Pure Y-coordinate based detection using dynamic tab bounds
       const isInTabArea = currentMouseY >= tabAreaBounds.top && currentMouseY <= tabAreaBounds.bottom;
-      
-      // Update mouse position indicator
-      updateMouseIndicator(currentMouseY, isInTabArea);
       
       // Set flag to indicate Y-coordinate detection is active
       setUsingYCoordinateDetection(true);
@@ -740,9 +632,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       
       // Reset tab area state
       setIsHoveringBoardTabDelayed(false);
-      
-      // Remove debug lines
-      removeDebugLines();
       
       // console.log('🏁 All states cleared - board tab hover reset to FALSE');
     }

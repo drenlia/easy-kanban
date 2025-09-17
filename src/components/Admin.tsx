@@ -53,9 +53,9 @@ interface Settings {
   DEFAULT_ACTIVITY_FEED_POSITION?: string;
   DEFAULT_ACTIVITY_FEED_WIDTH?: string;
   DEFAULT_ACTIVITY_FEED_HEIGHT?: string;
-  USE_PREFIXES?: string;
   DEFAULT_PROJ_PREFIX?: string;
   DEFAULT_TASK_PREFIX?: string;
+  DEFAULT_FINISHED_COLUMN_NAMES?: string;
   [key: string]: string | undefined;
 }
 

@@ -126,10 +126,32 @@ export const useDataPolling = ({
           currentBoardsRef.current.length !== loadedBoards.length ||
           !currentBoardsRef.current.every((board, index) => {
             const newBoard = loadedBoards[index];
-            return newBoard && 
-                   board.id === newBoard.id && 
-                   board.title === newBoard.title &&
-                   board.position === newBoard.position;
+            if (!newBoard || 
+                board.id !== newBoard.id || 
+                board.title !== newBoard.title ||
+                board.position !== newBoard.position) {
+              return false;
+            }
+            
+            // Also check if tasks within the board have changed
+            const currentTasks = board.columns ? Object.values(board.columns).flatMap(col => col.tasks || []) : [];
+            const newTasks = newBoard.columns ? Object.values(newBoard.columns).flatMap(col => col.tasks || []) : [];
+            
+            if (currentTasks.length !== newTasks.length) {
+              return false;
+            }
+            
+            // Check if any task has changed (title, description, etc.)
+            return currentTasks.every(currentTask => {
+              const newTask = newTasks.find(t => t.id === currentTask.id);
+              return newTask && 
+                     currentTask.title === newTask.title &&
+                     currentTask.description === newTask.description &&
+                     currentTask.startDate === newTask.startDate &&
+                     currentTask.dueDate === newTask.dueDate &&
+                     currentTask.columnId === newTask.columnId &&
+                     currentTask.position === newTask.position;
+            });
           });
 
         if (boardsChanged) {

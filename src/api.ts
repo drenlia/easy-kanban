@@ -82,8 +82,8 @@ export const createColumn = async (column: Column) => {
   return data;
 };
 
-export const updateColumn = async (id: string, title: string) => {
-  const { data } = await api.put<Column>(`/columns/${id}`, { title });
+export const updateColumn = async (id: string, title: string, is_finished?: boolean) => {
+  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished });
   return data;
 };
 
@@ -196,11 +196,11 @@ export const getCurrentUser = async () => {
   return data;
 };
 
-// Debug
-export const getQueryLogs = async () => {
-  const { data } = await api.get('/debug/logs');
-  return data;
-};
+// Debug - DISABLED
+// export const getQueryLogs = async () => {
+//   const { data } = await api.get('/debug/logs');
+//   return data;
+// };
 
 // Add a new function to handle file uploads
 export const uploadFile = async (file: File) => {

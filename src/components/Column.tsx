@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag } from '../types';
@@ -7,6 +7,7 @@ import TaskCard from './TaskCard';
 import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useDroppable } from '@dnd-kit/core';
+import { parseFinishedColumnNames } from '../utils/columnUtils';
 
 interface KanbanColumnProps {
   column: Column;
@@ -28,7 +29,8 @@ interface KanbanColumnProps {
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
-  onEditColumn: (columnId: string, title: string) => void;
+  onEditColumn: (columnId: string, title: string, is_finished?: boolean) => void;
+  siteSettings?: { [key: string]: string };
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => void;
   showColumnDeleteConfirm?: string | null;
@@ -48,7 +50,6 @@ interface KanbanColumnProps {
   onTagRemove?: (taskId: string) => (tagId: string) => Promise<void>;
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
-  siteSettings?: { [key: string]: string };
   boards?: any[]; // To get project identifier from board
   
   // Task linking props
@@ -81,6 +82,7 @@ export default function KanbanColumn({
   onEditTask,
   onCopyTask,
   onEditColumn,
+  siteSettings,
   onRemoveColumn,
   onAddColumn,
   showColumnDeleteConfirm,
@@ -100,7 +102,6 @@ export default function KanbanColumn({
   onTagRemove,
   onTaskEnterMiniMode,
   onTaskExitMiniMode,
-  siteSettings,
   boards,
   
   // Task linking props
@@ -117,7 +118,27 @@ export default function KanbanColumn({
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
+  const [isFinished, setIsFinished] = useState(column.is_finished || false);
   const [showMenu, setShowMenu] = useState(false);
+
+  // Reset state when editing starts
+  useEffect(() => {
+    if (isEditing) {
+      setTitle(column.title);
+      setIsFinished(column.is_finished || false);
+    }
+  }, [isEditing, column.title, column.is_finished]);
+
+  // Auto-detect finished column names when title changes
+  useEffect(() => {
+    if (isEditing && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES) {
+      const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
+      const shouldBeFinished = finishedColumnNames.some(finishedName => 
+        finishedName.toLowerCase() === title.toLowerCase()
+      );
+      setIsFinished(shouldBeFinished);
+    }
+  }, [title, isEditing, siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
@@ -220,7 +241,7 @@ export default function KanbanColumn({
     if (!title.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
-    await onEditColumn(column.id, title.trim());
+    await onEditColumn(column.id, title.trim(), isFinished);
     setIsEditing(false);
     setIsSubmitting(false);
   };
@@ -295,6 +316,8 @@ export default function KanbanColumn({
             onDragStart={onTaskDragStart}
             onDragEnd={onTaskDragEnd}
             onSelect={onSelectTask}
+            siteSettings={siteSettings}
+            columnIsFinished={column.is_finished || false}
             isDragDisabled={false}
             taskViewMode={taskViewMode}
             availablePriorities={availablePriorities}
@@ -302,7 +325,6 @@ export default function KanbanColumn({
             availableTags={availableTags}
             onTagAdd={onTagAdd ? onTagAdd(task.id) : undefined}
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
-            siteSettings={siteSettings}
             boards={boards}
             
             // Task linking props
@@ -403,7 +425,7 @@ export default function KanbanColumn({
             </div>
           )}
           {isEditing ? (
-            <form onSubmit={handleTitleSubmit} className="flex-1" onClick={(e) => e.stopPropagation()}>
+            <form onSubmit={handleTitleSubmit} className="flex-1 space-y-3" onClick={(e) => e.stopPropagation()}>
               <input
                 ref={editInputRef}
                 type="text"
@@ -411,15 +433,67 @@ export default function KanbanColumn({
                 onChange={e => setTitle(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
                 autoFocus
-                onBlur={handleTitleSubmit}
                 disabled={isSubmitting}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setTitle(column.title);
+                    setIsFinished(column.is_finished || false);
                     setIsEditing(false);
                   }
                 }}
               />
+              
+              {/* Finished Column Toggle */}
+              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  <span className="text-sm font-medium text-gray-700">Mark as Finished Column</span>
+                  {isFinished && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES && (() => {
+                    const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
+                    const isAutoDetected = finishedColumnNames.some(finishedName => 
+                      finishedName.toLowerCase() === title.toLowerCase()
+                    );
+                    return isAutoDetected ? (
+                      <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                        Auto-detected
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isFinished}
+                    onChange={(e) => setIsFinished(e.target.checked)}
+                    className="sr-only peer"
+                    disabled={isSubmitting}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                </label>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTitle(column.title);
+                    setIsFinished(column.is_finished || false);
+                    setIsEditing(false);
+                  }}
+                  disabled={isSubmitting}
+                  className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !title.trim()}
+                  className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-md transition-colors"
+                >
+                  {isSubmitting ? 'Saving...' : 'Save'}
+                </button>
+              </div>
             </form>
           ) : (
             <>

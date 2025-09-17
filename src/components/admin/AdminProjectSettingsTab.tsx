@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface AdminProjectSettingsTabProps {
   editingSettings: { [key: string]: string };
@@ -19,6 +19,22 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   successMessage,
   error
 }) => {
+  const [finishedColumnNames, setFinishedColumnNames] = useState<string[]>([]);
+  const [newColumnName, setNewColumnName] = useState('');
+
+  // Initialize finished column names from settings
+  useEffect(() => {
+    try {
+      const savedNames = editingSettings.DEFAULT_FINISHED_COLUMN_NAMES 
+        ? JSON.parse(editingSettings.DEFAULT_FINISHED_COLUMN_NAMES)
+        : ['Done', 'Completed', 'Finished'];
+      setFinishedColumnNames(savedNames);
+    } catch (error) {
+      console.error('Error parsing finished column names:', error);
+      setFinishedColumnNames(['Done', 'Completed', 'Finished']);
+    }
+  }, [editingSettings.DEFAULT_FINISHED_COLUMN_NAMES]);
+
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({
       ...editingSettings,
@@ -26,27 +42,46 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
     });
   };
 
-  const handleCheckboxChange = async (key: string, checked: boolean) => {
-    const value = checked ? 'true' : 'false';
+  const addFinishedColumnName = async () => {
+    const trimmedName = newColumnName.trim();
+    if (trimmedName && !finishedColumnNames.includes(trimmedName)) {
+      const updatedNames = [...finishedColumnNames, trimmedName];
+      setFinishedColumnNames(updatedNames);
+      setNewColumnName('');
+      
+      // Update local settings
+      onSettingsChange({
+        ...editingSettings,
+        DEFAULT_FINISHED_COLUMN_NAMES: JSON.stringify(updatedNames)
+      });
+      
+      // Auto-save to database
+      if (onAutoSave) {
+        await onAutoSave('DEFAULT_FINISHED_COLUMN_NAMES', JSON.stringify(updatedNames));
+      }
+    }
+  };
+
+  const removeFinishedColumnName = async (nameToRemove: string) => {
+    const updatedNames = finishedColumnNames.filter(name => name !== nameToRemove);
+    setFinishedColumnNames(updatedNames);
     
-    // Update local state first
+    // Update local settings
     onSettingsChange({
       ...editingSettings,
-      [key]: value
+      DEFAULT_FINISHED_COLUMN_NAMES: JSON.stringify(updatedNames)
     });
     
-    // For USE_PREFIXES, auto-save immediately for better UX
-    if (key === 'USE_PREFIXES' && onAutoSave) {
-      try {
-        await onAutoSave(key, value);
-      } catch (error) {
-        console.error('Failed to auto-save USE_PREFIXES setting:', error);
-        // Revert the change on error
-        onSettingsChange({
-          ...editingSettings,
-          [key]: !checked ? 'true' : 'false'
-        });
-      }
+    // Auto-save to database
+    if (onAutoSave) {
+      await onAutoSave('DEFAULT_FINISHED_COLUMN_NAMES', JSON.stringify(updatedNames));
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addFinishedColumnName();
     }
   };
 
@@ -55,7 +90,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Project Settings</h2>
         <p className="text-gray-600">
-          Configure automatic project and task identifier generation with customizable prefixes.
+          Configure project and task identifier prefixes and finished column detection.
         </p>
       </div>
 
@@ -72,28 +107,86 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
       )}
 
       <div className="space-y-6">
-        {/* Enable Project and Task Identification */}
+        {/* Finished Column Names Management */}
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
+          <div className="mb-4">
+            <label className="text-sm font-medium text-gray-700 block mb-2">
+              Finished Column Names
+            </label>
+            <p className="text-sm text-gray-500 mb-4">
+              Define column names that should be automatically marked as "finished" (case-insensitive). 
+              Tasks in these columns won't be considered overdue regardless of their due date.
+            </p>
+            
+            {/* Add new column name input */}
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={newColumnName}
+                onChange={(e) => setNewColumnName(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Enter column name (e.g., 'Done')"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+              />
+              <button
+                onClick={addFinishedColumnName}
+                disabled={!newColumnName.trim() || finishedColumnNames.includes(newColumnName.trim())}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Add
+              </button>
+            </div>
+            
+            {/* Display current finished column names as pills */}
+            <div className="flex flex-wrap gap-2">
+              {finishedColumnNames.map((name) => (
+                <div
+                  key={name}
+                  className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full"
+                >
+                  <span>{name}</span>
+                  <button
+                    onClick={() => removeFinishedColumnName(name)}
+                    className="ml-1 text-blue-600 hover:text-blue-800 focus:outline-none"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Overdue Task Highlighting */}
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
               <label className="text-sm font-medium text-gray-700 block mb-1">
-                Enable Project and Task Identification
+                Highlight Overdue Tasks
               </label>
               <p className="text-sm text-gray-500">
-                When enabled, new boards and tasks will automatically receive unique identifiers with the configured prefixes. 
-                This setting only controls display visibility - identifiers are always generated internally.
+                When enabled, overdue tasks will be highlighted with a light red background in the Kanban view.
               </p>
             </div>
-            <div className="ml-6 flex-shrink-0">
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={editingSettings.USE_PREFIXES === 'true'}
-                  onChange={(e) => handleCheckboxChange('USE_PREFIXES', e.target.checked)}
-                  className="sr-only peer"
+            <div className="flex items-center">
+              <button
+                onClick={async () => {
+                  const newValue = editingSettings.HIGHLIGHT_OVERDUE_TASKS === 'true' ? 'false' : 'true';
+                  handleInputChange('HIGHLIGHT_OVERDUE_TASKS', newValue);
+                  if (onAutoSave) {
+                    await onAutoSave('HIGHLIGHT_OVERDUE_TASKS', newValue);
+                  }
+                }}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  editingSettings.HIGHLIGHT_OVERDUE_TASKS === 'true' ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    editingSettings.HIGHLIGHT_OVERDUE_TASKS === 'true' ? 'translate-x-6' : 'translate-x-1'
+                  }`}
                 />
-                <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-              </label>
+              </button>
             </div>
           </div>
         </div>
@@ -141,8 +234,8 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
             <li>• New boards automatically get project identifiers: {editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-'}00001, {editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-'}00002, etc.</li>
             <li>• New tasks automatically get ticket identifiers: {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00001, {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00002, etc.</li>
             <li>• Numbers are auto-incremented and zero-padded to 5 digits</li>
-            <li>• Identifiers are always generated internally, the "Enable" checkbox only controls UI visibility</li>
-            <li>• Future versions will support multiple projects/tasks with different prefixes</li>
+            <li>• Column names matching the finished list (case-insensitive) will automatically be marked as completed</li>
+            <li>• Tasks in finished columns won't be considered overdue regardless of their due date</li>
           </ul>
         </div>
       </div>

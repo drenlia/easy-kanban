@@ -35,6 +35,7 @@ export const ColumnSchema = z.object({
   id: z.string(),
   title: z.string().min(1, "Column title is required").max(50, "Title must be less than 50 characters"),
   boardId: z.string(),
+  is_finished: z.boolean().optional(),
 });
 
 export type TaskInput = z.infer<typeof TaskSchema>;
