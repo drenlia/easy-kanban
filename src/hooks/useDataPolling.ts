@@ -102,14 +102,28 @@ export const useDataPolling = ({
   currentRelationshipsRef.current = currentRelationships;
 
   useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [useDataPolling] Hook state:', { enabled, selectedBoard });
+    }
+    
     if (!enabled) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('⏹️ [useDataPolling] Polling disabled');
+      }
       setIsPolling(false);
       return;
     }
 
+    if (process.env.NODE_ENV === 'development') {
+      console.log('▶️ [useDataPolling] Starting polling');
+    }
     setIsPolling(true);
 
     const pollForUpdates = async () => {
+      if (process.env.NODE_ENV === 'development') {
+        console.log('🔄 [useDataPolling] Polling for updates...');
+      }
+      
       try {
         const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([
           api.getBoards(),
@@ -165,8 +179,7 @@ export const useDataPolling = ({
             const newMember = loadedMembers[index];
             return newMember && 
                    member.id === newMember.id && 
-                   member.name === newMember.name &&
-                   member.email === newMember.email;
+                   member.name === newMember.name;
           });
 
         if (membersChanged) {
@@ -197,7 +210,7 @@ export const useDataPolling = ({
               const newActivity = loadedActivities[index];
               return newActivity && 
                      activity.id === newActivity.id && 
-                     activity.type === newActivity.type &&
+                     activity.action === newActivity.action &&
                      activity.created_at === newActivity.created_at;
             });
 

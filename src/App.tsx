@@ -105,6 +105,7 @@ export default function App() {
   
   // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+  const draggedTaskRef = useRef<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
   const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
   const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -112,6 +113,7 @@ export default function App() {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
   const dragStartedRef = useRef<boolean>(false);
+  const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
 
@@ -609,8 +611,31 @@ export default function App() {
   }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
 
   // Data polling for real-time collaboration and permission refresh
+  // Completely disable polling when help modal is open to prevent memory leaks
+  // Also disable polling when auto-refresh is disabled
+  const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
+  
+  // Debug logging for polling state
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔍 [App] Polling state:', {
+        shouldPoll,
+        isAuthenticated,
+        currentPage,
+        selectedBoard: !!selectedBoard,
+        draggedTask: !!draggedTask,
+        draggedColumn: !!draggedColumn,
+        dragCooldown,
+        taskCreationPause,
+        boardCreationPause,
+        isAutoRefreshEnabled,
+        showHelpModal
+      });
+    }
+  }, [shouldPoll, isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, isAutoRefreshEnabled, showHelpModal]);
+  
   const { isPolling, lastPollTime } = useDataPolling({
-    enabled: isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled,
+    enabled: shouldPoll,
     selectedBoard,
     currentBoards: boards,
     currentMembers: members,
@@ -635,6 +660,9 @@ export default function App() {
   useEffect(() => {
     if (!isAuthenticated) return;
 
+    let statusInterval: NodeJS.Timeout | null = null;
+    let isPolling = false;
+
     const pollUserStatus = async () => {
       // Skip polling if we're currently saving preferences to avoid conflicts
       if (isSavingPreferences) {
@@ -643,6 +671,10 @@ export default function App() {
         }
         return;
       }
+
+      // Prevent overlapping polls
+      if (isPolling) return;
+      isPolling = true;
 
       try {
         const startTime = performance.now();
@@ -663,6 +695,8 @@ export default function App() {
         }
       } catch (error) {
         // console.error('❌ [UserStatus] Polling failed:', error);
+      } finally {
+        isPolling = false;
       }
     };
 
@@ -670,9 +704,14 @@ export default function App() {
     pollUserStatus();
 
     // Poll every 30 seconds for user status updates (reduced frequency to improve performance)
-    const statusInterval = setInterval(pollUserStatus, 30000);
+    statusInterval = setInterval(pollUserStatus, 30000);
 
-    return () => clearInterval(statusInterval);
+    return () => {
+      if (statusInterval) {
+        clearInterval(statusInterval);
+        statusInterval = null;
+      }
+    };
   }, [isAuthenticated, isSavingPreferences]);
 
   // Restore selected task from preferences when tasks are loaded
@@ -1276,7 +1315,7 @@ export default function App() {
         }
       }
     }
-  }, [selectedBoard, boards, isAutoRefreshEnabled]);
+  }, [selectedBoard, isAutoRefreshEnabled]);
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
@@ -1311,7 +1350,11 @@ export default function App() {
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
 
-  const refreshBoardData = async () => {
+  const refreshBoardData = useCallback(async () => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('🔄 [App] refreshBoardData called');
+    }
+    
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
@@ -1332,7 +1375,7 @@ export default function App() {
     } catch (error) {
       // console.error('Failed to refresh board data:', error);
     }
-  };
+  }, [selectedBoard]);
 
   const fetchQueryLogs = async () => {
     // DISABLED: Debug query logs fetching
@@ -1737,7 +1780,8 @@ export default function App() {
   // Failsafe: Clear drag state on any click if drag is stuck
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
-      if (draggedTask) {
+      // Use ref to get current draggedTask value without recreating listener
+      if (draggedTaskRef.current) {
         // Check if clicking on a board tab
         const target = e.target as HTMLElement;
         const isTabClick = target.closest('[class*="board-tab"]') || 
@@ -1752,21 +1796,41 @@ export default function App() {
     
     document.addEventListener('click', handleGlobalClick, true);
     return () => document.removeEventListener('click', handleGlobalClick, true);
-  }, [draggedTask]);
+  }, []); // Remove draggedTask dependency to prevent listener recreation
 
   // Set drag cooldown (for Gantt operations)
   const handleSetDragCooldown = (active: boolean, duration?: number) => {
     setDragCooldown(active);
-    if (active && duration) {
-      setTimeout(() => {
+    
+    // Clear any existing timeout
+    if (dragCooldownTimeoutRef.current) {
+      clearTimeout(dragCooldownTimeoutRef.current);
+      dragCooldownTimeoutRef.current = null;
+    }
+    
+    if (active) {
+      const timeoutDuration = duration || DRAG_COOLDOWN_DURATION;
+      dragCooldownTimeoutRef.current = setTimeout(() => {
         setDragCooldown(false);
-      }, duration);
-    } else if (active) {
-      setTimeout(() => {
-        setDragCooldown(false);
-      }, DRAG_COOLDOWN_DURATION);
+        dragCooldownTimeoutRef.current = null;
+      }, timeoutDuration);
     }
   };
+
+  // Update draggedTaskRef when draggedTask changes
+  useEffect(() => {
+    draggedTaskRef.current = draggedTask;
+  }, [draggedTask]);
+
+  // Cleanup drag cooldown timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (dragCooldownTimeoutRef.current) {
+        clearTimeout(dragCooldownTimeoutRef.current);
+        dragCooldownTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Old handleTaskDragEnd removed - replaced with unified version below
 
