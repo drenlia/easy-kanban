@@ -179,6 +179,7 @@ const createTables = (db) => {
       boardId TEXT NOT NULL,
       title TEXT NOT NULL,
       position INTEGER DEFAULT 0,
+      is_finished BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
@@ -425,9 +426,10 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_ACTIVITY_FEED_WIDTH', '180'], // Default activity feed width
       ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
       // Project and task identification settings
-      ['USE_PREFIXES', 'true'], // Enable project and task identification by default
       ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
-      ['DEFAULT_TASK_PREFIX', 'TASK-'] // Default task prefix
+      ['DEFAULT_TASK_PREFIX', 'TASK-'], // Default task prefix
+      ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done", "Completed", "Finished"]'], // Default finished column names
+      ['HIGHLIGHT_OVERDUE_TASKS', 'true'] // Highlight overdue tasks in light red
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
@@ -538,15 +540,15 @@ const initializeDefaultData = (db) => {
 
     // Create default columns
     const defaultColumns = [
-      { id: `todo-${boardId}`, title: 'To Do', position: 0 },
-      { id: `progress-${boardId}`, title: 'In Progress', position: 1 },
-      { id: `testing-${boardId}`, title: 'Testing', position: 2 },
-      { id: `completed-${boardId}`, title: 'Completed', position: 3 }
+      { id: `todo-${boardId}`, title: 'To Do', position: 0, is_finished: false },
+      { id: `progress-${boardId}`, title: 'In Progress', position: 1, is_finished: false },
+      { id: `testing-${boardId}`, title: 'Testing', position: 2, is_finished: false },
+      { id: `completed-${boardId}`, title: 'Completed', position: 3, is_finished: true }
     ];
 
-    const columnStmt = db.prepare('INSERT INTO columns (id, boardId, title, position) VALUES (?, ?, ?, ?)');
+    const columnStmt = db.prepare('INSERT INTO columns (id, boardId, title, position, is_finished) VALUES (?, ?, ?, ?, ?)');
     defaultColumns.forEach(col => {
-      columnStmt.run(col.id, boardId, col.title, col.position);
+      columnStmt.run(col.id, boardId, col.title, col.position, col.is_finished ? 1 : 0);
     });
 
     // Create a sample task

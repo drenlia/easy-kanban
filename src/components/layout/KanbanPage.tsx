@@ -95,7 +95,7 @@ interface KanbanPageProps {
   onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   animateCopiedTaskId?: string | null;
-  onEditColumn: (columnId: string, title: string) => Promise<void>;
+  onEditColumn: (columnId: string, title: string, is_finished?: boolean) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   showColumnDeleteConfirm?: string | null;
@@ -527,6 +527,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 animateCopiedTaskId={animateCopiedTaskId}
                 onScrollControlsChange={setListViewScrollControls}
                 boards={boards}
+                siteSettings={siteSettings}
               />
             </div>
           ) : viewMode === 'gantt' ? (
@@ -546,6 +547,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               relationships={boardRelationships}
               onCopyTask={onCopyTask}
               onRemoveTask={onRemoveTask}
+              siteSettings={siteSettings}
             />
             </>
           ) : (
@@ -622,6 +624,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onEditTask={onEditTask}
                       onCopyTask={onCopyTask}
                       onEditColumn={onEditColumn}
+                      siteSettings={siteSettings}
                       onRemoveColumn={onRemoveColumn}
                       onAddColumn={onAddColumn}
                       showColumnDeleteConfirm={showColumnDeleteConfirm}
@@ -639,7 +642,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availableTags={availableTags}
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
-                      siteSettings={siteSettings}
                       boards={boards}
                       
                       // Task linking props
@@ -681,6 +683,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onEditTask={onEditTask}
                       onCopyTask={onCopyTask}
                       onEditColumn={onEditColumn}
+                      siteSettings={siteSettings}
                       onRemoveColumn={onRemoveColumn}
                       onAddColumn={onAddColumn}
                       showColumnDeleteConfirm={showColumnDeleteConfirm}
@@ -698,7 +701,6 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       availableTags={availableTags}
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
-                      siteSettings={siteSettings}
                       boards={boards}
                       
                       // Task linking props

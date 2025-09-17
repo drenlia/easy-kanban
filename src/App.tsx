@@ -31,7 +31,7 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, getQueryLogs, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -1064,15 +1064,15 @@ export default function App() {
       // Standard hash-based routing
       const route = parseUrlHash(window.location.hash);
       
-      // Debug to server console
-      fetch('/api/debug/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: '🔍 Route parsing', 
-          data: { hash: window.location.hash, route } 
-        })
-      }).catch(() => {}); // Silent fail
+      // Debug to server console - DISABLED
+      // fetch('/api/debug/log', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ 
+      //     message: '🔍 Route parsing', 
+      //     data: { hash: window.location.hash, route } 
+      //   })
+      // }).catch(() => {}); // Silent fail
       
       // 1. Handle page routing
       if (route.isPage) {
@@ -1093,39 +1093,39 @@ export default function App() {
           const token = route.queryParams.get('token');
           const email = route.queryParams.get('email');
           
-          // Debug to server console
-          fetch('/api/debug/log', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              message: '🔍 Activation route detected', 
-              data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
-            })
-          }).catch(() => {});
+          // Debug to server console - DISABLED
+          // fetch('/api/debug/log', {
+          //   method: 'POST',
+          //   headers: { 'Content-Type': 'application/json' },
+          //   body: JSON.stringify({ 
+          //     message: '🔍 Activation route detected', 
+          //     data: { token: token ? token.substring(0, 10) + '...' : null, email, queryParams: Object.fromEntries(route.queryParams) } 
+          //   })
+          // }).catch(() => {});
           
           if (token && email) {
             setActivationToken(token);
             setActivationEmail(email);
             
-            // Debug success to server console
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                message: '✅ Activation token and email set', 
-                data: { token: token.substring(0, 10) + '...', email } 
-              })
-            }).catch(() => {});
+            // Debug success to server console - DISABLED
+            // fetch('/api/debug/log', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({ 
+            //     message: '✅ Activation token and email set', 
+            //     data: { token: token.substring(0, 10) + '...', email } 
+            //   })
+            // }).catch(() => {});
           } else {
-            // Debug failure to server console
-            fetch('/api/debug/log', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                message: '❌ Missing activation token or email', 
-                data: { hasToken: !!token, hasEmail: !!email } 
-              })
-            }).catch(() => {});
+            // Debug failure to server console - DISABLED
+            // fetch('/api/debug/log', {
+            //   method: 'POST',
+            //   headers: { 'Content-Type': 'application/json' },
+            //   body: JSON.stringify({ 
+            //     message: '❌ Missing activation token or email', 
+            //     data: { hasToken: !!token, hasEmail: !!email } 
+            //   })
+            // }).catch(() => {});
           }
           
           // Mark activation parsing as complete
@@ -1259,17 +1259,24 @@ export default function App() {
   // Update columns when selected board changes
   useEffect(() => {
     if (selectedBoard) {
-      // Find the selected board in the current boards array
-      const board = boards.find(b => b.id === selectedBoard);
-      if (board) {
-        // Update columns immediately from the boards array
-        setColumns(board.columns || {});
-      } else {
-        // If board not found in current array, refresh from server
+      // When polling is disabled, always refresh from server to get fresh data
+      // When polling is enabled, use cached data for better performance
+      if (!isAutoRefreshEnabled) {
+        // Polling disabled - always refresh from server to ensure fresh data
         refreshBoardData();
+      } else {
+        // Polling enabled - use cached data for better performance
+        const board = boards.find(b => b.id === selectedBoard);
+        if (board) {
+          // Update columns immediately from the boards array
+          setColumns(board.columns || {});
+        } else {
+          // If board not found in current array, refresh from server
+          refreshBoardData();
+        }
       }
     }
-  }, [selectedBoard, boards]);
+  }, [selectedBoard, boards, isAutoRefreshEnabled]);
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
@@ -1328,12 +1335,13 @@ export default function App() {
   };
 
   const fetchQueryLogs = async () => {
-    try {
-      const logs = await getQueryLogs();
-      setQueryLogs(logs);
-    } catch (error) {
-      // console.error('Failed to fetch query logs:', error);
-    }
+    // DISABLED: Debug query logs fetching
+    // try {
+    //   const logs = await getQueryLogs();
+    //   setQueryLogs(logs);
+    // } catch (error) {
+    //   // console.error('Failed to fetch query logs:', error);
+    // }
   };
 
 
@@ -1542,10 +1550,9 @@ export default function App() {
         }));
       }
       
-      // Resume polling after brief delay
+      // Resume polling after delay to ensure server processing is complete
       setTimeout(() => {
         setTaskCreationPause(false);
-
       }, TASK_CREATION_PAUSE_DURATION);
       
     } catch (error) {
@@ -2132,12 +2139,12 @@ export default function App() {
     }
   };
 
-  const handleEditColumn = async (columnId: string, title: string) => {
+  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean) => {
     try {
-      await updateColumn(columnId, title);
+      await updateColumn(columnId, title, is_finished);
       setColumns(prev => ({
         ...prev,
-        [columnId]: { ...prev[columnId], title }
+        [columnId]: { ...prev[columnId], title, is_finished }
       }));
       await fetchQueryLogs();
     } catch (error) {

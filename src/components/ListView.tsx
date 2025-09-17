@@ -32,6 +32,7 @@ interface ListViewProps {
   animateCopiedTaskId?: string | null; // Task ID to animate (set by parent after copy)
   onScrollControlsChange?: (controls: ListViewScrollControls) => void; // Expose scroll controls to parent
   boards?: Board[]; // To get project identifier from board
+  siteSettings?: { [key: string]: string }; // Site settings for badge system
 }
 
 type SortField = 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
@@ -72,7 +73,8 @@ export default function ListView({
   onMoveTaskToColumn,
   animateCopiedTaskId,
   onScrollControlsChange,
-  boards
+  boards,
+  siteSettings
 }: ListViewProps) {
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -256,14 +258,18 @@ export default function ListView({
 
   // Flatten all tasks from all columns
   const allTasks = useMemo(() => {
-    const tasks: (Task & { columnTitle: string })[] = [];
+    const tasks: (Task & { columnTitle: string; columnPosition: number })[] = [];
     const columnCounts: {[key: string]: number} = {};
     if (filteredColumns && typeof filteredColumns === 'object') {
       Object.values(filteredColumns).forEach(column => {
         if (column && column.tasks && Array.isArray(column.tasks)) {
           columnCounts[column.title] = column.tasks.length;
           column.tasks.forEach(task => {
-            tasks.push({ ...task, columnTitle: column.title });
+            tasks.push({ 
+              ...task, 
+              columnTitle: column.title,
+              columnPosition: column.position || 0
+            });
           });
         }
       });
@@ -276,28 +282,22 @@ export default function ListView({
     return [...allTasks].sort((a, b) => {
       // Multi-level sort when using default column sort, or single-field sort when user clicks a column
       if (sortField === 'column' && sortDirection === 'asc') {
-        // Default multi-level sort: status → start date desc → due date desc → title asc
+        // Default multi-level sort: column position → task position → ticket
         
-        // 1. By status (column title)
-        const statusCompare = a.columnTitle.localeCompare(b.columnTitle);
-        if (statusCompare !== 0) return statusCompare;
+        // 1. By column position (ascending)
+        if (a.columnPosition !== b.columnPosition) {
+          return a.columnPosition - b.columnPosition;
+        }
         
-        // 2. By start date descending (newest first)
-        const aStartDate = new Date(a.startDate);
-        const bStartDate = new Date(b.startDate);
-        const aStartTime = !isNaN(aStartDate.getTime()) ? aStartDate.getTime() : 0;
-        const bStartTime = !isNaN(bStartDate.getTime()) ? bStartDate.getTime() : 0;
-        if (aStartTime !== bStartTime) return bStartTime - aStartTime; // desc
+        // 2. By task position within column (ascending)
+        const aTaskPosition = a.position || 0;
+        const bTaskPosition = b.position || 0;
+        if (aTaskPosition !== bTaskPosition) {
+          return aTaskPosition - bTaskPosition;
+        }
         
-        // 3. By due date descending (latest due dates first)
-        const aDueDate = a.dueDate ? new Date(a.dueDate) : null;
-        const bDueDate = b.dueDate ? new Date(b.dueDate) : null;
-        const aDueTime = aDueDate && !isNaN(aDueDate.getTime()) ? aDueDate.getTime() : 0;
-        const bDueTime = bDueDate && !isNaN(bDueDate.getTime()) ? bDueDate.getTime() : 0;
-        if (aDueTime !== bDueTime) return bDueTime - aDueTime; // desc
-        
-        // 4. By task title ascending
-        return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+        // 3. By ticket as fallback
+        return (a.ticket || '').localeCompare(b.ticket || '');
       } else {
         // Single-field sorting when user clicks on a column header
         let aValue: any, bValue: any;
@@ -458,6 +458,35 @@ export default function ListView({
         {priority.priority}
       </span>
     );
+  };
+
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
+
+  // Helper function to check if a task is overdue
+  const isTaskOverdue = (task: Task) => {
+    if (!task.dueDate) return false;
+    const today = new Date();
+    const dueDate = parseLocalDate(task.dueDate);
+    // Set time to beginning of day for fair comparison
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
+  // Helper function to check if a column is finished
+  const isColumnFinished = (columnId: string) => {
+    const column = filteredColumns[columnId];
+    return column?.is_finished || false;
   };
 
   const getTagsDisplay = (tags: Tag[]) => {
@@ -1123,6 +1152,52 @@ export default function ListView({
                           >
                             {getPriorityDisplay(task.priority)}
                           </div>
+                          
+                          {/* Completed Column Banner Overlay - positioned over priority */}
+                          {isColumnFinished(task.columnId) && (
+                            <div className="absolute inset-0 pointer-events-none z-30">
+                              {/* Diagonal banner background */}
+                              <div className="absolute top-0 right-0 w-full h-full">
+                                <div 
+                                  className="absolute top-0 right-0 w-0 h-0"
+                                  style={{
+                                    borderLeft: '60px solid transparent',
+                                    borderBottom: '100% solid rgba(34, 197, 94, 0.2)',
+                                    transform: 'translateX(0)'
+                                  }}
+                                />
+                              </div>
+                              {/* "DONE" stamp */}
+                              <div className="absolute top-0.5 right-0.5">
+                                <div className="bg-green-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+                                  DONE
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Overdue Task Banner Overlay - positioned over priority */}
+                          {!isColumnFinished(task.columnId) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+                            <div className="absolute inset-0 pointer-events-none z-30">
+                              {/* Diagonal banner background */}
+                              <div className="absolute top-0 right-0 w-full h-full">
+                                <div 
+                                  className="absolute top-0 right-0 w-0 h-0"
+                                  style={{
+                                    borderLeft: '60px solid transparent',
+                                    borderBottom: '100% solid rgba(239, 68, 68, 0.2)',
+                                    transform: 'translateX(0)'
+                                  }}
+                                />
+                              </div>
+                              {/* "LATE" stamp */}
+                              <div className="absolute top-0.5 right-0.5">
+                                <div className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+                                  LATE
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                       {column.key === 'column' && (
@@ -1178,8 +1253,16 @@ export default function ListView({
                           <span 
                             className={`text-xs font-mono cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 ${
                               (() => {
-                                const dueDate = new Date(task.dueDate);
-                                return !isNaN(dueDate.getTime()) && dueDate < new Date() ? 'text-red-600' : 'text-gray-700';
+                                // Don't show red for tasks in finished columns (due date is irrelevant)
+                                if (isColumnFinished(task.columnId)) {
+                                  return 'text-gray-700';
+                                }
+                                
+                                const dueDate = parseLocalDate(task.dueDate);
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                dueDate.setHours(0, 0, 0, 0);
+                                return !isNaN(dueDate.getTime()) && dueDate < today ? 'text-red-600' : 'text-gray-700';
                               })()
                             }`}
                             onClick={(e) => {

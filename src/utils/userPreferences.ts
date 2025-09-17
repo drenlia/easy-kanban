@@ -1,5 +1,6 @@
 import { Priority } from '../types';
 import { updateUserSetting, getUserSettings } from '../api';
+import api from '../api';
 
 // Global state to track preference saving operations
 let globalSavingCallbacks: Set<() => void> = new Set();
@@ -188,9 +189,9 @@ let ADMIN_DEFAULT_PREFERENCES: Partial<UserPreferences> | null = null;
 // Function to load admin defaults from system settings
 export const loadAdminDefaults = async (): Promise<void> => {
   try {
-    // This would call your existing settings API to get admin-configured defaults
-    const response = await fetch('/api/settings');
-    const settings = await response.json();
+    // Use the api instance to get admin-configured defaults with proper authentication
+    const response = await api.get('/admin/settings');
+    const settings = response.data;
     
     // Parse admin defaults from settings (if they exist)
     ADMIN_DEFAULT_PREFERENCES = {};

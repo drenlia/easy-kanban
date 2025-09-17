@@ -21,20 +21,20 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
   const [success, setSuccess] = useState(false);
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
 
-  // Debug props to server console
-  React.useEffect(() => {
-    fetch('/api/debug/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        message: '🔍 ActivateAccount props', 
-        data: { 
-          token: token ? token.substring(0, 10) + '...' : 'missing', 
-          email: email || 'missing' 
-        } 
-      })
-    }).catch(() => {});
-  }, [token, email]);
+  // Debug props to server console - DISABLED
+  // React.useEffect(() => {
+  //   fetch('/api/debug/log', {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' },
+  //     body: JSON.stringify({ 
+  //       message: '🔍 ActivateAccount props', 
+  //       data: { 
+  //         token: token ? token.substring(0, 10) + '...' : 'missing', 
+  //         email: email || 'missing' 
+  //       } 
+  //     })
+  //   }).catch(() => {});
+  // }, [token, email]);
 
   // Check if Google OAuth is configured
   useEffect(() => {
