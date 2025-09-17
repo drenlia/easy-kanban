@@ -290,18 +290,6 @@ router.get('/google/callback', async (req, res) => {
       tokenLength: token.length
     });
     
-    // Prepare redirect URL
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const redirectUrl = isNewUser 
-      ? `${baseUrl}/#login?token=${token}&newUser=true`
-      : `${baseUrl}/#login?token=${token}`;
-    
-    console.log('🔐 [GOOGLE SSO] Preparing redirect:', {
-      isNewUser,
-      redirectUrl: redirectUrl.replace(/token=[^&]+/, 'token=***'),
-      baseUrl
-    });
-    
     // Redirect to login page with token and newUser flag
     console.log('🔐 [GOOGLE SSO] ======== AUTHENTICATION COMPLETE ========');
     if (isNewUser) {

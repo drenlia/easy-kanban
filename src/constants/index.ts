@@ -30,7 +30,7 @@ export const DEFAULT_SITE_SETTINGS = {
 };
 
 // Polling configuration
-export const POLLING_INTERVAL = 3000; // 3 seconds
+export const POLLING_INTERVAL = 15000; // 15 seconds (backup only, WebSocket handles real-time)
 export const DRAG_COOLDOWN_DURATION = 5000; // 5 seconds
 export const TASK_CREATION_PAUSE_DURATION = 3000; // 3 seconds - increased to prevent race conditions
 export const BOARD_CREATION_PAUSE_DURATION = 1000; // 1 second

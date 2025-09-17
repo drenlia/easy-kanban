@@ -338,21 +338,23 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           sessionStorage.removeItem('originalIntendedUrl');
         }
         
-        // Force authentication check by triggering a state change
-        setIsAuthenticated(false);
+        // Store the token in localStorage
+        localStorage.setItem('authToken', token);
+        console.log('🔑 Token stored in localStorage:', token.substring(0, 20) + '...');
+        
+        // Set authenticated immediately after storing token
+        setIsAuthenticated(true);
+        isProcessingOAuthRef.current = false; // Clear OAuth processing flag
         
         // Fetch current user data immediately after OAuth
         api.getCurrentUser()
           .then(response => {
             setCurrentUser(response.user);
-            setIsAuthenticated(true);
-            isProcessingOAuthRef.current = false; // Clear OAuth processing flag
             console.log('✅ Google OAuth complete for:', response.user.email, 'auth_provider:', response.user.authProvider || 'google');
           })
           .catch(() => {
-            // Fallback: just set authenticated and let the auth effect handle it
-            setIsAuthenticated(true);
-            isProcessingOAuthRef.current = false; // Clear OAuth processing flag
+            // Fallback: just let the auth effect handle it
+            console.log('⚠️ Failed to fetch user data, but token is stored');
           });
         
         return; // Exit early to prevent routing conflicts
@@ -370,6 +372,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   return {
     // State
     isAuthenticated,
+    authChecked,
     currentUser,
     siteSettings,
     hasDefaultAdmin,

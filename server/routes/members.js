@@ -1,6 +1,7 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // Create member
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { id, name, color } = req.body;
   try {
     const { db } = req.app.locals;
@@ -72,6 +73,15 @@ router.post('/', (req, res) => {
     }
     
     wrapQuery(db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'), 'INSERT').run(id, name, color);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing member-created to Redis');
+    await redisService.publish('member-created', {
+      member: { id, name, color },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Member-created published to Redis');
+    
     res.json({ id, name, color });
   } catch (error) {
     console.error('Error creating member:', error);
@@ -80,11 +90,20 @@ router.post('/', (req, res) => {
 });
 
 // Delete member
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
     wrapQuery(db.prepare('DELETE FROM members WHERE id = ?'), 'DELETE').run(id);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing member-deleted to Redis');
+    await redisService.publish('member-deleted', {
+      memberId: id,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Member-deleted published to Redis');
+    
     res.json({ message: 'Member deleted successfully' });
   } catch (error) {
     console.error('Error deleting member:', error);
