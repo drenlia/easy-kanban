@@ -4,6 +4,8 @@ import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
 import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, addTaskAttachments, uploadFile, deleteAttachment } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 import TextEditor from './TextEditor';
+import websocketClient from '../services/websocketClient';
+import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 
 interface QuickEditModalProps {
   task: Task;
@@ -127,6 +129,108 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // WebSocket event listeners for real-time updates
+  useEffect(() => {
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 QuickEditModal: Tag created via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 QuickEditModal: Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 QuickEditModal: Tag updated via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 QuickEditModal: Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 QuickEditModal: Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 QuickEditModal: Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 QuickEditModal: Priority created via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 QuickEditModal: Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 QuickEditModal: Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 QuickEditModal: Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 QuickEditModal: Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 QuickEditModal: Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 QuickEditModal: Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 QuickEditModal: Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+    };
   }, []);
 
   const toggleTag = async (tag: Tag) => {
@@ -296,8 +400,8 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
   ], [taskAttachments, pendingAttachments]);
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-[576px]">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-[691px] max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-semibold">Quick Edit Task</h3>
           <button
@@ -309,7 +413,13 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div 
+          className="flex-1 overflow-y-auto space-y-4 pr-2"
+          style={{
+            scrollbarWidth: 'thin',
+            scrollbarColor: '#CBD5E1 #F1F5F9'
+          }}
+        >
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -378,11 +488,16 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showWatchersDropdown && (
-                <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
-                  watchersDropdownPosition === 'above' 
-                    ? 'bottom-full mb-1' 
-                    : 'top-full mt-1'
-                }`}>
+                <div 
+                  className={`absolute z-50 w-full bg-white border rounded-md shadow-lg overflow-y-auto ${
+                    watchersDropdownPosition === 'above' 
+                      ? 'bottom-full mb-1' 
+                      : 'top-full mt-1'
+                  }`}
+                  style={{
+                    maxHeight: `${Math.min(192, Math.max(64, members.length * 40 + 8))}px` // 40px per member + 8px padding, min 64px, max 192px
+                  }}
+                >
                   {members.map(member => {
                     const isWatching = taskWatchers.some(w => w.id === member.id);
                     return (
@@ -449,11 +564,16 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showCollaboratorsDropdown && (
-                <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
-                  collaboratorsDropdownPosition === 'above' 
-                    ? 'bottom-full mb-1' 
-                    : 'top-full mt-1'
-                }`}>
+                <div 
+                  className={`absolute z-50 w-full bg-white border rounded-md shadow-lg overflow-y-auto ${
+                    collaboratorsDropdownPosition === 'above' 
+                      ? 'bottom-full mb-1' 
+                      : 'top-full mt-1'
+                  }`}
+                  style={{
+                    maxHeight: `${Math.min(192, Math.max(64, members.length * 40 + 8))}px` // 40px per member + 8px padding, min 64px, max 192px
+                  }}
+                >
                   {members.map(member => {
                     const isCollaborating = taskCollaborators.some(c => c.id === member.id);
                     return (
@@ -613,37 +733,17 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             </div>
             
             {/* Selected Tags Display */}
-            {taskTags.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {taskTags.map(tag => (
-                  <span
-                    key={tag.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium hover:opacity-80 transition-opacity"
-                    style={(() => {
-                      if (!tag.color) {
-                        return { backgroundColor: '#6b7280', color: 'white' };
-                      }
-                      
-                      // Calculate luminance to determine text color
-                      const hex = tag.color.replace('#', '');
-                      if (hex.length === 6) {
-                        const r = parseInt(hex.substring(0, 2), 16);
-                        const g = parseInt(hex.substring(2, 4), 16);
-                        const b = parseInt(hex.substring(4, 6), 16);
-                        
-                        // Calculate relative luminance
-                        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                        
-                        // Use dark text for light backgrounds, white text for dark backgrounds
-                        const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
-                        const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
-                        
-                        return { backgroundColor: tag.color, color: textColor, ...borderStyle };
-                      }
-                      
-                      // Fallback for invalid hex colors
-                      return { backgroundColor: tag.color, color: 'white' };
-                    })()}
+            {taskTags.length > 0 && (() => {
+              // Merge task tags with live tag data to get updated colors
+              const liveTags = mergeTaskTagsWithLiveData(taskTags, availableTags);
+              
+              return (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {liveTags.map(tag => (
+                    <span
+                      key={tag.id}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium hover:opacity-80 transition-opacity"
+                      style={getTagDisplayStyle(tag)}
                   >
                     {tag.tag}
                     <button
@@ -660,7 +760,8 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                   </span>
                 ))}
               </div>
-            )}
+              );
+            })()}
           </div>
 
           <div>
@@ -681,7 +782,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="flex justify-end gap-3 mt-6 flex-shrink-0 border-t pt-4">
           <button
             type="button"
             onClick={onClose}

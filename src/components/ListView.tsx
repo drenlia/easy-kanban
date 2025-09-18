@@ -8,6 +8,7 @@ import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 import DOMPurify from 'dompurify';
 import { generateTaskUrl } from '../utils/routingUtils';
+import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -249,7 +250,7 @@ export default function ListView({
   const [editValue, setEditValue] = useState<string>('');
   const [showDropdown, setShowDropdown] = useState<{taskId: string, field: string} | null>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
-  const [assigneeDropdownCoords, setAssigneeDropdownCoords] = useState<{left: number; top: number} | null>(null);
+  const [assigneeDropdownCoords, setAssigneeDropdownCoords] = useState<{left: number; top: number; height?: number} | null>(null);
   const [priorityDropdownCoords, setPriorityDropdownCoords] = useState<{left: number; top: number} | null>(null);
   const [statusDropdownCoords, setStatusDropdownCoords] = useState<{left: number; top: number} | null>(null);
   const [tagsDropdownCoords, setTagsDropdownCoords] = useState<{left: number; top: number} | null>(null);
@@ -498,43 +499,22 @@ export default function ListView({
       );
     }
 
+    // Merge task tags with live tag data to get updated colors
+    const liveTags = mergeTaskTagsWithLiveData(tags, availableTags);
+
     return (
       <div className="flex flex-wrap gap-1">
-        {tags.slice(0, 2).map(tag => (
+        {liveTags.slice(0, 2).map(tag => (
           <span
             key={tag.id}
             className="px-1.5 py-0.5 rounded text-xs font-medium"
-            style={(() => {
-              if (!tag.color) {
-                return { backgroundColor: '#6b7280', color: 'white' };
-              }
-              
-              // Calculate luminance to determine text color
-              const hex = tag.color.replace('#', '');
-              if (hex.length === 6) {
-                const r = parseInt(hex.substring(0, 2), 16);
-                const g = parseInt(hex.substring(2, 4), 16);
-                const b = parseInt(hex.substring(4, 6), 16);
-                
-                // Calculate relative luminance
-                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                
-                // Use dark text for light backgrounds, white text for dark backgrounds
-                const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
-                const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
-                
-                return { backgroundColor: tag.color, color: textColor, ...borderStyle };
-              }
-              
-              // Fallback for invalid hex colors
-              return { backgroundColor: tag.color, color: 'white' };
-            })()}
+            style={getTagDisplayStyle(tag)}
           >
             {tag.tag}
           </span>
         ))}
-        {tags.length > 2 && (
-          <span className="text-xs text-gray-500">+{tags.length - 2}</span>
+        {liveTags.length > 2 && (
+          <span className="text-xs text-gray-500">+{liveTags.length - 2}</span>
         )}
       </div>
     );
@@ -705,7 +685,20 @@ export default function ListView({
     switch (dropdownType) {
       case 'assignee':
         dropdownWidth = 180;
-        dropdownHeight = 150;
+        // Calculate optimal height for member dropdown based on number of members and viewport space
+        const memberItemHeight = 32; // Approximate height per member item (py-2 = 8px top + 8px bottom + text height)
+        const maxMembers = members?.length || 0;
+        const availableSpaceBelow = window.innerHeight - rect.bottom - 20; // 20px margin
+        const availableSpaceAbove = rect.top - 20; // 20px margin
+        const maxAvailableSpace = Math.max(availableSpaceBelow, availableSpaceAbove);
+        
+        // Calculate how many members we can fit
+        const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
+        const membersToShow = Math.min(maxMembers, maxVisibleMembers);
+        
+        // Set height based on actual members to show, with a minimum of 2 members and maximum of 8
+        const visibleMembers = Math.max(2, Math.min(8, membersToShow));
+        dropdownHeight = visibleMembers * memberItemHeight + 8; // +8 for padding
         break;
       case 'priority':
         dropdownWidth = 120;
@@ -751,7 +744,7 @@ export default function ListView({
     // Ensure dropdown stays within viewport
     top = Math.max(10, Math.min(top, window.innerHeight - dropdownHeight - 10));
     
-    return { left, top };
+    return { left, top, height: dropdownHeight };
   };
 
   const toggleDropdown = (taskId: string, field: string, event?: React.MouseEvent) => {
@@ -1458,9 +1451,10 @@ export default function ListView({
           style={{
             left: `${assigneeDropdownCoords.left}px`,
             top: `${assigneeDropdownCoords.top}px`,
+            maxHeight: `${assigneeDropdownCoords.height || 150}px`,
           }}
         >
-          <div className="py-1">
+          <div className="py-1 max-h-full overflow-y-auto">
             {members?.map(member => (
               <button
                 key={member.id}

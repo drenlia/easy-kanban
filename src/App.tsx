@@ -40,7 +40,7 @@ import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
 import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
-import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -916,10 +916,25 @@ export default function App() {
       }
     };
 
-    const handleMemberUpdated = (data: any) => {
+    const handleMemberUpdated = async (data: any) => {
       console.log('📨 Member updated via WebSocket:', data);
-      // Refresh members list
-      handleMembersUpdate(data.members || []);
+      // Update the specific member in the members list
+      if (data.member) {
+        setMembers(prevMembers => {
+          const updatedMembers = prevMembers.map(member => 
+            member.id === data.member.id ? { ...member, ...data.member } : member
+          );
+          return updatedMembers;
+        });
+      } else {
+        // Fallback: refresh entire members list
+        try {
+          const loadedMembers = await getMembers(includeSystem);
+          setMembers(loadedMembers);
+        } catch (error) {
+          console.error('Failed to refresh members after update:', error);
+        }
+      }
     };
 
     const handleActivityUpdated = (data: any) => {
@@ -938,6 +953,17 @@ export default function App() {
       console.log('📨 Member deleted via WebSocket:', data);
       // Refresh members list
       handleMembersUpdate([]);
+    };
+
+    const handleUserProfileUpdated = async (data: any) => {
+      console.log('📨 User profile updated via WebSocket:', data);
+      // Refresh members list to update display name and avatar
+      try {
+        const loadedMembers = await getMembers(includeSystem);
+        setMembers(loadedMembers);
+      } catch (error) {
+        console.error('Failed to refresh members after profile update:', error);
+      }
     };
 
     const handleFilterCreated = (data: any) => {
@@ -973,6 +999,114 @@ export default function App() {
       }
     };
 
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 Tag created via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 Tag updated via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 Priority created via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Settings update event handler
+    const handleSettingsUpdated = async (data: any) => {
+      console.log('📨 Settings updated via WebSocket:', data);
+      try {
+        const settings = await getSettings();
+        setSiteSettings(settings);
+        console.log('📨 Settings refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh settings after update:', error);
+      }
+    };
+
+    // Task tag event handlers
+    const handleTaskTagAdded = (data: any) => {
+      console.log('📨 Task tag added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskTagRemoved = (data: any) => {
+      console.log('📨 Task tag removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
     // Register event listeners
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskUpdated(handleTaskUpdated);
@@ -994,10 +1128,21 @@ export default function App() {
     websocketClient.onMemberUpdated(handleMemberUpdated);
     websocketClient.onMemberCreated(handleMemberCreated);
     websocketClient.onMemberDeleted(handleMemberDeleted);
+    websocketClient.onUserProfileUpdated(handleUserProfileUpdated);
     websocketClient.onActivityUpdated(handleActivityUpdated);
     websocketClient.onFilterCreated(handleFilterCreated);
     websocketClient.onFilterUpdated(handleFilterUpdated);
     websocketClient.onFilterDeleted(handleFilterDeleted);
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+    websocketClient.onSettingsUpdated(handleSettingsUpdated);
+    websocketClient.onTaskTagAdded(handleTaskTagAdded);
+    websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
 
     return () => {
       // Clean up event listeners
@@ -1021,10 +1166,21 @@ export default function App() {
       websocketClient.offMemberUpdated(handleMemberUpdated);
       websocketClient.offMemberCreated(handleMemberCreated);
       websocketClient.offMemberDeleted(handleMemberDeleted);
+      websocketClient.offUserProfileUpdated(handleUserProfileUpdated);
       websocketClient.offActivityUpdated(handleActivityUpdated);
       websocketClient.offFilterCreated(handleFilterCreated);
       websocketClient.offFilterUpdated(handleFilterUpdated);
       websocketClient.offFilterDeleted(handleFilterDeleted);
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+      websocketClient.offSettingsUpdated(handleSettingsUpdated);
+      websocketClient.offTaskTagAdded(handleTaskTagAdded);
+      websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
       websocketClient.offWebSocketReady(handleWebSocketReady);
     };
   }, [isAuthenticated, selectedBoard]);

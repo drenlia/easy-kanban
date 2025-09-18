@@ -337,6 +337,141 @@ class WebSocketClient {
   offFilterDeleted(callback?: (data: any) => void) {
     this.socket?.off('filter-deleted', callback);
   }
+
+  // Comment events
+  onCommentCreated(callback: (data: any) => void) {
+    this.socket?.on('comment-created', callback);
+  }
+
+  offCommentCreated(callback?: (data: any) => void) {
+    this.socket?.off('comment-created', callback);
+  }
+
+  onCommentUpdated(callback: (data: any) => void) {
+    this.socket?.on('comment-updated', callback);
+  }
+
+  offCommentUpdated(callback?: (data: any) => void) {
+    this.socket?.off('comment-updated', callback);
+  }
+
+  onCommentDeleted(callback: (data: any) => void) {
+    this.socket?.on('comment-deleted', callback);
+  }
+
+  offCommentDeleted(callback?: (data: any) => void) {
+    this.socket?.off('comment-deleted', callback);
+  }
+
+  // Attachment events
+  onAttachmentCreated(callback: (data: any) => void) {
+    this.socket?.on('attachment-created', callback);
+  }
+
+  offAttachmentCreated(callback?: (data: any) => void) {
+    this.socket?.off('attachment-created', callback);
+  }
+
+  onAttachmentDeleted(callback: (data: any) => void) {
+    this.socket?.on('attachment-deleted', callback);
+  }
+
+  offAttachmentDeleted(callback?: (data: any) => void) {
+    this.socket?.off('attachment-deleted', callback);
+  }
+
+  // User profile events
+  onUserProfileUpdated(callback: (data: any) => void) {
+    this.socket?.on('user-profile-updated', callback);
+  }
+
+  offUserProfileUpdated(callback?: (data: any) => void) {
+    this.socket?.off('user-profile-updated', callback);
+  }
+
+  // Tag management events
+  onTagCreated(callback: (data: any) => void) {
+    this.socket?.on('tag-created', callback);
+  }
+
+  offTagCreated(callback?: (data: any) => void) {
+    this.socket?.off('tag-created', callback);
+  }
+
+  onTagUpdated(callback: (data: any) => void) {
+    this.socket?.on('tag-updated', callback);
+  }
+
+  offTagUpdated(callback?: (data: any) => void) {
+    this.socket?.off('tag-updated', callback);
+  }
+
+  onTagDeleted(callback: (data: any) => void) {
+    this.socket?.on('tag-deleted', callback);
+  }
+
+  offTagDeleted(callback?: (data: any) => void) {
+    this.socket?.off('tag-deleted', callback);
+  }
+
+  // Priority management events
+  onPriorityCreated(callback: (data: any) => void) {
+    this.socket?.on('priority-created', callback);
+  }
+
+  offPriorityCreated(callback?: (data: any) => void) {
+    this.socket?.off('priority-created', callback);
+  }
+
+  onPriorityUpdated(callback: (data: any) => void) {
+    this.socket?.on('priority-updated', callback);
+  }
+
+  offPriorityUpdated(callback?: (data: any) => void) {
+    this.socket?.off('priority-updated', callback);
+  }
+
+  onPriorityDeleted(callback: (data: any) => void) {
+    this.socket?.on('priority-deleted', callback);
+  }
+
+  offPriorityDeleted(callback?: (data: any) => void) {
+    this.socket?.off('priority-deleted', callback);
+  }
+
+  onPriorityReordered(callback: (data: any) => void) {
+    this.socket?.on('priority-reordered', callback);
+  }
+
+  offPriorityReordered(callback?: (data: any) => void) {
+    this.socket?.off('priority-reordered', callback);
+  }
+
+  // Settings update events
+  onSettingsUpdated(callback: (data: any) => void) {
+    this.socket?.on('settings-updated', callback);
+  }
+
+  offSettingsUpdated(callback?: (data: any) => void) {
+    this.socket?.off('settings-updated', callback);
+  }
+
+  // Task tag events
+  onTaskTagAdded(callback: (data: any) => void) {
+    this.socket?.on('task-tag-added', callback);
+  }
+
+  offTaskTagAdded(callback?: (data: any) => void) {
+    this.socket?.off('task-tag-added', callback);
+  }
+
+  onTaskTagRemoved(callback: (data: any) => void) {
+    this.socket?.on('task-tag-removed', callback);
+  }
+
+  offTaskTagRemoved(callback?: (data: any) => void) {
+    this.socket?.off('task-tag-removed', callback);
+  }
 }
 
 export default new WebSocketClient();
