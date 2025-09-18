@@ -90,6 +90,7 @@ export const useDataPolling = ({
   const currentActivitiesRef = useRef(currentActivities);
   const currentSharedFiltersRef = useRef(currentSharedFilters);
   const currentRelationshipsRef = useRef(currentRelationships);
+  const includeSystemRef = useRef(includeSystem);
 
   // Update refs when props change
   currentBoardsRef.current = currentBoards;
@@ -100,6 +101,7 @@ export const useDataPolling = ({
   currentActivitiesRef.current = currentActivities;
   currentSharedFiltersRef.current = currentSharedFilters;
   currentRelationshipsRef.current = currentRelationships;
+  includeSystemRef.current = includeSystem;
 
   useEffect(() => {
     if (process.env.NODE_ENV === 'development') {
@@ -127,7 +129,7 @@ export const useDataPolling = ({
       try {
         const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([
           api.getBoards(),
-          api.getMembers(includeSystem), // Use current includeSystem state
+          api.getMembers(includeSystemRef.current), // Use ref to avoid dependency on includeSystem
           api.getPublicSettings(),
           getAllPriorities(),
           onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([]),
@@ -293,7 +295,6 @@ export const useDataPolling = ({
   }, [
     enabled,
     selectedBoard,
-    includeSystem,
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,

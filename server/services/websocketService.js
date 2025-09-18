@@ -199,6 +199,93 @@ class WebSocketService {
               console.log('📨 Broadcasting filter-deleted:', data);
               this.io?.emit('filter-deleted', data);
             });
+
+            // Comment events
+            redisService.subscribe('comment-created', (data) => {
+              console.log('📨 Broadcasting comment-created:', data);
+              this.io?.to(`board-${data.boardId}`).emit('comment-created', data);
+            });
+
+            redisService.subscribe('comment-updated', (data) => {
+              console.log('📨 Broadcasting comment-updated:', data);
+              this.io?.to(`board-${data.boardId}`).emit('comment-updated', data);
+            });
+
+            redisService.subscribe('comment-deleted', (data) => {
+              console.log('📨 Broadcasting comment-deleted:', data);
+              this.io?.to(`board-${data.boardId}`).emit('comment-deleted', data);
+            });
+
+            // Attachment events
+            redisService.subscribe('attachment-created', (data) => {
+              console.log('📨 Broadcasting attachment-created:', data);
+              this.io?.to(`board-${data.boardId}`).emit('attachment-created', data);
+            });
+
+            redisService.subscribe('attachment-deleted', (data) => {
+              console.log('📨 Broadcasting attachment-deleted:', data);
+              this.io?.to(`board-${data.boardId}`).emit('attachment-deleted', data);
+            });
+
+            // User profile events
+            redisService.subscribe('user-profile-updated', (data) => {
+              console.log('📨 Broadcasting user-profile-updated:', data);
+              this.io?.emit('user-profile-updated', data);
+            });
+
+            // Tag management events
+            redisService.subscribe('tag-created', (data) => {
+              console.log('📨 Broadcasting tag-created:', data);
+              this.io?.emit('tag-created', data);
+            });
+
+            redisService.subscribe('tag-updated', (data) => {
+              console.log('📨 Broadcasting tag-updated:', data);
+              this.io?.emit('tag-updated', data);
+            });
+
+            redisService.subscribe('tag-deleted', (data) => {
+              console.log('📨 Broadcasting tag-deleted:', data);
+              this.io?.emit('tag-deleted', data);
+            });
+
+            // Priority management events
+            redisService.subscribe('priority-created', (data) => {
+              console.log('📨 Broadcasting priority-created:', data);
+              this.io?.emit('priority-created', data);
+            });
+
+            redisService.subscribe('priority-updated', (data) => {
+              console.log('📨 Broadcasting priority-updated:', data);
+              this.io?.emit('priority-updated', data);
+            });
+
+            redisService.subscribe('priority-deleted', (data) => {
+              console.log('📨 Broadcasting priority-deleted:', data);
+              this.io?.emit('priority-deleted', data);
+            });
+
+            redisService.subscribe('priority-reordered', (data) => {
+              console.log('📨 Broadcasting priority-reordered:', data);
+              this.io?.emit('priority-reordered', data);
+            });
+
+            // Settings update events
+            redisService.subscribe('settings-updated', (data) => {
+              console.log('📨 Broadcasting settings-updated:', data);
+              this.io?.emit('settings-updated', data);
+            });
+
+            // Task tag events
+            redisService.subscribe('task-tag-added', (data) => {
+              console.log('📨 Broadcasting task-tag-added:', data);
+              this.io?.to(`board-${data.boardId}`).emit('task-tag-added', data);
+            });
+
+            redisService.subscribe('task-tag-removed', (data) => {
+              console.log('📨 Broadcasting task-tag-removed:', data);
+              this.io?.to(`board-${data.boardId}`).emit('task-tag-removed', data);
+            });
   }
 
   getConnectedClients() {

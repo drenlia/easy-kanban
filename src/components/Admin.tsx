@@ -9,6 +9,7 @@ import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
 import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
 import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
+import websocketClient from '../services/websocketClient';
 
 interface AdminProps {
   currentUser: any;
@@ -121,6 +122,110 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [activeTab]);
+
+  // WebSocket event listeners for real-time updates
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 Admin: Tag created via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 Admin: Tag updated via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 Admin: Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 Admin: Priority created via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 Admin: Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 Admin: Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 Admin: Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+    };
+  }, [currentUser?.roles]);
 
   const loadData = async () => {
     try {
