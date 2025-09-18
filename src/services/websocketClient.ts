@@ -456,6 +456,39 @@ class WebSocketClient {
     this.socket?.off('settings-updated', callback);
   }
 
+  // User management events
+  onUserCreated(callback: (data: any) => void) {
+    this.socket?.on('user-created', callback);
+  }
+
+  offUserCreated(callback?: (data: any) => void) {
+    this.socket?.off('user-created', callback);
+  }
+
+  onUserUpdated(callback: (data: any) => void) {
+    this.socket?.on('user-updated', callback);
+  }
+
+  offUserUpdated(callback?: (data: any) => void) {
+    this.socket?.off('user-updated', callback);
+  }
+
+  onUserRoleUpdated(callback: (data: any) => void) {
+    this.socket?.on('user-role-updated', callback);
+  }
+
+  offUserRoleUpdated(callback?: (data: any) => void) {
+    this.socket?.off('user-role-updated', callback);
+  }
+
+  onUserDeleted(callback: (data: any) => void) {
+    this.socket?.on('user-deleted', callback);
+  }
+
+  offUserDeleted(callback?: (data: any) => void) {
+    this.socket?.off('user-deleted', callback);
+  }
+
   // Task tag events
   onTaskTagAdded(callback: (data: any) => void) {
     this.socket?.on('task-tag-added', callback);

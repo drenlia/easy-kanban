@@ -151,6 +151,33 @@ class WebSocketService {
       this.io?.to(`board-${data.boardId}`).emit('activity-updated', data);
     });
 
+    // Admin user management events
+    redisService.subscribe('user-created', (data) => {
+      console.log('📨 Broadcasting user-created:', data);
+      this.io?.emit('user-created', data);
+    });
+
+    redisService.subscribe('user-updated', (data) => {
+      console.log('📨 Broadcasting user-updated:', data);
+      this.io?.emit('user-updated', data);
+    });
+
+    redisService.subscribe('user-role-updated', (data) => {
+      console.log('📨 Broadcasting user-role-updated:', data);
+      this.io?.emit('user-role-updated', data);
+    });
+
+    redisService.subscribe('user-deleted', (data) => {
+      console.log('📨 Broadcasting user-deleted:', data);
+      this.io?.emit('user-deleted', data);
+    });
+
+    // Admin settings events
+    redisService.subscribe('settings-updated', (data) => {
+      console.log('📨 Broadcasting settings-updated:', data);
+      this.io?.emit('settings-updated', data);
+    });
+
     // Task watcher updates
     redisService.subscribe('task-watcher-added', (data) => {
       console.log('📨 Broadcasting task-watcher-added:', data);

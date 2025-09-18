@@ -887,7 +887,7 @@ app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole([
 });
 
 // Update user details (MUST come after more specific routes)
-app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { email, firstName, lastName, isActive } = req.body;
   
@@ -911,6 +911,20 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (
     // Note: Member name is updated separately via /api/admin/users/:userId/member-name
     // This allows for custom display names that differ from firstName + lastName
 
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-updated to Redis');
+    await redisService.publish('user-updated', {
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName, 
+        isActive: !!isActive,
+        timestamp: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    });
+
     res.json({ message: 'User updated successfully' });
   } catch (error) {
     console.error('Error updating user:', error);
@@ -919,7 +933,7 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (
 });
 
 // Update user role
-app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { role } = req.body;
   
@@ -958,6 +972,14 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
       `), 'UPDATE').run(userId);
 
       console.log(`🔄 User ${userId} role changed to ${role} - no logout required`);
+      
+      // Publish to Redis for real-time updates
+      console.log('📤 Publishing user-role-updated to Redis');
+      await redisService.publish('user-role-updated', {
+        userId: userId,
+        role: role,
+        timestamp: new Date().toISOString()
+      });
     }
 
     res.json({ message: 'User role updated successfully' });
@@ -971,15 +993,34 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
 app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role, displayName, baseUrl } = req.body;
   
-  if (!email || !password || !firstName || !lastName || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
+  // Validate required fields with specific error messages
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+  if (!firstName) {
+    return res.status(400).json({ error: 'First name is required' });
+  }
+  if (!lastName) {
+    return res.status(400).json({ error: 'Last name is required' });
+  }
+  if (!role) {
+    return res.status(400).json({ error: 'User role is required' });
+  }
+  
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address format' });
   }
   
   try {
     // Check if email already exists
     const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
+      return res.status(400).json({ error: `User with email ${email} already exists` });
     }
     
     // Generate user ID
@@ -1045,6 +1086,25 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       console.warn('⚠️ Failed to send invitation email:', emailError.message);
       // Don't fail user creation if email fails
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-created to Redis');
+    await redisService.publish('user-created', {
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName, 
+        role, 
+        isActive: false,
+        displayName: memberName,
+        memberColor: memberColor,
+        authProvider: 'local',
+        createdAt: new Date().toISOString()
+      },
+      member: { id: memberId, name: memberName, color: memberColor },
+      timestamp: new Date().toISOString()
+    });
     
     res.json({ 
       message: 'User created successfully. An invitation email has been sent.',
@@ -1200,6 +1260,21 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
       });
       console.log('✅ Member-deleted published to Redis');
     }
+    
+    // Publish user-deleted event for real-time updates
+    console.log('📤 Publishing user-deleted to Redis');
+    await redisService.publish('user-deleted', {
+      userId: userId,
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        isActive: !!user.is_active,
+        authProvider: user.auth_provider
+      },
+      timestamp: new Date().toISOString()
+    });
     
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
@@ -1634,7 +1709,7 @@ app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requ
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;

@@ -465,6 +465,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 alignment: false,
                 attachments: true
               }}
+              allowImagePaste={true}
+              allowImageDelete={true}
+              allowImageResize={true}
               className="w-full"
             />
           </div>

@@ -1331,6 +1331,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   alignment: false,
                   attachments: true
                 }}
+                allowImagePaste={true}
+                allowImageDelete={true}
+                allowImageResize={true}
                 className="w-full"
               />
             </div>
@@ -1828,6 +1831,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 alignment: false,
                 attachments: true
               }}
+              allowImagePaste={true}
+              allowImageDelete={true}
+              allowImageResize={true}
             />
           </div>
 
@@ -1941,6 +1947,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         alignment: false,
                         attachments: true
                       }}
+                      allowImagePaste={true}
+                      allowImageDelete={true}
+                      allowImageResize={true}
                     />
                   ) : (
                     <div

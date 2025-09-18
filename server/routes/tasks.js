@@ -343,7 +343,8 @@ router.put('/:id', async (req, res) => {
           // Special handling for column moves - get column titles for better readability
           const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
           const newColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
-          changes.push(`moved from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
+          const taskRef = task.ticket ? ` (${task.ticket})` : '';
+          changes.push(`moved task "${task.title}"${taskRef} from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
         } else {
           changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field]));
         }

@@ -670,7 +670,9 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
               <GripVertical className="w-3 h-3 text-gray-400" />
             </div>
             <Activity className="w-3 h-3 text-blue-600" />
-            <span className="text-xs font-medium text-gray-900">Activity Feed</span>
+            {dimensions.width >= 155 && (
+              <span className="text-xs font-medium text-gray-900">Activity Feed</span>
+            )}
             {unreadCount > 0 && (
               <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none">
                 {unreadCount}
