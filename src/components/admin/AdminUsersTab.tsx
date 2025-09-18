@@ -259,10 +259,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleSaveUser = async () => {
     try {
       setIsSubmitting(true);
+      setLocalError(null);
       await onSaveUser(editingUserData);
       setShowEditUserForm(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save user:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to update user';
+      setLocalError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }

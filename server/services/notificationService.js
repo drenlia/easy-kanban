@@ -590,6 +590,17 @@ class NotificationService {
         siteName: siteSettings.SITE_NAME || 'Easy Kanban'
       });
 
+      // Check if email service is available before attempting to send
+      const emailValidation = this.emailService.validateEmailConfig();
+      if (!emailValidation.valid) {
+        console.warn('⚠️ Email service not available:', emailValidation.error);
+        return { 
+          success: false, 
+          reason: emailValidation.error,
+          details: emailValidation.details || 'Email server is not configured or available'
+        };
+      }
+
       // Send email
       const emailResult = await this.emailService.sendEmail({
         to: user.email,

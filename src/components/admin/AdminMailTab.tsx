@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import api from '../../api';
 
 interface Settings {
   MAIL_ENABLED?: string;
@@ -30,6 +31,7 @@ interface AdminMailTabProps {
   onSave: () => void;
   onCancel: () => void;
   onTestEmail: () => Promise<void>;
+  onMailServerDisabled: () => void;
   successMessage: string | null;
   error: string | null;
   isTestingEmail: boolean;
@@ -47,6 +49,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   onSave,
   onCancel,
   onTestEmail,
+  onMailServerDisabled,
   successMessage,
   error,
   isTestingEmail,
@@ -59,6 +62,15 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 }) => {
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
+  };
+  
+  // Check if all required fields for testing are filled
+  const canTestEmail = () => {
+    return editingSettings.SMTP_HOST && 
+           editingSettings.SMTP_PORT && 
+           editingSettings.SMTP_USERNAME && 
+           editingSettings.SMTP_PASSWORD && 
+           editingSettings.SMTP_FROM_EMAIL;
   };
 
   // Check if running in demo mode
@@ -94,34 +106,71 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
         </div>
         
         <div className="max-w-4xl">
-          {/* Mail Server Enable/Disable */}
+          {/* Mail Server Enable/Disable Toggle */}
           <div className="mb-6">
-            <label className={`flex items-center ${isDemoMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
-              <input
-                type="checkbox"
-                checked={isDemoMode ? false : editingSettings.MAIL_ENABLED === 'true'}
-                onChange={(e) => {
-                  if (!isDemoMode) {
-                    handleInputChange('MAIL_ENABLED', e.target.checked ? 'true' : 'false');
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-gray-700 mb-1">Mail Server Status</h3>
+                <p className="text-sm text-gray-500">
+                  {isDemoMode 
+                    ? 'Email functionality is disabled in demo mode to prevent sending emails from demo environments.'
+                    : !testEmailResult 
+                      ? '⚠️ Fill in the required fields below and test the mail server configuration. The toggle will be enabled after a successful test.'
+                      : '✅ Mail server tested successfully! You can manually enable/disable it as needed. If disabled, you\'ll need to test again before re-enabling.'
                   }
-                }}
-                disabled={isDemoMode}
-                className={`h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded ${
-                  isDemoMode ? 'bg-gray-100 cursor-not-allowed opacity-50' : ''
-                }`}
-              />
-              <span className={`ml-2 text-sm font-medium ${
-                isDemoMode ? 'text-gray-400' : 'text-gray-700'
-              }`}>
-                Enable Mail Server
-              </span>
-            </label>
-            <p className="mt-1 text-sm text-gray-500">
-              {isDemoMode 
-                ? 'Email functionality is disabled in demo mode to prevent sending emails from demo environments.'
-                : 'Check this to enable email functionality. Uncheck to disable all email features.'
-              }
-            </p>
+                </p>
+              </div>
+              
+              {/* Toggle Button */}
+              <div className="flex items-center">
+                <span className={`text-sm font-medium mr-3 ${
+                  isDemoMode ? 'text-gray-400' : 'text-gray-700'
+                }`}>
+                  {isDemoMode ? 'Disabled (Demo)' : editingSettings.MAIL_ENABLED === 'true' ? 'Enabled' : 'Disabled'}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!isDemoMode && testEmailResult) {
+                      const newValue = editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true';
+                      
+                      // Update the state first
+                      handleInputChange('MAIL_ENABLED', newValue);
+                      
+                      // Auto-save the toggle change immediately
+                      try {
+                        // Save the specific setting directly
+                        await api.put('/admin/settings', { key: 'MAIL_ENABLED', value: newValue });
+                        console.log(`✅ Mail server ${newValue === 'true' ? 'enabled' : 'disabled'} successfully`);
+                        
+                        // If disabling, clear test result to require re-testing
+                        if (newValue === 'false' && testEmailResult) {
+                          onMailServerDisabled();
+                        }
+                      } catch (error) {
+                        console.error('Failed to save mail server toggle:', error);
+                        // Revert the change if save failed
+                        handleInputChange('MAIL_ENABLED', editingSettings.MAIL_ENABLED === 'true' ? 'false' : 'true');
+                      }
+                    }
+                  }}
+                  disabled={isDemoMode || !testEmailResult}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    isDemoMode || !testEmailResult
+                      ? 'bg-gray-200 cursor-not-allowed' 
+                      : editingSettings.MAIL_ENABLED === 'true' 
+                        ? 'bg-blue-600 cursor-pointer' 
+                        : 'bg-gray-200 cursor-pointer'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      editingSettings.MAIL_ENABLED === 'true' ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Two-column layout for SMTP settings */}
@@ -137,11 +186,17 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="text"
                   value={editingSettings.SMTP_HOST || ''}
                   onChange={(e) => handleInputChange('SMTP_HOST', e.target.value)}
+                  onFocus={(e) => {
+                    // Pre-fill with example value if field is empty
+                    if (!editingSettings.SMTP_HOST) {
+                      handleInputChange('SMTP_HOST', 'smtp.gmail.com');
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   placeholder="smtp.gmail.com"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  Hostname or IP of your SMTP server
+                  Hostname or IP of your SMTP server. <span className="text-blue-600">Tab into this field to auto-fill with Gmail example.</span>
                 </p>
               </div>
 
@@ -154,11 +209,17 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="number"
                   value={editingSettings.SMTP_PORT || ''}
                   onChange={(e) => handleInputChange('SMTP_PORT', e.target.value)}
+                  onFocus={(e) => {
+                    // Pre-fill with example value if field is empty
+                    if (!editingSettings.SMTP_PORT) {
+                      handleInputChange('SMTP_PORT', '587');
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                   placeholder="587"
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  587 (TLS), 465 (SSL), 25 (plain)
+                  587 (TLS), 465 (SSL), 25 (plain). <span className="text-blue-600">Tab into this field to auto-fill with common port.</span>
                 </p>
               </div>
 
@@ -304,6 +365,25 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             </div>
           )}
           
+          {/* Test Required Notice */}
+          {!isDemoMode && !testEmailResult && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-md">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-amber-800">Testing Required</h3>
+                  <div className="mt-2 text-sm text-amber-700">
+                    <p>Fill in the required fields (SMTP Host, Port, Username, Password, From Email) and test your configuration. If the test succeeds, the mail server will be automatically enabled.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex space-x-3">
             <button
               onClick={onSave}
@@ -319,13 +399,13 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             </button>
             <button
               onClick={isDemoMode ? undefined : onTestEmail}
-              disabled={isTestingEmail || isDemoMode}
+              disabled={isTestingEmail || isDemoMode || !canTestEmail()}
               className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isTestingEmail || isDemoMode
+                isTestingEmail || isDemoMode || !canTestEmail()
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
               }`}
-              title={isDemoMode ? 'Email testing is disabled in demo mode' : undefined}
+              title={isDemoMode ? 'Email testing is disabled in demo mode' : !canTestEmail() ? 'Fill in all required fields to test email' : undefined}
             >
               {isTestingEmail ? (
                 <>

@@ -1245,6 +1245,22 @@ export default function App() {
   // Invite user handler
   const handleInviteUser = async (email: string) => {
     try {
+      // Check email server status first
+      const emailStatusResponse = await fetch('/api/admin/email-status', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+      
+      if (emailStatusResponse.ok) {
+        const emailStatus = await emailStatusResponse.json();
+        if (!emailStatus.available) {
+          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings in the admin panel before inviting users.`);
+        }
+      } else {
+        console.warn('Could not check email status, proceeding with invitation');
+      }
+
       // Generate names from email (before @ symbol)
       const emailPrefix = email.split('@')[0];
       const nameParts = emailPrefix.split(/[._-]/);
@@ -1275,13 +1291,19 @@ export default function App() {
       // Generate a temporary password (user will change it during activation)
       const tempPassword = crypto.randomUUID().substring(0, 12);
       
-      await createUser({
+      const result = await createUser({
         email,
         password: tempPassword,
         firstName,
         lastName,
         role: 'user'
       });
+      
+      // Check if email was actually sent
+      if (result.emailSent === false) {
+        throw new Error(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
+      }
+      
       // Refresh members list to show the new user
       await handleRefreshData();
     } catch (error: any) {

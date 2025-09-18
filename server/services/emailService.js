@@ -78,6 +78,42 @@ class EmailService {
   }
 
   /**
+   * Validate email configuration for testing (doesn't require MAIL_ENABLED to be true)
+   */
+  validateEmailConfigForTesting() {
+    const settings = this.getEmailSettings();
+    
+    // Check if demo mode is enabled
+    if (process.env.DEMO_ENABLED === 'true') {
+      return {
+        valid: false,
+        error: 'Email disabled in demo mode',
+        details: 'Email functionality is disabled in demo environments to prevent sending emails',
+        demoMode: true
+      };
+    }
+
+    // Validate required settings (excluding MAIL_ENABLED)
+    const requiredSettings = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL'];
+    const missingSettings = requiredSettings.filter(key => !settings[key]);
+    
+    if (missingSettings.length > 0) {
+      return {
+        valid: false,
+        error: 'Missing required email settings',
+        details: `Missing: ${missingSettings.join(', ')}`,
+        missingSettings,
+        currentSettings: {
+          ...settings,
+          SMTP_PASSWORD: settings.SMTP_PASSWORD ? '[HIDDEN]' : '[NOT SET]'
+        }
+      };
+    }
+
+    return { valid: true, settings };
+  }
+
+  /**
    * Create and configure nodemailer transporter
    */
   async createTransporter(settings) {
@@ -115,7 +151,7 @@ class EmailService {
    * Send test email to verify configuration
    */
   async sendTestEmail(recipientEmail) {
-    const validation = this.validateEmailConfig();
+    const validation = this.validateEmailConfigForTesting();
     if (!validation.valid) {
       throw validation;
     }

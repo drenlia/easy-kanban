@@ -48,7 +48,8 @@ app.locals.db = db;
 
 // Enable CORS and JSON parsing
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Serve static files
 app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
@@ -1078,13 +1079,21 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
     const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
     
     // Send invitation email
+    let emailSent = false;
+    let emailError = null;
     try {
       const notificationService = getNotificationService();
-      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-      console.log('✅ Invitation email sent for new user:', email);
+      const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      if (emailResult.success) {
+        emailSent = true;
+        console.log('✅ Invitation email sent for new user:', email);
+      } else {
+        emailError = emailResult.reason || 'Email service unavailable';
+        console.warn('⚠️ Failed to send invitation email:', emailError);
+      }
     } catch (emailError) {
       console.warn('⚠️ Failed to send invitation email:', emailError.message);
-      // Don't fail user creation if email fails
+      emailError = emailError.message;
     }
     
     // Publish to Redis for real-time updates
@@ -1106,14 +1115,58 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       timestamp: new Date().toISOString()
     });
     
+    // Prepare response message based on email status
+    let message = 'User created successfully.';
+    if (emailSent) {
+      message += ' An invitation email has been sent.';
+    } else {
+      message += ` Note: Invitation email could not be sent (${emailError || 'Email service unavailable'}). The user will need to be manually activated or you can resend the invitation once email is configured.`;
+    }
+
     res.json({ 
-      message: 'User created successfully. An invitation email has been sent.',
-      user: { id: userId, email, firstName, lastName, role, isActive: false }
+      message,
+      user: { id: userId, email, firstName, lastName, role, isActive: false },
+      emailSent,
+      emailError: emailError || null
     });
     
   } catch (error) {
     console.error('Registration error:', error);
     res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// Check email server status
+app.get('/api/admin/email-status', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const notificationService = getNotificationService();
+    const emailValidation = notificationService.emailService.validateEmailConfig();
+    
+    console.log('🔍 Email status check:', {
+      valid: emailValidation.valid,
+      error: emailValidation.error,
+      mailEnabled: emailValidation.settings?.MAIL_ENABLED,
+      available: emailValidation.valid
+    });
+    
+    res.json({
+      available: emailValidation.valid,
+      error: emailValidation.error || null,
+      details: emailValidation.details || null,
+      settings: emailValidation.valid ? {
+        host: emailValidation.settings.SMTP_HOST,
+        port: emailValidation.settings.SMTP_PORT,
+        from: emailValidation.settings.SMTP_FROM_EMAIL,
+        enabled: emailValidation.settings.MAIL_ENABLED === 'true'
+      } : null
+    });
+  } catch (error) {
+    console.error('Email status check error:', error);
+    res.status(500).json({ 
+      available: false, 
+      error: 'Failed to check email status',
+      details: error.message 
+    });
   }
 });
 
@@ -1221,6 +1274,12 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
 
+    // Get user details before deletion (needed for response)
+    const user = wrapQuery(db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 'SELECT').get(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
     // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
     
@@ -1246,10 +1305,6 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
 
     // Delete user (cascade will handle related records including the member)
     const result = wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
-    
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
     
     // Publish member-deleted event for real-time updates
     if (userMember) {

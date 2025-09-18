@@ -71,6 +71,31 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Tab-specific message states to prevent leakage between tabs
+  const [tabMessages, setTabMessages] = useState<{[tab: string]: {success: string | null, error: string | null}}>({});
+  
+  // Helper functions for tab-specific messages
+  const setTabMessage = (tab: string, type: 'success' | 'error', message: string | null) => {
+    setTabMessages(prev => ({
+      ...prev,
+      [tab]: {
+        ...prev[tab],
+        [type]: message
+      }
+    }));
+  };
+  
+  const getTabMessage = (tab: string, type: 'success' | 'error') => {
+    return tabMessages[tab]?.[type] || null;
+  };
+  
+  const clearTabMessages = (tab: string) => {
+    setTabMessages(prev => ({
+      ...prev,
+      [tab]: { success: null, error: null }
+    }));
+  };
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
@@ -101,9 +126,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
-        // Clear messages when switching tabs
+        // Clear global messages when switching tabs
         setSuccessMessage(null);
         setError(null);
+        // Clear tab-specific messages for the new tab
+        clearTabMessages(tabHash);
       }
     };
 
@@ -114,9 +141,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     
     if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
-      // Clear messages when switching tabs
+      // Clear global messages when switching tabs
       setSuccessMessage(null);
       setError(null);
+      // Clear tab-specific messages for the new tab
+      clearTabMessages(tabHash);
     }
 
     window.addEventListener('hashchange', handleHashChange);
@@ -519,8 +548,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleSaveSettings = async () => {
     try {
+      // Clear both global and tab-specific messages
       setError(null);
       setSuccessMessage(null);
+      clearTabMessages(activeTab);
       
       let hasChanges = false;
       // Save each setting individually
@@ -539,17 +570,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           onSettingsChanged();
         }
         
-        // Show success message
-        setSuccessMessage('✅ Settings saved successfully! Changes are applied immediately.');
+        // Show success message on current tab only
+        setTabMessage(activeTab, 'success', '✅ Settings saved successfully! Changes are applied immediately.');
         
         // Clear success message after 5 seconds
-        setTimeout(() => setSuccessMessage(null), 5000);
+        setTimeout(() => setTabMessage(activeTab, 'success', null), 5000);
       } else {
-        setSuccessMessage('ℹ️ No changes to save');
-        setTimeout(() => setSuccessMessage(null), 3000);
+        setTabMessage(activeTab, 'success', 'ℹ️ No changes to save');
+        setTimeout(() => setTabMessage(activeTab, 'success', null), 3000);
       }
     } catch (err) {
-      setError('Failed to save settings');
+      setTabMessage(activeTab, 'error', 'Failed to save settings');
       console.error(err);
     }
   };
@@ -593,25 +624,71 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   };
 
   const handleAddUser = async (userData: any) => {
-    await createUser(userData);
-    await loadData(); // Reload users
-    setError(null);
-    // Notify parent component that users have changed
-    if (onUsersChanged) {
-      onUsersChanged();
+    try {
+      // Check email server status first
+      const emailStatusResponse = await fetch('/api/admin/email-status', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+      
+      if (emailStatusResponse.ok) {
+        const emailStatus = await emailStatusResponse.json();
+        if (!emailStatus.available) {
+          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before creating users.`);
+        }
+      } else {
+        console.warn('Could not check email status, proceeding with user creation');
+      }
+
+      const result = await createUser(userData);
+      
+      // Check if email was actually sent
+      if (result.emailSent === false) {
+        setError(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
+      } else {
+        setError(null);
+      }
+      
+      await loadData(); // Reload users
+      // Notify parent component that users have changed
+      if (onUsersChanged) {
+        onUsersChanged();
+      }
+    } catch (error: any) {
+      console.error('Failed to create user:', error);
+      setError(error.message || 'Failed to create user');
+      throw error; // Re-throw so the UI can handle it
     }
   };
 
   const handleResendInvitation = async (userId: string) => {
     try {
       setError(null);
+      
+      // Check email server status first
+      const emailStatusResponse = await fetch('/api/admin/email-status', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+      
+      if (emailStatusResponse.ok) {
+        const emailStatus = await emailStatusResponse.json();
+        if (!emailStatus.available) {
+          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before resending invitations.`);
+        }
+      } else {
+        console.warn('Could not check email status, proceeding with resend');
+      }
+
       const result = await resendUserInvitation(userId);
       setSuccessMessage(`Invitation email sent successfully to ${result.email}`);
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to send invitation email';
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to send invitation email';
       setError(errorMessage);
     }
   };
@@ -623,45 +700,57 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleSaveUser = async (userData: any) => {
     console.log('👤 Admin saving user:', userData.id, 'displayName:', userData.displayName);
     
-    // Update user basic info
-    console.log('📝 Updating user basic info...');
-    await updateUser(userData.id, userData);
-    console.log('✅ User basic info updated');
-    
-    // Update display name in members table
-    if (userData.displayName) {
-      console.log('🏷️ Updating member display name to:', userData.displayName.trim());
-      await api.put(`/admin/users/${userData.id}/member-name`, { 
-        displayName: userData.displayName.trim() 
-      });
-      console.log('✅ Member display name updated');
+    try {
+      // Update user basic info
+      console.log('📝 Updating user basic info...');
+      await updateUser(userData.id, userData);
+      console.log('✅ User basic info updated');
+      
+      // Update display name in members table
+      if (userData.displayName) {
+        console.log('🏷️ Updating member display name to:', userData.displayName.trim());
+        await api.put(`/admin/users/${userData.id}/member-name`, { 
+          displayName: userData.displayName.trim() 
+        });
+        console.log('✅ Member display name updated');
+      }
+      
+      // Upload avatar if selected
+      if (userData.selectedFile) {
+        console.log('📷 Uploading avatar...');
+        const formData = new FormData();
+        formData.append('avatar', userData.selectedFile);
+        await api.post(`/admin/users/${userData.id}/avatar`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        console.log('✅ Avatar uploaded');
+      }
+      
+      console.log('🔄 Reloading admin data...');
+      await loadData(); // Reload users
+      console.log('✅ Admin data reloaded');
+      
+      if (onUsersChanged) {
+        console.log('🔄 Triggering main app members refresh...');
+        onUsersChanged();
+      }
+      setError(null);
+    } catch (err: any) {
+      console.error('❌ Failed to save user:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to update user';
+      setError(errorMessage);
+      throw err; // Re-throw so the calling component can handle it
     }
-    
-    // Upload avatar if selected
-    if (userData.selectedFile) {
-      console.log('📷 Uploading avatar...');
-      const formData = new FormData();
-      formData.append('avatar', userData.selectedFile);
-      await api.post(`/admin/users/${userData.id}/avatar`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      console.log('✅ Avatar uploaded');
-    }
-    
-    console.log('🔄 Reloading admin data...');
-    await loadData(); // Reload users
-    console.log('✅ Admin data reloaded');
-    
-    if (onUsersChanged) {
-      console.log('🔄 Triggering main app members refresh...');
-      onUsersChanged();
-    }
-    setError(null);
   };
 
   const handleCancelSettings = () => {
     setEditingSettings(settings);
     setError(null);
+  };
+
+  const handleMailServerDisabled = () => {
+    // Clear test result when mail server is disabled to require re-testing
+    setTestEmailResult(null);
   };
 
   const handleTestEmail = async () => {
@@ -688,6 +777,14 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Now test the email
       const response = await api.post('/admin/test-email');
+      
+      // Auto-enable mail server if test succeeds and it's not already enabled
+      if (response.data && editingSettings.MAIL_ENABLED !== 'true') {
+        setEditingSettings(prev => ({ ...prev, MAIL_ENABLED: 'true' }));
+        // Save the auto-enabled setting
+        await api.put('/admin/settings', { key: 'MAIL_ENABLED', value: 'true' });
+        console.log('✅ Mail server auto-enabled after successful test');
+      }
       
       // Show success modal
       setTestEmailResult(response.data);
@@ -849,8 +946,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
-              successMessage={successMessage}
-              error={error}
+              successMessage={getTabMessage('site-settings', 'success')}
+              error={getTabMessage('site-settings', 'error')}
             />
           )}
 
@@ -862,8 +959,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
               onReloadOAuth={handleReloadOAuth}
-              successMessage={successMessage}
-              error={error}
+              successMessage={getTabMessage('sso', 'success')}
+              error={getTabMessage('sso', 'error')}
             />
           )}
 
@@ -875,8 +972,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
               onTestEmail={handleTestEmail}
-              successMessage={successMessage}
-              error={error}
+              onMailServerDisabled={handleMailServerDisabled}
+              successMessage={getTabMessage('mail-server', 'success')}
+              error={getTabMessage('mail-server', 'error')}
               isTestingEmail={isTestingEmail}
               showTestEmailModal={showTestEmailModal}
               testEmailResult={testEmailResult}
@@ -925,8 +1023,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
-              successMessage={successMessage}
-              error={error}
+              successMessage={getTabMessage('app-settings', 'success')}
+              error={getTabMessage('app-settings', 'error')}
             />
           )}
 
@@ -938,8 +1036,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
               onAutoSave={handleAutoSaveSetting}
-              successMessage={successMessage}
-              error={error}
+              successMessage={getTabMessage('project-settings', 'success')}
+              error={getTabMessage('project-settings', 'error')}
             />
           )}
         </div>

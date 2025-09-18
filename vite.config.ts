@@ -14,10 +14,26 @@ export default defineConfig({
     port: '3010',
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     ws: false, // Disable WebSocket completely
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    },
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to the Target:', req.method, req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+          });
+        },
       },
       '/attachments': {
         target: 'http://0.0.0.0:3222',

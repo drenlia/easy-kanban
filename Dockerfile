@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install dependencies first (this will be preserved in the container)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --include=dev
 
 # Copy source code
 COPY . .
