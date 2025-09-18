@@ -963,7 +963,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           </button>
         ) : (
           <div className="text-xs text-gray-500 text-center py-1">
-            {clearActivityId > 0 ? 'Feed cleared' : (isNarrowMode ? 'Auto 3s' : 'Auto-refreshing every 3s')}
+            {clearActivityId > 0 ? 'Feed cleared' : (isNarrowMode ? 'Auto 3s' : 'Auto-refreshing every 30s')}
           </div>
         )}
       </div>

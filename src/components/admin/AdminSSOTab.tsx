@@ -85,7 +85,7 @@ const AdminSSOTab: React.FC<AdminSSOTabProps> = ({
             placeholder="e.g., https://yourdomain.com/api/auth/google/callback"
           />
           <p className="mt-1 text-sm text-gray-500">
-            This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol.
+            This must match exactly what you configure in Google Cloud Console. Include the full URL with protocol. https://yourdomain.com/api/auth/google/callback
           </p>
         </div>
         

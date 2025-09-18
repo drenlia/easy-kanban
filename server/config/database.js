@@ -400,11 +400,21 @@ const initializeDefaultData = (db) => {
     db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(adminId, 'admin@example.com', adminPasswordHash, 'Admin', 'User', adminAvatarPath);
+    `).run(adminId, 'admin@kanban.local', adminPasswordHash, 'Admin', 'User', adminAvatarPath);
 
     // Assign admin role to default user
     const adminRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('admin').id;
     db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(adminId, adminRoleId);
+
+    // Log admin credentials for easy access
+    console.log('');
+    console.log('🔐 ===========================================');
+    console.log('   ADMIN ACCOUNT CREDENTIALS');
+    console.log('===========================================');
+    console.log(`   Email: admin@kanban.local`);
+    console.log(`   Password: ${adminPassword}`);
+    console.log('===========================================');
+    console.log('');
 
     // Initialize default settings
     const defaultSettings = [
@@ -423,7 +433,7 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
       ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 0, "y": 443}'], // Default activity feed position
-      ['DEFAULT_ACTIVITY_FEED_WIDTH', '180'], // Default activity feed width
+      ['DEFAULT_ACTIVITY_FEED_WIDTH', '160'], // Default activity feed width
       ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
       // Project and task identification settings
       ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
