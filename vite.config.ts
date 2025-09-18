@@ -13,6 +13,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: '3010',
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
+    ws: false, // Disable WebSocket completely
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:3222',

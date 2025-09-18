@@ -7,6 +7,7 @@ import { dirname } from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import http from 'http';
 
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
@@ -26,6 +27,10 @@ import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
+
+// Import real-time services
+import redisService from './services/redisService.js';
+import websocketService from './services/websocketService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -417,6 +422,21 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
         { commentContent: comment.text }
       );
       
+      // Get the task's board ID for Redis publishing
+      const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
+      
+      // Publish to Redis for real-time updates
+      if (task?.boardId) {
+        console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
+        await redisService.publish('comment-created', {
+          boardId: task.boardId,
+          taskId: comment.taskId,
+          comment: comment,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ Comment-created published to Redis');
+      }
+      
       res.json(comment);
     } catch (error) {
       // Rollback on error
@@ -460,8 +480,24 @@ app.put('/api/comments/:id', authenticateToken, async (req, res) => {
       `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`
     );
     
+    // Get the task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(originalComment.taskId);
+    
     // Return updated comment
     const updatedComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      console.log('📤 Publishing comment-updated to Redis for board:', task.boardId);
+      await redisService.publish('comment-updated', {
+        boardId: task.boardId,
+        taskId: originalComment.taskId,
+        comment: updatedComment,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Comment-updated published to Redis');
+    }
+    
     res.json(updatedComment);
   } catch (error) {
     console.error('Error updating comment:', error);
@@ -511,6 +547,21 @@ app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
       `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`
     );
 
+    // Get the task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(commentToDelete.taskId);
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      console.log('📤 Publishing comment-deleted to Redis for board:', task.boardId);
+      await redisService.publish('comment-deleted', {
+        boardId: task.boardId,
+        taskId: commentToDelete.taskId,
+        commentId: id,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Comment-deleted published to Redis');
+    }
+
     res.json({ message: 'Comment and attachments deleted successfully' });
   } catch (error) {
     console.error('Error deleting comment:', error);
@@ -555,7 +606,7 @@ app.post('/api/upload', attachmentUpload.single('file'), (req, res) => {
 });
 
 // Avatar upload endpoints
-app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), (req, res) => {
+app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No avatar file uploaded' });
   }
@@ -563,6 +614,21 @@ app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), 
   try {
     const avatarPath = `/avatars/${req.file.filename}`;
     wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
+    
+    // Get the member ID for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    
+    // Publish to Redis for real-time updates
+    if (member) {
+      console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
+      await redisService.publish('user-profile-updated', {
+        userId: req.user.id,
+        memberId: member.id,
+        avatarPath: avatarPath,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ User-profile-updated published to Redis');
+    }
     
     res.json({
       message: 'Avatar uploaded successfully',
@@ -574,9 +640,25 @@ app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), 
   }
 });
 
-app.delete('/api/users/avatar', authenticateToken, (req, res) => {
+app.delete('/api/users/avatar', authenticateToken, async (req, res) => {
   try {
     wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
+    
+    // Get the member ID for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    
+    // Publish to Redis for real-time updates
+    if (member) {
+      console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
+      await redisService.publish('user-profile-updated', {
+        userId: req.user.id,
+        memberId: member.id,
+        avatarPath: null,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ User-profile-updated published to Redis');
+    }
+    
     res.json({ message: 'Avatar removed successfully' });
   } catch (error) {
     console.error('Error removing avatar:', error);
@@ -585,7 +667,7 @@ app.delete('/api/users/avatar', authenticateToken, (req, res) => {
 });
 
 // Allow users to update their own profile (display name)
-app.put('/api/users/profile', authenticateToken, (req, res) => {
+app.put('/api/users/profile', authenticateToken, async (req, res) => {
   try {
     const { displayName } = req.body;
     const userId = req.user.id;
@@ -607,6 +689,21 @@ app.put('/api/users/profile', authenticateToken, (req, res) => {
     // Update the member's name in the members table
     const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
     updateMemberStmt.run(displayName.trim(), userId);
+    
+    // Get the member ID for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    // Publish to Redis for real-time updates
+    if (member) {
+      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
+      await redisService.publish('user-profile-updated', {
+        userId: userId,
+        memberId: member.id,
+        displayName: displayName.trim(),
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ User-profile-updated published to Redis');
+    }
     
     res.json({ 
       message: 'Profile updated successfully',
@@ -731,7 +828,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
 });
 
 // Admin member name update endpoint (MUST come before /:userId route)
-app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { userId } = req.params;
     const { displayName } = req.body;
@@ -752,6 +849,14 @@ app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole([
     
     console.log('🏷️ Updating member name for user:', userId, 'to:', displayName.trim());
     
+    // Get member info before update for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id, color FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    if (!member) {
+      console.log('❌ No member found for user:', userId);
+      return res.status(404).json({ error: 'Member not found' });
+    }
+    
     // Update the member's name in the members table
     const updateMemberStmt = wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
     const result = updateMemberStmt.run(displayName.trim(), userId);
@@ -760,6 +865,15 @@ app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole([
       console.log('❌ No member found for user:', userId);
       return res.status(404).json({ error: 'Member not found' });
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing member-updated to Redis for name change');
+    await redisService.publish('member-updated', {
+      memberId: member.id,
+      member: { id: member.id, name: displayName.trim(), color: member.color },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Member-updated published to Redis');
     
     console.log('✅ Member name updated successfully');
     res.json({ 
@@ -773,7 +887,7 @@ app.put('/api/admin/users/:userId/member-name', authenticateToken, requireRole([
 });
 
 // Update user details (MUST come after more specific routes)
-app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { email, firstName, lastName, isActive } = req.body;
   
@@ -797,6 +911,20 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (
     // Note: Member name is updated separately via /api/admin/users/:userId/member-name
     // This allows for custom display names that differ from firstName + lastName
 
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-updated to Redis');
+    await redisService.publish('user-updated', {
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName, 
+        isActive: !!isActive,
+        timestamp: new Date().toISOString()
+      },
+      timestamp: new Date().toISOString()
+    });
+
     res.json({ message: 'User updated successfully' });
   } catch (error) {
     console.error('Error updating user:', error);
@@ -805,7 +933,7 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (
 });
 
 // Update user role
-app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { role } = req.body;
   
@@ -836,15 +964,22 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
         wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
       }
 
-      // Force logout the affected user by invalidating their session
-      // We'll do this by setting a flag in the database that the frontend can check
+      // Update the user's updated_at timestamp
       wrapQuery(db.prepare(`
         UPDATE users 
-        SET force_logout = 1, updated_at = datetime('now')
+        SET updated_at = datetime('now')
         WHERE id = ?
       `), 'UPDATE').run(userId);
 
-      console.log(`🔄 User ${userId} role changed to ${role} - forcing logout`);
+      console.log(`🔄 User ${userId} role changed to ${role} - no logout required`);
+      
+      // Publish to Redis for real-time updates
+      console.log('📤 Publishing user-role-updated to Redis');
+      await redisService.publish('user-role-updated', {
+        userId: userId,
+        role: role,
+        timestamp: new Date().toISOString()
+      });
     }
 
     res.json({ message: 'User role updated successfully' });
@@ -858,15 +993,34 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
 app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role, displayName, baseUrl } = req.body;
   
-  if (!email || !password || !firstName || !lastName || !role) {
-    return res.status(400).json({ error: 'All fields are required' });
+  // Validate required fields with specific error messages
+  if (!email) {
+    return res.status(400).json({ error: 'Email address is required' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Password is required' });
+  }
+  if (!firstName) {
+    return res.status(400).json({ error: 'First name is required' });
+  }
+  if (!lastName) {
+    return res.status(400).json({ error: 'Last name is required' });
+  }
+  if (!role) {
+    return res.status(400).json({ error: 'User role is required' });
+  }
+  
+  // Validate email format
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address format' });
   }
   
   try {
     // Check if email already exists
     const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
-      return res.status(400).json({ error: 'User already exists' });
+      return res.status(400).json({ error: `User with email ${email} already exists` });
     }
     
     // Generate user ID
@@ -932,6 +1086,25 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       console.warn('⚠️ Failed to send invitation email:', emailError.message);
       // Don't fail user creation if email fails
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-created to Redis');
+    await redisService.publish('user-created', {
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName, 
+        role, 
+        isActive: false,
+        displayName: memberName,
+        memberColor: memberColor,
+        authProvider: 'local',
+        createdAt: new Date().toISOString()
+      },
+      member: { id: memberId, name: memberName, color: memberColor },
+      timestamp: new Date().toISOString()
+    });
     
     res.json({ 
       message: 'User created successfully. An invitation email has been sent.',
@@ -1031,7 +1204,7 @@ app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['
       taskCount = (assignedTasks?.count || 0) + (requestedTasks?.count || 0);
     }
     
-    res.json({ taskCount });
+    res.json({ count: taskCount }); // Fixed: return 'count' instead of 'taskCount'
   } catch (error) {
     console.error('Error getting user task count:', error);
     res.status(500).json({ error: 'Failed to get task count' });
@@ -1039,7 +1212,7 @@ app.get('/api/admin/users/:userId/task-count', authenticateToken, requireRole(['
 });
 
 // Delete user
-app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   
   try {
@@ -1048,12 +1221,60 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
 
-    // Delete user (cascade will handle related records)
+    // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
+    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    
+    // Get the member ID for the user being deleted (before deletion)
+    const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    if (userMember) {
+      // Get the SYSTEM user's member ID
+      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(SYSTEM_USER_ID);
+      
+      if (systemMember) {
+        // Reassign all tasks assigned to this user to the SYSTEM user
+        wrapQuery(db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
+        
+        // Reassign all tasks requested by this user to the SYSTEM user
+        wrapQuery(db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
+        
+        console.log(`✅ Reassigned tasks from user ${userId} to SYSTEM user`);
+      } else {
+        console.warn('⚠️ SYSTEM user member not found, tasks will be orphaned');
+      }
+    }
+
+    // Delete user (cascade will handle related records including the member)
     const result = wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    // Publish member-deleted event for real-time updates
+    if (userMember) {
+      console.log('📤 Publishing member-deleted to Redis for user deletion');
+      await redisService.publish('member-deleted', {
+        memberId: userMember.id,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Member-deleted published to Redis');
+    }
+    
+    // Publish user-deleted event for real-time updates
+    console.log('📤 Publishing user-deleted to Redis');
+    await redisService.publish('user-deleted', {
+      userId: userId,
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        isActive: !!user.is_active,
+        authProvider: user.auth_provider
+      },
+      timestamp: new Date().toISOString()
+    });
     
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
@@ -1063,7 +1284,7 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
 });
 
 // Update member color
-app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { color } = req.body;
   
@@ -1077,12 +1298,28 @@ app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin
   }
 
   try {
+    // Get member info before update for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id, name FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    if (!member) {
+      return res.status(404).json({ error: 'Member not found for this user' });
+    }
+    
     // Update member color
     const result = wrapQuery(db.prepare('UPDATE members SET color = ? WHERE user_id = ?'), 'UPDATE').run(color, userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Member not found for this user' });
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing member-updated to Redis for color change');
+    await redisService.publish('member-updated', {
+      memberId: member.id,
+      member: { id: member.id, name: member.name, color: color },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Member-updated published to Redis');
     
     res.json({ message: 'Member color updated successfully' });
   } catch (error) {
@@ -1092,7 +1329,7 @@ app.put('/api/admin/users/:userId/color', authenticateToken, requireRole(['admin
 });
 
 // Admin avatar upload endpoint
-app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), avatarUpload.single('avatar'), (req, res) => {
+app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), avatarUpload.single('avatar'), async (req, res) => {
   const { userId } = req.params;
   
   if (!req.file) {
@@ -1103,6 +1340,21 @@ app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['adm
     const avatarPath = `/avatars/${req.file.filename}`;
     // Update user's avatar_path in database
     wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    
+    // Get the member ID for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    // Publish to Redis for real-time updates
+    if (member) {
+      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
+      await redisService.publish('user-profile-updated', {
+        userId: userId,
+        memberId: member.id,
+        avatarPath: avatarPath,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ User-profile-updated published to Redis');
+    }
     
     res.json({
       message: 'Avatar uploaded successfully',
@@ -1115,12 +1367,27 @@ app.post('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['adm
 });
 
 // Admin avatar removal endpoint
-app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), (req, res) => {
+app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   
   try {
     // Clear avatar_path in database
     wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(userId);
+    
+    // Get the member ID for Redis publishing
+    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    // Publish to Redis for real-time updates
+    if (member) {
+      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
+      await redisService.publish('user-profile-updated', {
+        userId: userId,
+        memberId: member.id,
+        avatarPath: null,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ User-profile-updated published to Redis');
+    }
     
     res.json({ message: 'Avatar removed successfully' });
   } catch (error) {
@@ -1142,7 +1409,7 @@ app.get('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res)
   }
 });
 
-app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {
+app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tag, description, color } = req.body;
   
   if (!tag) {
@@ -1156,6 +1423,15 @@ app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res
     `), 'INSERT').run(tag, description || '', color || '#4F46E5');
     
     const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-created to Redis');
+    await redisService.publish('tag-created', {
+      tag: newTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-created published to Redis');
+    
     res.json(newTag);
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -1166,7 +1442,7 @@ app.post('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res
   }
 });
 
-app.put('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   const { tag, description, color } = req.body;
   
@@ -1180,6 +1456,15 @@ app.put('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (re
     `), 'UPDATE').run(tag, description || '', color || '#4F46E5', tagId);
     
     const updatedTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-updated to Redis');
+    await redisService.publish('tag-updated', {
+      tag: updatedTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-updated published to Redis');
+    
     res.json(updatedTag);
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -1203,10 +1488,13 @@ app.get('/api/admin/tags/:tagId/usage', authenticateToken, requireRole(['admin']
   }
 });
 
-app.delete('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.delete('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   
   try {
+    // Get tag info before deletion for Redis publishing
+    const tagToDelete = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    
     // Use transaction to ensure both operations succeed or fail together
     db.transaction(() => {
       // First remove all task associations
@@ -1215,6 +1503,15 @@ app.delete('/api/admin/tags/:tagId', authenticateToken, requireRole(['admin']), 
       // Then delete the tag
       wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
     })();
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-deleted to Redis');
+    await redisService.publish('tag-deleted', {
+      tagId: tagId,
+      tag: tagToDelete,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-deleted published to Redis');
     
     res.json({ message: 'Tag deleted successfully' });
   } catch (error) {
@@ -1234,7 +1531,7 @@ app.get('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req
   }
 });
 
-app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (req, res) => {
+app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priority, color } = req.body;
   
   if (!priority || !color) {
@@ -1252,6 +1549,15 @@ app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (re
     `), 'INSERT').run(priority, color, position);
     
     const newPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing priority-created to Redis');
+    await redisService.publish('priority-created', {
+      priority: newPriority,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Priority-created published to Redis');
+    
     res.json(newPriority);
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -1263,7 +1569,7 @@ app.post('/api/admin/priorities', authenticateToken, requireRole(['admin']), (re
 });
 
 // Reorder priorities (must come before :priorityId route)
-app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { priorities } = req.body;
     
@@ -1286,6 +1592,15 @@ app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin'
     
     // Return updated priorities
     const updatedPriorities = db.prepare('SELECT * FROM priorities ORDER BY position ASC').all();
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing priority-reordered to Redis');
+    await redisService.publish('priority-reordered', {
+      priorities: updatedPriorities,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Priority-reordered published to Redis');
+    
     res.json(updatedPriorities);
   } catch (error) {
     console.error('Reorder priorities error:', error);
@@ -1293,7 +1608,7 @@ app.put('/api/admin/priorities/reorder', authenticateToken, requireRole(['admin'
   }
 });
 
-app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
   const { priority, color } = req.body;
   
@@ -1307,6 +1622,15 @@ app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['ad
     `), 'UPDATE').run(priority, color, priorityId);
     
     const updatedPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing priority-updated to Redis');
+    await redisService.publish('priority-updated', {
+      priority: updatedPriority,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Priority-updated published to Redis');
+    
     res.json(updatedPriority);
   } catch (error) {
     if (error.message.includes('UNIQUE constraint failed')) {
@@ -1317,10 +1641,13 @@ app.put('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['ad
   }
 });
 
-app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), (req, res) => {
+app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
   
   try {
+    // Get priority info before deletion for Redis publishing
+    const priorityToDelete = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    
     // Check if priority is being used
     const taskCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = (SELECT priority FROM priorities WHERE id = ?)'), 'SELECT').get(priorityId);
     
@@ -1335,6 +1662,15 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Priority not found' });
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing priority-deleted to Redis');
+    await redisService.publish('priority-deleted', {
+      priorityId: priorityId,
+      priority: priorityToDelete,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Priority-deleted published to Redis');
     
     res.json({ message: 'Priority deleted successfully' });
   } catch (error) {
@@ -1373,7 +1709,7 @@ app.put('/api/admin/priorities/:priorityId/set-default', authenticateToken, requ
 // Public settings endpoint for non-admin users
 app.get('/api/settings', (req, res) => {
   try {
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'USE_PREFIXES', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
+    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -1399,7 +1735,7 @@ app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   }
 });
 
-app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
+app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { key, value } = req.body;
     
@@ -1421,6 +1757,15 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
         console.log('✅ OAuth configuration cache invalidated - new settings will be loaded on next OAuth request');
       }
     }
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing settings-updated to Redis');
+    await redisService.publish('settings-updated', {
+      key: key,
+      value: value,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Settings-updated published to Redis');
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {
@@ -1561,6 +1906,19 @@ app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) =
       );
     }
     
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      console.log('📤 Publishing task-tag-added to Redis for board:', task.boardId);
+      await redisService.publish('task-tag-added', {
+        boardId: task.boardId,
+        taskId: taskId,
+        tagId: parseInt(tagId),
+        tag: tag,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Task-tag-added published to Redis');
+    }
+    
     res.json({ message: 'Tag added to task successfully' });
   } catch (error) {
     console.error('Error adding tag to task:', error);
@@ -1596,6 +1954,19 @@ app.delete('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res)
           boardId: task.boardId
         }
       );
+    }
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      console.log('📤 Publishing task-tag-removed to Redis for board:', task.boardId);
+      await redisService.publish('task-tag-removed', {
+        boardId: task.boardId,
+        taskId: taskId,
+        tagId: parseInt(tagId),
+        tag: tag,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Task-tag-removed published to Redis');
     }
     
     res.json({ message: 'Tag removed from task successfully' });
@@ -1906,6 +2277,21 @@ app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) =
       // Commit transaction
       db.prepare('COMMIT').run();
       
+      // Get the task's board ID for Redis publishing
+      const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+      
+      // Publish to Redis for real-time updates
+      if (task?.boardId && insertedAttachments.length > 0) {
+        console.log('📤 Publishing attachment-created to Redis for board:', task.boardId);
+        await redisService.publish('attachment-created', {
+          boardId: task.boardId,
+          taskId: taskId,
+          attachments: insertedAttachments,
+          timestamp: new Date().toISOString()
+        });
+        console.log('✅ Attachment-created published to Redis');
+      }
+      
       res.json(insertedAttachments);
     } catch (error) {
       // Rollback on error
@@ -1918,7 +2304,7 @@ app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) =
   }
 });
 
-app.delete('/api/attachments/:id', authenticateToken, (req, res) => {
+app.delete('/api/attachments/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   
   try {
@@ -1951,6 +2337,21 @@ app.delete('/api/attachments/:id', authenticateToken, (req, res) => {
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Attachment record not found' });
+    }
+    
+    // Get the task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      console.log('📤 Publishing attachment-deleted to Redis for board:', task.boardId);
+      await redisService.publish('attachment-deleted', {
+        boardId: task.boardId,
+        taskId: attachment.taskId,
+        attachmentId: id,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Attachment-deleted published to Redis');
     }
     
     res.json({ message: 'Attachment and file deleted successfully' });
@@ -2001,7 +2402,9 @@ app.get('/health', (req, res) => {
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
-      database: 'connected'
+      database: 'connected',
+      redis: redisService.isRedisConnected(),
+      websocket: websocketService.getClientCount()
     });
   } catch (error) {
     res.status(500).json({ 
@@ -2033,9 +2436,32 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3222;
 
-app.listen(PORT, '0.0.0.0', () => {
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize real-time services
+async function initializeServices() {
+  try {
+    // Initialize Redis
+    await redisService.connect();
+    
+    // Initialize WebSocket
+    websocketService.initialize(server);
+    
+    console.log('✅ Real-time services initialized');
+  } catch (error) {
+    console.error('❌ Failed to initialize real-time services:', error);
+    // Continue without real-time features
+  }
+}
+
+// Start server
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
+  
+  // Initialize real-time services
+  await initializeServices();
 });

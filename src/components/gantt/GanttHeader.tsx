@@ -32,6 +32,12 @@ interface GanttHeaderProps {
   isRelationshipMode: boolean;
   setIsRelationshipMode: (mode: boolean) => void;
   
+  // Multi-select mode
+  isMultiSelectMode: boolean;
+  setIsMultiSelectMode: (mode: boolean) => void;
+  selectedTasks: string[];
+  setSelectedTasks: (tasks: string[]) => void;
+  
   // Loading state
   isLoading: boolean;
   
@@ -49,6 +55,10 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
   scrollToTask,
   isRelationshipMode,
   setIsRelationshipMode,
+  isMultiSelectMode,
+  setIsMultiSelectMode,
+  selectedTasks,
+  setSelectedTasks,
   isLoading,
   onJumpToTask
 }) => {
@@ -69,9 +79,72 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
         
         {/* Navigation Controls */}
         <div className="flex items-center gap-4">
+          {/* Multi-Select Mode Toggle */}
+              <button
+                onClick={() => {
+                  if (isMultiSelectMode) {
+                    // Exit multi-select mode and clear selections
+                    setIsMultiSelectMode(false);
+                    setSelectedTasks([]);
+                  } else {
+                    // Enter multi-select mode
+                    setIsMultiSelectMode(true);
+                  }
+                }}
+                className={`px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
+                  isMultiSelectMode
+                    ? 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+                title={isMultiSelectMode ? 'Exit multi-select mode' : 'Select multiple tasks for bulk operations'}
+              >
+            <svg className="w-4 h-4 mr-1.5 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {isMultiSelectMode ? 'Exit' : 'Select'}
+            {selectedTasks.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-green-200 text-green-800 rounded-full">
+                {selectedTasks.length}
+              </span>
+            )}
+          </button>
+          
+          {/* Multi-Select Actions */}
+          {isMultiSelectMode && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const allTaskIds = ganttTasks.map(task => task.id);
+                  if (selectedTasks.length === allTaskIds.length) {
+                    // Deselect all
+                    setSelectedTasks([]);
+                  } else {
+                    // Select all
+                    setSelectedTasks(allTaskIds);
+                  }
+                }}
+                className="px-2 py-1 text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded transition-colors"
+                title={selectedTasks.length === ganttTasks.length ? 'Deselect all' : 'Select all'}
+              >
+                {selectedTasks.length === ganttTasks.length ? 'Deselect All' : 'Select All'}
+              </button>
+              
+            </div>
+          )}
+          
           {/* Relationship Mode Toggle */}
           <button
-            onClick={() => setIsRelationshipMode(!isRelationshipMode)}
+            onClick={() => {
+              if (isRelationshipMode) {
+                // Exit relationship mode and clear selected parent
+                setIsRelationshipMode(false);
+                // Note: setSelectedParentTask is not available in GanttHeader
+                // The keyboard handler will clear it
+              } else {
+                // Enter relationship mode
+                setIsRelationshipMode(true);
+              }
+            }}
             className={`px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
               isRelationshipMode
                 ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'

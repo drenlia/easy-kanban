@@ -31,15 +31,16 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
+import websocketClient from './services/websocketClient';
 import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
-import { getAllPriorities, getAllTags, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -304,6 +305,7 @@ export default function App() {
   // Authentication hook
   const {
     isAuthenticated,
+    authChecked,
     currentUser,
     siteSettings,
     hasDefaultAdmin,
@@ -342,18 +344,16 @@ export default function App() {
       // console.log('🔍 [UserStatus] Update handler called');
     }
     
-    // Handle force logout scenarios
-    if (newUserStatus.forceLogout || !newUserStatus.isActive) {
-      // console.log('🔐 User deactivated or force logout detected. Logging out...');
+    // Handle force logout scenarios - only for actual deactivation/deletion
+    if (newUserStatus.forceLogout) {
+      // console.log('🔐 Force logout detected. Logging out...');
       
       // Clear all local storage and session data
       localStorage.clear();
       sessionStorage.clear();
       
       // Show appropriate message
-      const message = !newUserStatus.isActive 
-        ? 'Your account has been deactivated. Please contact an administrator.'
-        : 'Your role has been changed. Please log in again to access your updated permissions.';
+      const message = 'Your account has been deactivated. Please contact an administrator.';
       
       // Force logout with message
       handleLogout(message);
@@ -501,19 +501,21 @@ export default function App() {
     loadUserSettings();
   }, [isAuthenticated, currentUser?.id, systemSettings]);
 
-  // Load admin defaults for new user preferences
+  // Load admin defaults for new user preferences (only for admin users)
   useEffect(() => {
+    if (!isAuthenticated || !currentUser?.roles?.includes('admin')) return;
+    
     const initializeAdminDefaults = async () => {
       try {
         await loadAdminDefaults();
-        // console.log('Admin defaults loaded for new users');
+        // console.log('Admin defaults loaded for admin users');
       } catch (error) {
         // console.warn('Failed to load admin defaults:', error);
       }
     };
     
     initializeAdminDefaults();
-  }, []); // Run once on mount
+  }, [isAuthenticated, currentUser?.roles, userStatus?.isAdmin]); // Run when authentication status, user roles, or admin status change
 
   // Load auto-refresh setting from user preferences
   useEffect(() => {
@@ -584,10 +586,17 @@ export default function App() {
   }, [isProfileBeingEdited]);
 
   const handleActivitiesUpdate = useCallback((newActivities: any[]) => {
-    if (showActivityFeed) {
-      setActivities(newActivities);
-    }
-  }, [showActivityFeed]);
+    setActivities(newActivities);
+  }, []);
+
+  const handleSharedFilterViewsUpdate = useCallback((newFilters: SavedFilterView[]) => {
+    setSharedFilterViews(prev => {
+      // Merge new filters with existing ones, avoiding duplicates
+      const existingIds = new Set(prev.map(f => f.id));
+      const newFiltersToAdd = newFilters.filter(f => !existingIds.has(f.id));
+      return [...prev, ...newFiltersToAdd];
+    });
+  }, []);
 
   const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
     // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
@@ -610,9 +619,9 @@ export default function App() {
     }
   }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
 
-  // Data polling for real-time collaboration and permission refresh
-  // Completely disable polling when help modal is open to prevent memory leaks
-  // Also disable polling when auto-refresh is disabled
+  // Data polling for backup/fallback only (WebSocket handles real-time updates)
+  // Disable polling when help modal is open or auto-refresh is disabled
+  // Only poll every 60 seconds as backup when WebSocket might be unavailable
   const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
   
   // Debug logging for polling state
@@ -714,6 +723,466 @@ export default function App() {
     };
   }, [isAuthenticated, isSavingPreferences]);
 
+  // Initialize WebSocket connection and real-time updates
+  useEffect(() => {
+    console.log('🔍 WebSocket useEffect - isAuthenticated:', isAuthenticated, 'selectedBoard:', selectedBoard);
+    if (!isAuthenticated) {
+      console.log('⚠️ WebSocket useEffect - not authenticated, skipping');
+      return;
+    }
+
+    // Connect to WebSocket
+    console.log('🔌 Connecting to WebSocket');
+    websocketClient.connect();
+
+    // Join current board when WebSocket is ready
+    const joinBoard = () => {
+      if (selectedBoard) {
+        console.log('🔍 Attempting to join board:', selectedBoard);
+        websocketClient.joinBoard(selectedBoard);
+      } else {
+        console.log('⚠️ No selected board to join');
+      }
+    };
+
+    // Listen for WebSocket ready event
+    const handleWebSocketReady = () => {
+      console.log('🎯 WebSocket ready, joining board');
+      joinBoard();
+    };
+
+    websocketClient.onWebSocketReady(handleWebSocketReady);
+
+    // Set up event handlers
+    const handleTaskCreated = (data: any) => {
+      console.log('📨 Task created via WebSocket:', data);
+      console.log('🔍 Current board ID:', selectedBoard, 'Event board ID:', data.boardId);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskUpdated = (data: any) => {
+      console.log('📨 Task updated via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskDeleted = (data: any) => {
+      console.log('📨 Task deleted via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskRelationshipCreated = (data: any) => {
+      console.log('📨 Task relationship created via WebSocket:', data);
+      // Only refresh if the relationship is for the current board
+      if (data.boardId === selectedBoard) {
+        // Load just the relationships instead of full refresh
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            // Fallback to full refresh on error
+            refreshBoardData();
+          });
+      }
+    };
+
+    const handleTaskRelationshipDeleted = (data: any) => {
+      console.log('📨 Task relationship deleted via WebSocket:', data);
+      // Only refresh if the relationship is for the current board
+      if (data.boardId === selectedBoard) {
+        // Load just the relationships instead of full refresh
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            // Fallback to full refresh on error
+            refreshBoardData();
+          });
+      }
+    };
+
+    const handleColumnUpdated = (data: any) => {
+      console.log('📨 Column updated via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnDeleted = (data: any) => {
+      console.log('📨 Column deleted via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnReordered = (data: any) => {
+      console.log('📨 Column reordered via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleBoardCreated = (data: any) => {
+      console.log('📨 Board created via WebSocket:', data);
+      // Refresh boards list to show new board
+      refreshBoardData();
+    };
+
+    const handleBoardUpdated = (data: any) => {
+      console.log('📨 Board updated via WebSocket:', data);
+      // Refresh boards list
+      refreshBoardData();
+    };
+
+    const handleBoardDeleted = (data: any) => {
+      console.log('📨 Board deleted via WebSocket:', data);
+      // If the deleted board was selected, clear selection
+      if (data.boardId === selectedBoard) {
+        setSelectedBoard(null);
+        setColumns({});
+      }
+      // Refresh boards list
+      refreshBoardData();
+    };
+
+    const handleBoardReordered = (data: any) => {
+      console.log('📨 Board reordered via WebSocket:', data);
+      // Refresh boards list to show new order
+      refreshBoardData();
+    };
+
+    const handleTaskWatcherAdded = (data: any) => {
+      console.log('📨 Task watcher added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskWatcherRemoved = (data: any) => {
+      console.log('📨 Task watcher removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskCollaboratorAdded = (data: any) => {
+      console.log('📨 Task collaborator added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskCollaboratorRemoved = (data: any) => {
+      console.log('📨 Task collaborator removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        // For watchers/collaborators, we need to refresh the specific task
+        // This is more efficient than refreshing the entire board
+        refreshBoardData();
+      }
+    };
+
+    const handleColumnCreated = (data: any) => {
+      console.log('📨 Column created via WebSocket:', data);
+      // Only refresh if the column is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleMemberUpdated = async (data: any) => {
+      console.log('📨 Member updated via WebSocket:', data);
+      // Update the specific member in the members list
+      if (data.member) {
+        setMembers(prevMembers => {
+          const updatedMembers = prevMembers.map(member => 
+            member.id === data.member.id ? { ...member, ...data.member } : member
+          );
+          return updatedMembers;
+        });
+      } else {
+        // Fallback: refresh entire members list
+        try {
+          const loadedMembers = await getMembers(includeSystem);
+          setMembers(loadedMembers);
+        } catch (error) {
+          console.error('Failed to refresh members after update:', error);
+        }
+      }
+    };
+
+    const handleActivityUpdated = (data: any) => {
+      console.log('📨 Activity updated via WebSocket:', data);
+      // Refresh activity feed
+      handleActivitiesUpdate(data.activities || []);
+    };
+
+    const handleMemberCreated = (data: any) => {
+      console.log('📨 Member created via WebSocket:', data);
+      // Refresh members list
+      handleMembersUpdate([data.member]);
+    };
+
+    const handleMemberDeleted = (data: any) => {
+      console.log('📨 Member deleted via WebSocket:', data);
+      // Refresh members list
+      handleMembersUpdate([]);
+    };
+
+    const handleUserProfileUpdated = async (data: any) => {
+      console.log('📨 User profile updated via WebSocket:', data);
+      // Refresh members list to update display name and avatar
+      try {
+        const loadedMembers = await getMembers(includeSystem);
+        setMembers(loadedMembers);
+      } catch (error) {
+        console.error('Failed to refresh members after profile update:', error);
+      }
+    };
+
+    const handleFilterCreated = (data: any) => {
+      console.log('📨 Filter created via WebSocket:', data);
+      // Refresh shared filters list
+      if (data.filter && data.filter.shared) {
+        handleSharedFilterViewsUpdate([data.filter]);
+      }
+    };
+
+    const handleFilterUpdated = (data: any) => {
+      console.log('📨 Filter updated via WebSocket:', data);
+      console.log('📨 Filter shared status:', data.filter?.shared, 'type:', typeof data.filter?.shared);
+      // Handle filter sharing/unsharing
+      if (data.filter) {
+        if (data.filter.shared) {
+          // Filter was shared or updated - add/update it
+          console.log('📨 Adding/updating shared filter:', data.filter.filterName);
+          handleSharedFilterViewsUpdate([data.filter]);
+        } else {
+          // Filter was unshared - remove it from the list
+          console.log('📨 Removing unshared filter:', data.filter.filterName);
+          setSharedFilterViews(prev => prev.filter(f => f.id !== data.filter.id));
+        }
+      }
+    };
+
+    const handleFilterDeleted = (data: any) => {
+      console.log('📨 Filter deleted via WebSocket:', data);
+      // Remove from shared filters list
+      if (data.filterId) {
+        setSharedFilterViews(prev => prev.filter(f => f.id !== data.filterId));
+      }
+    };
+
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 Tag created via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 Tag updated via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setAvailableTags(tags);
+        console.log('📨 Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 Priority created via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Settings update event handler
+    const handleSettingsUpdated = async (data: any) => {
+      console.log('📨 Settings updated via WebSocket:', data);
+      try {
+        const settings = await getSettings();
+        setSiteSettings(settings);
+        console.log('📨 Settings refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh settings after update:', error);
+      }
+    };
+
+    // Task tag event handlers
+    const handleTaskTagAdded = (data: any) => {
+      console.log('📨 Task tag added via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    const handleTaskTagRemoved = (data: any) => {
+      console.log('📨 Task tag removed via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === selectedBoard) {
+        refreshBoardData();
+      }
+    };
+
+    // Register event listeners
+    websocketClient.onTaskCreated(handleTaskCreated);
+    websocketClient.onTaskUpdated(handleTaskUpdated);
+    websocketClient.onTaskDeleted(handleTaskDeleted);
+    websocketClient.onTaskRelationshipCreated(handleTaskRelationshipCreated);
+    websocketClient.onTaskRelationshipDeleted(handleTaskRelationshipDeleted);
+    websocketClient.onColumnUpdated(handleColumnUpdated);
+    websocketClient.onColumnDeleted(handleColumnDeleted);
+    websocketClient.onColumnReordered(handleColumnReordered);
+    websocketClient.onBoardCreated(handleBoardCreated);
+    websocketClient.onBoardUpdated(handleBoardUpdated);
+    websocketClient.onBoardDeleted(handleBoardDeleted);
+    websocketClient.onBoardReordered(handleBoardReordered);
+    websocketClient.onColumnCreated(handleColumnCreated);
+    websocketClient.onTaskWatcherAdded(handleTaskWatcherAdded);
+    websocketClient.onTaskWatcherRemoved(handleTaskWatcherRemoved);
+    websocketClient.onTaskCollaboratorAdded(handleTaskCollaboratorAdded);
+    websocketClient.onTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
+    websocketClient.onMemberUpdated(handleMemberUpdated);
+    websocketClient.onMemberCreated(handleMemberCreated);
+    websocketClient.onMemberDeleted(handleMemberDeleted);
+    websocketClient.onUserProfileUpdated(handleUserProfileUpdated);
+    websocketClient.onActivityUpdated(handleActivityUpdated);
+    websocketClient.onFilterCreated(handleFilterCreated);
+    websocketClient.onFilterUpdated(handleFilterUpdated);
+    websocketClient.onFilterDeleted(handleFilterDeleted);
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+    websocketClient.onSettingsUpdated(handleSettingsUpdated);
+    websocketClient.onTaskTagAdded(handleTaskTagAdded);
+    websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
+
+    return () => {
+      // Clean up event listeners
+      websocketClient.offTaskCreated(handleTaskCreated);
+      websocketClient.offTaskUpdated(handleTaskUpdated);
+      websocketClient.offTaskDeleted(handleTaskDeleted);
+      websocketClient.offTaskRelationshipCreated(handleTaskRelationshipCreated);
+      websocketClient.offTaskRelationshipDeleted(handleTaskRelationshipDeleted);
+      websocketClient.offColumnUpdated(handleColumnUpdated);
+      websocketClient.offColumnDeleted(handleColumnDeleted);
+      websocketClient.offColumnReordered(handleColumnReordered);
+      websocketClient.offBoardCreated(handleBoardCreated);
+      websocketClient.offBoardUpdated(handleBoardUpdated);
+      websocketClient.offBoardDeleted(handleBoardDeleted);
+      websocketClient.offBoardReordered(handleBoardReordered);
+      websocketClient.offColumnCreated(handleColumnCreated);
+      websocketClient.offTaskWatcherAdded(handleTaskWatcherAdded);
+      websocketClient.offTaskWatcherRemoved(handleTaskWatcherRemoved);
+      websocketClient.offTaskCollaboratorAdded(handleTaskCollaboratorAdded);
+      websocketClient.offTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
+      websocketClient.offMemberUpdated(handleMemberUpdated);
+      websocketClient.offMemberCreated(handleMemberCreated);
+      websocketClient.offMemberDeleted(handleMemberDeleted);
+      websocketClient.offUserProfileUpdated(handleUserProfileUpdated);
+      websocketClient.offActivityUpdated(handleActivityUpdated);
+      websocketClient.offFilterCreated(handleFilterCreated);
+      websocketClient.offFilterUpdated(handleFilterUpdated);
+      websocketClient.offFilterDeleted(handleFilterDeleted);
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+      websocketClient.offSettingsUpdated(handleSettingsUpdated);
+      websocketClient.offTaskTagAdded(handleTaskTagAdded);
+      websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
+      websocketClient.offWebSocketReady(handleWebSocketReady);
+    };
+  }, [isAuthenticated, selectedBoard]);
+
   // Restore selected task from preferences when tasks are loaded
   useEffect(() => {
     // Load fresh preferences to get the most up-to-date selectedTaskId
@@ -781,8 +1250,27 @@ export default function App() {
       const nameParts = emailPrefix.split(/[._-]/);
       
       // Capitalize first letter of each part
-      const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
-      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
+      let firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
+      let lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
+      
+      // Special handling for common email prefixes
+      if (emailPrefix.toLowerCase() === 'info') {
+        firstName = 'Info';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'admin') {
+        firstName = 'Admin';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'support') {
+        firstName = 'Support';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'noreply') {
+        firstName = 'System';
+        lastName = 'User';
+      } else if (nameParts.length === 1) {
+        // If only one part, use it as first name and "User" as last name
+        firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
+        lastName = 'User';
+      }
       
       // Generate a temporary password (user will change it during activation)
       const tempPassword = crypto.randomUUID().substring(0, 12);
@@ -796,9 +1284,28 @@ export default function App() {
       });
       // Refresh members list to show the new user
       await handleRefreshData();
-    } catch (error) {
-      // console.error('Failed to invite user:', error);
-      throw error;
+    } catch (error: any) {
+      console.error('Failed to invite user:', error);
+      
+      // Extract more specific error message
+      let errorMessage = 'Failed to send invitation';
+      
+      if (error.response?.data?.error) {
+        const backendError = error.response.data.error;
+        if (backendError.includes('already exists')) {
+          errorMessage = `User with email ${email} already exists`;
+        } else if (backendError.includes('required')) {
+          errorMessage = 'Missing required information. Please try again.';
+        } else if (backendError.includes('email')) {
+          errorMessage = 'Invalid email address format';
+        } else {
+          errorMessage = backendError;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
@@ -1256,15 +1763,17 @@ export default function App() {
     if (!isAuthenticated || !currentUser?.id) return;
     
     const loadInitialData = async () => {
+      console.log('🔄 Loading initial data...');
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
-          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse, loadedActivities] = await Promise.all([
             getMembers(includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
-          api.get('/settings')
+          api.get('/settings'),
+          getActivityFeed(20)
         ]);
           
 
@@ -1275,6 +1784,7 @@ export default function App() {
           setAvailablePriorities(loadedPriorities || []);
           setAvailableTags(loadedTags || []);
           setSystemSettings(settingsResponse.data || {});
+          setActivities(loadedActivities || []);
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -1309,6 +1819,16 @@ export default function App() {
         if (board) {
           // Update columns immediately from the boards array
           setColumns(board.columns || {});
+          
+          // Always load relationships when switching boards (even with polling enabled)
+          getBoardTaskRelationships(selectedBoard)
+            .then(relationships => {
+              setBoardRelationships(relationships);
+            })
+            .catch(error => {
+              console.warn('Failed to load relationships:', error);
+              setBoardRelationships([]);
+            });
         } else {
           // If board not found in current array, refresh from server
           refreshBoardData();
@@ -1365,10 +1885,20 @@ export default function App() {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
             setColumns(board.columns || {});
+            
+            // Also load relationships for the selected board
+            try {
+              const relationships = await getBoardTaskRelationships(selectedBoard);
+              setBoardRelationships(relationships);
+            } catch (error) {
+              console.warn('Failed to load relationships:', error);
+              setBoardRelationships([]);
+            }
           } else {
             // Selected board no longer exists, clear selection
             setSelectedBoard(null);
             setColumns({});
+            setBoardRelationships([]);
           }
         }
       }
@@ -2054,13 +2584,12 @@ export default function App() {
       }
     }));
 
-    // Send the updated task with new position to backend
+    // Send all updated tasks with their new positions to backend
     try {
-      // Update the task with its new position
-      await updateTask({
-        ...task,
-        position: newIndex
-      });
+      // Update all tasks with their new positions
+      for (const updatedTask of tasksWithUpdatedPositions) {
+        await updateTask(updatedTask);
+      }
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
@@ -2848,7 +3377,7 @@ export default function App() {
 
   // Handle task page (requires authentication)
   if (currentPage === 'task') {
-    if (!isAuthenticated) {
+    if (!isAuthenticated && authChecked) {
       return (
         <Login
           siteSettings={siteSettings}
@@ -2883,7 +3412,19 @@ export default function App() {
     );
   }
 
-  // Show login page if not authenticated
+  // Show loading state while checking authentication
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated (but only after auth check is complete)
   if (!isAuthenticated) {
     return (
       <Login 

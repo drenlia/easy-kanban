@@ -9,6 +9,7 @@ import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
 import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
 import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
+import websocketClient from '../services/websocketClient';
 
 interface AdminProps {
   currentUser: any;
@@ -121,6 +122,185 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, [activeTab]);
+
+  // WebSocket event listeners for real-time updates
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 Admin: Tag created via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 Admin: Tag updated via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 Admin: Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getTags();
+        setTags(tags);
+        console.log('📨 Admin: Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 Admin: Priority created via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 Admin: Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 Admin: Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 Admin: Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getPriorities();
+        setPriorities(priorities);
+        console.log('📨 Admin: Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+
+    // User management event handlers
+    const handleUserCreated = async (data: any) => {
+      console.log('📨 Admin: User created via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh users after creation:', error);
+      }
+    };
+
+    const handleUserUpdated = async (data: any) => {
+      console.log('📨 Admin: User updated via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh users after update:', error);
+      }
+    };
+
+    const handleUserRoleUpdated = async (data: any) => {
+      console.log('📨 Admin: User role updated via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after role update');
+      } catch (error) {
+        console.error('Failed to refresh users after role update:', error);
+      }
+    };
+
+    const handleUserDeleted = async (data: any) => {
+      console.log('📨 Admin: User deleted via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh users after deletion:', error);
+      }
+    };
+
+    // Settings event handlers
+    const handleSettingsUpdated = async (data: any) => {
+      console.log('📨 Admin: Settings updated via WebSocket:', data);
+      try {
+        const settingsResponse = await api.get('/admin/settings');
+        const loadedSettings = settingsResponse.data || {};
+        const settingsWithDefaults = {
+          ...loadedSettings,
+          TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+        };
+        setSettings(settingsWithDefaults);
+        setEditingSettings(settingsWithDefaults); // Also update editing settings for real-time UI updates
+        console.log('📨 Admin: Settings refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh settings after update:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onUserCreated(handleUserCreated);
+    websocketClient.onUserUpdated(handleUserUpdated);
+    websocketClient.onUserRoleUpdated(handleUserRoleUpdated);
+    websocketClient.onUserDeleted(handleUserDeleted);
+    websocketClient.onSettingsUpdated(handleSettingsUpdated);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+      websocketClient.offUserCreated(handleUserCreated);
+      websocketClient.offUserUpdated(handleUserUpdated);
+      websocketClient.offUserRoleUpdated(handleUserRoleUpdated);
+      websocketClient.offUserDeleted(handleUserDeleted);
+      websocketClient.offSettingsUpdated(handleSettingsUpdated);
+    };
+  }, [currentUser?.roles]);
 
   const loadData = async () => {
     try {

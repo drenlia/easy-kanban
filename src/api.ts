@@ -18,10 +18,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 || error.response?.status === 403) {
+    // Only clear token for 401 (unauthorized) errors
+    // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
+    if (error.response?.status === 401) {
+      console.log('🔑 Clearing token due to 401 unauthorized error');
       localStorage.removeItem('authToken');
-      // Don't redirect - let the component handle the auth error
-      // This prevents the login loop issue
+      // Redirect to login page
+      window.location.href = window.location.origin + '/#login';
     }
     return Promise.reject(error);
   }

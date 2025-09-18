@@ -75,6 +75,7 @@ export default function TaskCardToolbar({
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const quickTagButtonRef = useRef<HTMLDivElement>(null);
+  const memberButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleCopy = () => {
     onCopy(task);
@@ -184,6 +185,49 @@ export default function TaskCardToolbar({
     setShowQuickTagDropdown(false); // Close immediately after selection
   };
 
+  // Calculate member dropdown position for portal rendering
+  const getMemberDropdownPosition = () => {
+    if (memberButtonRef.current) {
+      const rect = memberButtonRef.current.getBoundingClientRect();
+      const dropdownWidth = 200;
+      
+      // Calculate optimal height for member dropdown based on number of members and viewport space
+      const memberItemHeight = 40; // Height per member item
+      const maxMembers = members.length;
+      const availableSpaceBelow = window.innerHeight - rect.bottom - 20; // 20px margin
+      const availableSpaceAbove = rect.top - 20; // 20px margin
+      const maxAvailableSpace = Math.max(availableSpaceBelow, availableSpaceAbove);
+      
+      // Calculate how many members we can fit
+      const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
+      const membersToShow = Math.min(maxMembers, maxVisibleMembers);
+      
+      // Set height based on actual members to show, with a minimum of 2 members and maximum of 8
+      const visibleMembers = Math.max(2, Math.min(8, membersToShow));
+      const dropdownHeight = visibleMembers * memberItemHeight + 16; // +16 for padding
+      
+      // Position below the button, aligned to right edge
+      let left = rect.right - dropdownWidth;
+      let top = rect.bottom + 5;
+      
+      // Keep within viewport horizontally
+      if (left < 20) {
+        left = 20;
+      }
+      if (left + dropdownWidth > window.innerWidth - 20) {
+        left = window.innerWidth - dropdownWidth - 20;
+      }
+      
+      // Keep within viewport vertically
+      if (top + dropdownHeight > window.innerHeight - 20) {
+        top = rect.top - dropdownHeight - 5; // Position above instead
+      }
+      
+      return { left, top, height: dropdownHeight };
+    }
+    return { left: 0, top: 0, height: 192 };
+  };
+
   const handleQuickEdit = () => {
     onShowQuickEdit();
     setDndGloballyDisabled(true);
@@ -206,22 +250,6 @@ export default function TaskCardToolbar({
 
   const handleMemberToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // Calculate dropdown position
-    if (priorityButtonRef.current) {
-      const rect = priorityButtonRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const spaceBelow = viewportHeight - rect.bottom;
-      const spaceAbove = rect.top;
-      
-      // If there's not enough space below (less than 200px) and more space above, show above
-      if (spaceBelow < 200 && spaceAbove > spaceBelow) {
-        setDropdownPosition('above');
-      } else {
-        setDropdownPosition('below');
-      }
-    }
-    
     onToggleMemberSelect();
   };
 
@@ -345,7 +373,7 @@ export default function TaskCardToolbar({
       <div className={`absolute top-1 right-2 ${showMemberSelect ? 'z-[110]' : 'z-20'}`}>
         <div className="relative">
           <button
-            ref={priorityButtonRef}
+            ref={memberButtonRef}
             onClick={handleMemberToggle}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
             title="Change Assignee"
@@ -366,46 +394,7 @@ export default function TaskCardToolbar({
             )}
           </button>
 
-          {/* Member Selection Dropdown */}
-          {showMemberSelect && (
-            <div className={`absolute ${dropdownPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[200px] max-h-48 overflow-y-auto`}>
-              <div className="p-2">
-                <div className="text-xs font-medium text-gray-500 mb-2">Assign to:</div>
-                {members.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onMemberChange(m.id);
-                    }}
-                    className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 transition-colors ${
-                      member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
-                      m.id === member.id ? 'bg-blue-50 border border-blue-200' : ''
-                    }`}
-                  >
-                    {m.avatarUrl || m.googleAvatarUrl ? (
-                      <img
-                        src={m.avatarUrl || m.googleAvatarUrl}
-                        alt={m.name}
-                        className="w-6 h-6 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div 
-                        className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
-                        style={{ backgroundColor: m.color }}
-                      >
-                        {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <span className="text-sm">{m.name}</span>
-                    {m.id === member.id && (
-                      <span className="ml-auto text-blue-600 text-xs">✓</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Member Selection Dropdown - Now handled by portal below */}
         </div>
       </div>
 
@@ -454,6 +443,60 @@ export default function TaskCardToolbar({
         </div>,
         document.body
       )}
+
+      {/* Portal-rendered member selection dropdown */}
+      {showMemberSelect && (() => {
+        const position = getMemberDropdownPosition();
+        return createPortal(
+          <div 
+            className="fixed bg-white border border-gray-200 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
+            style={{
+              left: `${position.left}px`,
+              top: `${position.top}px`,
+              maxHeight: `${position.height}px`,
+              minHeight: '200px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+          <div className="p-2">
+            <div className="text-xs font-medium text-gray-500 mb-2">Assign to:</div>
+            {members.map(m => (
+              <button
+                key={m.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMemberChange(m.id);
+                }}
+                className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 transition-colors ${
+                  member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
+                  m.id === member.id ? 'bg-blue-50 border border-blue-200' : ''
+                }`}
+              >
+                {m.avatarUrl || m.googleAvatarUrl ? (
+                  <img
+                    src={m.avatarUrl || m.googleAvatarUrl}
+                    alt={m.name}
+                    className="w-6 h-6 rounded-full object-cover"
+                  />
+                ) : (
+                  <div 
+                    className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium text-white"
+                    style={{ backgroundColor: m.color }}
+                  >
+                    {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span className="text-sm">{m.name}</span>
+                {m.id === member.id && (
+                  <span className="ml-auto text-blue-600 text-xs">✓</span>
+                )}
+              </button>
+            ))}
+          </div>
+          </div>,
+          document.body
+        );
+      })()}
     </>
   );
 }

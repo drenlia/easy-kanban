@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { authenticateToken } from '../middleware/auth.js';
+import redisService from '../services/redisService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
@@ -40,6 +41,9 @@ const formatViewForResponse = (view) => {
   if (!view) return null;
   
   const formatted = { ...view };
+  
+  // Convert boolean fields from SQLite (0/1) to JavaScript booleans
+  formatted.shared = Boolean(formatted.shared);
   
   // Parse JSON fields back to arrays
   const jsonFields = ['memberFilters', 'priorityFilters', 'tagFilters'];
@@ -144,7 +148,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 });
 
 // POST /api/views - Create a new saved filter view
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const { filterName, filters, shared = false } = req.body;
@@ -197,6 +201,16 @@ router.post('/', authenticateToken, (req, res) => {
     const createdView = db.prepare('SELECT * FROM views WHERE id = ?').get(result.lastInsertRowid);
     const formattedView = formatViewForResponse(createdView);
     
+    // Publish to Redis for real-time updates if the filter is shared
+    if (shared) {
+      console.log('📤 Publishing filter-created to Redis for shared filter:', formattedView.filterName);
+      await redisService.publish('filter-created', {
+        filter: formattedView,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Filter-created published to Redis');
+    }
+    
     res.status(201).json(formattedView);
   } catch (error) {
     console.error('Error creating view:', error);
@@ -205,7 +219,7 @@ router.post('/', authenticateToken, (req, res) => {
 });
 
 // PUT /api/views/:id - Update an existing saved filter view
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const viewId = req.params.id;
@@ -283,6 +297,24 @@ router.put('/:id', authenticateToken, (req, res) => {
     const updatedView = db.prepare('SELECT * FROM views WHERE id = ?').get(viewId);
     const formattedView = formatViewForResponse(updatedView);
     
+    // Publish to Redis for real-time updates if shared status changed or filter is shared
+    // We need to check if the shared status changed by comparing with the original view
+    const originalShared = Boolean(existingView.shared);
+    const newShared = formattedView.shared;
+    
+    console.log('🔍 [FILTER UPDATE] Original shared:', originalShared, 'New shared:', newShared, 'Changed:', originalShared !== newShared);
+    
+    if (originalShared !== newShared || newShared) {
+      console.log('📤 Publishing filter-updated to Redis for filter:', formattedView.filterName, 'shared:', newShared);
+      await redisService.publish('filter-updated', {
+        filter: formattedView,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Filter-updated published to Redis');
+    } else {
+      console.log('⏭️ Skipping Redis publish - no shared status change and filter not shared');
+    }
+    
     res.json(formattedView);
   } catch (error) {
     console.error('Error updating view:', error);
@@ -291,10 +323,17 @@ router.put('/:id', authenticateToken, (req, res) => {
 });
 
 // DELETE /api/views/:id - Delete a saved filter view
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const viewId = req.params.id;
+    
+    // Get the view before deleting to check if it was shared
+    const viewToDelete = db.prepare('SELECT * FROM views WHERE id = ? AND userId = ?').get(viewId, userId);
+    
+    if (!viewToDelete) {
+      return res.status(404).json({ error: 'Filter view not found' });
+    }
     
     const stmt = db.prepare(`
       DELETE FROM views 
@@ -305,6 +344,17 @@ router.delete('/:id', authenticateToken, (req, res) => {
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Filter view not found' });
+    }
+    
+    // Publish to Redis for real-time updates if the filter was shared
+    if (viewToDelete.shared) {
+      console.log('📤 Publishing filter-deleted to Redis for shared filter:', viewToDelete.filterName);
+      await redisService.publish('filter-deleted', {
+        filterId: viewId,
+        filterName: viewToDelete.filterName,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ Filter-deleted published to Redis');
     }
     
     res.status(204).send();

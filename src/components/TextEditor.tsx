@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -188,6 +188,26 @@ export default function TextEditor({
   }, []);
 
 
+  // Fix blob URLs in initial content - using same logic as TaskCard
+  const fixImageUrls = (htmlContent: string, attachments: any[]) => {
+    let fixedContent = htmlContent;
+    attachments.forEach(attachment => {
+      if (attachment.name.startsWith('img-')) {
+        // Replace blob URLs with server URLs
+        const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+        fixedContent = fixedContent.replace(blobPattern, attachment.url);
+      }
+    });
+    return fixedContent;
+  };
+
+  const getFixedInitialContent = () => {
+    if (!initialContent) return initialContent;
+    
+    // Fix blob URLs with existing attachments
+    return fixImageUrls(initialContent, existingAttachments);
+  };
+
   const editor = useEditor({
     autofocus: compact ? 'end' : false,
     extensions: [
@@ -233,6 +253,35 @@ export default function TextEditor({
       }),
       Image.extend({
         name: 'resizableImage',
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            'data-border': {
+              default: null,
+              parseHTML: element => element.getAttribute('data-border'),
+              renderHTML: attributes => {
+                if (!attributes['data-border']) {
+                  return {};
+                }
+                return {
+                  'data-border': attributes['data-border'],
+                };
+              },
+            },
+            width: {
+              default: null,
+              parseHTML: element => element.getAttribute('width'),
+              renderHTML: attributes => {
+                if (!attributes.width) {
+                  return {};
+                }
+                return {
+                  width: attributes.width,
+                };
+              },
+            },
+          };
+        },
         addNodeView() {
           return ({ node, updateAttributes, getPos, editor }) => {
             // Access the outer component's state through a closure
@@ -259,8 +308,8 @@ export default function TextEditor({
             }
             
             // Apply existing border styles if any
-            if (node.attrs['data-border-style']) {
-              img.style.border = node.attrs['data-border-style'];
+            if (node.attrs['data-border']) {
+              img.style.border = node.attrs['data-border'];
             }
             
             // Border options popup
@@ -297,12 +346,26 @@ export default function TextEditor({
                   img.style.border = borderStyle;
                   
                   // Update the node attributes
-                  if (updateAttributes && typeof updateAttributes === 'function') {
-                    updateAttributes({ 
-                      'data-border-style': borderStyle || null 
-                    });
-                  } else {
-                    console.warn('updateAttributes not available');
+                  try {
+                    const pos = getPos();
+                    if (pos !== undefined && editor) {
+                      // Use the editor's transaction system to update attributes
+                      const tr = editor.state.tr;
+                      const newAttrs = {
+                        ...node.attrs,
+                        'data-border': borderStyle || null
+                      };
+                      tr.setNodeMarkup(pos, undefined, newAttrs);
+                      editor.view.dispatch(tr);
+                      
+                    } else if (updateAttributes && typeof updateAttributes === 'function') {
+                      // Fallback to the provided updateAttributes function
+                      updateAttributes({ 
+                        'data-border': borderStyle || null
+                      });
+                    }
+                  } catch (error) {
+                    console.warn('Could not update image attributes:', error);
                   }
                   
                   popup.remove();
@@ -387,15 +450,23 @@ export default function TextEditor({
                 const newWidth = Math.max(100, Math.min(800, width));
                 img.style.width = newWidth + 'px';
                 
-                // Safety check for updateAttributes function
-                if (updateAttributes && typeof updateAttributes === 'function') {
-                  try {
+                // Update the node attributes using the editor transaction system
+                try {
+                  const pos = getPos();
+                  if (pos !== undefined && editor) {
+                    const tr = editor.state.tr;
+                    const newAttrs = {
+                      ...node.attrs,
+                      width: newWidth + 'px'
+                    };
+                    tr.setNodeMarkup(pos, undefined, newAttrs);
+                    editor.view.dispatch(tr);
+                  } else if (updateAttributes && typeof updateAttributes === 'function') {
+                    // Fallback to the provided updateAttributes function
                     updateAttributes({ width: newWidth + 'px' });
-                  } catch (error) {
-                    console.warn('⚠️ Failed to update image attributes during resize:', error);
                   }
-                } else {
-                  console.warn('⚠️ updateAttributes function is not available during resize');
+                } catch (error) {
+                  console.warn('⚠️ Failed to update image attributes during resize:', error);
                 }
               };
               
@@ -457,9 +528,18 @@ export default function TextEditor({
           class: 'tiptap-image',
         },
         allowBase64: false,
+        // Include data-border-style in the rendered HTML
+        renderHTML({ HTMLAttributes }) {
+          // Add style attribute if data-border exists
+          const finalAttributes = { ...HTMLAttributes };
+          if (HTMLAttributes['data-border']) {
+            finalAttributes.style = `border: ${HTMLAttributes['data-border']};`;
+          }
+          return ['img', finalAttributes];
+        },
       })
     ],
-    content: initialContent,
+    content: getFixedInitialContent(),
     onUpdate: ({ editor }) => {
       if (onChange) {
         const content = editor.getHTML();
@@ -566,6 +646,16 @@ export default function TextEditor({
       }
     }
   });
+
+  // Update editor content when existingAttachments change (e.g., when they're loaded)
+  useEffect(() => {
+    if (editor && existingAttachments.length > 0 && initialContent?.includes('img-')) {
+      const fixedContent = getFixedInitialContent();
+      if (fixedContent !== initialContent) {
+        editor.commands.setContent(fixedContent);
+      }
+    }
+  }, [existingAttachments, initialContent, editor]);
 
   // Update editor content when initialContent prop changes
   React.useEffect(() => {
@@ -1298,7 +1388,7 @@ export default function TextEditor({
       {/* Link Dialog */}
       {showLinkDialog && (
         <div 
-          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
           onClick={(e) => {
             e.stopPropagation();
             setShowLinkDialog(false);
