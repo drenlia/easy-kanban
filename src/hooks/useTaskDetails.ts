@@ -3,6 +3,7 @@ import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser
 import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, addTaskAttachments, deleteAttachment } from '../api';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
+import websocketClient from '../services/websocketClient';
 
 interface UseTaskDetailsProps {
   task: Task;
@@ -528,6 +529,108 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+    };
+  }, []);
+
+  // WebSocket event listeners for real-time updates
+  useEffect(() => {
+    // Tag management event handlers
+    const handleTagCreated = async (data: any) => {
+      console.log('📨 useTaskDetails: Tag created via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 useTaskDetails: Tags refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh tags after creation:', error);
+      }
+    };
+
+    const handleTagUpdated = async (data: any) => {
+      console.log('📨 useTaskDetails: Tag updated via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 useTaskDetails: Tags refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh tags after update:', error);
+      }
+    };
+
+    const handleTagDeleted = async (data: any) => {
+      console.log('📨 useTaskDetails: Tag deleted via WebSocket:', data);
+      try {
+        const tags = await getAllTags();
+        setAvailableTags(tags);
+        console.log('📨 useTaskDetails: Tags refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh tags after deletion:', error);
+      }
+    };
+
+    // Priority management event handlers
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 useTaskDetails: Priority created via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 useTaskDetails: Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 useTaskDetails: Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 useTaskDetails: Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 useTaskDetails: Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 useTaskDetails: Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 useTaskDetails: Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setAvailablePriorities(priorities);
+        console.log('📨 useTaskDetails: Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onTagCreated(handleTagCreated);
+    websocketClient.onTagUpdated(handleTagUpdated);
+    websocketClient.onTagDeleted(handleTagDeleted);
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offTagCreated(handleTagCreated);
+      websocketClient.offTagUpdated(handleTagUpdated);
+      websocketClient.offTagDeleted(handleTagDeleted);
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
     };
   }, []);
 

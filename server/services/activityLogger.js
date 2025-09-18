@@ -107,32 +107,33 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
 
     // Create enhanced details with context for specific actions
     let enhancedDetails = details;
+    const taskRef = taskTicket ? ` (${taskTicket})` : '';
+    
     if (action === 'create_task') {
-      enhancedDetails = `created task "${taskTitle}" in board "${boardTitle}"`;
+      enhancedDetails = `created task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
     } else if (action === 'delete_task') {
-      enhancedDetails = `deleted task "${taskTitle}" from board "${boardTitle}"`;
+      enhancedDetails = `deleted task "${taskTitle}"${taskRef} from board "${boardTitle}"`;
     } else if (action === 'move_task') {
-      enhancedDetails = `${details} in board "${boardTitle}"`;
+      // Board move already includes task name, add task reference if available
+      enhancedDetails = `${details}${taskRef} in board "${boardTitle}"`;
     } else if (action === 'update_task') {
-      enhancedDetails = `${details} in task "${taskTitle}" in board "${boardTitle}"`;
+      // Check if this is a column move (already includes task name in details)
+      if (details.includes('moved task') && details.includes('from') && details.includes('to')) {
+        // Column move already includes task reference, just add board context
+        enhancedDetails = `${details} in board "${boardTitle}"`;
+      } else {
+        enhancedDetails = `${details} in task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
+      }
     }
 
-    // Append project and task identifiers when USE_PREFIXES is enabled
-    try {
-      const usePrefixes = db.prepare(`SELECT value FROM settings WHERE key = 'USE_PREFIXES'`).get();
-      console.log('🔍 USE_PREFIXES setting:', usePrefixes?.value, 'Project:', projectIdentifier, 'Ticket:', taskTicket);
-      
-      if (usePrefixes?.value === 'true' && (projectIdentifier || taskTicket)) {
-        const identifiers = [];
-        if (projectIdentifier) identifiers.push(projectIdentifier);
-        if (taskTicket) identifiers.push(taskTicket);
-        if (identifiers.length > 0) {
-          enhancedDetails += ` (${identifiers.join('/')})`;
-          console.log('✅ Added prefixes to activity:', identifiers.join('/'));
-        }
+    // Append project and task identifiers (always enabled)
+    if (projectIdentifier || taskTicket) {
+      const identifiers = [];
+      if (projectIdentifier) identifiers.push(projectIdentifier);
+      if (taskTicket) identifiers.push(taskTicket);
+      if (identifiers.length > 0) {
+        enhancedDetails += ` (${identifiers.join('/')})`;
       }
-    } catch (settingsError) {
-      console.warn('Failed to check USE_PREFIXES setting:', settingsError.message);
     }
 
     // Debug logging
@@ -479,9 +480,20 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
                       action === 'update_comment' ? 'updated comment' : 
                       action === 'delete_comment' ? 'deleted comment' : 'modified comment';
     
-    let enhancedDetails = `${actionText} on task "${taskTitle}" in board "${boardTitle}"`;
+    // Get task reference for enhanced context
+    let taskRef = '';
+    try {
+      const taskDetails = db.prepare(`SELECT ticket FROM tasks WHERE id = ?`).get(taskId);
+      if (taskDetails?.ticket) {
+        taskRef = ` (${taskDetails.ticket})`;
+      }
+    } catch (refError) {
+      console.warn('Failed to get task reference for comment activity:', refError.message);
+    }
+    
+    let enhancedDetails = `${actionText} on task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
 
-    // Get project identifier and task ticket for enhanced context
+    // Get project identifier and task ticket for enhanced context (always enabled)
     try {
       const taskDetails = db.prepare(
         `SELECT t.ticket, b.project 
@@ -490,15 +502,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
          WHERE t.id = ?`
       ).get(taskId);
       
-      const usePrefixes = db.prepare(`SELECT value FROM settings WHERE key = 'USE_PREFIXES'`).get();
-      
-      if (usePrefixes?.value === 'true' && taskDetails && (taskDetails.project || taskDetails.ticket)) {
+      if (taskDetails && (taskDetails.project || taskDetails.ticket)) {
         const identifiers = [];
         if (taskDetails.project) identifiers.push(taskDetails.project);
         if (taskDetails.ticket) identifiers.push(taskDetails.ticket);
         if (identifiers.length > 0) {
           enhancedDetails += ` (${identifiers.join('/')})`;
-          console.log('✅ Added prefixes to comment activity:', identifiers.join('/'));
         }
       }
     } catch (prefixError) {

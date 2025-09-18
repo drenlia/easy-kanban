@@ -1,5 +1,6 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -157,7 +158,17 @@ router.post('/', (req, res) => {
     
     const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
     wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
-    res.json({ id, title, project: projectIdentifier, position: position + 1 });
+    
+    const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
+    
+    // Publish to Redis for real-time updates
+    redisService.publish('board-created', {
+      boardId: id,
+      board: newBoard,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json(newBoard);
   } catch (error) {
     console.error('Error creating board:', error);
     res.status(500).json({ error: 'Failed to create board' });
@@ -184,7 +195,7 @@ const generateProjectIdentifier = (db, prefix = 'PROJ-') => {
 };
 
 // Update board
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { title } = req.body;
   try {
@@ -201,6 +212,16 @@ router.put('/:id', (req, res) => {
     }
     
     wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing board-updated to Redis for board:', id);
+    await redisService.publish('board-updated', {
+      boardId: id,
+      board: { id, title },
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Board-updated published to Redis');
+    
     res.json({ id, title });
   } catch (error) {
     console.error('Error updating board:', error);
@@ -209,11 +230,20 @@ router.put('/:id', (req, res) => {
 });
 
 // Delete board
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
     wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing board-deleted to Redis for board:', id);
+    await redisService.publish('board-deleted', {
+      boardId: id,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Board-deleted published to Redis');
+    
     res.json({ message: 'Board deleted successfully' });
   } catch (error) {
     console.error('Error deleting board:', error);
@@ -222,7 +252,7 @@ router.delete('/:id', (req, res) => {
 });
 
 // Reorder boards
-router.post('/reorder', (req, res) => {
+router.post('/reorder', async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
     const { db } = req.app.locals;
@@ -253,6 +283,15 @@ router.post('/reorder', (req, res) => {
         }
       }
     })();
+
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing board-reordered to Redis for board:', boardId);
+    await redisService.publish('board-reordered', {
+      boardId: boardId,
+      newPosition: newPosition,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Board-reordered published to Redis');
 
     res.json({ message: 'Board reordered successfully' });
   } catch (error) {

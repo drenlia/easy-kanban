@@ -84,6 +84,18 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const [isRelationshipMode, setIsRelationshipMode] = useState(false);
   const [selectedParentTask, setSelectedParentTask] = useState<string | null>(null);
   
+  // Multi-select state
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
+  
+  // Ref to store current columns for keyboard navigation
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
+  
+  // Debouncing for arrow key navigation
+  const arrowKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isArrowKeyPressedRef = useRef(false);
+  
   // Local relationships state for optimistic updates
   const [localRelationships, setLocalRelationships] = useState<any[]>([]);
   const lastRelationshipClickRef = useRef<number>(0);
@@ -119,12 +131,26 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   }, [relationships]);
 
 
-  // Handle ESC key to exit relationship mode
+  // Handle ESC key to exit relationship mode and multi-select mode
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isRelationshipMode) {
-        setIsRelationshipMode(false);
-        setSelectedParentTask(null);
+      if (event.key === 'Escape') {
+        if (isRelationshipMode) {
+          setIsRelationshipMode(false);
+          setSelectedParentTask(null);
+        }
+        if (isMultiSelectMode) {
+          setIsMultiSelectMode(false);
+          setSelectedTasks([]);
+        }
+      } else if (event.key === 'Enter') {
+        if (isMultiSelectMode) {
+          setIsMultiSelectMode(false);
+          setSelectedTasks([]);
+        } else if (isRelationshipMode) {
+          setIsRelationshipMode(false);
+          setSelectedParentTask(null);
+        }
       }
     };
 
@@ -132,7 +158,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isRelationshipMode]);
+  }, [isRelationshipMode, isMultiSelectMode]);
+
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -146,6 +173,34 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     };
   }, []);
   
+  // Handle task selection for multi-select mode
+  const handleTaskSelect = (taskId: string) => {
+    if (!isMultiSelectMode) return;
+    
+    setSelectedTasks(prev => {
+      if (prev.includes(taskId)) {
+        // Remove from selection
+        return prev.filter(id => id !== taskId);
+      } else {
+        // Add to selection
+        return [...prev, taskId];
+      }
+    });
+  };
+
+  // Handle select all tasks
+  const handleSelectAll = () => {
+    if (!isMultiSelectMode) return;
+    
+    const allTaskIds = reorderedGanttTasks.map(task => task.id);
+    setSelectedTasks(allTaskIds);
+  };
+
+  // Handle deselect all tasks
+  const handleDeselectAll = () => {
+    setSelectedTasks([]);
+  };
+
   // Handle relationship creation with optimistic updates
   const handleCreateRelationship = async (parentTaskId: string, childTaskId: string) => {
     // Debounce rapid clicks (prevent multiple clicks within 500ms)
@@ -431,14 +486,16 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           startDate = parseLocalDate(task.dueDate); // Fix: use parseLocalDate consistently
         }
         
+        
+        
         // Protection for null dates - log when this happens
         if (startDate && !endDate) {
-          // console.log('⚠️ [GanttView] Task with null dueDate, using startDate:', {
-          //   taskId: task.id,
-          //   title: task.title,
-          //   startDate: task.startDate,
-          //   dueDate: task.dueDate
-          // });
+          console.log('⚠️ [GanttView] Task with null dueDate, using startDate:', {
+            taskId: task.id,
+            title: task.title,
+            startDate: task.startDate,
+            dueDate: task.dueDate
+          });
         }
         
         
@@ -490,6 +547,85 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     return [...reordered, ...newTasks];
   }, [ganttTasks, localTaskOrder]);
+
+  // Handle keyboard navigation for selected tasks with debouncing
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isMultiSelectMode || selectedTasks.length === 0) return;
+      
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        
+        // If arrow key is already being processed, ignore this event
+        if (isArrowKeyPressedRef.current) return;
+        
+        // Set flag to prevent multiple rapid calls
+        isArrowKeyPressedRef.current = true;
+        
+        const moveAmount = event.key === 'ArrowLeft' ? -1 : 1; // Move left or right by 1 day
+        
+        // Clear any existing timeout
+        if (arrowKeyTimeoutRef.current) {
+          clearTimeout(arrowKeyTimeoutRef.current);
+        }
+        
+        // Move all selected tasks
+        selectedTasks.forEach(async (taskId) => {
+          // Find the original task from columns to get the full task data
+          const originalTask = Object.values(columnsRef.current)
+            .flatMap(col => col.tasks || [])
+            .find(t => t.id === taskId);
+            
+          if (originalTask && originalTask.startDate && originalTask.dueDate && onUpdateTask) {
+            const newStartDate = new Date(originalTask.startDate);
+            const newDueDate = new Date(originalTask.dueDate);
+            
+            newStartDate.setDate(newStartDate.getDate() + moveAmount);
+            newDueDate.setDate(newDueDate.getDate() + moveAmount);
+            
+            // Create updated task object with proper date format
+            const updatedTask = {
+              ...originalTask,
+              startDate: newStartDate.toISOString().split('T')[0], // Format as YYYY-MM-DD
+              dueDate: newDueDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
+            };
+            
+            // Update the task
+            await onUpdateTask(updatedTask);
+          }
+        });
+        
+        // Reset flag after a short delay to allow for single key presses
+        arrowKeyTimeoutRef.current = setTimeout(() => {
+          isArrowKeyPressedRef.current = false;
+        }, 100); // 100ms debounce
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        // Reset flag immediately on key release
+        isArrowKeyPressedRef.current = false;
+        if (arrowKeyTimeoutRef.current) {
+          clearTimeout(arrowKeyTimeoutRef.current);
+          arrowKeyTimeoutRef.current = null;
+        }
+      }
+    };
+
+    if (isMultiSelectMode) {
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('keyup', handleKeyUp);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener('keyup', handleKeyUp);
+        // Cleanup timeout on unmount
+        if (arrowKeyTimeoutRef.current) {
+          clearTimeout(arrowKeyTimeoutRef.current);
+        }
+      };
+    }
+  }, [isMultiSelectMode, selectedTasks, onUpdateTask]); // Removed columns dependency, using ref instead
 
   // Group tasks by columnId for separators (sorted by columns.position, then tasks.position)
   const groupedTasks = useMemo(() => {
@@ -3178,6 +3314,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             scrollToTask={scrollToTask}
             isRelationshipMode={isRelationshipMode}
             setIsRelationshipMode={setIsRelationshipMode}
+            isMultiSelectMode={isMultiSelectMode}
+            setIsMultiSelectMode={setIsMultiSelectMode}
+            selectedTasks={selectedTasks}
+            setSelectedTasks={setSelectedTasks}
             isLoading={isLoading}
             onJumpToTask={handleJumpToTask}
           />
@@ -3600,6 +3740,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   {tasks.map((task, taskIndex) => {
               const gridPosition = getTaskBarGridPosition(task);
               
+              
               return (
                 <div 
                   key={task.id} 
@@ -3717,9 +3858,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     }
                   }
                   
+                  const isSelected = selectedTasks.includes(task.id);
+                  
                   return (
                     <div
-                      className={`h-6 rounded ${isDragging ? 'opacity-90 ring-2 ring-blue-400' : 'opacity-80 hover:opacity-100'} transition-all flex items-center group relative`}
+                      className={`h-6 rounded ${
+                        isDragging ? 'opacity-90 ring-2 ring-blue-400' : 
+                        isSelected ? 'opacity-100 ring-2 ring-green-400 shadow-lg' :
+                        'opacity-80 hover:opacity-100'
+                      } transition-all flex items-center group relative`}
                       style={{
                         gridColumn: startIndex === endIndex 
                           ? `${startIndex + 1} / ${startIndex + 2}` // 1-day task: exactly 1 column
@@ -3727,10 +3874,23 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                         gridRow: 1,
                         willChange: isDragging ? 'opacity, transform' : 'auto', // Performance hint for drag operations
                         alignSelf: 'center',
-                        zIndex: isDragging ? 25 : 10,
+                        zIndex: isDragging ? 25 : isSelected ? 15 : 10,
                         ...getPriorityColor(task.priority)
                       }}
-                      title={`${task.title}\nStart: ${task.startDate?.toLocaleDateString()}\nEnd: ${task.endDate?.toLocaleDateString()}`}
+                      title={`${task.title}\nStart: ${task.startDate?.toLocaleDateString()}\nEnd: ${task.endDate?.toLocaleDateString()}${isSelected ? '\n✓ Selected' : ''}`}
+                      onClick={() => {
+                        if (isMultiSelectMode) {
+                          handleTaskSelect(task.id);
+                        } else {
+                          // Find the original task and call onSelectTask
+                          const originalTask = Object.values(columns)
+                            .flatMap(col => col.tasks || [])
+                            .find(t => t.id === task.id);
+                          if (originalTask) {
+                            onSelectTask(originalTask);
+                          }
+                        }
+                      }}
                     >
                       {/* Task Bar Badge System */}
                       {/* DONE Badge - for completed tasks */}
@@ -3803,6 +3963,19 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                         {gridPosition.startDayIndex === gridPosition.endDayIndex ? (
                           /* 1-day task: Link icons at both ends */
                           <div className="flex-1 min-w-0 flex items-center justify-between">
+                            {/* Multi-select checkbox for 1-day tasks */}
+                            {isMultiSelectMode && (
+                              <div className="flex items-center mr-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleTaskSelect(task.id)}
+                                  className="h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            )}
+                            
                             {/* Start link icon for relationship mode - positioned on left */}
                             {isRelationshipMode && (
                               <button
@@ -3905,11 +4078,27 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                               </button>
                             )}
                             
+                            {/* Multi-select checkbox */}
+                            {isMultiSelectMode && (
+                              <div className="flex items-center mr-1">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => handleTaskSelect(task.id)}
+                                  className="h-3 w-3 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </div>
+                            )}
+                            
                             {/* Task title in center */}
                           <div 
-                            className="text-xs truncate px-2 flex-1"
+                            className="text-xs truncate px-2 flex-1 flex items-center gap-1"
                             style={{ color: getPriorityColor(task.priority).color }}
                           >
+                            {isSelected && !isMultiSelectMode && (
+                              <span className="text-green-600 font-bold">✓</span>
+                            )}
                             {task.title}
                             </div>
                             

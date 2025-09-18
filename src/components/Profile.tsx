@@ -207,20 +207,10 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     setError(null);
 
     try {
-      // Update display name and upload avatar in parallel if both are needed
-      const promises = [
-        api.put('/users/profile', { displayName: displayName.trim() })
-      ];
+      // Update display name first (fast operation)
+      await api.put('/users/profile', { displayName: displayName.trim() });
       
-      // Only handle avatar uploads for local users
-      if (currentUser?.authProvider === 'local' && selectedFile) {
-        promises.push(uploadAvatar(selectedFile));
-      }
-      
-      // Wait for all operations to complete
-      await Promise.all(promises);
-
-      // Call the callback to refresh user data
+      // Call the callback to refresh user data immediately
       onProfileUpdated();
       
       // Clear editing state after successful save
@@ -228,6 +218,19 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       
       // Close modal immediately
       onClose();
+      
+      // Handle avatar upload separately (non-blocking)
+      if (currentUser?.authProvider === 'local' && selectedFile) {
+        try {
+          console.log('📷 Uploading avatar in background...');
+          await uploadAvatar(selectedFile);
+          console.log('✅ Avatar uploaded successfully');
+          // The WebSocket will handle the real-time update
+        } catch (avatarError) {
+          console.error('❌ Avatar upload failed:', avatarError);
+          // Don't show error to user since profile was already updated
+        }
+      }
       
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to update profile');

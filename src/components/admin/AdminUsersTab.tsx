@@ -66,9 +66,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [isResendingInvitation, setIsResendingInvitation] = useState<boolean>(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
+  const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   
   // Refs for button positioning and focus
   const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
+  const colorButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   
@@ -81,6 +83,26 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       }, 50);
     }
   }, [showDeleteConfirm]);
+
+  // Handle click outside to close color picker
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showColorPicker && colorPickerPosition) {
+        const target = event.target as Element;
+        // Check if click is outside the color picker and not on a color button
+        if (!target.closest('.color-picker-portal') && 
+            !colorButtonRefs.current[showColorPicker]?.contains(target)) {
+          setShowColorPicker(null);
+          setColorPickerPosition(null);
+        }
+      }
+    };
+
+    if (showColorPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showColorPicker, colorPickerPosition]);
 
   // Handle Enter and ESC keys to choose "No"/cancel by default for all users
   useEffect(() => {
@@ -124,10 +146,41 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     role: 'user'
   });
 
-  const handleColorChange = (userId: string, currentColor: string) => {
-    setShowColorPicker(userId);
+  const handleColorChange = (userId: string, currentColor: string, event: React.MouseEvent) => {
     setEditingColor(currentColor);
     setOriginalColor(currentColor);
+    
+    // Calculate position for the color picker
+    const buttonRect = event.currentTarget.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const pickerHeight = 120; // Approximate height of the color picker
+    
+    // Check if there's enough space below the button
+    const spaceBelow = viewportHeight - buttonRect.bottom;
+    const spaceAbove = buttonRect.top;
+    
+    let top: number;
+    let left: number;
+    
+    if (spaceBelow >= pickerHeight + 10) {
+      // Position below the button
+      top = buttonRect.bottom + 10;
+    } else if (spaceAbove >= pickerHeight + 10) {
+      // Position above the button
+      top = buttonRect.top - pickerHeight - 10;
+    } else {
+      // Position in the center of the viewport
+      top = Math.max(10, (viewportHeight - pickerHeight) / 2);
+    }
+    
+    // Center horizontally relative to the button
+    left = buttonRect.left + (buttonRect.width / 2) - 60; // 60 is half the picker width
+    
+    // Ensure the picker doesn't go off the left or right edge
+    left = Math.max(10, Math.min(left, window.innerWidth - 120));
+    
+    setColorPickerPosition({ top, left, userId });
+    setShowColorPicker(userId);
   };
 
   const handleSaveColor = async (userId: string) => {
@@ -405,44 +458,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-20">
-                    {showColorPicker === user.id ? (
-                      <div className="relative">
-                        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-50 bg-white p-3 rounded-lg shadow-xl border border-gray-200 min-w-[120px] max-w-xs">
-                          {/* Buttons positioned at the top for better visibility */}
-                          <div className="flex space-x-2 justify-center mb-3">
-                            <button
-                              onClick={() => handleSaveColor(user.id)}
-                              className="px-3 py-1 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors font-medium"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              onClick={handleCancelColor}
-                              className="px-3 py-1 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 rounded transition-colors"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          
-                          {/* Color picker positioned below buttons */}
-                          <div className="flex justify-center">
-                            <input
-                              type="color"
-                              value={editingColor}
-                              onChange={(e) => setEditingColor(e.target.value)}
-                              className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div 
-                        className="w-6 h-6 rounded-full border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
-                        style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
-                        onClick={() => handleColorChange(user.id, user.memberColor || '#4ECDC4')}
-                        title="Click to change color"
-                      />
-                    )}
+                    <div 
+                      ref={(el) => { colorButtonRefs.current[user.id] = el; }}
+                      className="w-6 h-6 rounded-full border-2 border-gray-200 cursor-pointer hover:scale-110 transition-transform"
+                      style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
+                      onClick={(e) => handleColorChange(user.id, user.memberColor || '#4ECDC4', e)}
+                      title="Click to change color"
+                    />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-28">
                     {user.joined}
@@ -859,6 +881,44 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             >
               Yes
             </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Color Picker Portal */}
+      {showColorPicker && colorPickerPosition && colorPickerPosition.userId === showColorPicker && createPortal(
+        <div 
+          className="color-picker-portal fixed bg-white p-3 rounded-lg shadow-xl border border-gray-200 min-w-[120px] max-w-xs z-[60]"
+          style={{
+            top: `${colorPickerPosition.top}px`,
+            left: `${colorPickerPosition.left}px`
+          }}
+        >
+          {/* Buttons positioned at the top for better visibility */}
+          <div className="flex space-x-2 justify-center mb-3">
+            <button
+              onClick={() => handleSaveColor(showColorPicker)}
+              className="px-3 py-1 text-xs bg-green-100 text-green-700 hover:bg-green-200 rounded transition-colors font-medium"
+            >
+              ✓
+            </button>
+            <button
+              onClick={handleCancelColor}
+              className="px-3 py-1 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 rounded transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+          
+          {/* Color picker positioned below buttons */}
+          <div className="flex justify-center">
+            <input
+              type="color"
+              value={editingColor}
+              onChange={(e) => setEditingColor(e.target.value)}
+              className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
+            />
           </div>
         </div>,
         document.body

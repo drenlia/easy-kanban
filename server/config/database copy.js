@@ -403,8 +403,7 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 0, "y": 443}'], // Default activity feed position
       ['DEFAULT_ACTIVITY_FEED_WIDTH', '180'], // Default activity feed width
       ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
-      // Project and task identification settings
-      ['USE_PREFIXES', 'true'], // Enable project and task identification by default
+      // Project and task identification settings (always enabled)
       ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
       ['DEFAULT_TASK_PREFIX', 'TASK-'] // Default task prefix
     ];

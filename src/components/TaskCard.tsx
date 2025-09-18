@@ -10,6 +10,7 @@ import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { createComment, fetchTaskAttachments } from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { generateUUID } from '../utils/uuid';
+import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
@@ -868,17 +869,17 @@ export default function TaskCard({
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
               href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-              className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
+              className={`${getCardBackgroundColor()} px-1.5 py-0.8 text-gray-600 font-mono font-bold hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
               style={{
                 borderTopLeftRadius: '0.25rem',
                 borderTopRightRadius: '0.25rem',
                 borderBottomLeftRadius: '0',
                 borderBottomRightRadius: '0',
                 border: 'none',
-                fontSize: '10px',
+                fontSize: '12px',
                 textDecoration: 'none',
                 display: 'inline-block',
-                lineHeight: '1',
+                lineHeight: '1.2',
                 verticalAlign: 'top'
               }}
               title={`Direct link to ${task.ticket}`}
@@ -1032,45 +1033,25 @@ export default function TaskCard({
         )}
 
         {/* Tags Section - Right Aligned */}
-        {task.tags && task.tags.length > 0 && (
-          <div 
-            className="flex justify-end mb-2 relative"
-            onMouseEnter={() => setShowAllTags(true)}
-            onMouseLeave={() => setShowAllTags(false)}
-          >
-            <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
-              showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
-            }`}>
-              {(showAllTags ? task.tags : task.tags.slice(0, 3)).map((tag) => (
-                <span
-                  key={tag.id}
-                  className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
-                  style={(() => {
-                    if (!tag.color) {
-                      return { backgroundColor: '#6b7280', color: 'white' };
-                    }
-                    
-                    // Calculate luminance to determine text color
-                    const hex = tag.color.replace('#', '');
-                    if (hex.length === 6) {
-                      const r = parseInt(hex.substring(0, 2), 16);
-                      const g = parseInt(hex.substring(2, 4), 16);
-                      const b = parseInt(hex.substring(4, 6), 16);
-                      
-                      // Calculate relative luminance
-                      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-                      
-                      // Use dark text for light backgrounds, white text for dark backgrounds
-                      const textColor = luminance > 0.6 ? '#374151' : '#ffffff';
-                      const borderStyle = textColor === '#374151' ? { border: '1px solid #d1d5db' } : {};
-                      
-                      return { backgroundColor: tag.color, color: textColor, ...borderStyle };
-                    }
-                    
-                    // Fallback for invalid hex colors
-                    return { backgroundColor: tag.color, color: 'white' };
-                  })()}
-                  title="Click to remove tag"
+        {task.tags && task.tags.length > 0 && (() => {
+          // Merge task tags with live tag data to get updated colors
+          const liveTags = mergeTaskTagsWithLiveData(task.tags, availableTags);
+          
+          return (
+            <div 
+              className="flex justify-end mb-2 relative"
+              onMouseEnter={() => setShowAllTags(true)}
+              onMouseLeave={() => setShowAllTags(false)}
+            >
+              <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
+                showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
+              }`}>
+                {(showAllTags ? liveTags : liveTags.slice(0, 3)).map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                    style={getTagDisplayStyle(tag)}
+                    title="Click to remove tag"
                   onClick={(e) => {
                     e.stopPropagation();
                     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -1109,14 +1090,15 @@ export default function TaskCard({
                   {tag.tag}
                 </span>
               ))}
-              {!showAllTags && task.tags.length > 3 && (
+              {!showAllTags && liveTags.length > 3 && (
                 <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
-                  +{task.tags.length - 3}
+                  +{liveTags.length - 3}
                 </span>
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
         
         {/* Bottom metadata row */}
         <div className="flex items-center justify-between text-sm text-gray-500">

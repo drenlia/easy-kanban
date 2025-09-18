@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
 import { authenticateToken } from '../middleware/auth.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -242,6 +243,15 @@ router.post('/', async (req, res) => {
       }
     );
     
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-created to Redis for board:', task.boardId);
+    await redisService.publish('task-created', {
+      boardId: task.boardId,
+      task: task,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-created published to Redis');
+    
     res.json(task);
   } catch (error) {
     console.error('Error creating task:', error);
@@ -288,6 +298,15 @@ router.post('/add-at-top', async (req, res) => {
       }
     );
     
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-created to Redis for board:', task.boardId);
+    await redisService.publish('task-created', {
+      boardId: task.boardId,
+      task: task,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-created published to Redis');
+    
     res.json(task);
   } catch (error) {
     console.error('Error creating task at top:', error);
@@ -324,7 +343,8 @@ router.put('/:id', async (req, res) => {
           // Special handling for column moves - get column titles for better readability
           const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
           const newColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
-          changes.push(`moved from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
+          const taskRef = task.ticket ? ` (${task.ticket})` : '';
+          changes.push(`moved task "${task.title}"${taskRef} from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
         } else {
           changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field]));
         }
@@ -369,6 +389,13 @@ router.put('/:id', async (req, res) => {
         }
       );
     }
+    
+    // Publish to Redis for real-time updates
+    await redisService.publish('task-updated', {
+      boardId: task.boardId,
+      task: task,
+      timestamp: new Date().toISOString()
+    });
     
     res.json(task);
   } catch (error) {
@@ -429,6 +456,13 @@ router.delete('/:id', async (req, res) => {
         boardId: task.boardId
       }
     );
+    
+    // Publish to Redis for real-time updates
+    await redisService.publish('task-deleted', {
+      boardId: task.boardId,
+      taskId: id,
+      timestamp: new Date().toISOString()
+    });
     
     res.json({ message: 'Task and attachments deleted successfully' });
   } catch (error) {
@@ -492,6 +526,15 @@ router.post('/reorder', async (req, res) => {
         boardId: currentTask.boardId
       }
     );
+
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-updated to Redis for board:', currentTask.boardId);
+    await redisService.publish('task-updated', {
+      boardId: currentTask.boardId,
+      taskId: taskId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-updated published to Redis');
 
     res.json({ message: 'Task reordered successfully' });
   } catch (error) {
@@ -631,6 +674,23 @@ router.post('/move-to-board', async (req, res) => {
       }
     );
     
+    // Publish to Redis for real-time updates (both boards need to be notified)
+    console.log('📤 Publishing task-updated to Redis for original board:', originalBoardId);
+    await redisService.publish('task-updated', {
+      boardId: originalBoardId,
+      taskId: taskId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-updated published to Redis for original board');
+    
+    console.log('📤 Publishing task-updated to Redis for target board:', targetBoardId);
+    await redisService.publish('task-updated', {
+      boardId: targetBoardId,
+      taskId: taskId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-updated published to Redis for target board');
+    
     res.json({ 
       success: true, 
       newTaskId: taskId, // Return original taskId since we're not changing it
@@ -669,15 +729,31 @@ router.get('/by-board/:boardId', (req, res) => {
 });
 
 // Add watcher to task
-router.post('/:taskId/watchers/:memberId', (req, res) => {
+router.post('/:taskId/watchers/:memberId', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
+    
+    // Get task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
     
     wrapQuery(db.prepare(`
       INSERT OR IGNORE INTO watchers (taskId, memberId, createdAt)
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-watcher-added to Redis for board:', task.boardId);
+    await redisService.publish('task-watcher-added', {
+      boardId: task.boardId,
+      taskId: taskId,
+      memberId: memberId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-watcher-added published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -687,14 +763,30 @@ router.post('/:taskId/watchers/:memberId', (req, res) => {
 });
 
 // Remove watcher from task
-router.delete('/:taskId/watchers/:memberId', (req, res) => {
+router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
     
+    // Get task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
     wrapQuery(db.prepare(`
       DELETE FROM watchers WHERE taskId = ? AND memberId = ?
     `), 'DELETE').run(taskId, memberId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-watcher-removed to Redis for board:', task.boardId);
+    await redisService.publish('task-watcher-removed', {
+      boardId: task.boardId,
+      taskId: taskId,
+      memberId: memberId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-watcher-removed published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -704,15 +796,31 @@ router.delete('/:taskId/watchers/:memberId', (req, res) => {
 });
 
 // Add collaborator to task
-router.post('/:taskId/collaborators/:memberId', (req, res) => {
+router.post('/:taskId/collaborators/:memberId', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
+    
+    // Get task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
     
     wrapQuery(db.prepare(`
       INSERT OR IGNORE INTO collaborators (taskId, memberId, createdAt)
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-collaborator-added to Redis for board:', task.boardId);
+    await redisService.publish('task-collaborator-added', {
+      boardId: task.boardId,
+      taskId: taskId,
+      memberId: memberId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-collaborator-added published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -722,14 +830,30 @@ router.post('/:taskId/collaborators/:memberId', (req, res) => {
 });
 
 // Remove collaborator from task
-router.delete('/:taskId/collaborators/:memberId', (req, res) => {
+router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
     
+    // Get task's board ID for Redis publishing
+    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
     wrapQuery(db.prepare(`
       DELETE FROM collaborators WHERE taskId = ? AND memberId = ?
     `), 'DELETE').run(taskId, memberId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing task-collaborator-removed to Redis for board:', task.boardId);
+    await redisService.publish('task-collaborator-removed', {
+      boardId: task.boardId,
+      taskId: taskId,
+      memberId: memberId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Task-collaborator-removed published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -775,7 +899,7 @@ router.get('/:taskId/relationships', (req, res) => {
 });
 
 // Create a task relationship
-router.post('/:taskId/relationships', (req, res) => {
+router.post('/:taskId/relationships', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId } = req.params;
@@ -845,6 +969,33 @@ router.post('/:taskId/relationships', (req, res) => {
       return res.status(500).json({ error: 'Failed to create relationship' });
     }
     
+    // Get the board ID for the source task to publish the update
+    const sourceTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
+    
+    // Publish to Redis for real-time updates (both boards need to be notified)
+    if (sourceTask?.boardId) {
+      console.log('📤 Publishing task-relationship-created to Redis for source board:', sourceTask.boardId);
+      await redisService.publish('task-relationship-created', {
+        boardId: sourceTask.boardId,
+        taskId: taskId,
+        relationship: relationship,
+        toTaskId: toTaskId,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
+      console.log('📤 Publishing task-relationship-created to Redis for target board:', targetTask.boardId);
+      await redisService.publish('task-relationship-created', {
+        boardId: targetTask.boardId,
+        taskId: taskId,
+        relationship: relationship,
+        toTaskId: toTaskId,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     res.json({ success: true, message: 'Task relationship created successfully' });
   } catch (error) {
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
@@ -856,7 +1007,7 @@ router.post('/:taskId/relationships', (req, res) => {
 });
 
 // Delete a task relationship
-router.delete('/:taskId/relationships/:relationshipId', (req, res) => {
+router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, relationshipId } = req.params;
@@ -884,6 +1035,33 @@ router.delete('/:taskId/relationships/:relationshipId', (req, res) => {
       wrapQuery(db.prepare(`
         DELETE FROM task_rels WHERE task_id = ? AND relationship = 'parent' AND to_task_id = ?
       `), 'DELETE').run(relationship.to_task_id, relationship.task_id);
+    }
+    
+    // Get the board ID for the source task to publish the update
+    const sourceTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(relationship.to_task_id);
+    
+    // Publish to Redis for real-time updates (both boards need to be notified)
+    if (sourceTask?.boardId) {
+      console.log('📤 Publishing task-relationship-deleted to Redis for source board:', sourceTask.boardId);
+      await redisService.publish('task-relationship-deleted', {
+        boardId: sourceTask.boardId,
+        taskId: taskId,
+        relationship: relationship.relationship,
+        toTaskId: relationship.to_task_id,
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
+      console.log('📤 Publishing task-relationship-deleted to Redis for target board:', targetTask.boardId);
+      await redisService.publish('task-relationship-deleted', {
+        boardId: targetTask.boardId,
+        taskId: taskId,
+        relationship: relationship.relationship,
+        toTaskId: relationship.to_task_id,
+        timestamp: new Date().toISOString()
+      });
     }
     
     res.json({ success: true, message: 'Task relationship deleted successfully' });
