@@ -869,17 +869,17 @@ export default function TaskCard({
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
               href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-              className={`${getCardBackgroundColor()} px-1.5 py-0.5 text-gray-600 font-mono hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
+              className={`${getCardBackgroundColor()} px-1.5 py-0.8 text-gray-600 font-mono font-bold hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
               style={{
                 borderTopLeftRadius: '0.25rem',
                 borderTopRightRadius: '0.25rem',
                 borderBottomLeftRadius: '0',
                 borderBottomRightRadius: '0',
                 border: 'none',
-                fontSize: '10px',
+                fontSize: '12px',
                 textDecoration: 'none',
                 display: 'inline-block',
-                lineHeight: '1',
+                lineHeight: '1.2',
                 verticalAlign: 'top'
               }}
               title={`Direct link to ${task.ticket}`}

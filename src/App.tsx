@@ -2546,13 +2546,12 @@ export default function App() {
       }
     }));
 
-    // Send the updated task with new position to backend
+    // Send all updated tasks with their new positions to backend
     try {
-      // Update the task with its new position
-      await updateTask({
-        ...task,
-        position: newIndex
-      });
+      // Update all tasks with their new positions
+      for (const updatedTask of tasksWithUpdatedPositions) {
+        await updateTask(updatedTask);
+      }
         
       // Add cooldown to prevent polling interference
       setDragCooldown(true);
