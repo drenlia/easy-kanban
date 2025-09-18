@@ -215,6 +215,76 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     websocketClient.onPriorityDeleted(handlePriorityDeleted);
     websocketClient.onPriorityReordered(handlePriorityReordered);
 
+    // User management event handlers
+    const handleUserCreated = async (data: any) => {
+      console.log('📨 Admin: User created via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh users after creation:', error);
+      }
+    };
+
+    const handleUserUpdated = async (data: any) => {
+      console.log('📨 Admin: User updated via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh users after update:', error);
+      }
+    };
+
+    const handleUserRoleUpdated = async (data: any) => {
+      console.log('📨 Admin: User role updated via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after role update');
+      } catch (error) {
+        console.error('Failed to refresh users after role update:', error);
+      }
+    };
+
+    const handleUserDeleted = async (data: any) => {
+      console.log('📨 Admin: User deleted via WebSocket:', data);
+      try {
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+        console.log('📨 Admin: Users refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh users after deletion:', error);
+      }
+    };
+
+    // Settings event handlers
+    const handleSettingsUpdated = async (data: any) => {
+      console.log('📨 Admin: Settings updated via WebSocket:', data);
+      try {
+        const settingsResponse = await api.get('/admin/settings');
+        const loadedSettings = settingsResponse.data || {};
+        const settingsWithDefaults = {
+          ...loadedSettings,
+          TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+        };
+        setSettings(settingsWithDefaults);
+        setEditingSettings(settingsWithDefaults); // Also update editing settings for real-time UI updates
+        console.log('📨 Admin: Settings refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh settings after update:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onUserCreated(handleUserCreated);
+    websocketClient.onUserUpdated(handleUserUpdated);
+    websocketClient.onUserRoleUpdated(handleUserRoleUpdated);
+    websocketClient.onUserDeleted(handleUserDeleted);
+    websocketClient.onSettingsUpdated(handleSettingsUpdated);
+
     // Cleanup function
     return () => {
       websocketClient.offTagCreated(handleTagCreated);
@@ -224,6 +294,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       websocketClient.offPriorityUpdated(handlePriorityUpdated);
       websocketClient.offPriorityDeleted(handlePriorityDeleted);
       websocketClient.offPriorityReordered(handlePriorityReordered);
+      websocketClient.offUserCreated(handleUserCreated);
+      websocketClient.offUserUpdated(handleUserUpdated);
+      websocketClient.offUserRoleUpdated(handleUserRoleUpdated);
+      websocketClient.offUserDeleted(handleUserDeleted);
+      websocketClient.offSettingsUpdated(handleSettingsUpdated);
     };
   }, [currentUser?.roles]);
 

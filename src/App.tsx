@@ -31,7 +31,7 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -586,10 +586,8 @@ export default function App() {
   }, [isProfileBeingEdited]);
 
   const handleActivitiesUpdate = useCallback((newActivities: any[]) => {
-    if (showActivityFeed) {
-      setActivities(newActivities);
-    }
-  }, [showActivityFeed]);
+    setActivities(newActivities);
+  }, []);
 
   const handleSharedFilterViewsUpdate = useCallback((newFilters: SavedFilterView[]) => {
     setSharedFilterViews(prev => {
@@ -1252,8 +1250,27 @@ export default function App() {
       const nameParts = emailPrefix.split(/[._-]/);
       
       // Capitalize first letter of each part
-      const firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
-      const lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
+      let firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
+      let lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
+      
+      // Special handling for common email prefixes
+      if (emailPrefix.toLowerCase() === 'info') {
+        firstName = 'Info';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'admin') {
+        firstName = 'Admin';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'support') {
+        firstName = 'Support';
+        lastName = 'User';
+      } else if (emailPrefix.toLowerCase() === 'noreply') {
+        firstName = 'System';
+        lastName = 'User';
+      } else if (nameParts.length === 1) {
+        // If only one part, use it as first name and "User" as last name
+        firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
+        lastName = 'User';
+      }
       
       // Generate a temporary password (user will change it during activation)
       const tempPassword = crypto.randomUUID().substring(0, 12);
@@ -1267,9 +1284,28 @@ export default function App() {
       });
       // Refresh members list to show the new user
       await handleRefreshData();
-    } catch (error) {
-      // console.error('Failed to invite user:', error);
-      throw error;
+    } catch (error: any) {
+      console.error('Failed to invite user:', error);
+      
+      // Extract more specific error message
+      let errorMessage = 'Failed to send invitation';
+      
+      if (error.response?.data?.error) {
+        const backendError = error.response.data.error;
+        if (backendError.includes('already exists')) {
+          errorMessage = `User with email ${email} already exists`;
+        } else if (backendError.includes('required')) {
+          errorMessage = 'Missing required information. Please try again.';
+        } else if (backendError.includes('email')) {
+          errorMessage = 'Invalid email address format';
+        } else {
+          errorMessage = backendError;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 
@@ -1731,12 +1767,13 @@ export default function App() {
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
-          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse, loadedActivities] = await Promise.all([
             getMembers(includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
-          api.get('/settings')
+          api.get('/settings'),
+          getActivityFeed(20)
         ]);
           
 
@@ -1747,6 +1784,7 @@ export default function App() {
           setAvailablePriorities(loadedPriorities || []);
           setAvailableTags(loadedTags || []);
           setSystemSettings(settingsResponse.data || {});
+          setActivities(loadedActivities || []);
           
           if (loadedBoards.length > 0) {
             // Set columns for the selected board (board selection is handled by separate effect)
@@ -3339,7 +3377,7 @@ export default function App() {
 
   // Handle task page (requires authentication)
   if (currentPage === 'task') {
-    if (!isAuthenticated) {
+    if (!isAuthenticated && authChecked) {
       return (
         <Login
           siteSettings={siteSettings}
@@ -3374,7 +3412,19 @@ export default function App() {
     );
   }
 
-  // Show login page if not authenticated
+  // Show loading state while checking authentication
+  if (!authChecked) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated (but only after auth check is complete)
   if (!isAuthenticated) {
     return (
       <Login 

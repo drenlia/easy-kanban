@@ -376,7 +376,7 @@ class NotificationService {
   getSiteSettings() {
     try {
       const settings = {};
-      const keys = ['SITE_NAME', 'SITE_URL', 'USE_PREFIXES'];
+      const keys = ['SITE_NAME', 'SITE_URL'];
       keys.forEach(key => {
         const setting = wrapQuery(
           this.db.prepare('SELECT value FROM settings WHERE key = ?'),
