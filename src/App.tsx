@@ -845,6 +845,7 @@ export default function App() {
 
     const handleBoardUpdated = (data: any) => {
       console.log('📨 Board updated via WebSocket:', data);
+      console.log('🔄 Refreshing board data due to board update...');
       // Refresh boards list
       refreshBoardData();
     };

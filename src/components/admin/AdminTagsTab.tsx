@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
 
 interface Tag {
@@ -66,6 +67,44 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [newTag, setNewTag] = useState({ tag: '', description: '', color: '#4ECDC4' });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Refs for delete button positioning
+  const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, tagId: number} | null>(null);
+
+  // Handle click outside to close delete confirmation
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteTagConfirm && deleteButtonPosition) {
+        const target = event.target as Element;
+        if (!target.closest('.delete-confirmation') && !target.closest(`[data-tag-id="${showDeleteTagConfirm}"]`)) {
+          onCancelDeleteTag();
+        }
+      }
+    };
+
+    if (showDeleteTagConfirm) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeleteTagConfirm, deleteButtonPosition, onCancelDeleteTag]);
+
+  const handleDeleteClick = (tagId: number, event: React.MouseEvent) => {
+    event.stopPropagation();
+    const button = deleteButtonRefs.current[tagId];
+    if (button) {
+      const rect = button.getBoundingClientRect();
+      setDeleteButtonPosition({
+        top: rect.bottom + window.scrollY + 8,
+        left: rect.right + window.scrollX - 200, // Position to the left of the button
+        tagId: tagId
+      });
+    }
+    onDeleteTag(tagId);
+  };
 
   const handleAddTag = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,54 +215,15 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                         </button>
                         <div className="relative">
                           <button
-                            onClick={() => onDeleteTag(tag.id)}
+                            ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
+                            onClick={(e) => handleDeleteClick(tag.id, e)}
                             className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
                             title="Delete tag"
+                            data-tag-id={tag.id}
                           >
                             <Trash2 size={16} />
                           </button>
                           
-                          {/* Delete Tag Confirmation Menu */}
-                          {showDeleteTagConfirm === tag.id && (
-                            <div className="delete-confirmation absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-50 min-w-[200px]">
-                              <div className="text-sm text-gray-700 mb-2">
-                                {tagUsageCounts[tag.id] > 0 ? (
-                                  <>
-                                    <div className="font-medium mb-1">Delete tag?</div>
-                                    <div className="text-xs text-gray-700">
-                                      <span className="text-red-600 font-medium">
-                                        {tagUsageCounts[tag.id]} task{tagUsageCounts[tag.id] !== 1 ? 's' : ''}
-                                      </span>{' '}
-                                      will lose this tag:{' '}
-                                      <span className="font-medium">{tag.tag}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="font-medium mb-1">Delete tag?</div>
-                                    <div className="text-xs text-gray-600">
-                                      No tasks will be affected for{' '}
-                                      <span className="font-medium">{tag.tag}</span>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                              <div className="flex space-x-2">
-                                <button
-                                  onClick={() => onConfirmDeleteTag(tag.id)}
-                                  className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-                                >
-                                  Yes
-                                </button>
-                                <button
-                                  onClick={onCancelDeleteTag}
-                                  className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
-                                >
-                                  No
-                                </button>
-                              </div>
-                            </div>
-                          )}
                         </div>
                       </div>
                     </td>
@@ -363,6 +363,64 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Portal-based Delete Confirmation Dialog */}
+      {showDeleteTagConfirm && deleteButtonPosition && deleteButtonPosition.tagId === showDeleteTagConfirm && createPortal(
+        <div 
+          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+          style={{
+            top: `${deleteButtonPosition.top}px`,
+            left: `${deleteButtonPosition.left}px`
+          }}
+        >
+          <div className="text-sm text-gray-700 mb-2">
+            {(() => {
+              const tag = tags.find(t => t.id === showDeleteTagConfirm);
+              if (!tag) return null;
+              
+              if (tagUsageCounts[tag.id] > 0) {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete tag?</div>
+                    <div className="text-xs text-gray-700">
+                      <span className="text-red-600 font-medium">
+                        {tagUsageCounts[tag.id]} task{tagUsageCounts[tag.id] !== 1 ? 's' : ''}
+                      </span>{' '}
+                      will lose this tag:{' '}
+                      <span className="font-medium">{tag.tag}</span>
+                    </div>
+                  </>
+                );
+              } else {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete tag?</div>
+                    <div className="text-xs text-gray-600">
+                      No tasks will be affected for{' '}
+                      <span className="font-medium">{tag.tag}</span>
+                    </div>
+                  </>
+                );
+              }
+            })()}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => onConfirmDeleteTag(showDeleteTagConfirm)}
+              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Yes
+            </button>
+            <button
+              onClick={onCancelDeleteTag}
+              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+            >
+              No
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );

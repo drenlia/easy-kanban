@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -18,9 +19,13 @@ interface AdminPrioritiesTabProps {
   loading: boolean;
   onAddPriority: (priority: { priority: string; color: string }) => Promise<void>;
   onUpdatePriority: (priorityId: string, updates: { priority: string; color: string }) => Promise<void>;
-  onDeletePriority: (priorityId: string) => Promise<void>;
+  onDeletePriority: (priorityId: string) => void;
+  onConfirmDeletePriority: (priorityId: string) => Promise<void>;
+  onCancelDeletePriority: () => void;
   onReorderPriorities: (reorderedPriorities: Priority[]) => Promise<void>;
   onSetDefaultPriority: (priorityId: string) => Promise<void>;
+  showDeletePriorityConfirm: string | null;
+  priorityUsageCounts: { [priorityId: string]: number };
   successMessage: string | null;
   error: string | null;
 }
@@ -30,12 +35,20 @@ const SortablePriorityRow = ({
   priority, 
   onEdit, 
   onDelete,
-  onSetDefault
+  onSetDefault,
+  showDeletePriorityConfirm,
+  priorityUsageCounts,
+  onConfirmDeletePriority,
+  onCancelDeletePriority
 }: { 
   priority: Priority; 
   onEdit: (priority: Priority) => void;
-  onDelete: (priorityId: string) => Promise<void>;
+  onDelete: (priorityId: string) => void;
   onSetDefault: (priorityId: string) => Promise<void>;
+  showDeletePriorityConfirm: string | null;
+  priorityUsageCounts: { [priorityId: string]: number };
+  onConfirmDeletePriority: (priorityId: string) => Promise<void>;
+  onCancelDeletePriority: () => void;
 }) => {
   const {
     attributes,
@@ -45,6 +58,43 @@ const SortablePriorityRow = ({
     transition,
     isDragging,
   } = useSortable({ id: priority.id });
+
+  // Refs for delete button positioning
+  const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number} | null>(null);
+
+  // Handle click outside to close delete confirmation
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeletePriorityConfirm === priority.id) {
+        const target = event.target as Element;
+        if (!target.closest('.delete-confirmation') && !target.closest(`[data-priority-id="${priority.id}"]`)) {
+          onCancelDeletePriority();
+        }
+      }
+    };
+
+    if (showDeletePriorityConfirm === priority.id) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeletePriorityConfirm, priority.id, onCancelDeletePriority]);
+
+  const handleDeleteClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const button = deleteButtonRef.current;
+    if (button) {
+      const rect = button.getBoundingClientRect();
+      setDeleteButtonPosition({
+        top: rect.bottom + window.scrollY + 8,
+        left: rect.right + window.scrollX - 200, // Position to the left of the button
+      });
+    }
+    onDelete(priority.id);
+  };
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -127,14 +177,71 @@ const SortablePriorityRow = ({
             <Edit size={16} />
           </button>
           <button
-            onClick={() => onDelete(priority.id)}
+            ref={deleteButtonRef}
+            onClick={handleDeleteClick}
             className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
             title="Delete priority"
+            data-priority-id={priority.id}
           >
             <Trash2 size={16} />
           </button>
         </div>
       </td>
+      
+      {/* Portal-based Delete Confirmation Dialog */}
+      {showDeletePriorityConfirm === priority.id && deleteButtonPosition && createPortal(
+        <div 
+          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+          style={{
+            top: `${deleteButtonPosition.top}px`,
+            left: `${deleteButtonPosition.left}px`
+          }}
+        >
+          <div className="text-sm text-gray-700 mb-2">
+            {(() => {
+              if (priorityUsageCounts[priority.id] > 0) {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete priority?</div>
+                    <div className="text-xs text-gray-700">
+                      <span className="text-red-600 font-medium">
+                        {priorityUsageCounts[priority.id]} task{priorityUsageCounts[priority.id] !== 1 ? 's' : ''}
+                      </span>{' '}
+                      will lose this priority:{' '}
+                      <span className="font-medium">{priority.priority}</span>
+                    </div>
+                  </>
+                );
+              } else {
+                return (
+                  <>
+                    <div className="font-medium mb-1">Delete priority?</div>
+                    <div className="text-xs text-gray-600">
+                      No tasks will be affected for{' '}
+                      <span className="font-medium">{priority.priority}</span>
+                    </div>
+                  </>
+                );
+              }
+            })()}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => onConfirmDeletePriority(priority.id)}
+              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            >
+              Yes
+            </button>
+            <button
+              onClick={onCancelDeletePriority}
+              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+            >
+              No
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
     </tr>
   );
 };
@@ -145,8 +252,12 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
   onAddPriority,
   onUpdatePriority,
   onDeletePriority,
+  onConfirmDeletePriority,
+  onCancelDeletePriority,
   onReorderPriorities,
   onSetDefaultPriority,
+  showDeletePriorityConfirm,
+  priorityUsageCounts,
   successMessage,
   error,
 }) => {
@@ -293,6 +404,10 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                         onEdit={handleEditClick}
                         onDelete={onDeletePriority}
                         onSetDefault={onSetDefaultPriority}
+                        showDeletePriorityConfirm={showDeletePriorityConfirm}
+                        priorityUsageCounts={priorityUsageCounts}
+                        onConfirmDeletePriority={onConfirmDeletePriority}
+                        onCancelDeletePriority={onCancelDeletePriority}
                       />
                     ))
                   ) : (

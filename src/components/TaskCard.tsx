@@ -438,6 +438,11 @@ export default function TaskCard({
     e.preventDefault();
     e.stopPropagation();
     
+    // Save title first if it's being edited
+    if (isEditingTitle) {
+      handleTitleSave();
+    }
+    
     // Calculate cursor position based on click location
     const element = e.currentTarget;
     const rect = element.getBoundingClientRect();
@@ -570,6 +575,13 @@ export default function TaskCard({
     } else if (e.key === 'Escape') {
       e.preventDefault();
       handleTitleCancel();
+    }
+  };
+
+  // Auto-save title when clicking away from title field
+  const handleTitleBlur = () => {
+    if (isEditingTitle) {
+      handleTitleSave();
     }
   };
 
@@ -949,7 +961,7 @@ export default function TaskCard({
               type="text"
               value={editedTitle}
               onChange={(e) => setEditedTitle(e.target.value)}
-              onBlur={handleTitleCancel}
+              onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown}
               onFocus={handleInputFocus}
               className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"

@@ -816,6 +816,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       createdAt: user.created_at,
       avatarUrl: user.avatar_path,
       authProvider: user.auth_provider || 'local',
+      googleAvatarUrl: user.google_avatar_url,
       memberName: user.member_name,
       memberColor: user.member_color
     }));
@@ -1536,10 +1537,30 @@ app.get('/api/admin/tags/:tagId/usage', authenticateToken, requireRole(['admin']
   
   try {
     const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
-    res.json({ usageCount: usageCount.count });
+    res.json({ count: usageCount.count });
   } catch (error) {
     console.error('Error fetching tag usage:', error);
     res.status(500).json({ error: 'Failed to fetch tag usage' });
+  }
+});
+
+// Get priority usage count (for deletion confirmation)
+app.get('/api/admin/priorities/:priorityId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { priorityId } = req.params;
+  
+  try {
+    // First get the priority name from the priority ID
+    const priority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    if (!priority) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
+    
+    // Count tasks that use this priority
+    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = ?'), 'SELECT').get(priority.priority);
+    res.json({ count: usageCount.count });
+  } catch (error) {
+    console.error('Error fetching priority usage:', error);
+    res.status(500).json({ error: 'Failed to fetch priority usage' });
   }
 });
 
@@ -1703,12 +1724,24 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
     // Get priority info before deletion for Redis publishing
     const priorityToDelete = wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
     
-    // Check if priority is being used
-    const taskCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = (SELECT priority FROM priorities WHERE id = ?)'), 'SELECT').get(priorityId);
+    if (!priorityToDelete) {
+      return res.status(404).json({ error: 'Priority not found' });
+    }
     
-    if (taskCount.count > 0) {
+    // Check if priority is being used and get the specific task tickets
+    const tasksUsingPriority = wrapQuery(db.prepare(`
+      SELECT ticket, title 
+      FROM tasks 
+      WHERE priority = (SELECT priority FROM priorities WHERE id = ?)
+      ORDER BY ticket
+    `), 'SELECT').all(priorityId);
+    
+    if (tasksUsingPriority.length > 0) {
+      const taskTickets = tasksUsingPriority.map(task => task.ticket).join(', ');
       return res.status(400).json({ 
-        error: `Cannot delete priority: ${taskCount.count} task(s) are using this priority` 
+        error: `Cannot delete priority: the following tasks are using it: ${taskTickets}`,
+        taskTickets: tasksUsingPriority.map(task => task.ticket),
+        taskCount: tasksUsingPriority.length
       });
     }
     
