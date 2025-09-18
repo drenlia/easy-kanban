@@ -396,6 +396,11 @@ export const getTagUsage = async (tagId: number) => {
   return data;
 };
 
+export const getPriorityUsage = async (priorityId: string) => {
+  const { data } = await api.get(`/admin/priorities/${priorityId}/usage`);
+  return data;
+};
+
 // Task-Tag associations
 export const getTaskTags = async (taskId: string) => {
   const { data } = await api.get(`/tasks/${taskId}/tags`);

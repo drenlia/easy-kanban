@@ -378,9 +378,9 @@ export default function TaskCardToolbar({
             className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
             title="Change Assignee"
           >
-            {member.avatarUrl || member.googleAvatarUrl ? (
+            {member.googleAvatarUrl || member.avatarUrl ? (
               <img
-                src={member.avatarUrl || member.googleAvatarUrl}
+                src={member.googleAvatarUrl || member.avatarUrl}
                 alt={member.name}
                 className="w-8 h-8 rounded-full object-cover border-2 border-white"
               />

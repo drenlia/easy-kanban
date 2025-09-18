@@ -14,6 +14,7 @@ import {
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import TeamMembers from '../TeamMembers';
 import Tools from '../Tools';
+import BoardMetrics from '../BoardMetrics';
 import SearchInterface from '../SearchInterface';
 import KanbanColumn from '../Column';
 import TaskCard from '../TaskCard';
@@ -415,7 +416,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
   return (
     <>
-      {/* Tools and Team Members in a flex container */}
+      {/* Tools, Team Members, and Board Metrics in a flex container */}
       <div className="flex gap-4 mb-4">
         <Tools 
           taskViewMode={taskViewMode}
@@ -447,6 +448,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             currentUser={currentUser}
           />
         </div>
+        <BoardMetrics 
+          columns={columns}
+          filteredColumns={filteredColumns}
+        />
       </div>
 
       {/* Search Interface */}

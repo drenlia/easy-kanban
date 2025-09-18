@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority } from '../api';
+import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
@@ -106,6 +106,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [userTaskCounts, setUserTaskCounts] = useState<{ [userId: string]: number }>({});
   const [showDeleteTagConfirm, setShowDeleteTagConfirm] = useState<number | null>(null);
   const [tagUsageCounts, setTagUsageCounts] = useState<{ [tagId: number]: number }>({});
+  const [showDeletePriorityConfirm, setShowDeletePriorityConfirm] = useState<string | null>(null);
+  const [priorityUsageCounts, setPriorityUsageCounts] = useState<{ [priorityId: string]: number }>({});
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   const [tags, setTags] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
@@ -355,6 +357,46 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setTags(tagsResponse || []);
       setPriorities(prioritiesResponse || []);
       
+      // Load tag usage counts for all tags
+      if (tagsResponse && tagsResponse.length > 0) {
+        const tagUsagePromises = tagsResponse.map(async (tag: any) => {
+          try {
+            const usageData = await getTagUsage(tag.id);
+            return { tagId: tag.id, count: usageData.count };
+          } catch (error) {
+            console.error(`Failed to get usage for tag ${tag.id}:`, error);
+            return { tagId: tag.id, count: 0 };
+          }
+        });
+        
+        const tagUsageResults = await Promise.all(tagUsagePromises);
+        const tagUsageCountsMap: { [tagId: number]: number } = {};
+        tagUsageResults.forEach(({ tagId, count }) => {
+          tagUsageCountsMap[tagId] = count;
+        });
+        setTagUsageCounts(tagUsageCountsMap);
+      }
+      
+      // Load priority usage counts for all priorities
+      if (prioritiesResponse && prioritiesResponse.length > 0) {
+        const priorityUsagePromises = prioritiesResponse.map(async (priority: any) => {
+          try {
+            const usageData = await getPriorityUsage(priority.id);
+            return { priorityId: priority.id, count: usageData.count };
+          } catch (error) {
+            console.error(`Failed to get usage for priority ${priority.id}:`, error);
+            return { priorityId: priority.id, count: 0 };
+          }
+        });
+        
+        const priorityUsageResults = await Promise.all(priorityUsagePromises);
+        const priorityUsageCountsMap: { [priorityId: string]: number } = {};
+        priorityUsageResults.forEach(({ priorityId, count }) => {
+          priorityUsageCountsMap[priorityId] = count;
+        });
+        setPriorityUsageCounts(priorityUsageCountsMap);
+      }
+      
       // Check if default admin account still exists
       const defaultAdminExists = usersResponse.data?.some((user: any) => 
         user.email === 'admin@example.com'
@@ -476,10 +518,44 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   };
 
   const handleDeletePriority = async (priorityId: string) => {
-    await deletePriority(Number(priorityId));
-    const updatedPriorities = await getPriorities();
-    setPriorities(updatedPriorities);
-    setSuccessMessage('Priority deleted successfully');
+    try {
+      // Fetch usage count for this priority
+      const usageData = await getPriorityUsage(priorityId);
+      setPriorityUsageCounts(prev => ({ ...prev, [priorityId]: usageData.count }));
+      setShowDeletePriorityConfirm(priorityId);
+    } catch (error) {
+      console.error('Failed to get priority usage:', error);
+      // Still show confirmation even if usage count fails
+      setPriorityUsageCounts(prev => ({ ...prev, [priorityId]: 0 }));
+      setShowDeletePriorityConfirm(priorityId);
+    }
+  };
+
+  const confirmDeletePriority = async (priorityId: string) => {
+    try {
+      await deletePriority(Number(priorityId));
+      const updatedPriorities = await getPriorities();
+      setPriorities(updatedPriorities);
+      setShowDeletePriorityConfirm(null);
+      setSuccessMessage('Priority deleted successfully');
+    } catch (error: any) {
+      console.error('Failed to delete priority:', error);
+      
+      // Extract specific error message from backend response
+      let errorMessage = 'Failed to delete priority';
+      
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      setError(errorMessage);
+    }
+  };
+
+  const cancelDeletePriority = () => {
+    setShowDeletePriorityConfirm(null);
   };
 
   const handleReorderPriorities = async (reorderedPriorities: any[]) => {
@@ -1008,8 +1084,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onAddPriority={handleAddPriority}
               onUpdatePriority={handleUpdatePriority}
               onDeletePriority={handleDeletePriority}
+              onConfirmDeletePriority={confirmDeletePriority}
+              onCancelDeletePriority={cancelDeletePriority}
               onReorderPriorities={handleReorderPriorities}
               onSetDefaultPriority={handleSetDefaultPriority}
+              showDeletePriorityConfirm={showDeletePriorityConfirm}
+              priorityUsageCounts={priorityUsageCounts}
               successMessage={successMessage}
               error={error}
             />

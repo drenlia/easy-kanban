@@ -100,7 +100,7 @@ class WebSocketService {
     // Board updates
     redisService.subscribe('board-updated', (data) => {
       console.log('📨 Broadcasting board-updated:', data);
-      this.io?.to(`board-${data.boardId}`).emit('board-updated', data);
+      this.io?.emit('board-updated', data); // Broadcast to all users since board list affects everyone
     });
 
     // Board deleted
