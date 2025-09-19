@@ -113,14 +113,14 @@ export default function SearchInterface({
   // Helper function to get input field styling based on whether it's active
   const getInputClassName = (isActive: boolean) => {
     const baseClasses = "px-2 py-1 border rounded text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent";
-    const activeClasses = isActive ? "border-blue-400 bg-blue-50" : "border-gray-300";
+    const activeClasses = isActive ? "border-blue-400 bg-blue-50 dark:bg-blue-900" : "border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100";
     return `${baseClasses} ${activeClasses}`;
   };
 
   // Helper function to get dropdown button styling based on whether it's active
   const getDropdownButtonClassName = (isActive: boolean) => {
-    const baseClasses = "bg-white border rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between";
-    const activeClasses = isActive ? "border-blue-400 bg-blue-50" : "border-gray-300";
+    const baseClasses = "bg-white dark:bg-gray-700 border rounded px-2 py-1 pr-6 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent w-[70px] flex items-center justify-between text-gray-900 dark:text-gray-100";
+    const activeClasses = isActive ? "border-blue-400 bg-blue-50 dark:bg-blue-900" : "border-gray-300 dark:border-gray-600";
     return `${baseClasses} ${activeClasses}`;
   };
 
@@ -308,12 +308,12 @@ export default function SearchInterface({
   };
 
   return (
-    <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+    <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
       {/* Header with Collapse Toggle */}
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <h3 className="text-xs font-bold text-gray-600 uppercase tracking-wider">SEARCH & FILTER</h3>
+          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">SEARCH & FILTER</h3>
           <div className="relative">
             <input
               type="text"
@@ -397,20 +397,20 @@ export default function SearchInterface({
             <div className="relative" ref={filterDropdownRef}>
               <button
                 onClick={() => setShowFilterDropdown(!showFilterDropdown)}
-                className="bg-white border border-gray-300 rounded px-3 py-1.5 text-xs hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent min-w-[120px] flex items-center justify-between"
+                className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent min-w-[120px] flex items-center justify-between"
               >
-                <span className="text-gray-600">
+                <span className="text-gray-600 dark:text-gray-300">
                   {currentFilterView ? currentFilterView.filterName : 'None'}
                 </span>
                 <ChevronDown size={12} className="text-gray-400 ml-2" />
               </button>
               
               {showFilterDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg z-50 min-w-[200px]">
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[200px]">
                   {/* None option */}
                   <button
                     onClick={() => handleApplyFilter(null)}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-center justify-between"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between"
                   >
                     <span>None</span>
                     {!currentFilterView && <Check size={12} className="text-blue-500" />}
@@ -586,7 +586,7 @@ export default function SearchInterface({
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 min-w-[180px] max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[180px] max-h-60 overflow-y-auto">
                     {availableTags.map(tag => (
                       <div
                         key={tag.id}
@@ -698,7 +698,7 @@ export default function SearchInterface({
               </button>
               
               {showPriorityDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-50 min-w-[150px] max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[150px] max-h-60 overflow-y-auto">
                   {availablePriorities.map(priorityOption => (
                     <div
                       key={priorityOption.id}
@@ -767,7 +767,7 @@ export default function SearchInterface({
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
           <div className="bg-white rounded-lg p-6 w-96 max-w-90vw">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Save Filter</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Save Filter</h3>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Filter Name
@@ -777,7 +777,7 @@ export default function SearchInterface({
                 value={newFilterName}
                 onChange={(e) => setNewFilterName(e.target.value)}
                 placeholder="Enter filter name..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newFilterName.trim()) {
                     handleSaveFilter();

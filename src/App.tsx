@@ -14,6 +14,7 @@ import {
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
+import { ThemeProvider } from './contexts/ThemeContext';
 
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
@@ -643,7 +644,7 @@ export default function App() {
     }
   }, [shouldPoll, isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, isAutoRefreshEnabled, showHelpModal]);
   
-  const { isPolling, lastPollTime } = useDataPolling({
+  const { isPolling, lastPollTime, updateLastPollTime } = useDataPolling({
     enabled: shouldPoll,
     selectedBoard,
     currentBoards: boards,
@@ -1349,6 +1350,7 @@ export default function App() {
 
   const handleRefreshData = async () => {
     await refreshBoardData();
+    updateLastPollTime(); // Update the last poll time when manual refresh is triggered
   };
 
   // Task linking handlers
@@ -3417,7 +3419,7 @@ export default function App() {
     }
     
     return (
-      <>
+      <ThemeProvider>
         <TaskPage 
           currentUser={currentUser}
           siteSettings={siteSettings}
@@ -3431,7 +3433,7 @@ export default function App() {
           isAutoRefreshEnabled={isAutoRefreshEnabled}
           onToggleAutoRefresh={handleToggleAutoRefresh}
         />
-      </>
+      </ThemeProvider>
     );
   }
 
@@ -3467,7 +3469,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
+    <ThemeProvider>
+      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       
       {/* New Enhanced Drag & Drop System */}
@@ -3732,6 +3735,7 @@ export default function App() {
         onFinishLinking={handleFinishLinking}
         onCancelLinking={handleCancelLinking}
       />
-    </div>
+      </div>
+    </ThemeProvider>
   );
 }

@@ -80,21 +80,21 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
     <>
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Mail Server Configuration</h2>
-          <p className="text-gray-600">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Mail Server Configuration</h2>
+          <p className="text-gray-600 dark:text-gray-400">
             Configure SMTP settings for sending emails. Changes are applied immediately.
           </p>
           
           {/* Demo Mode Warning */}
           {isDemoMode && (
-            <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-lg">
               <div className="flex items-start">
-                <svg className="h-5 w-5 text-amber-400 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <svg className="h-5 w-5 text-amber-400 dark:text-amber-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
                 <div>
-                  <h3 className="text-sm font-medium text-amber-800">Demo Mode Active</h3>
-                  <p className="text-sm text-amber-700 mt-1">
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">Demo Mode Active</h3>
+                  <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
                     Email communication is disabled in demo mode. The mail server settings cannot be enabled 
                     to prevent sending emails from demo environments. This restriction will be automatically 
                     lifted when demo mode is disabled.
@@ -110,8 +110,8 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           <div className="mb-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium text-gray-700 mb-1">Mail Server Status</h3>
-                <p className="text-sm text-gray-500">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mail Server Status</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   {isDemoMode 
                     ? 'Email functionality is disabled in demo mode to prevent sending emails from demo environments.'
                     : !testEmailResult 
@@ -124,7 +124,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               {/* Toggle Button */}
               <div className="flex items-center">
                 <span className={`text-sm font-medium mr-3 ${
-                  isDemoMode ? 'text-gray-400' : 'text-gray-700'
+                  isDemoMode ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'
                 }`}>
                   {isDemoMode ? 'Disabled (Demo)' : editingSettings.MAIL_ENABLED === 'true' ? 'Enabled' : 'Disabled'}
                 </span>
@@ -157,14 +157,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   disabled={isDemoMode || !testEmailResult}
                   className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
                     isDemoMode || !testEmailResult
-                      ? 'bg-gray-200 cursor-not-allowed' 
+                      ? 'bg-gray-200 dark:bg-gray-600 cursor-not-allowed' 
                       : editingSettings.MAIL_ENABLED === 'true' 
-                        ? 'bg-blue-600 cursor-pointer' 
-                        : 'bg-gray-200 cursor-pointer'
+                        ? 'bg-blue-600 dark:bg-blue-500 cursor-pointer' 
+                        : 'bg-gray-200 dark:bg-gray-600 cursor-pointer'
                   }`}
                 >
                   <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-300 shadow ring-0 transition duration-200 ease-in-out ${
                       editingSettings.MAIL_ENABLED === 'true' ? 'translate-x-5' : 'translate-x-0'
                     }`}
                   />
@@ -179,7 +179,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             <div className="space-y-4">
               {/* SMTP Host */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   SMTP Host
                 </label>
                 <input
@@ -192,17 +192,17 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       handleInputChange('SMTP_HOST', 'smtp.gmail.com');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="smtp.gmail.com"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Hostname or IP of your SMTP server. <span className="text-blue-600">Tab into this field to auto-fill with Gmail example.</span>
                 </p>
               </div>
 
               {/* SMTP Port */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   SMTP Port
                 </label>
                 <input
@@ -215,44 +215,44 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       handleInputChange('SMTP_PORT', '587');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="587"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   587 (TLS), 465 (SSL), 25 (plain). <span className="text-blue-600">Tab into this field to auto-fill with common port.</span>
                 </p>
               </div>
 
               {/* SMTP Username */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   SMTP Username
                 </label>
                 <input
                   type="text"
                   value={editingSettings.SMTP_USERNAME || ''}
                   onChange={(e) => handleInputChange('SMTP_USERNAME', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="admin@example.com"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Usually your email address
                 </p>
               </div>
 
               {/* SMTP Password */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   SMTP Password
                 </label>
                 <input
                   type="password"
                   value={editingSettings.SMTP_PASSWORD || ''}
                   onChange={(e) => handleInputChange('SMTP_PASSWORD', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="Enter your SMTP password"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Use App Password for Gmail
                 </p>
               </div>
@@ -262,53 +262,53 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             <div className="space-y-4">
               {/* From Email */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   From Email
                 </label>
                 <input
                   type="email"
                   value={editingSettings.SMTP_FROM_EMAIL || ''}
                   onChange={(e) => handleInputChange('SMTP_FROM_EMAIL', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="admin@example.com"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Email address that appears as sender
                 </p>
               </div>
 
               {/* From Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   From Name
                 </label>
                 <input
                   type="text"
                   value={editingSettings.SMTP_FROM_NAME || ''}
                   onChange={(e) => handleInputChange('SMTP_FROM_NAME', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="Kanban Admin"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Display name that appears as sender
                 </p>
               </div>
 
               {/* SMTP Security */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   SMTP Security
                 </label>
                 <select
                   value={editingSettings.SMTP_SECURE || 'tls'}
                   onChange={(e) => handleInputChange('SMTP_SECURE', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 >
                   <option value="tls">TLS (Recommended)</option>
                   <option value="ssl">SSL</option>
                   <option value="none">None (Plain)</option>
                 </select>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   TLS recommended for modern servers
                 </p>
               </div>
@@ -316,16 +316,16 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           </div>
 
           {/* Test Configuration Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-4 mb-6">
+          <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-md p-4 mb-6">
             <div className="flex">
               <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                <svg className="h-5 w-5 text-blue-400 dark:text-blue-500" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800">Test Configuration</h3>
-                <div className="mt-2 text-sm text-blue-700">
+                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">Test Configuration</h3>
+                <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                   <p>
                     Use the test button below to verify your mail server configuration works correctly.
                   </p>
@@ -336,30 +336,30 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           
           {/* Success and Error Messages for Mail Server */}
           {successMessage && (
-            <div className="bg-green-50 border border-green-200 rounded-md p-4">
+            <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
               <div className="flex">
                 <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                  <svg className="h-5 w-5 text-green-400 dark:text-green-500" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-green-800">{successMessage}</p>
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">{successMessage}</p>
                 </div>
               </div>
             </div>
           )}
           
           {error && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md p-4">
               <div className="flex">
                 <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                  <svg className="h-5 w-5 text-red-400 dark:text-red-500" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-red-800">{error}</p>
+                  <p className="text-sm font-medium text-red-800 dark:text-red-200">{error}</p>
                 </div>
               </div>
             </div>
@@ -367,16 +367,16 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           
           {/* Test Required Notice */}
           {!isDemoMode && !testEmailResult && (
-            <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-md">
+            <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-md">
               <div className="flex">
                 <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                  <svg className="h-5 w-5 text-amber-400 dark:text-amber-500" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-amber-800">Testing Required</h3>
-                  <div className="mt-2 text-sm text-amber-700">
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">Testing Required</h3>
+                  <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
                     <p>Fill in the required fields (SMTP Host, Port, Username, Password, From Email) and test your configuration. If the test succeeds, the mail server will be automatically enabled.</p>
                   </div>
                 </div>
@@ -428,14 +428,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
       {/* Test Email Success Modal */}
       {showTestEmailModal && testEmailResult && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3 text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
                 <svg className="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                 </svg>
               </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mt-4">
                 ✅ Email Sent Successfully!
               </h3>
               <div className="mt-4 px-2 py-3 bg-gray-50 rounded-lg">
@@ -468,14 +468,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
       {/* Test Email Error Modal */}
       {showTestEmailErrorModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3 text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
                 <svg className="h-6 w-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
                 </svg>
               </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mt-4">
                 ❌ Email Test Failed
               </h3>
               <div className="mt-4 px-2 py-3 bg-red-50 rounded-lg">

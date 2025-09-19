@@ -821,10 +821,10 @@ export default function TaskCard({
 
   // Get the card's background color to match the task identifier
   const getCardBackgroundColor = () => {
-    if (isSelected) return 'bg-gray-100';
-    if (member.id === SYSTEM_MEMBER_ID) return 'bg-yellow-50';
+    if (isSelected) return 'bg-gray-100 dark:bg-gray-700';
+    if (member.id === SYSTEM_MEMBER_ID) return 'bg-yellow-50 dark:bg-yellow-900';
     // Overdue highlighting is now handled by the LATE banner overlay
-    return 'bg-white';
+    return 'bg-white dark:bg-gray-800';
   };
 
   return (
@@ -833,29 +833,29 @@ export default function TaskCard({
         ref={setNodeRef}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
         className={`task-card sortable-item ${
-          isSelected ? 'bg-gray-100' : 
-          member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
-          'bg-white'
+          isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
+          member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
+          'bg-white dark:bg-gray-800'
         } p-4 rounded-lg shadow-sm cursor-default relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         } ${
           isLinkingMode && linkingSourceTask?.id !== task.id 
-            ? 'hover:ring-2 hover:ring-blue-300 hover:bg-blue-50' 
+            ? 'hover:ring-2 hover:ring-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900' 
             : ''
         } ${
           isLinkingMode && linkingSourceTask?.id === task.id 
-            ? 'ring-2 ring-blue-500 bg-blue-100' 
+            ? 'ring-2 ring-blue-500 bg-blue-100 dark:bg-blue-900' 
             : ''
         } ${
           // Highlight related tasks when hovering over link tool
           hoveredLinkTask && getTaskRelationshipType && hoveredLinkTask.id !== task.id ? (() => {
             const relationshipType = getTaskRelationshipType(task.id);
             if (relationshipType === 'parent') {
-              return 'ring-2 ring-green-400 bg-green-50 shadow-lg';
+              return 'ring-2 ring-green-400 bg-green-50 dark:bg-green-900 shadow-lg';
             } else if (relationshipType === 'child') {
-              return 'ring-2 ring-purple-400 bg-purple-50 shadow-lg';
+              return 'ring-2 ring-purple-400 bg-purple-50 dark:bg-purple-900 shadow-lg';
             } else if (relationshipType === 'related') {
-              return 'ring-2 ring-yellow-400 bg-yellow-50 shadow-lg';
+              return 'ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-900 shadow-lg';
             }
             return '';
           })() : ''
@@ -881,7 +881,7 @@ export default function TaskCard({
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
             <a 
               href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-              className={`${getCardBackgroundColor()} px-1.5 py-0.8 text-gray-600 font-mono font-bold hover:text-blue-600 hover:bg-blue-50 transition-all duration-200 cursor-pointer`}
+              className={`bg-white dark:bg-gray-800 px-1.5 py-0.8 text-gray-600 dark:text-gray-300 font-mono font-bold hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 cursor-pointer`}
               style={{
                 borderTopLeftRadius: '0.25rem',
                 borderTopRightRadius: '0.25rem',
@@ -964,13 +964,13 @@ export default function TaskCard({
               onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown}
               onFocus={handleInputFocus}
-              className="font-medium text-gray-800 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
+              className="font-medium text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-sm"
               onClick={(e) => e.stopPropagation()}
               autoFocus
             />
           ) : (
             <h3 
-              className="font-medium text-gray-800 cursor-text hover:bg-gray-50 px-1 py-0.5 rounded text-sm pr-12"
+              className="font-medium text-gray-800 dark:text-gray-100 cursor-text hover:bg-gray-50 dark:hover:bg-gray-700 px-1 py-0.5 rounded text-sm pr-12"
               onClick={handleTitleClick}
               title="Click to edit"
             >
@@ -1026,7 +1026,7 @@ export default function TaskCard({
               </div>
             ) : (
               <div
-                className={`task-card-description text-sm text-gray-600 -mt-2 mb-3 cursor-text hover:bg-gray-50 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
+                className={`task-card-description text-sm text-gray-600 dark:text-gray-300 -mt-2 mb-3 cursor-text hover:bg-gray-50 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
                   taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
                 }`}
                 onClick={handleDescriptionClick}
