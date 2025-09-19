@@ -401,9 +401,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-xl w-[691px] max-h-[90vh] flex flex-col">
+      <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-[691px] max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">Quick Edit Task</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Quick Edit Task</h3>
           <button
             type="button"
             onClick={onClose}
@@ -429,7 +429,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               type="text"
               value={editedTask.title}
               onChange={e => setEditedTask(prev => ({ ...prev, title: e.target.value }))}
-              className="w-full px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
               required
             />
           </div>
@@ -482,9 +482,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 ref={watchersButtonRef}
                 type="button"
                 onClick={handleWatchersDropdownToggle}
-                className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
               >
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-200">
                   {taskWatchers.length === 0 ? 'Select watchers...' : `${taskWatchers.length} watcher${taskWatchers.length !== 1 ? 's' : ''} selected`}
                 </span>
                 <ChevronDown className="w-4 h-4" />
@@ -492,7 +492,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               
               {showWatchersDropdown && (
                 <div 
-                  className={`absolute z-50 w-full bg-white border rounded-md shadow-lg overflow-y-auto ${
+                  className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg overflow-y-auto ${
                     watchersDropdownPosition === 'above' 
                       ? 'bottom-full mb-1' 
                       : 'top-full mt-1'
@@ -524,7 +524,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 {taskWatchers.map(member => (
                   <span
                     key={member.id}
-                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 border border-blue-300 text-blue-700 hover:opacity-80 transition-opacity"
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:opacity-80 transition-opacity"
                   >
                     <div 
                       className="w-2 h-2 rounded-full"
@@ -558,9 +558,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 ref={collaboratorsButtonRef}
                 type="button"
                 onClick={handleCollaboratorsDropdownToggle}
-                className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
               >
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-200">
                   {taskCollaborators.length === 0 ? 'Select collaborators...' : `${taskCollaborators.length} collaborator${taskCollaborators.length !== 1 ? 's' : ''} selected`}
                 </span>
                 <ChevronDown className="w-4 h-4" />
@@ -568,7 +568,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               
               {showCollaboratorsDropdown && (
                 <div 
-                  className={`absolute z-50 w-full bg-white border rounded-md shadow-lg overflow-y-auto ${
+                  className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg overflow-y-auto ${
                     collaboratorsDropdownPosition === 'above' 
                       ? 'bottom-full mb-1' 
                       : 'top-full mt-1'
@@ -634,7 +634,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 type="date"
                 value={formatDateForInput(editedTask.startDate)}
                 onChange={handleDateChange}
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
               />
             </div>
             <div>
@@ -645,7 +645,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 type="date"
                 value={formatDateForInput(editedTask.dueDate || '')}
                 onChange={handleDueDateChange}
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
               />
             </div>
           </div>
@@ -659,7 +659,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               <select
                 value={editedTask.memberId}
                 onChange={e => setEditedTask(prev => ({ ...prev, memberId: e.target.value }))}
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
               >
                 {members.map(member => (
                   <option key={member.id} value={member.id}>
@@ -677,7 +677,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 min="0"
                 value={editedTask.effort}
                 onChange={e => setEditedTask(prev => ({ ...prev, effort: Number(e.target.value) }))}
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
               />
             </div>
           </div>
@@ -690,9 +690,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                 ref={tagsButtonRef}
                 type="button"
                 onClick={handleTagsDropdownToggle}
-                className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+                className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
               >
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-200">
                   {taskTags.length === 0 
                     ? 'Select tags...' 
                     : `${taskTags.length} tag${taskTags.length !== 1 ? 's' : ''} selected`
@@ -702,7 +702,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
               </button>
               
               {showTagsDropdown && (
-                <div className={`absolute left-0 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
                   tagsDropdownPosition === 'above' 
                     ? 'bottom-full mb-1' 
                     : 'top-full mt-1'
@@ -727,7 +727,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
                           className="w-4 h-4 rounded-full flex-shrink-0 border border-gray-300"
                           style={{ backgroundColor: tag.color || '#4ECDC4' }}
                         />
-                        <span className="text-gray-700">{tag.tag}</span>
+                        <span className="text-gray-700 dark:text-gray-200">{tag.tag}</span>
                       </div>
                     ))
                   )}
@@ -774,7 +774,7 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
             <select
               value={editedTask.priority}
               onChange={e => setEditedTask(prev => ({ ...prev, priority: e.target.value as Priority }))}
-              className="w-full px-3 py-2 border rounded-md"
+              className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
             >
               {availablePriorities.map(priority => (
                 <option key={priority.id} value={priority.priority}>

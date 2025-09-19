@@ -20,9 +20,9 @@ export default function Tools({
   onToggleSearch
 }: ToolsProps) {
   return (
-    <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100 w-[150px]">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-[150px]">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Tools</h2>
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">Tools</h2>
       </div>
 
       <div className="flex gap-2 justify-center">
@@ -36,8 +36,8 @@ export default function Tools({
           }}
           className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
             viewMode !== 'kanban'
-              ? 'bg-blue-100 text-blue-700 border border-blue-200'
-              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+              ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700'
+              : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
           }`}
           title={
             viewMode === 'kanban' ? 'Switch to list view' :
@@ -57,8 +57,8 @@ export default function Tools({
           onClick={onToggleSearch}
           className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
             isSearchActive
-              ? 'bg-blue-100 text-blue-700 border border-blue-200'
-              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+              ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700'
+              : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
           }`}
           title={isSearchActive ? 'Hide search filters' : 'Show search filters'}
         >
@@ -71,8 +71,8 @@ export default function Tools({
             onClick={onToggleTaskViewMode}
             className={`w-10 h-10 flex items-center justify-center rounded-md transition-all ${
               taskViewMode !== 'expand'
-                ? 'bg-blue-100 text-blue-700 border border-blue-200'
-                : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700'
+                : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
             }`}
             title={
               taskViewMode === 'compact' ? 'Switch to shrink view (truncated descriptions)' :

@@ -372,16 +372,16 @@ export default function KanbanColumn({
     <div 
       ref={setNodeRef}
       style={style}
-      className={`sortable-item bg-gray-50 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
+      className={`sortable-item bg-gray-50 dark:bg-gray-800 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
         isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''
       } ${
-        isOver && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 border-2 border-blue-400' : 'hover:bg-gray-100 border border-transparent'
+        isOver && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900 border-2 border-blue-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700 border border-transparent'
       }`}
       {...attributes}
     >
       {/* Column Warning Message */}
       {columnWarnings && columnWarnings[column.id] && (
-        <div className="mb-3 bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
+        <div className="mb-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-600 text-yellow-800 dark:text-yellow-200 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
           <div className="flex items-start gap-2">
             <span className="text-yellow-600">⚠️</span>
             <div className="whitespace-pre-line">
@@ -431,7 +431,7 @@ export default function KanbanColumn({
                 type="text"
                 value={title}
                 onChange={e => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 autoFocus
                 disabled={isSubmitting}
                 onKeyDown={(e) => {
@@ -608,11 +608,11 @@ export default function KanbanColumn({
                 ? `border-4 border-dashed rounded-lg ${
                     isOver ? 'bg-blue-100 border-blue-500 scale-105 shadow-lg' : 'bg-blue-50 border-blue-400'
                   }` 
-                : 'border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 hover:border-gray-400 hover:bg-gray-100'
+                : 'border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600'
             }`}>
                               {draggedTask && draggedTask.columnId !== column.id ? (
                   <div className={`text-center transition-all duration-200 ${
-                    isOver ? 'text-blue-800 scale-110' : 'text-blue-600'
+                    isOver ? 'text-blue-800 dark:text-blue-200 scale-110' : 'text-blue-600 dark:text-blue-400'
                   }`}>
                     <div className={`text-4xl mb-2 ${isOver ? 'animate-bounce' : ''}`}>📋</div>
                     <div className="font-semibold text-lg">
@@ -621,7 +621,7 @@ export default function KanbanColumn({
                     {isOver && <div className="text-sm opacity-75 mt-1">Release to place task</div>}
                   </div>
                 ) : (
-                  <div className="text-gray-500 text-center">
+                  <div className="text-gray-500 dark:text-gray-400 text-center">
                   </div>
                 )}
             </div>

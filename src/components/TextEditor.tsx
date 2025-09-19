@@ -321,7 +321,7 @@ export default function TextEditor({
               }
               
               const popup = document.createElement('div');
-              popup.className = 'border-options-popup absolute z-20 bg-white border border-gray-300 rounded-md shadow-lg p-2';
+              popup.className = 'border-options-popup absolute z-20 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg p-2';
               popup.style.cssText = 'top: 100%; left: 0; min-width: 200px; margin-top: 4px;';
               
               const borderOptions = [
@@ -1010,19 +1010,59 @@ export default function TextEditor({
   if (!editor) return null;
 
   return (
-    <div 
-      ref={editorRef}
-      className={`${compact ? 'border rounded' : 'border rounded-lg'} overflow-hidden ${className}`}
-    >
+    <>
+      <style jsx>{`
+        .ProseMirror {
+          color: #1f2937; /* text-gray-800 */
+        }
+        .dark .ProseMirror {
+          color: #f3f4f6; /* text-gray-100 */
+        }
+        .ProseMirror p {
+          margin: 0.5rem 0;
+        }
+        .ProseMirror p:first-child {
+          margin-top: 0;
+        }
+        .ProseMirror p:last-child {
+          margin-bottom: 0;
+        }
+        .ProseMirror ul, .ProseMirror ol {
+          padding-left: 1.5rem;
+        }
+        .ProseMirror li {
+          margin: 0.25rem 0;
+        }
+        .ProseMirror a {
+          color: #3b82f6; /* text-blue-500 */
+          text-decoration: underline;
+        }
+        .dark .ProseMirror a {
+          color: #60a5fa; /* text-blue-400 */
+        }
+        .ProseMirror strong {
+          font-weight: 600;
+        }
+        .ProseMirror em {
+          font-style: italic;
+        }
+        .ProseMirror u {
+          text-decoration: underline;
+        }
+      `}</style>
+      <div 
+        ref={editorRef}
+        className={`${compact ? 'border border-gray-300 dark:border-gray-600 rounded' : 'border border-gray-300 dark:border-gray-600 rounded-lg'} overflow-hidden bg-white dark:bg-gray-800 ${className}`}
+      >
       {/* Toolbar */}
       {showToolbar && (
-        <div className={`flex flex-wrap gap-1 ${compact ? 'p-1' : 'p-2'} border-b bg-gray-50`}>
+        <div className={`flex flex-wrap gap-1 ${compact ? 'p-1' : 'p-2'} border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700`}>
           {finalToolbarOptions.bold && (
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleBold().run()}
-              className={`${buttonClass} rounded hover:bg-gray-200 ${
-                editor.isActive('bold') ? 'bg-gray-200' : ''
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('bold') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
               title="Bold"
             >
@@ -1034,8 +1074,8 @@ export default function TextEditor({
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleItalic().run()}
-              className={`${buttonClass} rounded hover:bg-gray-200 ${
-                editor.isActive('italic') ? 'bg-gray-200' : ''
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('italic') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
               title="Italic"
             >
@@ -1047,8 +1087,8 @@ export default function TextEditor({
             <button
               type="button"
               onClick={() => editor.chain().focus().toggleUnderline().run()}
-              className={`${buttonClass} rounded hover:bg-gray-200 ${
-                editor.isActive('underline') ? 'bg-gray-200' : ''
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('underline') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
               title="Underline"
             >
@@ -1143,8 +1183,8 @@ export default function TextEditor({
                 }
                 setShowLinkDialog(true);
               }}
-              className={`${buttonClass} rounded hover:bg-gray-200 ${
-                editor.isActive('link') ? 'bg-gray-200' : ''
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('link') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
               title={editor?.isActive('link') ? 'Edit Link' : 'Add Link'}
             >
@@ -1162,8 +1202,8 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => editor.chain().focus().toggleBulletList().run()}
-                className={`p-2 rounded hover:bg-gray-200 ${
-                  editor.isActive('bulletList') ? 'bg-gray-200' : ''
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive('bulletList') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
                 title="Bullet List"
               >
@@ -1172,8 +1212,8 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                className={`p-2 rounded hover:bg-gray-200 ${
-                  editor.isActive('orderedList') ? 'bg-gray-200' : ''
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive('orderedList') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
                 title="Numbered List"
               >
@@ -1190,8 +1230,8 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => editor.chain().focus().setTextAlign('left').run()}
-                className={`p-2 rounded hover:bg-gray-200 ${
-                  editor.isActive({ textAlign: 'left' }) ? 'bg-gray-200' : ''
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive({ textAlign: 'left' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
                 title="Align Left"
               >
@@ -1200,8 +1240,8 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => editor.chain().focus().setTextAlign('center').run()}
-                className={`p-2 rounded hover:bg-gray-200 ${
-                  editor.isActive({ textAlign: 'center' }) ? 'bg-gray-200' : ''
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive({ textAlign: 'center' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
                 title="Align Center"
               >
@@ -1210,8 +1250,8 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => editor.chain().focus().setTextAlign('right').run()}
-                className={`p-2 rounded hover:bg-gray-200 ${
-                  editor.isActive({ textAlign: 'right' }) ? 'bg-gray-200' : ''
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive({ textAlign: 'right' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
                 title="Align Right"
               >
@@ -1226,7 +1266,7 @@ export default function TextEditor({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded hover:bg-gray-200"
+                className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
                 title="Add Attachment"
               >
                 <Paperclip size={16} />
@@ -1252,8 +1292,8 @@ export default function TextEditor({
 
       {/* Attachments */}
       {showAttachments && displayedAttachments.length > 0 && (
-        <div className="p-2 border-t bg-gray-50">
-          <p className="text-sm font-medium text-gray-700 mb-2">Attachments:</p>
+        <div className="p-2 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Attachments:</p>
           <div className="space-y-1">
             {displayedAttachments
               .filter((attachment, index, array) => {
@@ -1400,7 +1440,7 @@ export default function TextEditor({
           }}
         >
           <div 
-            className="bg-white p-4 rounded-lg shadow-lg w-80"
+            className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg w-80"
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-lg font-medium mb-3">
@@ -1427,7 +1467,7 @@ export default function TextEditor({
                       handleLinkSubmit(e);
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   placeholder="https://example.com"
                   autoFocus
                 />
@@ -1448,7 +1488,7 @@ export default function TextEditor({
                         handleLinkSubmit(e);
                       }
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="Link text"
                   />
                 </div>
@@ -1556,6 +1596,7 @@ export default function TextEditor({
           opacity: 0.8;
         }
       `}</style>
-    </div>
+      </div>
+    </>
   );
 }

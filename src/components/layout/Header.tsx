@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, ToggleLeft, ToggleRight } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
+import ThemeToggle from '../ThemeToggle';
 
 interface HeaderProps {
   currentUser: CurrentUser | null;
@@ -128,14 +129,14 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-100">
+    <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700">
       <div className="w-4/5 mx-auto px-6 py-2.5 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <a 
             href={siteSettings.SITE_URL || '#'} 
             target="_blank" 
             rel="noopener noreferrer" 
-            className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
+            className="text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
           >
             {siteSettings.SITE_NAME || 'Easy Kanban'}
           </a>
@@ -149,7 +150,7 @@ const Header: React.FC<HeaderProps> = ({
                 <div className="relative" ref={inviteDropdownRef}>
                   <button
                     onClick={handleInviteClick}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
                     title="Invite User"
                   >
                     <UserPlus className="h-4 w-4" />
@@ -158,11 +159,11 @@ const Header: React.FC<HeaderProps> = ({
 
                   {/* Invite Dropdown */}
                   {showInviteDropdown && (
-                    <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Mail className="h-4 w-4 text-blue-600" />
-                          <h3 className="text-sm font-medium text-gray-900">Invite New User</h3>
+                          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Invite New User</h3>
                         </div>
                         
                         <div className="space-y-3">
@@ -173,20 +174,20 @@ const Header: React.FC<HeaderProps> = ({
                               onChange={(e) => setInviteEmail(e.target.value)}
                               onKeyDown={handleInviteKeyPress}
                               placeholder="Enter email address"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                               disabled={isInviting}
                               autoFocus
                             />
                           </div>
                           
                           {inviteError && (
-                            <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded">
+                            <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900 px-2 py-1 rounded">
                               {inviteError}
                             </div>
                           )}
                           
                           {inviteSuccess && (
-                            <div className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                            <div className="text-xs text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900 px-2 py-1 rounded">
                               {inviteSuccess}
                             </div>
                           )}
@@ -207,7 +208,7 @@ const Header: React.FC<HeaderProps> = ({
                             <button
                               onClick={handleInviteCancel}
                               disabled={isInviting}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 text-sm font-medium rounded-md hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
                             >
                               <X className="h-3 w-3" />
                               Cancel
@@ -277,8 +278,8 @@ const Header: React.FC<HeaderProps> = ({
                     onClick={() => onPageChange('kanban')}
                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                       currentPage === 'kanban'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                   >
                     Kanban
@@ -289,8 +290,8 @@ const Header: React.FC<HeaderProps> = ({
                     onClick={() => onPageChange('admin')}
                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
                       currentPage === 'admin'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                   >
                     Admin
@@ -303,7 +304,7 @@ const Header: React.FC<HeaderProps> = ({
           {/* Auto-refresh toggle */}
           <button
             onClick={onToggleAutoRefresh}
-            className="p-1 hover:bg-gray-50 rounded transition-colors text-gray-500 hover:text-gray-700"
+            className="p-1 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title={isAutoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
           >
             {isAutoRefreshEnabled ? (
@@ -313,12 +314,15 @@ const Header: React.FC<HeaderProps> = ({
             )}
           </button>
           
+          {/* Theme toggle */}
+          <ThemeToggle />
+          
           {/* Simple polling status indicator */}
           <div 
             className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs ${
               isPolling 
-                ? 'bg-blue-100 text-blue-700' 
-                : 'bg-gray-100 text-gray-500'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' 
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
             }`}
             title={
               isPolling 

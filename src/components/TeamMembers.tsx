@@ -119,13 +119,13 @@ export default function TeamMembers({
   const isAdmin = true; // This will be passed as a prop later if needed
 
   return (
-    <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
             Team Members 
             {selectedMembers.length > 0 && (
-              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
                 {selectedMembers.length} selected
                 <button
                   onClick={handleClearSelections}
@@ -142,7 +142,7 @@ export default function TeamMembers({
           {onSelectAll && (
             <button
               onClick={onSelectAll}
-              className="px-2 py-1 text-xs font-medium text-gray-600 hover:text-blue-600 border border-gray-300 hover:border-blue-400 rounded transition-colors"
+              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 rounded transition-colors"
               title={isAllModeActive 
                 ? "Switch to None mode: only assignees + current user" 
                 : "Switch to All mode: select all members and checkboxes"
@@ -165,7 +165,7 @@ export default function TeamMembers({
                   onChange={(e) => onToggleAssignees(e.target.checked)}
                   className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
                 />
-                <span className="text-xs text-gray-600">assignees</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">assignees</span>
               </label>
             )}
             
@@ -180,7 +180,7 @@ export default function TeamMembers({
                   onChange={(e) => onToggleWatchers(e.target.checked)}
                   className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
                 />
-                <span className="text-xs text-gray-600">watchers</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">watchers</span>
               </label>
             )}
             
@@ -195,7 +195,7 @@ export default function TeamMembers({
                   onChange={(e) => onToggleCollaborators(e.target.checked)}
                   className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
                 />
-                <span className="text-xs text-gray-600">collaborators</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">collaborators</span>
               </label>
             )}
             
@@ -210,7 +210,7 @@ export default function TeamMembers({
                   onChange={(e) => onToggleRequesters(e.target.checked)}
                   className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
                 />
-                <span className="text-xs text-gray-600">requesters</span>
+                <span className="text-xs text-gray-600 dark:text-gray-300">requesters</span>
               </label>
             )}
             

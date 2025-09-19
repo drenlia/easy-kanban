@@ -55,6 +55,7 @@ interface UseDataPollingProps {
 interface UseDataPollingReturn {
   isPolling: boolean;
   lastPollTime: Date | null;
+  updateLastPollTime: () => void;
 }
 
 export const useDataPolling = ({
@@ -303,8 +304,13 @@ export const useDataPolling = ({
     onRelationshipsUpdate,
   ]);
 
+  const updateLastPollTime = () => {
+    setLastPollTime(new Date());
+  };
+
   return {
     isPolling,
     lastPollTime,
+    updateLastPollTime,
   };
 };

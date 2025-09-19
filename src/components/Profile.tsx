@@ -370,10 +370,10 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white">
+      <div className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
         <div className="mt-3">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900">User Settings</h3>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">User Settings</h3>
             <button
               onClick={handleClose}
               disabled={isSubmitting}
@@ -461,7 +461,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                           <button
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
                             <Upload className="h-4 w-4 mr-2" />
                             {currentUser?.avatarUrl || previewUrl ? 'Change Photo' : 'Upload Photo'}
@@ -492,7 +492,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     id="displayName"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="Enter your display name"
                     required
                   />
@@ -574,7 +574,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                             type="text"
                             value={deleteConfirmation}
                             onChange={(e) => setDeleteConfirmation(e.target.value)}
-                            className="w-full px-3 py-2 border border-red-300 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                            className="w-full px-3 py-2 border border-red-300 dark:border-red-600 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                             placeholder="Type DELETE here"
                             disabled={isDeletingAccount}
                           />
@@ -620,7 +620,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           {activeTab === 'app-settings' && (
             <div className="space-y-6">
               <div>
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Application Preferences</h4>
+                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Application Preferences</h4>
                 <p className="text-sm text-gray-600 mb-6">
                   Customize how the application behaves for you. These settings override the system defaults.
                 </p>
@@ -698,7 +698,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           {activeTab === 'notifications' && (
             <div className="space-y-6">
               <div>
-                <h4 className="text-lg font-medium text-gray-900 mb-4">Email Notifications</h4>
+                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email Notifications</h4>
                 <p className="text-sm text-gray-600 mb-6">
                   Choose when you'd like to receive email notifications about task activities.
                 </p>
