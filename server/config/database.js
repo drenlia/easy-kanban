@@ -180,6 +180,7 @@ const createTables = (db) => {
       title TEXT NOT NULL,
       position INTEGER DEFAULT 0,
       is_finished BOOLEAN DEFAULT 0,
+      is_archived BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (boardId) REFERENCES boards(id) ON DELETE CASCADE
@@ -275,6 +276,7 @@ const createTables = (db) => {
       tagFilters TEXT,
       projectFilter TEXT,
       taskFilter TEXT,
+      boardColumnFilter TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
@@ -550,15 +552,16 @@ const initializeDefaultData = (db) => {
 
     // Create default columns
     const defaultColumns = [
-      { id: `todo-${boardId}`, title: 'To Do', position: 0, is_finished: false },
-      { id: `progress-${boardId}`, title: 'In Progress', position: 1, is_finished: false },
-      { id: `testing-${boardId}`, title: 'Testing', position: 2, is_finished: false },
-      { id: `completed-${boardId}`, title: 'Completed', position: 3, is_finished: true }
+      { id: `todo-${boardId}`, title: 'To Do', position: 0, is_finished: false, is_archived: false },
+      { id: `progress-${boardId}`, title: 'In Progress', position: 1, is_finished: false, is_archived: false },
+      { id: `testing-${boardId}`, title: 'Testing', position: 2, is_finished: false, is_archived: false },
+      { id: `completed-${boardId}`, title: 'Completed', position: 3, is_finished: true, is_archived: false },
+      { id: `archive-${boardId}`, title: 'Archive', position: 4, is_finished: false, is_archived: true }
     ];
 
-    const columnStmt = db.prepare('INSERT INTO columns (id, boardId, title, position, is_finished) VALUES (?, ?, ?, ?, ?)');
+    const columnStmt = db.prepare('INSERT INTO columns (id, boardId, title, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
     defaultColumns.forEach(col => {
-      columnStmt.run(col.id, boardId, col.title, col.position, col.is_finished ? 1 : 0);
+      columnStmt.run(col.id, boardId, col.title, col.position, col.is_finished ? 1 : 0, col.is_archived ? 1 : 0);
     });
 
     // Create a sample task
@@ -625,8 +628,22 @@ const initializeDefaultData = (db) => {
   }
 
   try {
+    // Add boardColumnFilter column to views table (migration)
+    db.prepare('ALTER TABLE views ADD COLUMN boardColumnFilter TEXT').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
     // Add force_logout column to users table (migration)
     db.prepare('ALTER TABLE users ADD COLUMN force_logout INTEGER DEFAULT 0').run();
+  } catch (error) {
+    // Column already exists, ignore error
+  }
+
+  try {
+    // Add is_archived column to columns table (migration)
+    db.prepare('ALTER TABLE columns ADD COLUMN is_archived BOOLEAN DEFAULT 0').run();
   } catch (error) {
     // Column already exists, ignore error
   }

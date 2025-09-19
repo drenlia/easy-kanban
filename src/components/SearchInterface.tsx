@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { X, ChevronDown, Check, ChevronUp, Save, Settings, RefreshCw } from 'lucide-react';
-import { Priority, PriorityOption, Tag } from '../types';
+import { Priority, PriorityOption, Tag, Columns } from '../types';
 import { getAllTags, getSavedFilterViews, getSharedFilterViews, createSavedFilterView, updateSavedFilterView, SavedFilterView } from '../api';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import ManageFiltersModal from './ManageFiltersModal';
+import ColumnFilterDropdown from './ColumnFilterDropdown';
 
 interface SearchFilters {
   text: string;
@@ -26,6 +27,11 @@ interface SearchInterfaceProps {
   currentFilterView?: SavedFilterView | null;
   sharedFilterViews?: SavedFilterView[];
   onFilterViewChange?: (view: SavedFilterView | null) => void;
+  // Column filtering props
+  columns?: Columns;
+  visibleColumns?: string[];
+  onColumnsChange?: (visibleColumns: string[]) => void;
+  selectedBoard?: string | null;
 }
 
 export default function SearchInterface({
@@ -35,7 +41,11 @@ export default function SearchInterface({
   siteSettings,
   currentFilterView,
   sharedFilterViews,
-  onFilterViewChange
+  onFilterViewChange,
+  columns,
+  visibleColumns,
+  onColumnsChange,
+  selectedBoard
 }: SearchInterfaceProps) {
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
@@ -237,6 +247,12 @@ export default function SearchInterface({
       taskId: ''
     });
     onFilterViewChange?.(null); // Reset to "None"
+    
+    // Also clear column filters
+    if (columns && onColumnsChange) {
+      const allColumnIds = Object.keys(columns);
+      onColumnsChange(allColumnIds);
+    }
   };
 
   // Handle saving current filters as a new view
@@ -333,6 +349,16 @@ export default function SearchInterface({
             )}
           </div>
 
+          {/* Column Filter Dropdown */}
+          {columns && onColumnsChange && visibleColumns && selectedBoard && (
+            <ColumnFilterDropdown
+              columns={columns}
+              visibleColumns={visibleColumns}
+              onColumnsChange={onColumnsChange}
+              selectedBoard={selectedBoard}
+            />
+          )}
+
           {/* Project and Task Identifier Search Fields */}
           <div className="flex items-center gap-1">
             <label className="text-xs font-medium text-gray-700">Project id:</label>
@@ -379,7 +405,22 @@ export default function SearchInterface({
           </div>
           
           {/* Active Filters Indicator */}
-          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId) && (
+          {(() => {
+            const hasSearchFilters = filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId;
+            
+            // Check if any non-archived columns are hidden (archived columns are hidden by default)
+            const hasColumnFilters = columns && visibleColumns && (() => {
+              const allColumns = Object.values(columns);
+              const nonArchivedColumns = allColumns.filter(col => !col.is_archived);
+              const visibleNonArchivedColumns = visibleColumns.filter(colId => {
+                const col = columns[colId];
+                return col && !col.is_archived;
+              });
+              return visibleNonArchivedColumns.length < nonArchivedColumns.length;
+            })();
+            
+            return hasSearchFilters || hasColumnFilters;
+          })() && (
             <button
               onClick={handleToggleCollapse}
               className="text-red-600 text-xs font-medium hover:text-red-700 hover:underline cursor-pointer transition-colors"
@@ -391,7 +432,7 @@ export default function SearchInterface({
 
           {/* Saved Filters Section */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gray-700">Save or apply filter:</span>
+            <span className="text-xs font-medium text-gray-700">Save / apply:</span>
             
             {/* Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
@@ -406,7 +447,7 @@ export default function SearchInterface({
               </button>
               
               {showFilterDropdown && (
-                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[200px]">
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[100px]">
                   {/* None option */}
                   <button
                     onClick={() => handleApplyFilter(null)}
@@ -513,7 +554,22 @@ export default function SearchInterface({
           </div>
           
           {/* Clear All Filters Button */}
-          {(filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId) && (
+          {(() => {
+            const hasSearchFilters = filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId;
+            
+            // Check if any non-archived columns are hidden (archived columns are hidden by default)
+            const hasColumnFilters = columns && visibleColumns && (() => {
+              const allColumns = Object.values(columns);
+              const nonArchivedColumns = allColumns.filter(col => !col.is_archived);
+              const visibleNonArchivedColumns = visibleColumns.filter(colId => {
+                const col = columns[colId];
+                return col && !col.is_archived;
+              });
+              return visibleNonArchivedColumns.length < nonArchivedColumns.length;
+            })();
+            
+            return hasSearchFilters || hasColumnFilters;
+          })() && (
             <button
               onClick={handleClearAllFilters}
               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"

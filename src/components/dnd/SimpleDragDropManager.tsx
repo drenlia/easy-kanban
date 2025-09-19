@@ -617,8 +617,10 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
         // Handle column reordering
         const column = activeData.column as Column;
         if (overData?.type === 'column' && overData.column?.id !== column.id) {
-          // console.log('🔄 Column reorder:', column.id, '→ position', overData.column.position);
-          await onColumnReorder(column.id, overData.column.position);
+          // Ensure we use integer positions for reordering
+          const targetPosition = Math.floor(overData.column.position);
+          // console.log('🔄 Column reorder:', column.id, '→ position', targetPosition);
+          await onColumnReorder(column.id, targetPosition);
         }
       }
     } catch (error) {
