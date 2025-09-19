@@ -85,8 +85,8 @@ export const createColumn = async (column: Column) => {
   return data;
 };
 
-export const updateColumn = async (id: string, title: string, is_finished?: boolean) => {
-  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished });
+export const updateColumn = async (id: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
+  const { data } = await api.put<Column>(`/columns/${id}`, { title, is_finished, is_archived });
   return data;
 };
 
@@ -97,6 +97,11 @@ export const deleteColumn = async (id: string) => {
 
 export const reorderColumns = async (columnId: string, newPosition: number, boardId: string) => {
   const { data } = await api.post('/columns/reorder', { columnId, newPosition, boardId });
+  return data;
+};
+
+export const renumberColumns = async (boardId: string) => {
+  const { data } = await api.post('/columns/renumber', { boardId });
   return data;
 };
 
@@ -501,6 +506,7 @@ export interface SavedFilterView {
   tagFilters?: string[];
   projectFilter?: string;
   taskFilter?: string;
+  boardColumnFilter?: string;
   created_at: string;
   updated_at: string;
   creatorName?: string; // Available for shared filters
@@ -519,6 +525,7 @@ export interface CreateFilterViewRequest {
     selectedTags?: string[];
     projectId?: string;
     taskId?: string;
+    boardColumnFilter?: string;
   };
   shared?: boolean;
 }
@@ -536,6 +543,7 @@ export interface UpdateFilterViewRequest {
     selectedTags?: string[];
     projectId?: string;
     taskId?: string;
+    boardColumnFilter?: string;
   };
   shared?: boolean;
 }

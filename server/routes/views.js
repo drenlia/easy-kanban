@@ -17,7 +17,7 @@ const validateFilterData = (filters) => {
   const allowedFields = [
     'textFilter', 'dateFromFilter', 'dateToFilter', 'dueDateFromFilter', 
     'dueDateToFilter', 'memberFilters', 'priorityFilters', 'tagFilters',
-    'projectFilter', 'taskFilter'
+    'projectFilter', 'taskFilter', 'boardColumnFilter'
   ];
   
   const validatedFilters = {};
