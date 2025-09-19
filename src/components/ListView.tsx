@@ -910,7 +910,7 @@ export default function ListView({
   const visibleColumns = columns.filter(col => col.visible);
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         {/* Scrollable table container */}
         <div
           ref={tableContainerRef}
@@ -920,17 +920,17 @@ export default function ListView({
             scrollbarColor: '#CBD5E1 #F1F5F9'
           }}
         >
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
               {/* Row number column with column management dropdown */}
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider relative group w-16">
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider relative group w-16">
                 <div className="flex items-center justify-between">
                   <span>#</span>
                   <button
                     ref={columnMenuButtonRef}
                     onClick={handleColumnMenuToggle}
-                    className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 rounded transition-opacity"
+                    className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
                     title="Show/Hide Columns"
                   >
                     <Menu size={14} />
@@ -941,7 +941,7 @@ export default function ListView({
               {visibleColumns.map(column => (
                 <th
                   key={column.key}
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 relative group"
+                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 relative group"
                   style={{ 
                     width: column.width,
                     maxWidth: column.key === 'title' ? 300 : column.width,
@@ -959,10 +959,10 @@ export default function ListView({
               ))}
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {sortedTasks.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + 1} className="px-4 py-8 text-center text-gray-500">
+                <td colSpan={visibleColumns.length + 1} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                   No tasks found matching your filters
                 </td>
               </tr>
@@ -989,8 +989,8 @@ export default function ListView({
                   {/* Main task row */}
                   <tr
                     data-task-id={task.id}
-                    className={`group hover:bg-gray-50 transition-all duration-300 ${
-                      selectedTask?.id === task.id ? 'bg-blue-50' : ''
+                    className={`group hover:bg-gray-50 dark:hover:bg-gray-700 transition-all duration-300 ${
+                      selectedTask?.id === task.id ? 'bg-blue-50 dark:bg-blue-900' : ''
                     } ${getAnimationClasses()}`}
                   >
                   {/* Row number and actions cell */}
@@ -1060,12 +1060,12 @@ export default function ListView({
                               onChange={(e) => setEditValue(e.target.value)}
                               onBlur={saveEdit}
                               onKeyDown={handleKeyDown}
-                              className="text-sm font-medium text-gray-900 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
+                              className="text-sm font-medium text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             <div 
-                              className="text-sm font-medium text-gray-900 truncate cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5" 
+                              className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1 py-0.5" 
                               title={task.title}
                               onDoubleClick={(e) => {
                                 e.stopPropagation();
@@ -1083,7 +1083,7 @@ export default function ListView({
                                 onChange={(e) => setEditValue(e.target.value)}
                                 onBlur={saveEdit}
                                 onKeyDown={handleKeyDown}
-                                className="text-sm text-gray-500 bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full resize-none"
+                                className="text-sm text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full resize-none"
                                 rows={2}
                                 onClick={(e) => e.stopPropagation()}
                               />
@@ -1215,7 +1215,7 @@ export default function ListView({
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={saveEdit}
                             onKeyDown={handleKeyDown}
-                            className="text-xs text-gray-700 font-mono bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
+                            className="text-xs text-gray-700 dark:text-gray-200 font-mono bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
@@ -1239,7 +1239,7 @@ export default function ListView({
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={saveEdit}
                             onKeyDown={handleKeyDown}
-                            className="text-xs font-mono bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
+                            className="text-xs font-mono bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full text-gray-900 dark:text-gray-100"
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : task.dueDate ? (
@@ -1447,7 +1447,7 @@ export default function ListView({
       {showDropdown?.field === 'assignee' && assigneeDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[180px]"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] min-w-[180px]"
           style={{
             left: `${assigneeDropdownCoords.left}px`,
             top: `${assigneeDropdownCoords.top}px`,
@@ -1466,7 +1466,7 @@ export default function ListView({
                   alt={member.name}
                   className="w-4 h-4 rounded-full object-cover border border-gray-200"
                 />
-                <span className="text-sm text-gray-900 font-medium">
+                <span className="text-sm text-gray-900 dark:text-gray-100 font-medium">
                   {member.name}
                 </span>
               </button>
@@ -1480,7 +1480,7 @@ export default function ListView({
       {showDropdown?.field === 'priority' && priorityDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[120px]"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] min-w-[120px]"
           style={{
             left: `${priorityDropdownCoords.left}px`,
             top: `${priorityDropdownCoords.top}px`,
@@ -1514,7 +1514,7 @@ export default function ListView({
       {showDropdown?.field === 'column' && statusDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[150px]"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] min-w-[150px]"
           style={{
             left: `${statusDropdownCoords.left}px`,
             top: `${statusDropdownCoords.top}px`,
@@ -1609,7 +1609,7 @@ export default function ListView({
       {showDropdown?.field === 'tags' && tagsDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[9999] min-w-[180px]"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] min-w-[180px]"
           style={{
             left: `${tagsDropdownCoords.left}px`,
             top: `${tagsDropdownCoords.top}px`,
@@ -1696,7 +1696,7 @@ export default function ListView({
       {showColumnMenu === 'rowNumber' && columnMenuPosition && createPortal(
         <div 
           data-column-menu-portal
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg min-w-[160px] z-50"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg min-w-[160px] z-50"
           style={{
             top: columnMenuPosition.top,
             left: columnMenuPosition.left,

@@ -671,7 +671,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         {/* Control buttons */}
         <div className="absolute top-2 right-2 z-10 flex items-center space-x-2">
           {/* Zoom controls */}
-          <div className="flex items-center bg-white rounded-md shadow-sm border border-gray-200 overflow-hidden">
+          <div className="flex items-center bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             <button
               onClick={zoomOut}
               disabled={zoom <= 0.3}
@@ -704,7 +704,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
             <div className="relative" data-status-filter>
               <button
                 onClick={() => setShowStatusFilter(!showStatusFilter)}
-                className="p-2 bg-white rounded-md shadow-sm border border-gray-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                className="p-2 bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                 title="Filter by status"
               >
                 <Filter className="h-4 w-4 text-gray-600" />
@@ -717,7 +717,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
               
               {/* Status filter dropdown */}
               {showStatusFilter && (
-                <div className="absolute top-full right-0 mt-1 w-64 bg-white rounded-md shadow-lg border border-gray-200 z-20">
+                <div className="absolute top-full right-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-20">
                   <div className="p-3">
                     <div className="flex items-center justify-between mb-2">
                       <h3 className="text-sm font-medium text-gray-700">Filter by Status</h3>
@@ -784,11 +784,11 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       />
       
       {/* Fullscreen content */}
-      <div className="relative w-full h-full max-w-7xl mx-4 bg-white rounded-lg shadow-2xl flex flex-col">
+      <div className="relative w-full h-full max-w-7xl mx-4 bg-white dark:bg-gray-800 rounded-lg shadow-2xl flex flex-col">
         {/* Header with title and close button */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50 rounded-t-lg">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center">
               <span className="text-blue-600 mr-2">🌳</span>
               Task Flow Chart
             </h2>
@@ -799,7 +799,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           
           <div className="flex items-center space-x-2">
             {/* Zoom controls for fullscreen */}
-            <div className="flex items-center bg-white rounded-md shadow-sm border border-gray-200 overflow-hidden">
+            <div className="flex items-center bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
               <button
                 onClick={zoomOut}
                 disabled={zoom <= 0.3}
@@ -857,10 +857,10 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
               Press <kbd className="px-1 py-0.5 bg-white border border-gray-300 rounded text-xs">Esc</kbd> or click outside to exit
             </span>
             <span className="inline-block mr-4">
-              <kbd className="px-1 py-0.5 bg-white border border-gray-300 rounded text-xs">Mouse Wheel</kbd> to zoom
+              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Mouse Wheel</kbd> to zoom
             </span>
             <span className="inline-block">
-              <kbd className="px-1 py-0.5 bg-white border border-gray-300 rounded text-xs">Click & Drag</kbd> to pan
+              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Click & Drag</kbd> to pan
             </span>
           </p>
         </div>

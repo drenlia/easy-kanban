@@ -3249,9 +3249,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   // Show loading state while dateRange is initializing or during board transitions
   if (dateRange.length === 0 || isBoardTransitioning || !isGridReady) {
     return (
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="border-b border-gray-200 p-4">
-          <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Gantt Chart</h2>
           <p className="text-sm text-gray-600 mt-1">
             {isBoardTransitioning ? 'Switching board...' : !isGridReady ? 'Positioning grid...' : 'Loading timeline...'}
           </p>
@@ -3289,11 +3289,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         }
       }}
     >
-      <div className="gantt-chart-container bg-white rounded-lg border border-gray-200 overflow-visible relative">
+      <div className="gantt-chart-container bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-visible relative">
         {/* Saving Overlay - Blocks user interaction while saving scroll position */}
         {isSavingScrollPosition && (
           <div className="absolute inset-0 bg-black bg-opacity-20 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 shadow-xl flex items-center gap-3">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 shadow-xl flex items-center gap-3">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
               <div className="text-gray-700 font-medium">
                 Saving scroll position...
@@ -3303,7 +3303,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         )}
         
         {/* Sticky Header - Sticks under page header when scrolling */}
-        <div className="sticky top-16 z-50 bg-white">
+        <div className="sticky top-16 z-50 bg-white dark:bg-gray-800">
           <GanttHeader
             dateRange={dateRange}
             formatDate={formatDate}
@@ -3324,15 +3324,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           </div>
           
         {/* Second Sticky Layer - Task Column Header + Timeline Headers */}
-        <div className="sticky top-[148px] z-40 bg-white border-b border-gray-200 flex">
+        <div className="sticky top-[148px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex">
           {/* Task Column Header */}
           <div
-            className="bg-gray-50 border-r border-gray-200 flex items-center justify-between px-3 font-medium text-gray-700"
+            className="bg-gray-50 dark:bg-gray-700 border-r border-gray-200 dark:border-gray-600 flex items-center justify-between px-3 font-medium text-gray-700 dark:text-gray-200"
             style={{ width: `${taskColumnWidth}px`, height: '56px' }}
           >
             <span>Task</span>
             <div
-              className="w-1 h-6 bg-gray-300 hover:bg-gray-400 cursor-col-resize transition-colors"
+              className="w-1 h-6 bg-gray-300 dark:bg-gray-500 hover:bg-gray-400 dark:hover:bg-gray-400 cursor-col-resize transition-colors"
               onMouseDown={handleResizeStart}
               title="Drag to resize task column"
             />
@@ -3346,7 +3346,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
             >
               {/* Month/Year Row */}
               <div 
-                className="grid border-b border-gray-100 bg-gray-50 gantt-timeline-container h-6"
+                className="grid border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 gantt-timeline-container h-6"
                 style={{ 
                   gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
@@ -3355,7 +3355,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 {dateRange.map((dateCol, index) => (
                   <div
                     key={`sticky-month-${index}`}
-                    className="text-xs font-medium text-gray-600 flex items-center justify-center border-r border-gray-100 relative"
+                    className="text-xs font-medium text-gray-600 dark:text-gray-300 flex items-center justify-center border-r border-gray-300 dark:border-gray-600 relative"
                     style={{ minWidth: '20px' }}
                   >
                     {(index === 0 || dateCol.date.getDate() === 1 || dateCol.date.getDate() === 15) && (
@@ -3369,7 +3369,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
               {/* Day Numbers Row */}
               <div 
-                className="grid border-b border-gray-200 bg-gray-50 gantt-timeline-container h-8"
+                className="grid border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 gantt-timeline-container h-8"
                 style={{ 
                   gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
@@ -3378,9 +3378,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 {dateRange.map((dateCol, index) => (
                   <div
                     key={`sticky-day-${index}`}
-                    className={`text-xs text-center border-r border-gray-100 flex items-center justify-center relative ${
-                      dateCol.isToday ? 'bg-blue-100 text-blue-800 font-semibold' :
-                      dateCol.isWeekend ? 'bg-gray-100 text-gray-600' : 'text-gray-700'
+                    className={`text-xs text-center border-r border-gray-300 dark:border-gray-600 flex items-center justify-center relative ${
+                      dateCol.isToday ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold' :
+                      dateCol.isWeekend ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400' : 'text-gray-700 dark:text-gray-300'
                     }`}
                     style={{ minWidth: '20px' }}
                   >
@@ -3396,13 +3396,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       <div className="relative flex">
         {/* Sticky Task Column */}
         <div 
-          className="sticky left-0 z-10 bg-white border-r border-gray-200"
+          className="sticky left-0 z-10 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700"
           style={{ width: `${taskColumnWidth}px` }}
         >
           
           {/* Task Creation Header Row - matches creation row in timeline */}
-          <div className="h-12 bg-blue-50 border-b-4 border-blue-400 flex items-center justify-end px-3">
-            <span className="text-sm text-blue-700 font-medium">Add tasks here →</span>
+          <div className="h-12 bg-blue-50 dark:bg-blue-900 border-b-4 border-blue-400 dark:border-blue-500 flex items-center justify-end px-3">
+            <span className="text-sm text-blue-700 dark:text-blue-200 font-medium">Add tasks here →</span>
           </div>
           
           {/* Task Info Rows */}
@@ -3427,15 +3427,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 <DroppableGroup key={columnId} columnId={columnId}>
                   {/* Column Group Separator - only show if not the first group */}
                   {groupIndex > 0 && (
-                    <div className="bg-pink-300 h-0.5 w-full flex-shrink-0"></div>
+                    <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full flex-shrink-0"></div>
                   )}
                   
                   {/* Drop Zone - show in all groups when dragging (except source group) */}
                   {(activeDragItem?.type === 'task-row-reorder') && 
                    activeDragItem && 
                    (activeDragItem as SortableTaskRowItem).task.columnId !== columnId && (
-                    <div className="h-8 bg-blue-50 border-2 border-dashed border-blue-400 rounded flex items-center justify-center mb-1">
-                      <div className="text-blue-600 text-xs font-medium">
+                    <div className="h-8 bg-blue-50 dark:bg-blue-900 border-2 border-dashed border-blue-400 dark:border-blue-500 rounded flex items-center justify-center mb-1">
+                      <div className="text-blue-600 dark:text-blue-200 text-xs font-medium">
                         📋 Drop here to move to {columns[columnId]?.name || 'this group'}
                       </div>
                     </div>
@@ -3492,10 +3492,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 taskViewMode === 'compact' ? 'h-12' : 
                 taskViewMode === 'shrink' ? 'h-20' : 
                 'h-20'
-                    } ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-all duration-200 ease-out ${
-                      (isDragging || isThisTaskDragging) ? '!border-2 !border-blue-500 !shadow-lg !rounded-lg bg-blue-50' : ''
+                    } ${taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'} hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 ease-out ${
+                      (isDragging || isThisTaskDragging) ? '!border-2 !border-blue-500 !shadow-lg !rounded-lg bg-blue-50 dark:bg-blue-900' : ''
                     } ${
-                      isBeingDraggedOver ? 'bg-blue-100 border-blue-300' : ''
+                      isBeingDraggedOver ? 'bg-blue-100 dark:bg-blue-800 border-blue-300 dark:border-blue-500' : ''
                     }`}
             >
               {/* Drag handle in upper left */}
@@ -3504,8 +3504,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 {...listeners}
                 className={`absolute top-2 left-2 flex items-center justify-center w-6 h-6 cursor-grab active:cursor-grabbing transition-colors z-10 ${
                   isDragging 
-                    ? 'text-blue-500 bg-blue-50 rounded' 
-                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded'
+                    ? 'text-blue-500 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 rounded' 
+                    : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded'
                 }`}
                 title={`Drag to reorder ${task.title}`}
               >
@@ -3518,14 +3518,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   onClick={() => handleTaskClick(task)}
                   className={`text-left flex-1 min-w-0 rounded px-1 py-1 transition-all duration-300 ${
                     highlightedTaskId === task.id 
-                      ? 'bg-yellow-200 ring-2 ring-yellow-400 ring-inset' 
-                      : 'hover:bg-gray-100'
+                      ? 'bg-yellow-200 dark:bg-yellow-800 ring-2 ring-yellow-400 dark:ring-yellow-600 ring-inset' 
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <div className="text-sm font-medium text-gray-900">{task.ticket}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{task.ticket}</div>
                     {(task.startDate || task.endDate) && (
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {task.startDate && task.endDate && task.startDate.getTime() === task.endDate.getTime() 
                           ? `📅 ${task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
                           : task.startDate && task.endDate
@@ -3545,15 +3545,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       {/* Shrink: TASK-XXXXX with dates + Title truncated + Status */}
                       {taskViewMode === 'shrink' && (
                         <>
-                          <div className="text-sm text-gray-600 overflow-hidden whitespace-nowrap text-ellipsis w-full min-w-0">{task.title}</div>
-                          <div className="text-xs text-gray-500 mt-2">📋 {task.status}</div>
+                          <div className="text-sm text-gray-600 dark:text-gray-300 overflow-hidden whitespace-nowrap text-ellipsis w-full min-w-0">{task.title}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">📋 {task.status}</div>
                         </>
                       )}
                       {/* Expand/Normal: Full info as currently displayed */}
                       {taskViewMode === 'expand' && (
                         <>
-                          <div className="text-sm text-gray-600 break-words">{task.title}</div>
-                          <div className="text-xs text-gray-500 mt-1">📋 {task.status}</div>
+                          <div className="text-sm text-gray-600 dark:text-gray-300 break-words">{task.title}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">📋 {task.status}</div>
                         </>
                       )}
                     </>
@@ -3668,11 +3668,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 return (
                   <div
                     key={`create-${dateIndex}`}
-                    className={`border-r border-gray-100 hover:bg-blue-50 transition-colors flex items-center justify-center group relative ${
-                      isCreatingTask ? 'cursor-crosshair bg-blue-100' : 'cursor-pointer'
+                    className={`border-r border-gray-300 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors flex items-center justify-center group relative ${
+                      isCreatingTask ? 'cursor-crosshair bg-blue-100 dark:bg-blue-800' : 'cursor-pointer'
                     } ${
-                      dateCol.isToday ? 'bg-blue-50' : 
-                      dateCol.isWeekend ? 'bg-gray-50' : ''
+                      dateCol.isToday ? 'bg-blue-50 dark:bg-blue-900' : 
+                      dateCol.isWeekend ? 'bg-gray-50 dark:bg-gray-700' : 'bg-white dark:bg-gray-800'
                     }`}
                     style={{ minWidth: '20px' }}
                     onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
@@ -3733,7 +3733,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 <React.Fragment key={`timeline-${columnId}`}>
                   {/* Column Group Separator for Timeline - only show if not the first group */}
                   {groupIndex > 0 && (
-                    <div className="bg-pink-300 h-0.5 w-full"></div>
+                    <div className="bg-pink-300 dark:bg-pink-600 h-0.5 w-full"></div>
                   )}
                   
                   {/* Tasks in this group */}
@@ -3745,7 +3745,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                 <div 
                   key={task.id} 
                   data-task-id={task.id}
-                  className={`grid border-b border-gray-100 ${taskIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors relative ${
+                  className={`grid border-b border-gray-200 dark:border-gray-600 ${taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'} hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors relative ${
                     taskViewMode === 'compact' ? 'h-12' : 
                     taskViewMode === 'shrink' ? 'h-20' : 
                     'h-20'
@@ -3800,9 +3800,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     return (
                       <div
                         ref={setNodeRef}
-                        className={`h-16 border-r border-gray-100 transition-colors ${
-                          dateCol.isToday ? 'bg-blue-50' : 
-                          dateCol.isWeekend ? 'bg-gray-50' : ''
+                        className={`h-16 border-r border-gray-300 dark:border-gray-600 transition-colors ${
+                          dateCol.isToday ? 'bg-blue-50 dark:bg-blue-900' : 
+                          dateCol.isWeekend ? 'bg-gray-50 dark:bg-gray-700' : 'bg-white dark:bg-gray-800'
                         }`}
                         style={{ 
                           gridColumn: relativeIndex + 1,
@@ -4189,14 +4189,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           {(!visibleTasks || visibleTasks.length === 0) && (
             <>
               {/* Empty state with interactive grid for task creation */}
-              <div className="text-center text-gray-500 py-4 border-b border-gray-100">
+              <div className="text-center text-gray-500 dark:text-gray-400 py-4 border-b border-gray-200 dark:border-gray-600">
                 <div className="text-sm">📅 Timeline ready for new tasks</div>
-                <div className="text-xs text-gray-400">Click on any date to create a task</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">Click on any date to create a task</div>
               </div>
               
               {/* Interactive timeline grid for task creation */}
               <div 
-                className="grid bg-white hover:bg-blue-50 transition-colors relative h-16 border-b-4 border-blue-400"
+                className="grid bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors relative h-16 border-b-4 border-blue-400"
                 style={{ 
                   gridTemplateColumns: `repeat(${dateRange.length}, 40px)`,
                   minWidth: '800px'
@@ -4237,12 +4237,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                   return (
                     <div
                       key={dropId}
-                      className={`relative border-r border-gray-100 h-full transition-colors cursor-pointer ${
+                      className={`relative border-r border-gray-300 dark:border-gray-600 h-full transition-colors cursor-pointer ${
                         isInCreationRange 
-                          ? 'bg-blue-200 border-blue-300' 
-                          : `${dateCol.isToday ? 'bg-blue-50' :
-                               dateCol.isWeekend ? 'bg-gray-50' : 'bg-white'
-                             } hover:bg-blue-100`
+                          ? 'bg-blue-200 dark:bg-blue-800 border-blue-300 dark:border-blue-500' 
+                          : `${dateCol.isToday ? 'bg-blue-50 dark:bg-blue-900' :
+                               dateCol.isWeekend ? 'bg-gray-50 dark:bg-gray-700' : 'bg-white dark:bg-gray-800'
+                             } hover:bg-blue-100 dark:hover:bg-blue-800`
                       }`}
                       style={{ minWidth: '20px' }}
                       onMouseDown={(e) => handleTaskCreationMouseDown(dateString, e)}
@@ -4253,7 +4253,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       {/* Show creation feedback only during active drag */}
                       {isInCreationRange && (
                         <div className="flex items-center justify-center h-full">
-                          <div className="text-xs text-blue-700 font-medium bg-white px-1 rounded">
+                          <div className="text-xs text-blue-700 dark:text-blue-300 font-medium bg-white dark:bg-gray-800 px-1 rounded">
                             {taskCreationStart === taskCreationEnd ? '1 day' : 
                              Math.abs(parseLocalDate(taskCreationEnd).getTime() - parseLocalDate(taskCreationStart).getTime()) / (1000 * 60 * 60 * 24) + 1 + ' days'}
                           </div>
@@ -4318,10 +4318,10 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         {activeDragItem ? (
           (() => {
             return (
-              <div className="bg-white border-2 border-blue-500 rounded-lg shadow-2xl p-4 flex items-center gap-3 opacity-95 transform rotate-2 relative" style={{ zIndex: 9999 }}>
+              <div className="bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-2xl p-4 flex items-center gap-3 opacity-95 transform rotate-2 relative" style={{ zIndex: 9999 }}>
                 <GripVertical size={18} className="text-blue-500" />
                 <div className="flex flex-col">
-                  <span className="font-semibold text-gray-900 text-sm">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
                     {(activeDragItem as SortableTaskRowItem).type === 'task-row' 
                       ? (activeDragItem as SortableTaskRowItem).task.title
                       : (activeDragItem as GanttRowDragItem).dragType === 'task-row-handle' 

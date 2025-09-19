@@ -651,7 +651,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return (
       <div 
         ref={feedRef}
-        className={`fixed bg-white shadow-lg rounded border border-gray-200 z-[9999] ${isDragging ? 'cursor-grabbing' : ''}`}
+        className={`fixed bg-white dark:bg-gray-800 shadow-lg rounded border border-gray-200 dark:border-gray-700 z-[9999] ${isDragging ? 'cursor-grabbing' : ''}`}
         style={{
           left: position.x,
           top: position.y,
@@ -671,7 +671,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             </div>
             <Activity className="w-3 h-3 text-blue-600" />
             {dimensions.width >= 155 && (
-              <span className="text-xs font-medium text-gray-900">Activity Feed</span>
+              <span className="text-xs font-medium text-gray-900 dark:text-gray-100">Activity Feed</span>
             )}
             {unreadCount > 0 && (
               <div className="bg-blue-500 text-white text-xs rounded-full px-1.5 py-0.5 min-w-[16px] h-4 flex items-center justify-center leading-none">
@@ -701,7 +701,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         
         {/* Latest Activity Content */}
         <div 
-          className="px-2 py-1 bg-white cursor-help flex-1 flex items-center"
+          className="px-2 py-1 bg-white dark:bg-gray-800 cursor-help flex-1 flex items-center"
           onMouseEnter={latestActivity ? handleMouseEnter : undefined}
           onMouseLeave={latestActivity ? handleMouseLeave : undefined}
         >
@@ -758,7 +758,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   return (
     <div 
       ref={feedRef}
-      className={`fixed bg-white shadow-xl rounded border border-gray-200 z-[9999] flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
+      className={`fixed bg-white dark:bg-gray-800 shadow-xl rounded border border-gray-200 dark:border-gray-700 z-[9999] flex flex-col ${isDragging ? 'cursor-grabbing' : ''} ${isResizing ? 'select-none' : ''}`}
       style={{
         left: position.x,
         top: position.y,
@@ -779,7 +779,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         <div className="flex items-center space-x-1.5 flex-1 min-w-0">
           <Activity className="w-3 h-3 text-blue-600 flex-shrink-0" />
           {!isExtraNarrowMode && (
-            <h3 className="font-medium text-gray-900 text-xs truncate">
+            <h3 className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
               {isNarrowMode ? 'Activity' : 'Activity Feed'}
             </h3>
           )}
@@ -814,7 +814,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       </div>
 
       {/* Filter Input - Responsive */}
-      <div className={`border-b border-gray-200 bg-white ${isNarrowMode ? 'p-1' : 'p-2'}`}>
+      <div className={`border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 ${isNarrowMode ? 'p-1' : 'p-2'}`}>
         <div className="relative">
           {!isExtraNarrowMode && (
             <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
@@ -826,7 +826,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             placeholder={isNarrowMode ? "Filter..." : "Filter activities..."}
             value={filterText}
             onChange={(e) => handleFilterChange(e.target.value)}
-            className={`block w-full py-1.5 text-xs border border-gray-300 rounded-md leading-4 bg-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
+            className={`block w-full py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-md leading-4 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${
               isExtraNarrowMode ? 'pl-2 pr-6' : 'pl-7 pr-7'
             }`}
           />
@@ -893,7 +893,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-gray-900 leading-tight">
+                  <div className="text-xs text-gray-900 dark:text-gray-100 leading-tight">
                     {isNarrowMode ? (
                       // Compact layout for narrow widths
                       <div className="space-y-0.5">
@@ -1007,7 +1007,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       {/* Minimize Dropdown Portal - rendered outside the feed to avoid clipping */}
       {showMinimizeDropdown && dropdownPosition && createPortal(
         <div 
-          className="fixed bg-white border border-gray-200 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]"
+          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[10001] py-1 min-w-[140px]"
           data-minimize-dropdown
           style={{
             left: dropdownPosition.x,

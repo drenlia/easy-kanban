@@ -109,16 +109,16 @@ const SortablePriorityRow = ({
           <div 
             {...attributes}
             {...listeners}
-            className="cursor-grab hover:cursor-grabbing p-1 rounded hover:bg-gray-100 text-gray-400 text-xs"
+            className="cursor-grab hover:cursor-grabbing p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 text-xs"
             title="Drag to reorder"
           >
             ⋮⋮
           </div>
           <div 
-            className="w-4 h-4 rounded-full border border-gray-300"
+            className="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600"
             style={{ backgroundColor: priority.color }}
           />
-          <span className="text-sm font-medium text-gray-900">{priority.priority}</span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{priority.priority}</span>
         </div>
       </td>
       <td className="px-6 py-4 whitespace-nowrap">
@@ -163,7 +163,7 @@ const SortablePriorityRow = ({
           name="defaultPriority"
           checked={!!priority.initial}
           onChange={() => onSetDefault(priority.id)}
-          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500 focus:ring-2 cursor-pointer"
+          className="w-4 h-4 text-blue-600 dark:text-blue-400 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:ring-2 cursor-pointer"
           title={priority.initial ? 'This is the default priority' : 'Set as default priority'}
         />
       </td>
@@ -191,7 +191,7 @@ const SortablePriorityRow = ({
       {/* Portal-based Delete Confirmation Dialog */}
       {showDeletePriorityConfirm === priority.id && deleteButtonPosition && createPortal(
         <div 
-          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+          className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
           style={{
             top: `${deleteButtonPosition.top}px`,
             left: `${deleteButtonPosition.left}px`
@@ -330,8 +330,8 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
         <div className="mb-6">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Priorities Management</h2>
-              <p className="text-gray-600">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Priorities Management</h2>
+              <p className="text-gray-600 dark:text-gray-400">
                 Create and manage priority levels for tasks. Each priority has a custom color for visual identification.
               </p>
             </div>
@@ -376,14 +376,14 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
         )}
 
         {/* Priorities Table with Drag and Drop */}
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
+        <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handlePriorityDragEnd}
           >
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Priority</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
@@ -395,7 +395,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                 items={priorities.map(p => p.id)}
                 strategy={verticalListSortingStrategy}
               >
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {Array.isArray(priorities) && priorities.length > 0 ? (
                     priorities.map((priority) => (
                       <SortablePriorityRow 
@@ -427,9 +427,9 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
       {/* Add Priority Modal */}
       {showAddPriorityForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Add New Priority</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Add New Priority</h3>
               <form onSubmit={handleAddPriority}>
                 <div className="space-y-4">
                   <div>
@@ -483,9 +483,9 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
       {/* Edit Priority Modal */}
       {showEditPriorityForm && editingPriority && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+          <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Edit Priority</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Edit Priority</h3>
               <form onSubmit={handleEditPriority}>
                 <div className="space-y-4">
                   <div>

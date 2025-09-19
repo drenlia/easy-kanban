@@ -83,33 +83,33 @@ export default function AddCommentModal({
       onClick={handleBackdropClick}
     >
       <div 
-        className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6"
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {editingComment ? 'Edit Comment' : 'Add Comment'}
           </h3>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
             title="Close"
           >
-            <X size={20} className="text-gray-500" />
+            <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Task Title */}
         <div className="mb-4">
-          <p className="text-sm text-gray-600">
-            {editingComment ? 'Editing comment on:' : 'Adding comment to:'} <span className="font-medium text-gray-800">{taskTitle}</span>
+          <p className="text-sm text-gray-600 dark:text-gray-300">
+            {editingComment ? 'Editing comment on:' : 'Adding comment to:'} <span className="font-medium text-gray-800 dark:text-gray-100">{taskTitle}</span>
           </p>
         </div>
 
         {/* Comment Input */}
         <div className="mb-4">
-          <label htmlFor="comment-text" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="comment-text" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
             Comment
           </label>
           <textarea
@@ -119,7 +119,7 @@ export default function AddCommentModal({
             onChange={(e) => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Type your comment here..."
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             rows={4}
             disabled={isSubmitting}
           />

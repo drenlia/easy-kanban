@@ -67,7 +67,7 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
       <div className="flex items-center justify-between gap-4">
         {/* Title and Description */}
         <div className="flex-1 min-w-0">
-          <h2 className="text-lg font-semibold text-gray-900">Gantt Chart</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Gantt Chart</h2>
           <p className="text-sm text-gray-600 mt-1">
             {dateRange.length > 0 ? (
               `Timeline view from ${formatDate(dateRange[0].date)} to ${formatDate(dateRange[dateRange.length - 1].date)}`
@@ -147,8 +147,8 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
             }}
             className={`px-3 py-2 text-sm font-medium rounded-md border transition-colors ${
               isRelationshipMode
-                ? 'bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-200'
-                : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 hover:bg-blue-200 dark:hover:bg-blue-800'
+                : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600'
             }`}
             title={isRelationshipMode ? 'Exit relationship mode' : 'Create task relationships'}
           >
