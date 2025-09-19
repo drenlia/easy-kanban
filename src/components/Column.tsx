@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, MoreVertical, X, GripVertical } from 'lucide-react';
+import { Plus, MoreVertical, X, GripVertical, Archive } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCard from './TaskCard';
@@ -29,7 +29,7 @@ interface KanbanColumnProps {
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
   onCopyTask: (task: Task) => void;
-  onEditColumn: (columnId: string, title: string, is_finished?: boolean) => void;
+  onEditColumn: (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => void;
   siteSettings?: { [key: string]: string };
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => void;
@@ -119,6 +119,7 @@ export default function KanbanColumn({
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
   const [isFinished, setIsFinished] = useState(column.is_finished || false);
+  const [isArchived, setIsArchived] = useState(column.is_archived || false);
   const [showMenu, setShowMenu] = useState(false);
 
   // Reset state when editing starts
@@ -126,8 +127,9 @@ export default function KanbanColumn({
     if (isEditing) {
       setTitle(column.title);
       setIsFinished(column.is_finished || false);
+      setIsArchived(column.is_archived || false);
     }
-  }, [isEditing, column.title, column.is_finished]);
+  }, [isEditing, column.title, column.is_finished, column.is_archived]);
 
   // Auto-detect finished column names when title changes
   useEffect(() => {
@@ -136,9 +138,33 @@ export default function KanbanColumn({
       const shouldBeFinished = finishedColumnNames.some(finishedName => 
         finishedName.toLowerCase() === title.toLowerCase()
       );
-      setIsFinished(shouldBeFinished);
+      if (shouldBeFinished) {
+        setIsFinished(true);
+        setIsArchived(false); // Cannot be both finished and archived
+      }
     }
   }, [title, isEditing, siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES]);
+
+  // Auto-detect archived column when title changes
+  useEffect(() => {
+    if (isEditing && title.toLowerCase() === 'archive') {
+      setIsArchived(true);
+      setIsFinished(false); // Cannot be both finished and archived
+    }
+  }, [title, isEditing]);
+
+  // Handle mutual exclusivity between finished and archived
+  useEffect(() => {
+    if (isFinished && isArchived) {
+      setIsArchived(false);
+    }
+  }, [isFinished]);
+
+  useEffect(() => {
+    if (isArchived && isFinished) {
+      setIsFinished(false);
+    }
+  }, [isArchived]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [deleteButtonRef, setDeleteButtonRef] = useState<HTMLButtonElement | null>(null);
@@ -241,7 +267,7 @@ export default function KanbanColumn({
     if (!title.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
-    await onEditColumn(column.id, title.trim(), isFinished);
+    await onEditColumn(column.id, title.trim(), isFinished, isArchived);
     setIsEditing(false);
     setIsSubmitting(false);
   };
@@ -438,6 +464,7 @@ export default function KanbanColumn({
                   if (e.key === 'Escape') {
                     setTitle(column.title);
                     setIsFinished(column.is_finished || false);
+                    setIsArchived(column.is_archived || false);
                     setIsEditing(false);
                   }
                 }}
@@ -472,6 +499,29 @@ export default function KanbanColumn({
                 </label>
               </div>
               
+              {/* Archived Column Toggle */}
+              <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
+                <div className="flex items-center space-x-3">
+                  <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                  <span className="text-sm font-medium text-gray-700">Mark as Archived Column</span>
+                  {isArchived && title.toLowerCase() === 'archive' && (
+                    <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
+                      Auto-detected
+                    </span>
+                  )}
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isArchived}
+                    onChange={(e) => setIsArchived(e.target.checked)}
+                    className="sr-only peer"
+                    disabled={isSubmitting}
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
+                </label>
+              </div>
+              
               {/* Action Buttons */}
               <div className="flex items-center justify-end space-x-2">
                 <button
@@ -479,6 +529,7 @@ export default function KanbanColumn({
                   onClick={() => {
                     setTitle(column.title);
                     setIsFinished(column.is_finished || false);
+                    setIsArchived(column.is_archived || false);
                     setIsEditing(false);
                   }}
                   disabled={isSubmitting}
@@ -541,14 +592,23 @@ export default function KanbanColumn({
         
         {/* Column Management Menu - Admin Only */}
         {isAdmin && (
-          <div className="relative column-menu-container">
+          <div className="relative column-menu-container flex items-center gap-1">
+            {/* Archive Icon */}
+            {!!column.is_archived && (
+              <Archive 
+                size={16} 
+                className="text-orange-500 dark:text-orange-400" 
+                title="Archived Column"
+              />
+            )}
+            
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-1 hover:bg-gray-200 rounded-full transition-colors"
+              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
               disabled={isSubmitting}
               title="Column management options"
             >
-              <MoreVertical size={18} className="text-gray-500" />
+              <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
             </button>
             
             {showMenu && (
@@ -597,7 +657,7 @@ export default function KanbanColumn({
           // CRITICAL FIX: Don't switch to empty mode if the dragged task is from THIS column
           // This prevents losing the SortableContext and activeData.type
           const isDraggingFromThisColumn = draggedTask?.columnId === column.id;
-          return originalTaskCount === 0 && !isDraggingFromThisColumn;
+          return originalTaskCount === 0 && !isDraggingFromThisColumn ? true : false;
         })() ? (
           /* Empty column - no SortableContext to avoid interference */
           <div className="min-h-[100px] pb-4">

@@ -32,7 +32,7 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -222,6 +222,54 @@ export default function App() {
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  
+  // Column visibility state for each board
+  const [boardColumnVisibility, setBoardColumnVisibility] = useState<{[boardId: string]: string[]}>({});
+
+  // Handle column visibility changes
+  const handleBoardColumnVisibilityChange = (boardId: string, visibleColumns: string[]) => {
+    const newVisibility = {
+      ...boardColumnVisibility,
+      [boardId]: visibleColumns
+    };
+    
+    setBoardColumnVisibility(newVisibility);
+    
+    // Save to user settings for persistence across page reloads
+    updateUserPreference('boardColumnVisibility', newVisibility);
+    
+    // Save to current filter view if it exists
+    if (currentFilterView) {
+      // Update the view in the database
+      updateSavedFilterView(currentFilterView.id, {
+        filters: {
+          ...currentFilterView,
+          boardColumnFilter: JSON.stringify(newVisibility)
+        }
+      }).catch(error => {
+        console.error('Failed to save column filter to view:', error);
+      });
+    }
+  };
+
+  // Load column filter from current filter view or user settings
+  useEffect(() => {
+    if (currentFilterView?.boardColumnFilter) {
+      try {
+        const columnFilter = JSON.parse(currentFilterView.boardColumnFilter);
+        setBoardColumnVisibility(columnFilter);
+      } catch (error) {
+        console.error('Failed to parse boardColumnFilter:', error);
+        // Fall back to user settings if parsing fails
+        const savedVisibility = userPrefs?.boardColumnVisibility || {};
+        setBoardColumnVisibility(savedVisibility);
+      }
+    } else {
+      // Fall back to user settings when no filter view is active
+      const savedVisibility = userPrefs?.boardColumnVisibility || {};
+      setBoardColumnVisibility(savedVisibility);
+    }
+  }, [currentFilterView, userPrefs]);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
@@ -2757,13 +2805,31 @@ export default function App() {
     }
   };
 
-  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean) => {
+  // Renumber all columns in a board to ensure clean integer positions
+  const renumberColumns = async (boardId: string) => {
     try {
-      await updateColumn(columnId, title, is_finished);
+      const { data } = await api.post('/columns/renumber', { boardId });
+      return data;
+    } catch (error) {
+      console.error('Failed to renumber columns:', error);
+    }
+  };
+
+  const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
+    try {
+      await updateColumn(columnId, title, is_finished, is_archived);
       setColumns(prev => ({
         ...prev,
-        [columnId]: { ...prev[columnId], title, is_finished }
+        [columnId]: { ...prev[columnId], title, is_finished, is_archived }
       }));
+      
+      // If column becomes archived, remove it from visible columns
+      if (is_archived && selectedBoard) {
+        const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
+        const updatedVisibleColumns = currentVisibleColumns.filter(id => id !== columnId);
+        handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+      }
+      
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to update column:', error);
@@ -2877,7 +2943,17 @@ export default function App() {
 
     try {
       await createColumn(newColumn);
+      
+      // Add the new column to visible columns (new columns are never archived by default)
+      const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
+      const updatedVisibleColumns = [...currentVisibleColumns, columnId];
+      handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+      
       await refreshBoardData(); // Refresh to ensure consistent state
+      
+      // Renumber all columns to ensure clean integer positions
+      await renumberColumns(selectedBoard);
+      
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to create column:', error);
@@ -3264,29 +3340,52 @@ export default function App() {
   }, [columns, searchFilters, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards]);
 
   // Use filtered columns state
-  const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+  const hasColumnFilters = selectedBoard ? (boardColumnVisibility[selectedBoard] && boardColumnVisibility[selectedBoard].length < Object.keys(columns).length) : false;
+  const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters || hasColumnFilters;
   const getTaskCountForBoard = (board: Board) => {
-    // For the currently selected board, use the actual filtered columns data
-    // This ensures the count matches exactly what's displayed in ListView/Kanban
-    // BUT only if the filteredColumns are from the current selectedBoard (avoid stale data during board switches)
-    if (board.id === selectedBoard && filteredColumns && Object.keys(filteredColumns).length > 0) {
-      // Additional validation: check if filteredColumns contain columns that belong to this board
-      const currentBoardData = boards.find(b => b.id === selectedBoard);
-      const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
-      const filteredColumnIds = Object.keys(filteredColumns);
+    // For the currently selected board, apply both search filtering AND column visibility filtering
+    if (board.id === selectedBoard) {
+      // Get visible columns for this board
+      const visibleColumnIds = boardColumnVisibility[selectedBoard] || Object.keys(columns);
       
-      // Only use filteredColumns if they match the current board's column structure
-      const isValidForCurrentBoard = currentBoardColumnIds.length > 0 && 
-        filteredColumnIds.every(id => currentBoardColumnIds.includes(id)) &&
-        currentBoardColumnIds.every(id => filteredColumnIds.includes(id));
+      // Apply column visibility filtering first (excluding archived columns)
+      const columnFilteredColumns: Columns = {};
+      visibleColumnIds.forEach(columnId => {
+        if (columns[columnId] && !columns[columnId].is_archived) {
+          columnFilteredColumns[columnId] = columns[columnId];
+        }
+      });
       
-      if (isValidForCurrentBoard) {
-        let totalCount = 0;
-        Object.values(filteredColumns).forEach(column => {
-          totalCount += column.tasks.length;
-        });
-        return totalCount;
+      // Then apply search filtering to the visible columns
+      if (filteredColumns && Object.keys(filteredColumns).length > 0) {
+        // Additional validation: check if filteredColumns contain columns that belong to this board
+        const currentBoardData = boards.find(b => b.id === selectedBoard);
+        const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
+        const filteredColumnIds = Object.keys(filteredColumns);
+        
+        // Only use filteredColumns if they match the current board's column structure
+        const isValidForCurrentBoard = currentBoardColumnIds.length > 0 && 
+          filteredColumnIds.every(id => currentBoardColumnIds.includes(id)) &&
+          currentBoardColumnIds.every(id => filteredColumnIds.includes(id));
+        
+        if (isValidForCurrentBoard) {
+          // Apply search filtering to visible columns only (excluding archived)
+          let totalCount = 0;
+          Object.values(filteredColumns).forEach(column => {
+            if (visibleColumnIds.includes(column.id) && !column.is_archived) {
+              totalCount += column.tasks.length;
+            }
+          });
+          return totalCount;
+        }
       }
+      
+      // If no search filtering, just count visible columns
+      let totalCount = 0;
+      Object.values(columnFilteredColumns).forEach(column => {
+        totalCount += column.tasks.length;
+      });
+      return totalCount;
     }
     
     // For other boards, apply the same filtering logic used in performFiltering
@@ -3483,6 +3582,7 @@ export default function App() {
         onColumnReorder={async (columnId: string, newPosition: number) => {
           try {
             await reorderColumns(columnId, newPosition, selectedBoard || '');
+            await renumberColumns(selectedBoard || ''); // Ensure clean positions
             await fetchQueryLogs();
             await refreshBoardData();
           } catch (error) {
@@ -3546,6 +3646,8 @@ export default function App() {
         gridStyle={gridStyle}
         sensors={sensors}
         collisionDetection={collisionDetection}
+        boardColumnVisibility={boardColumnVisibility}
+        onBoardColumnVisibilityChange={handleBoardColumnVisibilityChange}
 
         onSelectMember={handleMemberToggle}
         onClearMemberSelections={handleClearMemberSelections}

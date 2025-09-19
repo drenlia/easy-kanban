@@ -53,6 +53,10 @@ interface KanbanPageProps {
   sensors: any;
   collisionDetection: any;
   siteSettings: { [key: string]: string };
+  
+  // Column filtering props
+  boardColumnVisibility: {[boardId: string]: string[]};
+  onBoardColumnVisibilityChange: (boardId: string, visibleColumns: string[]) => void;
 
   
   // Event handlers
@@ -96,7 +100,7 @@ interface KanbanPageProps {
   onTagRemove: (taskId: string) => (tagId: string) => Promise<void>;
   onMoveTaskToColumn: (taskId: string, targetColumnId: string) => Promise<void>;
   animateCopiedTaskId?: string | null;
-  onEditColumn: (columnId: string, title: string, is_finished?: boolean) => Promise<void>;
+  onEditColumn: (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => Promise<void>;
   onRemoveColumn: (columnId: string) => Promise<void>;
   onAddColumn: (afterColumnId: string) => Promise<void>;
   showColumnDeleteConfirm?: string | null;
@@ -210,6 +214,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onSelectTask,
   onTaskDropOnBoard,
   siteSettings,
+  boardColumnVisibility,
+  onBoardColumnVisibilityChange,
   
   // Task linking props
   isLinkingMode,
@@ -228,7 +234,30 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   
   // Auto-synced relationships
   boardRelationships = [],
-}) => {
+}: KanbanPageProps) => {
+  // Column filtering logic
+  const getVisibleColumns = (boardId: string | null) => {
+    if (!boardId) return [];
+    return boardColumnVisibility[boardId] || Object.keys(columns);
+  };
+
+  const handleColumnVisibilityChange = (boardId: string, visibleColumns: string[]) => {
+    onBoardColumnVisibilityChange(boardId, visibleColumns);
+  };
+
+  // Get filtered columns based on visibility (respecting user's column filter choices)
+  const getFilteredColumnsForDisplay = () => {
+    const visibleColumnIds = getVisibleColumns(selectedBoard);
+    const filtered: Columns = {};
+    
+    visibleColumnIds.forEach(columnId => {
+      if (columns[columnId]) {
+        filtered[columnId] = columns[columnId];
+      }
+    });
+    
+    return filtered;
+  };
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   
@@ -450,7 +479,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         </div>
         <BoardMetrics 
           columns={columns}
-          filteredColumns={filteredColumns}
+          filteredColumns={getFilteredColumnsForDisplay()}
         />
       </div>
 
@@ -464,6 +493,10 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           currentFilterView={currentFilterView}
           sharedFilterViews={sharedFilterViews}
           onFilterViewChange={onFilterViewChange}
+          columns={columns}
+          visibleColumns={getVisibleColumns(selectedBoard)}
+          onColumnsChange={(visibleColumns) => selectedBoard && handleColumnVisibilityChange(selectedBoard, visibleColumns)}
+          selectedBoard={selectedBoard}
         />
       )}
 
@@ -517,7 +550,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               )}
               
               <ListView
-                filteredColumns={filteredColumns}
+                filteredColumns={getFilteredColumnsForDisplay()}
                 selectedBoard={selectedBoard}
                 members={members}
                 availablePriorities={availablePriorities}
@@ -538,7 +571,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           ) : viewMode === 'gantt' ? (
             <>
               <GanttView
-              columns={filteredColumns}
+              columns={getFilteredColumnsForDisplay()}
               onSelectTask={onSelectTask}
               taskViewMode={taskViewMode}
               onUpdateTask={onEditTask}
@@ -601,14 +634,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             {currentUser?.roles?.includes('admin') ? (
               // Re-enabled SortableContext for column reordering
               <SortableContext
-                items={Object.values(columns)
+                items={Object.values(getFilteredColumnsForDisplay())
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
                   .map(column => column.id)
                 }
                 strategy={rectSortingStrategy}
               >
                 <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
-                  {Object.values(columns)
+                  {Object.values(getFilteredColumnsForDisplay())
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
                                           <KanbanColumn
