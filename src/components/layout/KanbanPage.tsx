@@ -700,7 +700,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             ) : (
               /* Regular user view */
               <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
-                {Object.values(columns)
+                {Object.values(getFilteredColumnsForDisplay())
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
                   .map(column => (
                     <KanbanColumn
