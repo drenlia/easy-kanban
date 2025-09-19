@@ -333,8 +333,8 @@ export default function TaskCardToolbar({
                 onMouseLeave={() => onLinkToolHoverEnd?.()}
                 className={`p-1 rounded-full transition-colors ${
                   isLinkingMode && linkingSourceTask?.id === task.id
-                    ? 'bg-blue-100 text-blue-600'
-                    : 'hover:bg-blue-100 text-gray-400 hover:text-blue-600'
+                    ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
+                    : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
                 }`}
                 title={isLinkingMode && linkingSourceTask?.id === task.id ? "Source task for linking" : "Hold and drag to link tasks"}
               >

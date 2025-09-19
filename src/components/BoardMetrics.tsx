@@ -20,25 +20,25 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
   const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   return (
-    <div className="p-3 bg-white shadow-sm rounded-lg mb-4 border border-gray-100 w-full max-w-[120px]">
+        <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-full max-w-[120px]">
       <div className="space-y-3">
         {/* Header */}
         <div className="text-center">
-          <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+          <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
             Progress
           </h3>
         </div>
         
         {/* Progress */}
         <div className="text-center">
-          <div className="text-sm font-semibold text-gray-900">
-            {completedTasks}/{totalTasks} <span className="text-xs font-normal text-gray-600">({completionPercentage}%)</span>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {completedTasks}/{totalTasks} <span className="text-xs font-normal text-gray-600 dark:text-gray-400">({completionPercentage}%)</span>
           </div>
         </div>
         
         {/* Progress Bar */}
         <div className="w-full">
-          <div className="w-full bg-gray-200 rounded-full h-2">
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <div 
               className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
               style={{ width: `${completionPercentage}%` }}

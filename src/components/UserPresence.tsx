@@ -78,9 +78,9 @@ export default function UserPresence({ socket, currentUser, members, boardOnline
       </button>
 
       {showUserList && (
-        <div className="absolute top-full right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+        <div className="absolute top-full right-0 mt-2 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
           <div className="p-3">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
               Currently Viewing This Board
             </h3>
             

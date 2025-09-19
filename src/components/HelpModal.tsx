@@ -42,11 +42,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
     <div className="space-y-8">
       {/* General Explanation */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <LayoutGrid className="text-blue-500" />
           What is Easy Kanban?
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p>Easy Kanban is a comprehensive project management platform that combines Kanban boards, Gantt charts, and list views for complete project visibility. It features real-time collaboration, advanced task management, and team coordination tools.</p>
           <p>The application supports multiple project boards, task dependencies, file attachments, rich text editing, and sophisticated filtering. It's designed for teams of all sizes with role-based permissions and admin controls.</p>
         </div>
@@ -54,11 +54,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Navigation */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <ArrowRight className="text-green-500" />
           Navigation & Interface
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Board Selector:</strong> Switch between different project boards using the tab interface at the top. Each board can have its own columns and tasks. Use the scroll arrows to navigate through many boards.</p>
           <p><strong>View Modes:</strong> Toggle between Kanban (visual board), List (table format), and Gantt (timeline) views using the Tools panel.</p>
           <p><strong>Search & Filter:</strong> Use the search interface to filter tasks by text, dates, members, priorities, tags, and more. Save filter views for quick access.</p>
@@ -70,15 +70,15 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
           {/* Team Management */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Users className="text-purple-500" />
           Team Management & Member Selection
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Team Members:</strong> Each member gets a unique color for easy identification. Administrators can add, edit, or invite new team members through the Admin panel.</p>
           <p><strong>Member Selection:</strong> Select specific team members to filter tasks, or use "All" to see everyone's tasks. You must also enable at least one role checkbox below to see filtered results.</p>
           <p><strong>Role-Based Filtering:</strong> Use the checkboxes to filter tasks by different member roles:</p>
-          <ul className="ml-4 space-y-1">
+          <ul className="ml-4 space-y-1 text-gray-600 dark:text-gray-300">
             <li><strong>Assignees:</strong> Show tasks assigned to the selected team members</li>
             <li><strong>Watchers:</strong> Show tasks that the selected team members are watching</li>
             <li><strong>Collaborators:</strong> Show tasks that the selected team members can collaborate on</li>
@@ -91,11 +91,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Tools */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Settings className="text-orange-500" />
           Tools & Features
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Views:</strong> Switch between Kanban (visual board), List (table format), and Gantt (timeline) views using the Tools panel.</p>
           <p><strong>Search & Filter:</strong> Advanced filtering by text, dates, members, priorities, tags, and project IDs. Save and share filter views.</p>
           <p><strong>Task View Modes:</strong> Toggle between compact and detailed task views to optimize screen space.</p>
@@ -112,11 +112,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
     <div className="space-y-8">
       {/* Kanban Overview */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Columns className="text-blue-500" />
           Kanban Board Overview
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p>The Kanban view displays tasks as cards organized in columns representing different stages of your workflow. This visual approach helps teams understand work progress at a glance.</p>
           <p>Your board starts with 4 default columns: <strong>To Do</strong>, <strong>In Progress</strong>, <strong>Testing</strong>, and <strong>Completed</strong>. Columns can be customized, reordered, and deleted as needed.</p>
           <p>Tasks can be dragged between columns to update their status, and within columns to change priority order.</p>
@@ -125,11 +125,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Column Management */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
               <Columns className="text-purple-500" />
           Column Management
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Create Columns:</strong> Click the three-dot menu (⋮) in any column header and select "Add Column" to create a new column. The new column will be inserted after the current column.</p>
           <p><strong>Rename Columns:</strong> Double-click column headers to edit their names directly.</p>
           <p><strong>Reorder Columns:</strong> Drag column headers to reorder them according to your workflow (admin only).</p>
@@ -140,11 +140,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
           {/* Task Management */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
               <ClipboardList className="text-orange-500" />
               Task Management
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Create Tasks:</strong> First select team members using the checkboxes, then click the "+" button in any column header to create a new task. The task will be automatically assigned to the currently logged-in user.</p>
           <p><strong>Edit Tasks:</strong> Click the pen icon for quick edits, or the info icon for detailed editing with rich text, attachments, and comments.</p>
           <p><strong>Move Tasks:</strong> Drag and drop tasks between columns to update their status. Visual feedback shows valid drop zones.</p>
@@ -157,11 +157,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Drag & Drop */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <ArrowRight className="text-teal-500" />
           Drag & Drop Features
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Cross-Column Movement:</strong> Drag tasks from one column to another to update their status.</p>
           <p><strong>Within-Column Reordering:</strong> Drag tasks up or down within a column to change their priority.</p>
           <p><strong>Visual Feedback:</strong> The interface shows drop zones and highlights where tasks can be placed.</p>
@@ -171,11 +171,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
           {/* Task Details */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
               <MessageSquare className="text-indigo-500" />
               Task Details & Communication
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Task Information:</strong> Set title, description, effort, priority, start date, due date, and assign requester. Rich text editor supports formatting and links.</p>
           <p><strong>Comments:</strong> Add rich text comments with file attachments to discuss task progress, ask questions, or provide updates.</p>
           <p><strong>Attachments:</strong> Upload files and documents related to the task using the paperclip icon. Multiple file types supported.</p>
@@ -193,11 +193,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
     <div className="space-y-8">
       {/* List View Overview */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <List className="text-blue-500" />
           List View Overview
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p>The List view displays all tasks in a table format, making it easy to see detailed information at a glance and perform bulk operations.</p>
           <p>This view is perfect for data analysis, reporting, and managing large numbers of tasks efficiently. It supports horizontal scrolling for many columns.</p>
           <p>Tasks are organized by columns and can be sorted, filtered, and managed in bulk.</p>
@@ -206,11 +206,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Column Management */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Settings className="text-purple-500" />
           Column Configuration
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Show/Hide Columns:</strong> Click the column menu button to toggle which columns are visible.</p>
           <p><strong>Resize Columns:</strong> Drag column borders to adjust width for better readability.</p>
           <p><strong>Default Columns:</strong> ID, Task, Assignee, Priority, Status, Start Date, Due Date, Tags, Comments, Created</p>
@@ -221,11 +221,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Sorting & Filtering */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Search className="text-orange-500" />
           Sorting & Filtering
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Sort by Column:</strong> Click any column header to sort tasks by that field (ascending/descending).</p>
           <p><strong>Multi-Level Sorting:</strong> Hold Shift while clicking headers to sort by multiple columns.</p>
           <p><strong>Search Integration:</strong> Use the search panel to filter tasks by text, dates, members, priorities, tags, and project IDs.</p>
@@ -236,11 +236,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Task Actions */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <ClipboardList className="text-green-500" />
           Task Actions
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Quick Actions:</strong> Hover over task rows to reveal action buttons (View, Copy, Delete).</p>
           <p><strong>Status Changes:</strong> Use dropdown menus to quickly change task status between columns.</p>
           <p><strong>Direct Editing:</strong> Click on editable fields to modify task information directly.</p>
@@ -250,11 +250,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Data Display */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Eye className="text-indigo-500" />
           Data Display Features
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Rich Text:</strong> Task descriptions support rich text formatting, links, and embedded content.</p>
           <p><strong>Date Formatting:</strong> Dates are displayed in a consistent, readable format with timezone awareness.</p>
           <p><strong>Priority Indicators:</strong> Color-coded priority levels with customizable colors and names.</p>
@@ -271,11 +271,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
     <div className="space-y-8">
       {/* Gantt Overview */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Calendar className="text-blue-500" />
           Gantt View Overview
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p>The Gantt view displays tasks as horizontal bars on a timeline, showing task durations, dependencies, and project progress over time.</p>
           <p>This view is ideal for project planning, resource allocation, and understanding task relationships and deadlines. It features virtual scrolling for large projects.</p>
           <p>Tasks can be dragged to change dates, resized to adjust duration, and linked with dependency arrows.</p>
@@ -284,11 +284,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Timeline Navigation */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <ArrowRight className="text-purple-500" />
           Timeline Navigation
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Scroll Navigation:</strong>Use scroll bars to navigate through time periods.</p>
           <p><strong>Today Button:</strong> Click the "Today" button to jump to the current date on the timeline.</p>
           <p><strong>Task Navigation:</strong> Use the arrow buttons to jump to the earliest or latest tasks in the timeline.</p>
@@ -298,11 +298,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Task Management */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <ClipboardList className="text-orange-500" />
           Task Management
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Create Tasks:</strong> Click on any date in the timeline to create a new task on that date. Drag across multiple dates to set a date range for the task.</p>
           <p><strong>Edit Tasks:</strong> Click on task bars to open the task editor for detailed modifications.</p>
           <p><strong>Resize Tasks:</strong> Drag the edges of task bars to adjust start and end dates.</p>
@@ -315,11 +315,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Dependencies */}
           <section>
-            <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
               <ArrowRight className="text-teal-500" />
           Task Dependencies
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Create Dependencies:</strong> Click and drag from one task to another to create dependency relationships.</p>
           <p><strong>Dependency Types:</strong> Set parent-child and related task relationships with visual arrows.</p>
           <p><strong>Visual Arrows:</strong> Dependencies are shown as arrows connecting related tasks on the timeline.</p>
@@ -330,11 +330,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Timeline Features */}
       <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Calendar className="text-indigo-500" />
           Timeline Features
             </h3>
-            <div className="space-y-3 text-gray-600">
+            <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Timeline Navigation:</strong> Scroll horizontally through time periods and zoom in/out for different time scales.</p>
           <p><strong>Today Indicator:</strong> A vertical line shows the current date on the timeline for reference.</p>
           <p><strong>Late Badge:</strong> Overdue tasks are highlighted to draw attention to tasks that are past their due date.</p>
@@ -345,11 +345,11 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
       {/* Performance Features */}
           <section>
-        <h3 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
+        <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-4 flex items-center gap-2">
           <Settings className="text-green-500" />
           Performance & Optimization
         </h3>
-        <div className="space-y-3 text-gray-600">
+        <div className="space-y-3 text-gray-600 dark:text-gray-300">
           <p><strong>Virtual Scrolling:</strong> Large projects with many tasks are handled efficiently with virtual scrolling for smooth performance.</p>
           <p><strong>Lazy Loading:</strong> Task details and relationships are loaded on-demand to improve performance.</p>
           <p><strong>Real-time Updates:</strong> Changes from team members are reflected immediately in the timeline.</p>
@@ -377,23 +377,23 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-      <div ref={modalRef} className="bg-white rounded-lg shadow-xl w-4/5 max-w-6xl max-h-[90vh] flex flex-col">
+      <div ref={modalRef} className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-4/5 max-w-6xl max-h-[90vh] flex flex-col">
         {/* Sticky Header */}
-        <div className="flex items-center justify-between p-6 border-b bg-white sticky top-0 z-10">
+        <div className="flex items-center justify-between p-6 border-b bg-white dark:bg-gray-800 sticky top-0 z-10">
           <div>
-            <h2 className="text-2xl font-bold text-gray-800">Easy Kanban Help</h2>
-            <p className="text-sm text-gray-500 mt-1">Press F1 anytime to open this help</p>
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Easy Kanban Help</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Press F1 anytime to open this help</p>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
           >
-            <X size={24} className="text-gray-500" />
+            <X size={24} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="border-b bg-gray-50 px-6">
+        <div className="border-b bg-gray-50 dark:bg-gray-700 px-6">
           <nav className="flex space-x-8">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -403,8 +403,8 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
                   onClick={() => setActiveTab(tab.id)}
                   className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-500'
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -423,7 +423,7 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
         </div>
 
         {/* Sticky Footer */}
-        <div className="flex justify-end p-6 border-t bg-gray-50 sticky bottom-0">
+        <div className="flex justify-end p-6 border-t bg-gray-50 dark:bg-gray-700 sticky bottom-0">
           <button
             onClick={onClose}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

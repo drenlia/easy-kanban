@@ -144,8 +144,8 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="mb-6">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Tags Management</h2>
-              <p className="text-gray-600">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Tags Management</h2>
+              <p className="text-gray-600 dark:text-gray-400">
                 Create and manage tags for organizing tasks. Tags can have custom colors and descriptions.
               </p>
             </div>
@@ -159,17 +159,17 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         </div>
 
         {/* Tags Table */}
-        <div className="bg-white shadow overflow-hidden sm:rounded-md">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
+        <div className="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Tag</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Tag</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Preview</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Actions</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {Array.isArray(tags) && tags.length > 0 ? (
                 tags.map((tag) => (
                   <tr key={tag.id}>
@@ -179,11 +179,11 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                           className="w-4 h-4 rounded-full border border-gray-300"
                           style={{ backgroundColor: tag.color || '#4ECDC4' }}
                         />
-                        <span className="text-sm font-medium text-gray-900">{tag.tag}</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{tag.tag}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600">{tag.description || '-'}</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-300">{tag.description || '-'}</span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div
@@ -231,7 +231,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                     {loading ? 'Loading tags...' : 'No tags found'}
                   </td>
                 </tr>
@@ -246,7 +246,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Add New Tag</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Add New Tag</h3>
               <form onSubmit={handleAddTag}>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Name</label>
@@ -308,7 +308,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">Edit Tag</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Edit Tag</h3>
               <form onSubmit={handleEditTag}>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Tag Name</label>
@@ -396,7 +396,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                 return (
                   <>
                     <div className="font-medium mb-1">Delete tag?</div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-gray-600 dark:text-gray-400">
                       No tasks will be affected for{' '}
                       <span className="font-medium">{tag.tag}</span>
                     </div>

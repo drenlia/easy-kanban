@@ -778,7 +778,7 @@ export default function TaskPage({
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading task...</p>
@@ -789,10 +789,10 @@ export default function TaskPage({
 
   if (error || (!task && !isLoading)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Task Not Found</h1>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Task Not Found</h1>
           <p className="text-gray-600 mb-4">{error || 'The requested task could not be found.'}</p>
           <button
             onClick={handleBack}
@@ -808,7 +808,7 @@ export default function TaskPage({
   // Don't render the full page until we have actual task data
   if (!task) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading task...</p>
@@ -822,7 +822,7 @@ export default function TaskPage({
   const priority = availablePriorities.find(p => p.id === editedTask.priorityId);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       {/* App Header */}
       <Header
         currentUser={currentUser}
@@ -842,7 +842,7 @@ export default function TaskPage({
       />
       
       {/* Task Navigation Bar - Sticky */}
-      <div className="sticky top-16 z-40 bg-white shadow-sm border-b">
+      <div className="sticky top-16 z-40 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
         <div className="w-4/5 max-w-none mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between py-4">
             <div className="flex items-center space-x-4">
@@ -855,7 +855,7 @@ export default function TaskPage({
               </button>
               <div className="h-6 border-l border-gray-300"></div>
               <div>
-                <h1 className="text-lg font-semibold text-gray-900">{editedTask.title}</h1>
+                <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{editedTask.title}</h1>
                 <p className="text-sm text-gray-500">
                   {getProjectIdentifier() && `${getProjectIdentifier()} / `}
                   {taskId}
@@ -894,20 +894,20 @@ export default function TaskPage({
           <div className="lg:col-span-2 space-y-6">
             
             {/* Title */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Task Title</label>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Task Title</label>
               <input
                 type="text"
                 value={editedTask.title}
                 onChange={(e) => handleTaskUpdate({ title: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-medium"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 placeholder="Enter task title..."
               />
             </div>
 
             {/* Description */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <label className="block text-sm font-medium text-gray-700 mb-4">Description</label>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-4">Description</label>
               <TextEditor
                 onSubmit={async () => {
                   // Save pending attachments when submit is triggered
@@ -942,8 +942,8 @@ export default function TaskPage({
 
             {/* Attachments */}
             {displayAttachments.length > 0 && (
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-4 flex items-center">
                   <Paperclip className="h-4 w-4 mr-2" />
                   Attachments ({displayAttachments.length})
                 </h3>
@@ -980,7 +980,7 @@ export default function TaskPage({
             )}
 
             {/* Comments */}
-            <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
                 <Users className="h-4 w-4 mr-2" />
                 Comments ({(editedTask.comments || []).filter(comment => 
@@ -1141,7 +1141,7 @@ export default function TaskPage({
             </div>
 
             {/* Task Flow Chart */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskFlow ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskFlow')}
@@ -1171,7 +1171,7 @@ export default function TaskPage({
           <div className="space-y-6">
             
             {/* Assignment */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.assignment ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('assignment')}
@@ -1194,7 +1194,7 @@ export default function TaskPage({
                   <select
                     value={editedTask.memberId}
                     onChange={(e) => handleTaskUpdate({ memberId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
                     {members.map((member) => (
                       <option key={member.id} value={member.id}>
@@ -1209,7 +1209,7 @@ export default function TaskPage({
                   <select
                     value={editedTask.requesterId}
                     onChange={(e) => handleTaskUpdate({ requesterId: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
                     {members.map((member) => (
                       <option key={member.id} value={member.id}>
@@ -1227,7 +1227,7 @@ export default function TaskPage({
                       {taskWatchers.map((watcher) => (
                         <span
                           key={watcher.id}
-                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200"
                         >
                           {watcher.name}
                           <button
@@ -1257,7 +1257,7 @@ export default function TaskPage({
                           }
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
                       <option value="">Add watcher...</option>
                       {members
@@ -1309,7 +1309,7 @@ export default function TaskPage({
                           }
                         }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
                       <option value="">Add collaborator...</option>
                       {members
@@ -1328,7 +1328,7 @@ export default function TaskPage({
             </div>
 
             {/* Priority & Dates */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.schedule ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('schedule')}
@@ -1358,7 +1358,7 @@ export default function TaskPage({
                         priority: priority?.priority || null 
                       });
                     }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
                     <option value="">No Priority</option>
                     {availablePriorities.map((priority) => (
@@ -1375,7 +1375,7 @@ export default function TaskPage({
                     type="date"
                     value={editedTask.startDate || ''}
                     onChange={(e) => handleTaskUpdate({ startDate: e.target.value || null })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
                 </div>
 
@@ -1385,7 +1385,7 @@ export default function TaskPage({
                     type="date"
                     value={editedTask.dueDate || ''}
                     onChange={(e) => handleTaskUpdate({ dueDate: e.target.value || null })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
                 </div>
 
@@ -1397,7 +1397,7 @@ export default function TaskPage({
                     step="0.5"
                     value={editedTask.effort || ''}
                     onChange={(e) => handleTaskUpdate({ effort: e.target.value ? parseFloat(e.target.value) : null })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder="0.0"
                   />
                 </div>
@@ -1407,7 +1407,7 @@ export default function TaskPage({
             </div>
 
             {/* Tags */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.tags ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('tags')}
@@ -1485,7 +1485,7 @@ export default function TaskPage({
             </div>
 
             {/* Task Association */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.associations ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('associations')}
@@ -1538,7 +1538,7 @@ export default function TaskPage({
                         {childTasks.map(child => (
                           <span
                             key={child.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 text-blue-800 hover:opacity-80 transition-opacity"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 hover:opacity-80 transition-opacity"
                           >
                             <span 
                               onClick={() => {
@@ -1575,16 +1575,16 @@ export default function TaskPage({
                       <button
                         type="button"
                         onClick={handleChildrenDropdownToggle}
-                        className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+                        className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
                       >
-                        <span className="text-gray-700">
+                        <span className="text-gray-700 dark:text-gray-200">
                           Add child task...
                         </span>
                         <ChevronDown size={16} className={`transform transition-transform ${showChildrenDropdown ? 'rotate-180' : ''}`} />
                       </button>
                       
                       {showChildrenDropdown && (
-                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                        <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
                           {/* Search Input */}
                           <div className="p-2 border-b border-gray-200">
                             <input
@@ -1629,7 +1629,7 @@ export default function TaskPage({
 
 
             {/* Task Info */}
-            <div className="bg-white rounded-lg shadow-sm">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
               <div 
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskInfo')}

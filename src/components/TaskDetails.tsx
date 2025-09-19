@@ -1199,7 +1199,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   return (
     <div 
-      className="fixed right-0 bg-white border-l border-gray-200 flex z-50" 
+      className="fixed right-0 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex z-50" 
       style={{ 
         width: `${width}px`,
         top: '65px', // Position below header (adjusted for proper clearance)
@@ -1247,7 +1247,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         {/* Scrollable Container */}
         <div className="flex-1 overflow-y-auto">
           {/* Sticky Title Section */}
-          <div className="bg-white sticky top-0 z-10 shadow-sm">
+          <div className="bg-white dark:bg-gray-800 sticky top-0 z-10 shadow-sm">
             <div className="p-3">
               <div className="flex justify-between items-center mb-2">
                 {/* Title - 60% width when project/task info is shown, 100% when not */}
@@ -1315,7 +1315,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             
             <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Description
               </label>
               <TextEditor
@@ -1356,13 +1356,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Assigned To
                 </label>
                 <select
                   value={validMemberId}
                   onChange={e => handleUpdate({ memberId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 >
                   {members.map(member => (
@@ -1374,13 +1374,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Requester
                 </label>
                 <select
                   value={validRequesterId}
                   onChange={e => handleUpdate({ requesterId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 >
                   {members.map(member => (
@@ -1396,7 +1396,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="grid grid-cols-2 gap-4">
               {/* Watchers Section */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Watchers
                 </label>
                 <div className="relative" ref={watchersDropdownRef}>
@@ -1404,17 +1404,17 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     ref={watchersButtonRef}
                     type="button"
                     onClick={handleWatchersDropdownToggle}
-                    className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+                    className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
                     disabled={isSubmitting}
                   >
-                    <span className="text-gray-700 truncate">
+                    <span className="text-gray-700 dark:text-gray-200 truncate">
                       {taskWatchers.length === 0 ? 'Select watchers...' : `${taskWatchers.length} watcher${taskWatchers.length !== 1 ? 's' : ''}`}
                     </span>
                     <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
                   </button>
                   
                   {showWatchersDropdown && (
-                    <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                    <div className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg max-h-48 overflow-y-auto ${
                       watchersDropdownPosition === 'above' 
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
@@ -1442,7 +1442,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     {taskWatchers.map(member => (
                       <span
                         key={member.id}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 border border-blue-300 text-blue-700 hover:opacity-80 transition-opacity"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-blue-100 dark:bg-blue-900 border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:opacity-80 transition-opacity"
                       >
                         <div 
                           className="w-2 h-2 rounded-full"
@@ -1468,7 +1468,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               {/* Collaborators Section */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Collaborators
                 </label>
                 <div className="relative" ref={collaboratorsDropdownRef}>
@@ -1476,17 +1476,17 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     ref={collaboratorsButtonRef}
                     type="button"
                     onClick={handleCollaboratorsDropdownToggle}
-                    className="w-full px-3 py-2 border rounded-md bg-white text-left flex items-center justify-between hover:bg-gray-50"
+                    className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
                     disabled={isSubmitting}
                   >
-                    <span className="text-gray-700 truncate">
+                    <span className="text-gray-700 dark:text-gray-200 truncate">
                       {taskCollaborators.length === 0 ? 'Select collaborators...' : `${taskCollaborators.length} collaborator${taskCollaborators.length !== 1 ? 's' : ''}`}
                     </span>
                     <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
                   </button>
                   
                   {showCollaboratorsDropdown && (
-                    <div className={`absolute z-50 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto ${
+                    <div className={`absolute z-50 w-full bg-white dark:bg-gray-800 border rounded-md shadow-lg max-h-48 overflow-y-auto ${
                       collaboratorsDropdownPosition === 'above' 
                         ? 'bottom-full mb-1' 
                         : 'top-full mt-1'
@@ -1541,7 +1541,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Start Date
                 </label>
                 <input
@@ -1549,13 +1549,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   value={localStartDate}
                   onChange={e => setLocalStartDate(e.target.value)}
                   onBlur={e => handleUpdate({ startDate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Due Date
                 </label>
                 <input
@@ -1563,13 +1563,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   value={localDueDate}
                   onChange={e => setLocalDueDate(e.target.value)}
                   onBlur={e => handleUpdate({ dueDate: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Effort (hours)
                 </label>
                 <input
@@ -1577,19 +1577,19 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   min="0"
                   value={editedTask.effort}
                   onChange={e => handleUpdate({ effort: Number(e.target.value) })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                   Priority
                 </label>
                 <select
                   value={editedTask.priority}
                   onChange={e => handleUpdate({ priority: e.target.value as Priority })}
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 >
                   {availablePriorities.map(priority => (
@@ -1603,15 +1603,15 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
             {/* Tags Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tags</label>
               <div className="relative" ref={tagsDropdownRef}>
                 <button
                   ref={tagsButtonRef}
                   type="button"
                   onClick={handleTagsDropdownToggle}
-                  className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+                  className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
                 >
-                  <span className="text-gray-700">
+                  <span className="text-gray-700 dark:text-gray-200">
                     {taskTags.length === 0 
                       ? 'Select tags...' 
                       : `${taskTags.length} tag${taskTags.length !== 1 ? 's' : ''} selected`
@@ -1621,7 +1621,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className={`absolute left-0 bg-white border border-gray-300 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                  <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
                     tagsDropdownPosition === 'above' 
                       ? 'bottom-full mb-1' 
                       : 'top-full mt-1'
@@ -1646,7 +1646,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             className="w-4 h-4 rounded-full flex-shrink-0 border border-gray-300"
                             style={{ backgroundColor: tag.color || '#4ECDC4' }}
                           />
-                          <span className="text-gray-700">{tag.tag}</span>
+                          <span className="text-gray-700 dark:text-gray-200">{tag.tag}</span>
                         </div>
                       ))
                     )}
@@ -1692,7 +1692,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 {/* Parent Field - Left Side */}
                 {parentTask && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Parent:</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Parent:</label>
                     <span 
                       onClick={() => {
                         const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
@@ -1715,7 +1715,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 
                 {/* Children Field - Right Side */}
                 <div className={parentTask ? '' : 'col-span-2'}>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Child(ren):</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Child(ren):</label>
                   
                   {/* Selected Children Display */}
                   {childTasks.length > 0 && (
@@ -1723,7 +1723,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       {childTasks.map(child => (
                         <span
                           key={child.id}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 text-blue-800 hover:opacity-80 transition-opacity"
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 hover:opacity-80 transition-opacity"
                         >
                             <span 
                               onClick={() => {
@@ -1760,16 +1760,16 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     <button
                       type="button"
                       onClick={handleChildrenDropdownToggle}
-                      className="w-full bg-white border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between"
+                      className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
                     >
-                      <span className="text-gray-700">
+                      <span className="text-gray-700 dark:text-gray-200">
                         Add child task...
                       </span>
                       <ChevronDown size={16} className={`transform transition-transform ${showChildrenDropdown ? 'rotate-180' : ''}`} />
                     </button>
                     
                     {showChildrenDropdown && (
-                      <div className="absolute z-10 mt-1 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                      <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
                         {/* Search Input */}
                         <div className="p-2 border-b border-gray-200">
                           <input

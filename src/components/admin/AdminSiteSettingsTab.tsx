@@ -30,35 +30,35 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 mb-2">Site Settings</h2>
-        <p className="text-gray-600">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Site Settings</h2>
+        <p className="text-gray-600 dark:text-gray-400">
           Configure basic site information that appears throughout the application.
         </p>
       </div>
       
       <div className="space-y-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Site Name
           </label>
           <input
             type="text"
             value={editingSettings.SITE_NAME || ''}
             onChange={(e) => handleInputChange('SITE_NAME', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             placeholder="Enter site name"
           />
         </div>
         
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Site URL
           </label>
           <input
             type="url"
             value={editingSettings.SITE_URL || ''}
             onChange={(e) => handleInputChange('SITE_URL', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             placeholder="https://example.com"
           />
         </div>
