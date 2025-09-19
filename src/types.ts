@@ -82,6 +82,7 @@ export interface Column {
   boardId: string;
   position?: number;
   is_finished?: boolean;
+  is_archived?: boolean;
 }
 
 export interface Columns {

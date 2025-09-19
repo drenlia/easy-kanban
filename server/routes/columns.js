@@ -50,18 +50,18 @@ router.post('/', async (req, res) => {
       finalPosition = maxPos + 1;
     }
     
-    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished) VALUES (?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0);
+    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, 0);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing column-created to Redis for board:', boardId);
     await redisService.publish('column-created', {
       boardId: boardId,
-      column: { id, title, boardId, position: finalPosition, is_finished: isFinished },
+      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: false },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-created published to Redis');
     
-    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished });
+    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: false });
   } catch (error) {
     console.error('Error creating column:', error);
     res.status(500).json({ error: 'Failed to create column' });
@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
 // Update column
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const { title, is_finished } = req.body;
+  const { title, is_finished, is_archived } = req.body;
   try {
     const { db } = req.app.locals;
     
@@ -111,21 +111,30 @@ router.put('/:id', async (req, res) => {
       finishedName.toLowerCase() === title.toLowerCase()
     );
     
+    // Check if this column should be marked as archived
+    const isArchived = title.toLowerCase() === 'archive';
+    
     // If is_finished is provided, use it; otherwise, auto-detect based on title
     const finalIsFinished = is_finished !== undefined ? is_finished : isFinished;
     
-    wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinished ? 1 : 0, id);
+    // If is_archived is provided, use it; otherwise, auto-detect based on title
+    const finalIsArchived = is_archived !== undefined ? is_archived : isArchived;
+    
+    // Ensure a column cannot be both finished and archived
+    const finalIsFinishedValue = finalIsArchived ? false : finalIsFinished;
+    
+    wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ?, is_archived = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinishedValue ? 1 : 0, finalIsArchived ? 1 : 0, id);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing column-updated to Redis for board:', column.boardId);
     await redisService.publish('column-updated', {
       boardId: column.boardId,
-      column: { id, title, is_finished: finalIsFinished },
+      column: { id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-updated published to Redis');
     
-    res.json({ id, title, is_finished: finalIsFinished });
+    res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });
   } catch (error) {
     console.error('Error updating column:', error);
     res.status(500).json({ error: 'Failed to update column' });
@@ -207,6 +216,35 @@ router.post('/reorder', async (req, res) => {
   } catch (error) {
     console.error('Error reordering column:', error);
     res.status(500).json({ error: 'Failed to reorder column' });
+  }
+});
+
+// Renumber all columns in a board to ensure clean integer positions
+router.post('/renumber', async (req, res) => {
+  const { boardId } = req.body;
+  try {
+    const { db } = req.app.locals;
+    
+    db.transaction(() => {
+      // Get all columns for this board ordered by current position
+      const columns = wrapQuery(
+        db.prepare('SELECT id FROM columns WHERE boardId = ? ORDER BY position, id'), 
+        'SELECT'
+      ).all(boardId);
+      
+      // Renumber them sequentially starting from 0
+      columns.forEach((column, index) => {
+        wrapQuery(
+          db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 
+          'UPDATE'
+        ).run(index, column.id);
+      });
+    })();
+
+    res.json({ message: 'Columns renumbered successfully' });
+  } catch (error) {
+    console.error('Error renumbering columns:', error);
+    res.status(500).json({ error: 'Failed to renumber columns' });
   }
 });
 
