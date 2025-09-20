@@ -57,6 +57,7 @@ interface TaskCardProps {
   availableTags?: Tag[];
   siteSettings?: { [key: string]: string };
   columnIsFinished?: boolean;
+  columnIsArchived?: boolean;
   onTagAdd?: (tagId: string) => void;
   onTagRemove?: (tagId: string) => void;
   boards?: any[]; // To get project identifier from board
@@ -96,6 +97,7 @@ export default function TaskCard({
   onTagRemove,
   siteSettings,
   columnIsFinished = false,
+  columnIsArchived = false,
   boards,
   
   // Task linking props
@@ -1263,7 +1265,7 @@ export default function TaskCard({
             </button>
             
             {/* Completed Column Banner Overlay - positioned over priority */}
-            {columnIsFinished && (
+            {columnIsFinished && !columnIsArchived && (
               <div className="absolute inset-0 pointer-events-none z-30">
                 {/* Diagonal banner background */}
                 <div className="absolute top-0 right-0 w-full h-full">
@@ -1286,7 +1288,7 @@ export default function TaskCard({
             )}
             
             {/* Overdue Task Banner Overlay - positioned over priority */}
-            {!columnIsFinished && isOverdue() && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+            {!columnIsFinished && !columnIsArchived && isOverdue() && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
               <div className="absolute inset-0 pointer-events-none z-30">
                 {/* Diagonal banner background */}
                 <div className="absolute top-0 right-0 w-full h-full">

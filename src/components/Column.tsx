@@ -344,6 +344,7 @@ export default function KanbanColumn({
             onSelect={onSelectTask}
             siteSettings={siteSettings}
             columnIsFinished={column.is_finished || false}
+            columnIsArchived={column.is_archived || false}
             isDragDisabled={false}
             taskViewMode={taskViewMode}
             availablePriorities={availablePriorities}
@@ -590,18 +591,19 @@ export default function KanbanColumn({
           )}
         </div>
         
+        {/* Archive Icon - visible to all users */}
+        {!!column.is_archived && (
+          <div title="Archived Column" className="mr-1">
+            <Archive 
+              size={16} 
+              className="text-orange-500 dark:text-orange-400" 
+            />
+          </div>
+        )}
+        
         {/* Column Management Menu - Admin Only */}
         {isAdmin && (
           <div className="relative column-menu-container flex items-center gap-1">
-            {/* Archive Icon */}
-            {!!column.is_archived && (
-              <Archive 
-                size={16} 
-                className="text-orange-500 dark:text-orange-400" 
-                title="Archived Column"
-              />
-            )}
-            
             <button
               onClick={() => setShowMenu(!showMenu)}
               className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
