@@ -660,16 +660,16 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         }}
       >
         {/* Minimized Header - Same title and pill as maximized */}
-        <div className="flex items-center justify-between p-2 bg-gray-50 rounded-t">
+        <div className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-t">
           {/* Left side - Activity title and unread count */}
           <div className="flex items-center space-x-2">
             <div 
               className="cursor-grab active:cursor-grabbing"
               onMouseDown={handleDragStart}
             >
-              <GripVertical className="w-3 h-3 text-gray-400" />
+              <GripVertical className="w-3 h-3 text-gray-400 dark:text-gray-500" />
             </div>
-            <Activity className="w-3 h-3 text-blue-600" />
+            <Activity className="w-3 h-3 text-blue-600 dark:text-blue-400" />
             {dimensions.width >= 155 && (
               <span className="text-xs font-medium text-gray-900 dark:text-gray-100">Activity Feed</span>
             )}
@@ -684,17 +684,17 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           <div className="flex items-center space-x-0.5">
             <button
               onClick={() => handleMinimizedChange(false)}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
               title="Expand Activity Feed"
             >
-              <ChevronUp className="w-2.5 h-2.5 text-gray-500" />
+              <ChevronUp className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
             </button>
             <button
               onClick={onClose}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
               title="Close Activity Feed"
             >
-              <X className="w-2.5 h-2.5 text-gray-500" />
+              <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
             </button>
           </div>
         </div>
@@ -767,17 +767,17 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-2 border-b border-gray-200 bg-gray-50 rounded-t">
+      <div className="flex items-center justify-between p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 rounded-t">
         {/* Drag Handle */}
         <div 
           className="cursor-grab active:cursor-grabbing flex items-center mr-1"
           onMouseDown={handleDragStart}
         >
-          <GripVertical className="w-3 h-3 text-gray-400" />
+          <GripVertical className="w-3 h-3 text-gray-400 dark:text-gray-500" />
         </div>
         
         <div className="flex items-center space-x-1.5 flex-1 min-w-0">
-          <Activity className="w-3 h-3 text-blue-600 flex-shrink-0" />
+          <Activity className="w-3 h-3 text-blue-600 dark:text-blue-400 flex-shrink-0" />
           {!isExtraNarrowMode && (
             <h3 className="font-medium text-gray-900 dark:text-gray-100 text-xs truncate">
               {isNarrowMode ? 'Activity' : 'Activity Feed'}
@@ -794,10 +794,10 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           <div className="relative minimize-dropdown">
             <button
               onClick={handleMinimizeDropdownToggle}
-              className="p-0.5 hover:bg-gray-200 rounded transition-colors flex items-center"
+              className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
               title="Minimize Options"
             >
-              <ChevronDown className="w-2.5 h-2.5 text-gray-500" />
+              <ChevronDown className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
             </button>
             
             {/* Dropdown rendered here for positioning context, but content is in portal */}
@@ -805,10 +805,10 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
           
           <button
             onClick={onClose}
-            className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+            className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
             title="Close Activity Feed"
           >
-            <X className="w-2.5 h-2.5 text-gray-500" />
+            <X className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
       </div>
@@ -1019,7 +1019,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
               handleMinimizeInPlace();
               setShowMinimizeDropdown(false);
             }}
-            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
           >
             <ChevronDown className="w-3 h-3 mr-2" />
             In place
@@ -1029,7 +1029,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
               handleMinimizeToBottom();
               setShowMinimizeDropdown(false);
             }}
-            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 flex items-center"
+            className="w-full text-left px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center"
           >
             <ChevronDown className="w-3 h-3 mr-2" />
             Bottom
