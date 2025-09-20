@@ -75,6 +75,12 @@ const isColumnFinished = (columnId: string, columns: Columns) => {
   return column?.is_finished || false;
 };
 
+// Helper function to check if a column is archived
+const isColumnArchived = (columnId: string, columns: Columns) => {
+  const column = columns[columnId];
+  return column?.is_archived || false;
+};
+
 const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMode = 'expand', onUpdateTask, onTaskDragStart, onTaskDragEnd, boardId, onAddTask, currentUser, members, onRefreshData, relationships = [], onCopyTask, onRemoveTask, siteSettings }) => {
   const [priorities, setPriorities] = useState<PriorityOption[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<AnyDragItem | null>(null);
@@ -3894,7 +3900,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                     >
                       {/* Task Bar Badge System */}
                       {/* DONE Badge - for completed tasks */}
-                      {isColumnFinished(task.columnId, columns) && (
+                      {isColumnFinished(task.columnId, columns) && !isColumnArchived(task.columnId, columns) && (
                         <div className="absolute top-0 right-0 pointer-events-none z-30">
                           <div className="bg-green-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12 -translate-y-1 translate-x-1">
                             DONE
@@ -3903,7 +3909,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
                       )}
                       
                       {/* LATE Badge - for overdue tasks */}
-                      {!isColumnFinished(task.columnId, columns) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+                      {!isColumnFinished(task.columnId, columns) && !isColumnArchived(task.columnId, columns) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
                         <div className="absolute top-0 right-0 pointer-events-none z-30">
                           <div className="bg-red-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12 -translate-y-1 translate-x-1">
                             LATE

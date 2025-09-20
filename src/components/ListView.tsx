@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
-import { Task, TeamMember, Priority, Tag, Columns, Board } from '../types';
+import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
@@ -21,7 +21,7 @@ interface ListViewProps {
   filteredColumns: Columns;
   selectedBoard: string | null; // Board ID to fetch columns for
   members: TeamMember[];
-  availablePriorities: Priority[];
+  availablePriorities: PriorityOption[]; // Array of priority options with id, priority, color, etc.
   availableTags: Tag[];
   taskViewMode: TaskViewMode;
   onSelectTask: (task: Task) => void;
@@ -488,6 +488,12 @@ export default function ListView({
   const isColumnFinished = (columnId: string) => {
     const column = filteredColumns[columnId];
     return column?.is_finished || false;
+  };
+
+  // Helper function to check if a column is archived
+  const isColumnArchived = (columnId: string) => {
+    const column = filteredColumns[columnId];
+    return column?.is_archived || false;
   };
 
   const getTagsDisplay = (tags: Tag[]) => {
@@ -1147,7 +1153,7 @@ export default function ListView({
                           </div>
                           
                           {/* Completed Column Banner Overlay - positioned over priority */}
-                          {isColumnFinished(task.columnId) && (
+                          {isColumnFinished(task.columnId) && !isColumnArchived(task.columnId) && (
                             <div className="absolute inset-0 pointer-events-none z-30">
                               {/* Diagonal banner background */}
                               <div className="absolute top-0 right-0 w-full h-full">
@@ -1170,7 +1176,7 @@ export default function ListView({
                           )}
                           
                           {/* Overdue Task Banner Overlay - positioned over priority */}
-                          {!isColumnFinished(task.columnId) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+                          {!isColumnFinished(task.columnId) && !isColumnArchived(task.columnId) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
                             <div className="absolute inset-0 pointer-events-none z-30">
                               {/* Diagonal banner background */}
                               <div className="absolute top-0 right-0 w-full h-full">
