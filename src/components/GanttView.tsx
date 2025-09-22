@@ -135,6 +135,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
   
+  // Use columns directly - React.memo will handle the optimization
+  
   // Debouncing for arrow key navigation
   const arrowKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isArrowKeyPressedRef = useRef(false);
@@ -149,6 +151,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   // Local task date overrides for immediate visual feedback during drag
   // DISABLED: Testing if this is causing issues with single-day tasks
   // const [localTaskDates, setLocalTaskDates] = useState<{[taskId: string]: {startDate: string; dueDate: string}}>({});
+  
   
   // Sync relationships from props, but preserve optimistic updates
   useEffect(() => {
@@ -350,6 +353,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   });
 
   // Configure DnD sensors for immediate response (like Kanban view)
+  const sensorInitTime = performance.now();
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -358,6 +362,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }),
     useSensor(KeyboardSensor)
   );
+  
+  const sensorCompleteTime = performance.now();
+  // Sensors initialized
 
   // console.log('🎮 [GanttView] Sensors initialized:', {
   //   sensorsCount: sensors.length,
@@ -574,7 +581,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       }
       return a.ticket.localeCompare(b.ticket); // Finally by ticket as fallback
     });
-  }, 'ganttTasks calculation', 'computation')(), [columns, measureFunction]);
+  }, 'ganttTasks calculation', 'computation')(), [columns]); // Removed measureFunction to prevent infinite re-renders
 
   // Apply local task reordering
   const reorderedGanttTasks = useMemo(() => {
@@ -1105,8 +1112,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         }
       }, 3000);
     };
-  }, [saveCurrentScrollPosition, isLoading, isButtonNavigation, isProgrammaticScroll, 
-      isRestoringPosition, isBoardTransitioning, boardId]);
+  }, [boardId]); // Simplified dependencies to prevent infinite re-renders
 
   // Reset initialization flag when board changes
   useEffect(() => {
@@ -1176,7 +1182,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     return () => {
       scrollContainer.removeEventListener('scroll', handleScroll);
     };
-  }, [debouncedScrollHandler, isProgrammaticScroll, isRestoringPosition, isLoading, isButtonNavigation, dateRange.length, lastLoadTime, setLastLoadTime]);
+  }, [debouncedScrollHandler]); // Simplified dependencies to prevent infinite re-renders
 
   // Initialize date range based on tasks or default around today
   useEffect(() => {
@@ -2306,7 +2312,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }, delay); // Dynamic delay: immediate for initial load, 16ms for updates
     
     return taskPositionsCache;
-  }, [visibleTasks, dateRange, taskViewMode, scrollContainerRef]);
+  }, [dateRange, taskViewMode]); // Removed visibleTasks and scrollContainerRef to prevent infinite re-renders
 
   // State to force task positions recalculation after DOM updates
   const [forceTaskPositionsRecalculation, setForceTaskPositionsRecalculation] = useState(0);
@@ -2341,7 +2347,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [reorderedGanttTasks.length, calculateTaskPositions]);
+  }, [reorderedGanttTasks.length]); // Removed calculateTaskPositions to prevent infinite re-renders
   
   // Also recalculate positions when relationships are loaded AND grid is ready
   useEffect(() => {
@@ -2356,7 +2362,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         }, 150); // Increased delay to ensure DOM is fully ready
       });
     }
-  }, [localRelationships.length, reorderedGanttTasks.length, isGridReady, calculateTaskPositions]);
+  }, [localRelationships.length, reorderedGanttTasks.length, isGridReady]); // Removed calculateTaskPositions to prevent infinite re-renders
 
   // Mathematical collision detection for precise drop positioning
   const calculatePreciseDropPosition = useCallback((event: DragEndEvent | DragOverEvent) => {
@@ -2450,32 +2456,56 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // DnD-Kit handlers for task bar dragging (outer context)
   const handleTaskBarDragStart = useCallback((event: DragStartEvent) => {
+    const dragStartTime = performance.now();
     const dragData = event.active.data.current as any;
+    
+    // Task bar drag start initiated
     
     // Only handle task bar drags, not row reordering
     if (dragData?.dragType && dragData.dragType !== 'task-row-reorder') {
+      const refSetTime = performance.now();
+      // Setting refs
+      
       // Set ref immediately for synchronous access
       activeDragItemRef.current = dragData;
       isTaskBarDraggingRef.current = true;
       
       // Batch state updates to prevent conflicts
+      const stateUpdateTime = performance.now();
+      // Scheduling state updates
+      
       requestAnimationFrame(() => {
+        const stateUpdateExecTime = performance.now();
+        // Executing state updates
+        
         setActiveDragItem(dragData);
         setCurrentHoverDate(null);
       });
       
       // Only call onTaskDragStart for task bar drags
       if (onTaskDragStart && (dragData as GanttDragItem).taskId) {
+        const taskLookupTime = performance.now();
+        // Looking up task for parent
+        
         const taskForParent = Object.values(columns)
           .flatMap(col => col.tasks)
           .find(t => t.id === (dragData as GanttDragItem).taskId);
         
         if (taskForParent) {
+          const parentCallTime = performance.now();
+          // Calling onTaskDragStart
+          
           onTaskDragStart(taskForParent);
+          
+          const parentCallCompleteTime = performance.now();
+          // onTaskDragStart completed
         }
       }
+      
+      const endTime = performance.now();
+      // Task bar drag start completed
     }
-  }, [onTaskDragStart, columns]);
+  }, [onTaskDragStart]); // Removed columns dependency to prevent re-renders
 
   // DnD-Kit handlers for task list reordering (inner context)
   const handleTaskListDragStart = useCallback((event: DragStartEvent) => {
@@ -2523,7 +2553,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         setIsCrossColumnDrop(false);
       }
     }
-  }, []);
+  }, [setIsHoveringDropZone, setIsCrossColumnDrop]); // Added state setters to dependencies
 
   const handleTaskListDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
@@ -2648,24 +2678,34 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       isTaskBarDraggingRef.current = false;
       setIsHoveringDropZone(false);
     }
-  }, [columns, onUpdateTask]);
+  }, [onUpdateTask, setIsCrossColumnDrop, setIsHoveringDropZone]); // Removed columns dependency, added state setters
 
   // Legacy handler for backward compatibility
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    const legacyDragStartTime = performance.now();
     const dragData = event.active.data.current as any;
+    
+    console.log(`🔄 [GanttView] Legacy drag start initiated [${legacyDragStartTime.toFixed(2)}ms]:`, {
+      id: event.active.id,
+      dragType: dragData?.dragType,
+      taskId: dragData?.taskId,
+      taskTitle: dragData?.taskTitle
+    });
     
     // Only log task bar drags, not row reordering
     if (dragData?.dragType && dragData.dragType !== 'task-row-reorder') {
-      console.log('🎯 [GanttView] Task bar drag started:', {
-        id: event.active.id,
-        dragType: dragData?.dragType,
-        taskId: dragData?.taskId,
-        taskTitle: dragData?.taskTitle
-      });
+      const legacyLogTime = performance.now();
+      console.log(`📝 [GanttView] Legacy task bar drag logged [${(legacyLogTime - legacyDragStartTime).toFixed(2)}ms]`);
     }
     
     // Batch state updates to prevent conflicts
+    const legacyStateUpdateTime = performance.now();
+    console.log(`⚡ [GanttView] Legacy scheduling state updates [${(legacyStateUpdateTime - legacyDragStartTime).toFixed(2)}ms]`);
+    
     requestAnimationFrame(() => {
+      const legacyStateExecTime = performance.now();
+      console.log(`🔄 [GanttView] Legacy executing state updates [${(legacyStateExecTime - legacyDragStartTime).toFixed(2)}ms]`);
+      
     setActiveDragItem(dragData);
       activeDragItemRef.current = dragData;
     setCurrentHoverDate(null);
@@ -2673,6 +2713,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     // Only call onTaskDragStart for non-sortable items to prevent conflicts
     if (onTaskDragStart && (dragData as GanttDragItem).taskId) {
+      const legacyTaskLookupTime = performance.now();
+      console.log(`🔍 [GanttView] Legacy looking up task for parent [${(legacyTaskLookupTime - legacyDragStartTime).toFixed(2)}ms]`);
+      
       // For other drag types, use taskId
         const taskForParent = Object.values(columns)
           .flatMap(col => col.tasks)
@@ -2683,14 +2726,14 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       }
     }
     // Note: For sortable task rows, we don't call onTaskDragStart to prevent conflicts
-  }, [onTaskDragStart, columns]);
+  }, [onTaskDragStart]); // Removed columns dependency to prevent re-renders
 
   // Throttle drag over updates for better performance
   const throttledSetHoverDate = useCallback((date: string) => {
     requestAnimationFrame(() => {
       setCurrentHoverDate(date);
     });
-  }, []);
+  }, [setCurrentHoverDate]); // Added state setter to dependencies
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { over } = event;
@@ -2732,7 +2775,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         });
       }
     }
-  }, [activeDragItem, currentHoverDate, throttledSetHoverDate]);
+  }, [throttledSetHoverDate]); // Removed activeDragItem and currentHoverDate to prevent re-renders
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const currentActiveDragItem = activeDragItemRef.current;
@@ -2991,7 +3034,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }
 
     // Handle within-group row reordering (same column only)
-    if ((activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && over.data.current?.type === 'task-row-reorder') {
+    if (activeDragItem && (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && over.data.current?.type === 'task-row-reorder') {
       const draggedTask = (activeDragItem as SortableTaskRowItem).task;
       const targetTask = over.data.current.task;
       
@@ -3054,13 +3097,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
     // Only handle task drag operations (not row reordering)
     const dragType = (currentActiveDragItem as GanttDragItem).dragType;
-    console.log('🏁 [GanttView] Checking drag type:', {
-      dragType,
-      isTaskStartHandle: dragType === DRAG_TYPES.TASK_START_HANDLE,
-      isTaskEndHandle: dragType === DRAG_TYPES.TASK_END_HANDLE,
-      isTaskMoveHandle: dragType === DRAG_TYPES.TASK_MOVE_HANDLE,
-      isTaskBody: dragType === DRAG_TYPES.TASK_BODY
-    });
+    const startTime = performance.now();
+    // Checking drag type
     
     if (dragType === DRAG_TYPES.TASK_START_HANDLE || 
         dragType === DRAG_TYPES.TASK_END_HANDLE || 
@@ -3077,27 +3115,20 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
       const targetDate = precisePosition?.date || dropData.date;
       
-      console.log('🏁 [GanttView] Drop data analysis:', {
-        precisePosition,
-        dropData,
-        targetDate,
-        hasPrecisePosition: !!precisePosition
-      });
+      // Drop data analysis
       
       if ((currentActiveDragItem as GanttDragItem).dragType === DRAG_TYPES.TASK_START_HANDLE || (currentActiveDragItem as GanttDragItem).dragType === DRAG_TYPES.TASK_END_HANDLE || (currentActiveDragItem as GanttDragItem).dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
       }
       
       // Check if targetDate is valid before proceeding
       if (!targetDate) {
-        console.log('🏁 [GanttView] No valid target date, aborting drag end');
+        // No valid target date, aborting drag end
         return;
       }
       
-      console.log('🏁 [GanttView] Proceeding with task update:', {
-        targetDate,
-        dragType,
-        taskId: (currentActiveDragItem as GanttDragItem).taskId
-      });
+      
+      const proceedingTime = performance.now();
+      // Proceeding with task update
       
       // Note: onTaskDragStart already called in handleDragStart, no need to call again here
 
@@ -3116,17 +3147,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         
         // Protection for tasks with null dueDate
         if (!originalTask.dueDate && originalTask.startDate) {
-          // console.log('⚠️ [GanttView] Handling task with null dueDate in drag:', {
-          //   taskId: originalTask.id,
-          //   title: originalTask.title,
-          //   startDate: originalTask.startDate
-          // });
           // Set dueDate to startDate for null dueDate tasks
           updatedTask.dueDate = originalTask.startDate;
         }
 
         // Cast to GanttDragItem for task operations
-        const taskDragItem = activeDragItem as GanttDragItem;
+        const taskDragItem = currentActiveDragItem as GanttDragItem;
 
       if ((currentActiveDragItem as GanttDragItem).dragType === DRAG_TYPES.TASK_START_HANDLE) {
         const currentEndDate = originalTask.dueDate;
@@ -3166,15 +3192,15 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
           }
           
           const taskDuration = originalEnd.getTime() - originalStart.getTime();
-        const newStartDate = new Date(targetDate);
+          const newStartDate = new Date(targetDate);
           
           // Validate target date
           if (isNaN(newStartDate.getTime())) {
             return;
           }
           
-        const newEndDate = new Date(newStartDate.getTime() + taskDuration);
-        
+          const newEndDate = new Date(newStartDate.getTime() + taskDuration);
+          
           // Validate calculated end date
           if (isNaN(newEndDate.getTime())) {
             return;
@@ -3201,95 +3227,36 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
       // Use optimistic update (non-blocking) to prevent message handler violations
       if (onUpdateTask) {
-        // Always log task updates for debugging
-        console.log('🔍 [GanttView] Task drag end - updating task:', {
-          taskId: updatedTask.id,
-          title: updatedTask.title,
-          dragType: (currentActiveDragItem as GanttDragItem).dragType,
-          originalDates: {
-            start: originalTask.startDate,
-            due: originalTask.dueDate
-          },
-          newDates: {
-            start: updatedTask.startDate,
-            due: updatedTask.dueDate
-          },
-          isSingleDay: updatedTask.startDate === updatedTask.dueDate,
-          hasAllFields: !!(updatedTask.id && updatedTask.columnId && updatedTask.boardId),
-          columnId: updatedTask.columnId,
-          boardId: updatedTask.boardId
-        });
         
-        // For single-day tasks, call update immediately to avoid timing issues
-        // Also handle tasks with null dueDate as single-day tasks
-        if (updatedTask.startDate === updatedTask.dueDate || (!originalTask.dueDate && updatedTask.startDate)) {
-          console.log('🚀 [GanttView] Single-day task detected, updating immediately');
-          try {
-            const taskToUpdate = {
-              ...originalTask,
-              ...updatedTask,
-              startDate: updatedTask.startDate,
-              dueDate: updatedTask.dueDate || updatedTask.startDate
-            };
-            console.log('🚀 [GanttView] Calling onUpdateTask for single-day task:', taskToUpdate);
-            onUpdateTask(taskToUpdate);
-            
-            // Still delay the cleanup
-            setTimeout(() => {
-              if (onTaskDragEnd) {
-                onTaskDragEnd();
-              }
-              setActiveDragItem(null);
-        activeDragItemRef.current = null;
-              setCurrentHoverDate(null);
-            }, 16);
-          } catch (error) {
-            // console.error('❌ [GanttView] Error updating single-day task:', error);
-            if (onTaskDragEnd) {
-              onTaskDragEnd();
-            }
-            setActiveDragItem(null);
-        activeDragItemRef.current = null;
-            setCurrentHoverDate(null);
+        // Update task immediately - no delays
+        try {
+          const taskToUpdate = {
+            ...originalTask,
+            ...updatedTask,
+            startDate: updatedTask.startDate,
+            dueDate: updatedTask.dueDate || updatedTask.startDate
+          };
+          
+          onUpdateTask(taskToUpdate);
+          
+          // Clear drag state immediately after update
+          if (onTaskDragEnd) {
+            onTaskDragEnd();
           }
-          return; // Exit early for single-day tasks
+          setActiveDragItem(null);
+          activeDragItemRef.current = null;
+          setCurrentHoverDate(null);
+          
+        } catch (error) {
+          console.error('❌ [GanttView] Error updating task:', error);
+          // Clear drag state even if update fails
+          if (onTaskDragEnd) {
+            onTaskDragEnd();
+          }
+          setActiveDragItem(null);
+          activeDragItemRef.current = null;
+          setCurrentHoverDate(null);
         }
-        
-        // Schedule the update for the next tick to avoid blocking the drag completion
-        console.log('🔄 [GanttView] Scheduling multi-day task update');
-        setTimeout(() => {
-          try {
-            // Ensure we have all required fields for the update
-            const taskToUpdate = {
-              ...originalTask,
-              ...updatedTask,
-              // Ensure dates are strings
-              startDate: updatedTask.startDate,
-              dueDate: updatedTask.dueDate || updatedTask.startDate // Ensure dueDate is always set
-            };
-            console.log('🔄 [GanttView] Calling onUpdateTask for multi-day task:', taskToUpdate);
-            onUpdateTask(taskToUpdate);
-            
-            // Clear drag state AFTER the update to prevent flash of original content
-            setTimeout(() => {
-              if (onTaskDragEnd) {
-                onTaskDragEnd();
-              }
-              setActiveDragItem(null);
-        activeDragItemRef.current = null;
-              setCurrentHoverDate(null);
-            }, 16); // One frame delay to ensure update is processed
-
-    } catch (error) {
-            // Clear drag state even if update fails
-      if (onTaskDragEnd) {
-        onTaskDragEnd();
-            }
-            setActiveDragItem(null);
-        activeDragItemRef.current = null;
-            setCurrentHoverDate(null);
-          }
-        }, 0);
       } else {
         // No update function, clear drag state immediately
         if (onTaskDragEnd) {
@@ -3299,6 +3266,9 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         activeDragItemRef.current = null;
         setCurrentHoverDate(null);
       }
+
+      const endTime = performance.now();
+      console.log(`✅ [GanttView] Drag operation completed [${(endTime - startTime).toFixed(2)}ms total]`);
 
       } catch (error) {
         // Clear drag state on error
@@ -3310,7 +3280,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       setCurrentHoverDate(null);
     }
     }
-  }, [activeDragItem, columns, onTaskDragStart, onTaskDragEnd, onUpdateTask]);
+  }, [onTaskDragStart, onTaskDragEnd, onUpdateTask]); // Removed activeDragItem and columns to prevent re-renders
 
   // Handle row reordering
   const handleRowReorder = useCallback((dragData: RowDragData, targetIndex: number) => {
@@ -3649,6 +3619,11 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   return (
     <>
+    {(() => {
+      const dndContextTime = performance.now();
+      // DndContext rendering
+      return null;
+    })()}
     <DndContext 
       sensors={sensors}
       collisionDetection={closestCenter}
@@ -4850,4 +4825,12 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   );
 };
 
-export default React.memo(GanttView);
+export default React.memo(GanttView, (prevProps, nextProps) => {
+  // Only re-render if key props actually changed
+  const columnsChanged = prevProps.columns !== nextProps.columns;
+  const taskViewModeChanged = prevProps.taskViewMode !== nextProps.taskViewMode;
+  const boardIdChanged = prevProps.boardId !== nextProps.boardId;
+  
+  // Return true if props are the same (prevent re-render), false if they changed
+  return !columnsChanged && !taskViewModeChanged && !boardIdChanged;
+});
