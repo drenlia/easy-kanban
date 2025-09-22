@@ -60,16 +60,16 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
     if (isDragging && currentHoverDate && activeDragItem) {
       const taskDuration = Math.max(0, endIdx - startIdx);
       
-      if (activeDragItem.type === DRAG_TYPES.MOVE) {
+      if (activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
         // For moving, shift both start and end
         const dragOffset = parseInt(currentHoverDate.split('-')[2]) - (task.startDate?.getDate() || 0);
         startIdx += dragOffset;
         endIdx = startIdx + taskDuration;
-      } else if (activeDragItem.type === DRAG_TYPES.RESIZE_START) {
+      } else if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE) {
         // For start resize, only change start
         const newStart = parseInt(currentHoverDate.split('-')[2]);
         startIdx = Math.min(newStart - 1, endIdx); // Don't go past end
-      } else if (activeDragItem.type === DRAG_TYPES.RESIZE_END) {
+      } else if (activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE) {
         // For end resize, only change end
         const newEnd = parseInt(currentHoverDate.split('-')[2]);
         endIdx = Math.max(newEnd - 1, startIdx); // Don't go before start
@@ -92,25 +92,31 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
 
   // Memoize drag data
   const dragData = useMemo(() => ({
+    id: `${task.id}-move`,
     taskId: task.id,
-    type: DRAG_TYPES.MOVE,
-    originalStartDate: task.startDate,
-    originalEndDate: task.endDate
-  }), [task.id, task.startDate, task.endDate]);
+    taskTitle: task.title,
+    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    dragType: DRAG_TYPES.TASK_MOVE_HANDLE
+  }), [task.id, task.title, task.startDate, task.endDate]);
 
   const startResizeDragData = useMemo(() => ({
+    id: `${task.id}-start`,
     taskId: task.id,
-    type: DRAG_TYPES.RESIZE_START,
-    originalStartDate: task.startDate,
-    originalEndDate: task.endDate
-  }), [task.id, task.startDate, task.endDate]);
+    taskTitle: task.title,
+    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    dragType: DRAG_TYPES.TASK_START_HANDLE
+  }), [task.id, task.title, task.startDate, task.endDate]);
 
   const endResizeDragData = useMemo(() => ({
+    id: `${task.id}-end`,
     taskId: task.id,
-    type: DRAG_TYPES.RESIZE_END,
-    originalStartDate: task.startDate,
-    originalEndDate: task.endDate
-  }), [task.id, task.startDate, task.endDate]);
+    taskTitle: task.title,
+    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
+    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    dragType: DRAG_TYPES.TASK_END_HANDLE
+  }), [task.id, task.title, task.startDate, task.endDate]);
 
   // Memoize click handler
   const handleClick = useMemo(() => 
@@ -120,6 +126,14 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
 
   // Don't render if no position
   if (!gridPosition) return null;
+
+  console.log('📊 [OptimizedTaskBar] Rendering task bar:', {
+    taskId: task.id,
+    taskTitle: task.title,
+    gridPosition,
+    isDragging,
+    activeDragItem: activeDragItem?.taskId === task.id ? activeDragItem : null
+  });
 
   return (
     <div
@@ -148,9 +162,11 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
         <div className="relative h-full flex items-center justify-between px-2 text-white text-xs font-medium">
           {/* Start resize handle */}
           <TaskHandle
-            side="start"
-            dragData={startResizeDragData}
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            taskId={task.id}
+            task={task}
+            handleType="start"
+            onDateChange={() => {}} // Will be handled by drag end
+            taskColor={{ backgroundColor: priorityColor, color: 'white' }}
           />
           
           {/* Task content */}
@@ -165,17 +181,69 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
           
           {/* End resize handle */}
           <TaskHandle
-            side="end"
-            dragData={endResizeDragData}
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+            taskId={task.id}
+            task={task}
+            handleType="end"
+            onDateChange={() => {}} // Will be handled by drag end
+            taskColor={{ backgroundColor: priorityColor, color: 'white' }}
           />
         </div>
         
-        {/* Move handle (invisible overlay for dragging) */}
-        <MoveHandle
-          dragData={dragData}
-          className="absolute inset-0 rounded-md opacity-0"
-        />
+        {/* Move handle (only on start date cell for multi-day tasks) */}
+        {(() => {
+          // Only show MoveHandle for multi-day tasks
+          const isMultiDay = task.startDate && task.endDate && 
+            task.startDate.toISOString().split('T')[0] !== task.endDate.toISOString().split('T')[0];
+          
+          
+          if (!isMultiDay) return null;
+          
+          return (
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '20px', // Only cover the start date cell
+                height: '100%',
+                zIndex: 5, // Lower than TaskHandles (z-20)
+                backgroundColor: 'rgba(0, 255, 0, 0.2)' // Debug: green tint to see the area
+              }}
+            >
+              <MoveHandle
+                taskId={task.id}
+                task={task}
+                onTaskMove={() => {}} // Will be handled by drag end
+                className="opacity-0 group-hover:opacity-20 transition-opacity duration-200"
+              />
+            </div>
+          );
+        })()}
+        
+        {/* Non-draggable overlay for the rest of multi-day task bars */}
+        {(() => {
+          // Only show non-draggable overlay for multi-day tasks
+          const isMultiDay = task.startDate && task.endDate && 
+            task.startDate.toISOString().split('T')[0] !== task.endDate.toISOString().split('T')[0];
+          
+          if (!isMultiDay) return null;
+          
+          return (
+            <div
+              style={{
+                position: 'absolute',
+                left: '20px', // Start after the drag handle
+                top: 0,
+                right: 0,
+                height: '100%',
+                zIndex: 5,
+                pointerEvents: 'auto'
+              }}
+              className="cursor-default"
+              onClick={(e) => e.stopPropagation()}
+            />
+          );
+        })()}
         
         {/* Progress indicator (if in expanded view) */}
         {taskViewMode === 'expand' && (

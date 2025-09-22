@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { TaskHandleProps, DRAG_TYPES, GanttDragItem } from './types';
 
-export const TaskHandle: React.FC<TaskHandleProps> = ({ 
+export const TaskHandle: React.FC<TaskHandleProps> = React.memo(({ 
   taskId, 
   task, 
   handleType, 
@@ -19,14 +19,15 @@ export const TaskHandle: React.FC<TaskHandleProps> = ({
     return '';
   };
 
-  const dragData: GanttDragItem = {
+  // Memoize drag data to prevent constant re-renders
+  const dragData: GanttDragItem = useMemo(() => ({
     id: `${taskId}-${handleType}`,
     taskId,
     taskTitle: task.title,
     originalStartDate: dateToString(task.startDate),
     originalEndDate: dateToString(task.dueDate), // Note: Task uses dueDate, not endDate
     dragType
-  };
+  }), [taskId, handleType, task.title, task.startDate, task.dueDate, dragType]);
 
   const {
     attributes,
@@ -38,6 +39,15 @@ export const TaskHandle: React.FC<TaskHandleProps> = ({
     id: dragData.id,
     data: dragData
   });
+
+  // console.log('🔧 [TaskHandle] Component rendered:', {
+  //   taskId,
+  //   handleType,
+  //   dragData,
+  //   isDragging,
+  //   hasListeners: !!listeners,
+  //   hasAttributes: !!attributes
+  // });
 
   // Don't apply transform during drag to avoid visual displacement
   // The task bar itself will show the visual feedback
@@ -67,4 +77,4 @@ export const TaskHandle: React.FC<TaskHandleProps> = ({
       <div className="w-0.5 h-3 bg-white rounded opacity-80"></div>
     </div>
   );
-};
+});
