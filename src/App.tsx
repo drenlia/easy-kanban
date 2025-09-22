@@ -115,6 +115,10 @@ export default function App() {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
   const dragStartedRef = useRef<boolean>(false);
+  
+  // Throttle WebSocket updates to prevent performance issues
+  const lastWebSocketUpdateRef = useRef<number>(0);
+  const WEBSOCKET_THROTTLE_MS = 100; // Throttle to max 10 updates per second
   const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
@@ -781,25 +785,85 @@ export default function App() {
     const handleTaskCreated = (data: any) => {
       console.log('📨 Task created via WebSocket:', data);
       console.log('🔍 Current board ID:', selectedBoard, 'Event board ID:', data.boardId);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.task) {
+        // Throttle updates to prevent performance issues
+        const now = Date.now();
+        if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
+          return;
+        }
+        lastWebSocketUpdateRef.current = now;
+        
+        // Optimized: Add the specific task instead of full refresh
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          const targetColumnId = data.task.columnId;
+          if (updatedColumns[targetColumnId]) {
+            updatedColumns[targetColumnId] = {
+              ...updatedColumns[targetColumnId],
+              tasks: [...updatedColumns[targetColumnId].tasks, data.task]
+            };
+          }
+          return updatedColumns;
+        });
       }
     };
 
     const handleTaskUpdated = (data: any) => {
       console.log('📨 Task updated via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.task) {
+        // Throttle updates to prevent performance issues
+        const now = Date.now();
+        if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
+          return;
+        }
+        lastWebSocketUpdateRef.current = now;
+        
+        // Optimized: Update the specific task instead of full refresh
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          Object.keys(updatedColumns).forEach(columnId => {
+            const column = updatedColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === data.task.id);
+            if (taskIndex !== -1) {
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: [
+                  ...column.tasks.slice(0, taskIndex),
+                  data.task,
+                  ...column.tasks.slice(taskIndex + 1)
+                ]
+              };
+            }
+          });
+          return updatedColumns;
+        });
       }
     };
 
     const handleTaskDeleted = (data: any) => {
       console.log('📨 Task deleted via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.taskId) {
+        // Optimized: Remove the specific task instead of full refresh
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          Object.keys(updatedColumns).forEach(columnId => {
+            const column = updatedColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+            if (taskIndex !== -1) {
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: [
+                  ...column.tasks.slice(0, taskIndex),
+                  ...column.tasks.slice(taskIndex + 1)
+                ]
+              };
+            }
+          });
+          return updatedColumns;
+        });
       }
     };
 
