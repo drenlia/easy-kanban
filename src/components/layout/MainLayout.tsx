@@ -139,7 +139,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   ...kanbanProps
 }) => {
   return (
-    <div className={`flex-1 p-6 ${selectedTask ? 'pr-96' : ''} bg-gray-50 dark:bg-gray-900`}>
+    <div className="flex-1 p-6 bg-gray-50 dark:bg-gray-900">
       <div className="w-4/5 mx-auto">
         {currentPage === 'admin' ? (
           <Admin 

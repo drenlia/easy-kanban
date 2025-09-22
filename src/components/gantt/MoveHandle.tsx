@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { DRAG_TYPES, GanttDragItem } from './types';
 import { Task } from '../../types';
@@ -7,12 +7,14 @@ interface MoveHandleProps {
   taskId: string;
   task: Task;
   onTaskMove: (taskId: string, newStartDate: string, newEndDate: string) => void;
+  className?: string;
 }
 
-export const MoveHandle: React.FC<MoveHandleProps> = ({ 
+export const MoveHandle: React.FC<MoveHandleProps> = React.memo(({ 
   taskId, 
   task, 
-  onTaskMove 
+  onTaskMove,
+  className = ""
 }) => {
   // Helper function to safely convert date to string
   const dateToString = (date: string | Date | undefined | null): string => {
@@ -25,15 +27,15 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
   const startStr = dateToString(task.startDate);
   const endStr = dateToString(task.dueDate);
   
-  
-  const dragData: GanttDragItem = {
+  // Memoize drag data to prevent constant re-renders
+  const dragData: GanttDragItem = useMemo(() => ({
     id: `${taskId}-move`,
     taskId,
     taskTitle: task.title,
     originalStartDate: startStr,
     originalEndDate: endStr, // Note: Task uses dueDate, not endDate
     dragType: DRAG_TYPES.TASK_MOVE_HANDLE
-  };
+  }), [taskId, task.title, startStr, endStr]);
 
   const {
     attributes,
@@ -45,6 +47,16 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
     data: dragData
   });
 
+  // Simple test to see if component is rendered (disabled to prevent spam)
+  // if (taskId === 'c83e8171-0e77-4a24-bd20-ffbcd7b7920d') {
+  //   console.log('🔧 [MoveHandle] Test task rendered:', {
+  //     taskId,
+  //     isDragging,
+  //     hasListeners: !!listeners,
+  //     hasAttributes: !!attributes
+  //   });
+  // }
+
   const style = {
     opacity: isDragging ? 0.3 : 1
   };
@@ -55,7 +67,7 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
       style={style}
       {...listeners}
       {...attributes}
-      className="flex-shrink-0 w-4 h-full bg-gray-400 bg-opacity-60 hover:bg-opacity-80 transition-all rounded flex items-center justify-center cursor-move mr-1"
+      className={`w-full h-full rounded-md opacity-0 cursor-move ${className}`}
       title="Drag to move entire task"
     >
       {/* Grip dots icon */}
@@ -75,4 +87,4 @@ export const MoveHandle: React.FC<MoveHandleProps> = ({
       </div>
     </div>
   );
-};
+});
