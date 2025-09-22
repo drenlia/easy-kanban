@@ -2312,7 +2312,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     }, delay); // Dynamic delay: immediate for initial load, 16ms for updates
     
     return taskPositionsCache;
-  }, [dateRange, taskViewMode]); // Removed visibleTasks and scrollContainerRef to prevent infinite re-renders
+  }, [visibleTasks, dateRange, taskViewMode]); // Added visibleTasks back to dependencies
 
   // State to force task positions recalculation after DOM updates
   const [forceTaskPositionsRecalculation, setForceTaskPositionsRecalculation] = useState(0);
@@ -2325,6 +2325,13 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     
     return () => clearTimeout(timer);
   }, [taskViewMode]);
+
+  // Calculate task positions when tasks or view changes
+  useEffect(() => {
+    if (visibleTasks.length > 0 && isGridReady) {
+      calculateTaskPositions();
+    }
+  }, [visibleTasks, isGridReady, calculateTaskPositions]);
 
   // Memoized task positions for arrows
   const taskPositions = useMemo(() => {
@@ -2358,7 +2365,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         // Additional small delay to ensure task bars are rendered
         setTimeout(() => {
           // console.log('📊 [GanttView] Calculating task positions for arrows');
-          calculateTaskPositions(0); // 0 delay for immediate calculation
+          calculateTaskPositions(); // Immediate calculation
         }, 150); // Increased delay to ensure DOM is fully ready
       });
     }
@@ -2730,10 +2737,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
 
   // Throttle drag over updates for better performance
   const throttledSetHoverDate = useCallback((date: string) => {
-    requestAnimationFrame(() => {
-      setCurrentHoverDate(date);
-    });
-  }, [setCurrentHoverDate]); // Added state setter to dependencies
+    setCurrentHoverDate(date);
+  }, []);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     const { over } = event;
@@ -2747,7 +2752,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         return;
       }
       
-      console.log('🔄 Drag over:', over.id);
+      // Drag over event
       
       const dropData = over.data.current as { date: string; dateIndex: number; isDensityCell?: boolean };
       
@@ -2769,10 +2774,8 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
         //   to: targetDate,
         //   dragType: (currentActiveDragItem as GanttDragItem).dragType
         // });
-        // Use requestAnimationFrame for smoother updates
-        requestAnimationFrame(() => {
-          throttledSetHoverDate(targetDate);
-        });
+        // Use throttled update for better performance
+        throttledSetHoverDate(targetDate);
       }
     }
   }, [throttledSetHoverDate]); // Removed activeDragItem and currentHoverDate to prevent re-renders
@@ -3307,7 +3310,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     // Force position recalculation after a short delay to ensure DOM is updated
     setTimeout(() => {
       // Trigger task position recalculation
-      calculateTaskPositions(0);
+      calculateTaskPositions();
     }, 100);
     
     // Find the task being moved for logging
@@ -3597,6 +3600,17 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
     };
   }, [loadEarlier, loadLater]);
 
+  // Memoize drag cancel handler to prevent re-renders (MUST be before any conditional returns)
+  const handleDragCancel = useCallback(() => {
+    setActiveDragItem(null);
+    activeDragItemRef.current = null;
+    setCurrentHoverDate(null);
+    // CRITICAL: Always clear parent state on cancel
+    if (onTaskDragEnd) {
+      onTaskDragEnd();
+    }
+  }, [onTaskDragEnd]);
+
   // Show loading state while dateRange is initializing or during board transitions
   if (dateRange.length === 0 || isBoardTransitioning || !isGridReady) {
     return (
@@ -3618,12 +3632,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
   }
 
   return (
-    <>
-    {(() => {
-      const dndContextTime = performance.now();
-      // DndContext rendering
-      return null;
-    })()}
     <DndContext 
       sensors={sensors}
       collisionDetection={closestCenter}
@@ -3631,21 +3639,7 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       onDragStart={handleTaskBarDragStart} 
       onDragOver={handleDragOver} 
       onDragEnd={handleDragEnd}
-      onDragCancel={() => {
-        console.log('❌ [GanttView] Drag cancelled!', {
-          activeDragItem,
-          isSingleDay: (activeDragItem as GanttDragItem)?.originalStartDate === (activeDragItem as GanttDragItem)?.originalEndDate,
-          timestamp: new Date().toISOString()
-        });
-        setActiveDragItem(null);
-        activeDragItemRef.current = null;
-        setCurrentHoverDate(null);
-        // CRITICAL: Always clear parent state on cancel
-        if (onTaskDragEnd) {
-          // console.log('❌ [GanttView] Clearing parent drag state on cancel');
-          onTaskDragEnd();
-        }
-      }}
+      onDragCancel={handleDragCancel}
     >
       <div className="gantt-chart-container bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-visible relative">
         {/* Saving Overlay - Blocks user interaction while saving scroll position */}
@@ -4821,7 +4815,6 @@ const GanttView: React.FC<GanttViewProps> = ({ columns, onSelectTask, taskViewMo
       </div>
     </div>
     </DndContext>
-    </>
   );
 };
 
