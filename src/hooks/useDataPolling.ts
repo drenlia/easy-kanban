@@ -105,27 +105,14 @@ export const useDataPolling = ({
   includeSystemRef.current = includeSystem;
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 [useDataPolling] Hook state:', { enabled, selectedBoard });
-    }
-    
     if (!enabled) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('⏹️ [useDataPolling] Polling disabled');
-      }
       setIsPolling(false);
       return;
     }
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('▶️ [useDataPolling] Starting polling');
-    }
     setIsPolling(true);
 
     const pollForUpdates = async () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('🔄 [useDataPolling] Polling for updates...');
-      }
       
       try {
         const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([

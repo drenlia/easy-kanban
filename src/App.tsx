@@ -142,7 +142,7 @@ export default function App() {
   };
 
   // Enhanced setSelectedTask that also updates user preferences
-  const handleSelectTask = (task: Task | null, options?: { scrollToComments?: boolean }) => {
+  const handleSelectTask = useCallback((task: Task | null, options?: { scrollToComments?: boolean }) => {
     setSelectedTask(task);
     updateCurrentUserPreference('selectedTaskId', task?.id || null);
     
@@ -152,7 +152,7 @@ export default function App() {
     } else {
       setTaskDetailsOptions({});
     }
-  };
+  }, []);
 
   // Task deletion handler with confirmation
   const handleTaskDelete = async (taskId: string) => {
@@ -673,24 +673,6 @@ export default function App() {
   // Only poll every 60 seconds as backup when WebSocket might be unavailable
   const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
   
-  // Debug logging for polling state
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 [App] Polling state:', {
-        shouldPoll,
-        isAuthenticated,
-        currentPage,
-        selectedBoard: !!selectedBoard,
-        draggedTask: !!draggedTask,
-        draggedColumn: !!draggedColumn,
-        dragCooldown,
-        taskCreationPause,
-        boardCreationPause,
-        isAutoRefreshEnabled,
-        showHelpModal
-      });
-    }
-  }, [shouldPoll, isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, isAutoRefreshEnabled, showHelpModal]);
   
   const { isPolling, lastPollTime, updateLastPollTime } = useDataPolling({
     enabled: shouldPoll,
@@ -774,29 +756,22 @@ export default function App() {
 
   // Initialize WebSocket connection and real-time updates
   useEffect(() => {
-    console.log('🔍 WebSocket useEffect - isAuthenticated:', isAuthenticated, 'selectedBoard:', selectedBoard);
     if (!isAuthenticated) {
-      console.log('⚠️ WebSocket useEffect - not authenticated, skipping');
       return;
     }
 
     // Connect to WebSocket
-    console.log('🔌 Connecting to WebSocket');
     websocketClient.connect();
 
     // Join current board when WebSocket is ready
     const joinBoard = () => {
       if (selectedBoard) {
-        console.log('🔍 Attempting to join board:', selectedBoard);
         websocketClient.joinBoard(selectedBoard);
-      } else {
-        console.log('⚠️ No selected board to join');
       }
     };
 
     // Listen for WebSocket ready event
     const handleWebSocketReady = () => {
-      console.log('🎯 WebSocket ready, joining board');
       joinBoard();
     };
 
@@ -1944,9 +1919,6 @@ export default function App() {
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = useCallback(async () => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔄 [App] refreshBoardData called');
-    }
     
     try {
       const loadedBoards = await getBoards();
@@ -2208,28 +2180,28 @@ export default function App() {
     }
   };
 
-  const handleEditTask = async (task: Task) => {
+  const handleEditTask = useCallback(async (task: Task) => {
+    console.log('🔄 [App] handleEditTask called with:', {
+      taskId: task.id,
+      title: task.title,
+      startDate: task.startDate,
+      dueDate: task.dueDate,
+      columnId: task.columnId,
+      boardId: task.boardId
+    });
+    
     // Optimistic update
     const previousColumns = { ...columns };
-    
-    // console.log('🔄 [App] handleEditTask called with:', {
-    //   taskId: task.id,
-    //   title: task.title,
-    //   startDate: task.startDate,
-    //   dueDate: task.dueDate,
-    //   columnId: task.columnId,
-    //   boardId: task.boardId
-    // });
     
     // Update UI immediately
     setColumns(prev => {
       // Safety check: ensure the column exists
       if (!prev[task.columnId]) {
-        // console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
         return prev; // Return unchanged state if column doesn't exist
       }
       
-      return {
+      const updatedColumns = {
         ...prev,
         [task.columnId]: {
           ...prev[task.columnId],
@@ -2238,6 +2210,15 @@ export default function App() {
           )
         }
       };
+      
+      console.log('🔄 [App] Updated columns with task:', {
+        taskId: task.id,
+        newStartDate: task.startDate,
+        newDueDate: task.dueDate,
+        columnId: task.columnId
+      });
+      
+      return updatedColumns;
     });
     
     try {
@@ -2245,12 +2226,13 @@ export default function App() {
         await updateTask(task);
         await fetchQueryLogs();
       });
+      console.log('✅ [App] Task updated successfully');
     } catch (error) {
+      console.error('❌ [App] Failed to update task:', error);
       // Rollback on error
       setColumns(previousColumns);
-      // console.error('Failed to update task:', error);
     }
-  };
+  }, [withLoading, fetchQueryLogs]);
 
   const handleCopyTask = async (task: Task) => {
     // Find the original task's position in the sorted list
@@ -2364,21 +2346,21 @@ export default function App() {
     }
   };
 
-  const handleTaskDragStart = (task: Task) => {
+  const handleTaskDragStart = useCallback((task: Task) => {
     // console.log('🎯 [App] handleTaskDragStart called with task:', task.id);
     setDraggedTask(task);
     // Pause polling during drag to prevent state conflicts
-  };
+  }, []);
 
   // Clear drag state (for Gantt drag end)
-  const handleTaskDragEnd = () => {
+  const handleTaskDragEnd = useCallback(() => {
     // console.log('🎯 [App] handleTaskDragEnd called - clearing draggedTask');
     setDraggedTask(null);
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
     }, DRAG_COOLDOWN_DURATION);
-  };
+  }, []);
   
   // Failsafe: Clear drag state on any click if drag is stuck
   useEffect(() => {

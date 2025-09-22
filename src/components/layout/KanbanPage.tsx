@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { DndContext, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
@@ -246,7 +246,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   };
 
   // Get filtered columns based on visibility (respecting user's column filter choices)
-  const getFilteredColumnsForDisplay = () => {
+  const getFilteredColumnsForDisplay = useMemo(() => {
     const visibleColumnIds = getVisibleColumns(selectedBoard);
     const filtered: Columns = {};
     
@@ -257,7 +257,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     });
     
     return filtered;
-  };
+  }, [selectedBoard, columns]);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   
@@ -479,7 +479,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         </div>
         <BoardMetrics 
           columns={columns}
-          filteredColumns={getFilteredColumnsForDisplay()}
+          filteredColumns={getFilteredColumnsForDisplay}
         />
       </div>
 
@@ -550,7 +550,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               )}
               
               <ListView
-                filteredColumns={getFilteredColumnsForDisplay()}
+                filteredColumns={getFilteredColumnsForDisplay}
                 selectedBoard={selectedBoard}
                 members={members}
                 availablePriorities={availablePriorities}
@@ -571,7 +571,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           ) : viewMode === 'gantt' ? (
             <>
               <GanttView
-              columns={getFilteredColumnsForDisplay()}
+              columns={getFilteredColumnsForDisplay}
               onSelectTask={onSelectTask}
               taskViewMode={taskViewMode}
               onUpdateTask={onEditTask}
@@ -634,14 +634,14 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             {currentUser?.roles?.includes('admin') ? (
               // Re-enabled SortableContext for column reordering
               <SortableContext
-                items={Object.values(getFilteredColumnsForDisplay())
+                items={Object.values(getFilteredColumnsForDisplay)
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
                   .map(column => column.id)
                 }
                 strategy={rectSortingStrategy}
               >
                 <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
-                  {Object.values(getFilteredColumnsForDisplay())
+                  {Object.values(getFilteredColumnsForDisplay)
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
                     .map(column => (
                                           <KanbanColumn
@@ -700,7 +700,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             ) : (
               /* Regular user view */
               <BoardDropArea selectedBoard={selectedBoard} style={gridStyle}>
-                {Object.values(getFilteredColumnsForDisplay())
+                {Object.values(getFilteredColumnsForDisplay)
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
                   .map(column => (
                     <KanbanColumn
