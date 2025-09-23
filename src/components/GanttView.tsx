@@ -12,7 +12,7 @@ import { RowHandle } from './gantt/RowHandle';
 import { GanttDragItem, GanttRowDragItem, AnyDragItem, DRAG_TYPES, RowDragData, SortableTaskRowItem } from './gantt/types';
 import { usePerformanceMonitor } from '../hooks/usePerformanceMonitor';
 import { GanttHeader } from './gantt/GanttHeader';
-import { TaskDependencyArrows } from './gantt/TaskDependencyArrows';
+import TaskDependencyArrows from './gantt/TaskDependencyArrows';
 import { Copy, Trash2, GripVertical } from 'lucide-react';
 
 // DropZone component for cross-column dragging

@@ -298,6 +298,9 @@ router.post('/add-at-top', async (req, res) => {
       }
     );
     
+    // Add the generated ticket to the task object
+    task.ticket = ticket;
+    
     // Publish to Redis for real-time updates
     console.log('📤 Publishing task-created to Redis for board:', task.boardId);
     await redisService.publish('task-created', {

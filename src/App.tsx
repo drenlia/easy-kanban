@@ -2156,7 +2156,7 @@ export default function App() {
     }
   };
 
-  const handleAddTask = async (columnId: string) => {
+  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string) => {
     if (!selectedBoard || !currentUser) return;
     
     // Always assign new tasks to the logged-in user, not the filtered selection
@@ -2166,14 +2166,17 @@ export default function App() {
       return;
     }
     
-    const startDate = new Date().toISOString().split('T')[0];
+    // Use provided dates or default to today
+    const taskStartDate = startDate || new Date().toISOString().split('T')[0];
+    const taskDueDate = dueDate || taskStartDate;
+    
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: '',
       memberId: currentUserMember.id,
-      startDate: startDate,
-      dueDate: startDate, // Set dueDate to be the same as startDate
+      startDate: taskStartDate,
+      dueDate: taskDueDate,
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
@@ -2183,14 +2186,7 @@ export default function App() {
       comments: []
     };
 
-    // Optimistic update - add to top immediately
-    setColumns(prev => ({
-      ...prev,
-      [columnId]: {
-        ...prev[columnId],
-        tasks: [newTask, ...(prev[columnId]?.tasks || [])]
-      }
-    }));
+    // Don't do optimistic update - let WebSocket handle it to avoid duplicate keys
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
@@ -2201,8 +2197,7 @@ export default function App() {
         // Let backend handle positioning and shifting
         await createTaskAtTop(newTask);
         
-        // Refresh to get clean state from backend
-        await refreshBoardData();
+        // Don't refresh - WebSocket will handle the update
       });
       
       // Check if the new task would be filtered out and show warning

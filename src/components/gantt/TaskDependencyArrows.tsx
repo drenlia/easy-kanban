@@ -53,7 +53,7 @@ interface DependencyArrow {
   color: string;
 }
 
-export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
+const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   ganttTasks,
   taskPositions,
   isRelationshipMode = false,
@@ -301,14 +301,10 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
             key={`arrow-path-${arrow.id}-${arrow.path.slice(0,20)}`}
             d={arrow.path}
             stroke={arrow.color}
-            strokeWidth={hoveredArrow === arrow.id ? 4 : 3}
+            strokeWidth={3}
             strokeOpacity={0.5}
             fill="none"
             markerEnd={`url(#arrow-${arrow.relationship})`}
-            className="transition-all duration-200"
-            style={{
-              filter: hoveredArrow === arrow.id ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none'
-            }}
           />
           
           {/* Invisible wider path for easier hovering */}
@@ -327,7 +323,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
             onMouseLeave={() => {
               hoverTimeoutRef.current = setTimeout(() => {
                 setHoveredArrow(null);
-              }, 100);
+              }, 500);
             }}
           />
           
@@ -363,7 +359,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
                       onMouseLeave={() => {
                         hoverTimeoutRef.current = setTimeout(() => {
                           setHoveredArrow(null);
-                        }, 100);
+                        }, 500);
                       }}
                     />
                     {/* Delete button background */}
@@ -413,3 +409,5 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     </div>
   );
 };
+
+export default TaskDependencyArrows;

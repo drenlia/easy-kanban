@@ -67,22 +67,22 @@ export const MoveHandle: React.FC<MoveHandleProps> = React.memo(({
       style={style}
       {...listeners}
       {...attributes}
-      className={`w-full h-full rounded-md opacity-0 cursor-move ${className}`}
+      className={`w-full h-full flex items-center justify-center cursor-move hover:bg-white/20 rounded ${className}`}
       title="Drag to move entire task"
     >
       {/* Grip dots icon */}
-      <div className="flex flex-col gap-0.5">
+      <div className="flex flex-col gap-0.5 opacity-60 group-hover:opacity-100">
         <div className="flex gap-0.5">
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
         </div>
         <div className="flex gap-0.5">
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
         </div>
         <div className="flex gap-0.5">
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
-          <div className="w-0.5 h-0.5 bg-white rounded-full opacity-80"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
+          <div className="w-1 h-1 bg-white rounded-full"></div>
         </div>
       </div>
     </div>
