@@ -43,6 +43,10 @@ interface GanttHeaderProps {
   
   // Task jump handler
   onJumpToTask: (task: GanttTask) => void;
+  
+  // Relationship mode handlers
+  selectedParentTask?: string | null;
+  setSelectedParentTask?: (taskId: string | null) => void;
 }
 
 export const GanttHeader: React.FC<GanttHeaderProps> = ({
@@ -60,7 +64,9 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
   selectedTasks,
   setSelectedTasks,
   isLoading,
-  onJumpToTask
+  onJumpToTask,
+  selectedParentTask,
+  setSelectedParentTask
 }) => {
   return (
     <div className="border-b border-gray-200 p-4">
@@ -138,8 +144,9 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
               if (isRelationshipMode) {
                 // Exit relationship mode and clear selected parent
                 setIsRelationshipMode(false);
-                // Note: setSelectedParentTask is not available in GanttHeader
-                // The keyboard handler will clear it
+                if (setSelectedParentTask) {
+                  setSelectedParentTask(null);
+                }
               } else {
                 // Enter relationship mode
                 setIsRelationshipMode(true);

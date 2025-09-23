@@ -22,6 +22,7 @@ import BoardTabs from '../BoardTabs';
 import LoadingSpinner from '../LoadingSpinner';
 import ListView from '../ListView';
 import GanttView from '../GanttView';
+import GanttViewV2 from '../GanttViewV2';
 
 
 interface KanbanPageProps {
@@ -570,23 +571,44 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             </div>
           ) : viewMode === 'gantt' ? (
             <>
-              <GanttView
-              columns={getFilteredColumnsForDisplay}
-              onSelectTask={onSelectTask}
-              taskViewMode={taskViewMode}
-              onUpdateTask={onEditTask}
-              onTaskDragStart={onTaskDragStart}
-              onTaskDragEnd={onTaskDragEnd}
-              boardId={selectedBoard}
-              onAddTask={onAddTask}
-              currentUser={currentUser}
-              members={members}
-              onRefreshData={onRefreshBoardData}
-              relationships={boardRelationships}
-              onCopyTask={onCopyTask}
-              onRemoveTask={onRemoveTask}
-              siteSettings={siteSettings}
-            />
+              {/* Use new split architecture if ?ganttv2=true is in URL */}
+              {new URLSearchParams(window.location.search).get('ganttv2') === 'true' ? (
+                <GanttViewV2
+                  columns={getFilteredColumnsForDisplay}
+                  onSelectTask={onSelectTask}
+                  taskViewMode={taskViewMode}
+                  onUpdateTask={onEditTask}
+                  onTaskDragStart={onTaskDragStart}
+                  onTaskDragEnd={onTaskDragEnd}
+                  boardId={selectedBoard}
+                  onAddTask={onAddTask}
+                  currentUser={currentUser}
+                  members={members}
+                  onRefreshData={onRefreshBoardData}
+                  relationships={boardRelationships}
+                  onCopyTask={onCopyTask}
+                  onRemoveTask={onRemoveTask}
+                  siteSettings={siteSettings}
+                />
+              ) : (
+                <GanttView
+                  columns={getFilteredColumnsForDisplay}
+                  onSelectTask={onSelectTask}
+                  taskViewMode={taskViewMode}
+                  onUpdateTask={onEditTask}
+                  onTaskDragStart={onTaskDragStart}
+                  onTaskDragEnd={onTaskDragEnd}
+                  boardId={selectedBoard}
+                  onAddTask={onAddTask}
+                  currentUser={currentUser}
+                  members={members}
+                  onRefreshData={onRefreshBoardData}
+                  relationships={boardRelationships}
+                  onCopyTask={onCopyTask}
+                  onRemoveTask={onRemoveTask}
+                  siteSettings={siteSettings}
+                />
+              )}
             </>
           ) : (
             <>
