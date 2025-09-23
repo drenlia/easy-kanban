@@ -118,7 +118,7 @@ export default function App() {
   
   // Throttle WebSocket updates to prevent performance issues
   const lastWebSocketUpdateRef = useRef<number>(0);
-  const WEBSOCKET_THROTTLE_MS = 100; // Throttle to max 10 updates per second
+  const WEBSOCKET_THROTTLE_MS = 250; // Throttle to max 4 updates per second for better performance
   const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
@@ -810,7 +810,6 @@ export default function App() {
     };
 
     const handleTaskUpdated = (data: any) => {
-      console.log('📨 Task updated via WebSocket:', data);
       // Only update if the task is for the current board
       if (data.boardId === selectedBoard && data.task) {
         // Throttle updates to prevent performance issues
@@ -2245,14 +2244,6 @@ export default function App() {
   };
 
   const handleEditTask = useCallback(async (task: Task) => {
-    console.log('🔄 [App] handleEditTask called with:', {
-      taskId: task.id,
-      title: task.title,
-      startDate: task.startDate,
-      dueDate: task.dueDate,
-      columnId: task.columnId,
-      boardId: task.boardId
-    });
     
     // Optimistic update
     const previousColumns = { ...columns };
@@ -2275,12 +2266,6 @@ export default function App() {
         }
       };
       
-      console.log('🔄 [App] Updated columns with task:', {
-        taskId: task.id,
-        newStartDate: task.startDate,
-        newDueDate: task.dueDate,
-        columnId: task.columnId
-      });
       
       return updatedColumns;
     });
@@ -2290,7 +2275,6 @@ export default function App() {
         await updateTask(task);
         await fetchQueryLogs();
       });
-      console.log('✅ [App] Task updated successfully');
     } catch (error) {
       console.error('❌ [App] Failed to update task:', error);
       // Rollback on error
