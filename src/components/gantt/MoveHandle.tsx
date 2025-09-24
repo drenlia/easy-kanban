@@ -68,7 +68,6 @@ export const MoveHandle: React.FC<MoveHandleProps> = React.memo(({
       {...listeners}
       {...attributes}
       className={`w-full h-full flex items-center justify-center cursor-move hover:bg-white/20 rounded ${className}`}
-      title="Drag to move entire task"
     >
       {/* Grip dots icon */}
       <div className="flex flex-col gap-0.5 opacity-60 group-hover:opacity-100">

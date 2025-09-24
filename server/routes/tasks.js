@@ -394,11 +394,14 @@ router.put('/:id', async (req, res) => {
     }
     
     // Publish to Redis for real-time updates
-    await redisService.publish('task-updated', {
+    const webSocketData = {
       boardId: task.boardId,
       task: task,
       timestamp: new Date().toISOString()
-    });
+    };
+    console.log('📡 Publishing task-updated WebSocket event:', webSocketData);
+    await redisService.publish('task-updated', webSocketData);
+    console.log('📡 Task-updated event published successfully');
     
     res.json(task);
   } catch (error) {

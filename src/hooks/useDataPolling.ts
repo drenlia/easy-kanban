@@ -252,14 +252,49 @@ export const useDataPolling = ({
               !currentColumnIds.every(id => {
                 const currentCol = currentColumnsRef.current[id];
                 const newCol = currentBoard.columns?.[id];
-                return newCol && 
-                       currentCol?.title === newCol.title &&
-                       currentCol?.position === newCol.position &&
-                       currentCol?.tasks?.length === newCol.tasks?.length;
+                if (!newCol) return false;
+                
+                // Check basic column properties
+                if (currentCol?.title !== newCol.title ||
+                    currentCol?.position !== newCol.position ||
+                    currentCol?.tasks?.length !== newCol.tasks?.length) {
+                  return false;
+                }
+                
+                // Check if any task properties changed (priority, title, dates, etc.)
+                const currentTasks = currentCol?.tasks || [];
+                const newTasks = newCol.tasks || [];
+                
+                if (currentTasks.length !== newTasks.length) {
+                  return false;
+                }
+                
+                // Check each task for property changes
+                return currentTasks.every(currentTask => {
+                  const newTask = newTasks.find(t => t.id === currentTask.id);
+                  if (!newTask) return false;
+                  
+                  // Check key properties that affect the UI
+                  return currentTask.title === newTask.title &&
+                         currentTask.priority === newTask.priority &&
+                         currentTask.startDate === newTask.startDate &&
+                         currentTask.dueDate === newTask.dueDate &&
+                         currentTask.description === newTask.description &&
+                         currentTask.memberId === newTask.memberId;
+                });
               });
 
             if (columnsChanged) {
+              // Check if we just updated from WebSocket to avoid overriding
+              if (window.justUpdatedFromWebSocket) {
+                console.log('🔄 Polling: Skipping column update due to recent WebSocket update');
+                return;
+              }
+              console.log('🔄 Polling detected column changes, updating...');
+              console.log('🔄 Polling: New columns data:', currentBoard.columns);
               onColumnsUpdate(currentBoard.columns || {});
+            } else {
+              console.log('🔄 Polling: No column changes detected');
             }
           }
         }

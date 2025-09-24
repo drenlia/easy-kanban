@@ -72,7 +72,6 @@ export const TaskHandle: React.FC<TaskHandleProps> = React.memo(({
         ${isStartHandle ? 'left-0' : 'right-0'}
         ${isDragging ? 'shadow-lg' : ''}
       `}
-      title={`Drag to change ${handleType} date`}
     >
       <div className="w-0.5 h-3 bg-white rounded opacity-80"></div>
     </div>

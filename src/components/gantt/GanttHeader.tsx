@@ -37,6 +37,8 @@ interface GanttHeaderProps {
   setIsMultiSelectMode: (mode: boolean) => void;
   selectedTasks: string[];
   setSelectedTasks: (tasks: string[]) => void;
+  setHighlightedTaskId?: (taskId: string | null) => void;
+  resetArrowKeyState?: () => void;
   
   // Loading state
   isLoading: boolean;
@@ -63,6 +65,8 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
   setIsMultiSelectMode,
   selectedTasks,
   setSelectedTasks,
+  setHighlightedTaskId,
+  resetArrowKeyState,
   isLoading,
   onJumpToTask,
   selectedParentTask,
@@ -92,6 +96,8 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
                     // Exit multi-select mode and clear selections
                     setIsMultiSelectMode(false);
                     setSelectedTasks([]);
+                    setHighlightedTaskId?.(null); // Clear any highlighted tasks
+                    resetArrowKeyState?.(); // Reset arrow key state to prevent frozen tasks
                   } else {
                     // Enter multi-select mode
                     setIsMultiSelectMode(true);

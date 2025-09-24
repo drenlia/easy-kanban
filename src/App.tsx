@@ -675,7 +675,7 @@ export default function App() {
   // Data polling for backup/fallback only (WebSocket handles real-time updates)
   // Disable polling when help modal is open or auto-refresh is disabled
   // Only poll every 60 seconds as backup when WebSocket might be unavailable
-  const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
+  const shouldPoll = false; // Temporarily disable polling to test WebSocket updates
   
   
   const { isPolling, lastPollTime, updateLastPollTime } = useDataPolling({
@@ -1982,7 +1982,7 @@ export default function App() {
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = useCallback(async () => {
-    
+    console.log('🔄 refreshBoardData called');
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
@@ -1992,7 +1992,19 @@ export default function App() {
         if (selectedBoard) {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
-            setColumns(board.columns || {});
+            console.log('🔄 refreshBoardData: Updating columns with:', board.columns);
+                // Debug the specific task we're tracking
+                if (board.columns) {
+                  Object.values(board.columns).forEach(column => {
+                    const task = column.tasks?.find(t => t.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234');
+                    if (task) {
+                      console.log('🔍 refreshBoardData: Found tracked task in API data:', { id: task.id, title: task.title, priority: task.priority });
+                    }
+                  });
+                }
+            // Force a deep clone to ensure React detects the change at all levels
+            const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
+            setColumns(newColumns);
             
             // Also load relationships for the selected board
             try {
@@ -2011,9 +2023,22 @@ export default function App() {
         }
       }
     } catch (error) {
-      // console.error('Failed to refresh board data:', error);
+      console.error('Failed to refresh board data:', error);
     }
   }, [selectedBoard]);
+
+  // Track when we've just updated from WebSocket to prevent polling from overriding
+  const [justUpdatedFromWebSocket, setJustUpdatedFromWebSocket] = useState(false);
+  
+  // Expose the flag to window for WebSocket handlers
+  useEffect(() => {
+    window.setJustUpdatedFromWebSocket = setJustUpdatedFromWebSocket;
+    window.justUpdatedFromWebSocket = justUpdatedFromWebSocket;
+    return () => {
+      delete window.setJustUpdatedFromWebSocket;
+      delete window.justUpdatedFromWebSocket;
+    };
+  }, [justUpdatedFromWebSocket]);
 
   const fetchQueryLogs = async () => {
     // DISABLED: Debug query logs fetching
@@ -2302,47 +2327,15 @@ export default function App() {
       dueDate: task.dueDate || task.startDate
     };
 
-
-    // Optimistic update - insert copy right after original
-    setColumns(prev => {
-      const columnTasksCopy = [...(prev[task.columnId]?.tasks || [])];
-      const insertIndex = originalTaskIndex + 1;
-      columnTasksCopy.splice(insertIndex, 0, newTask);
-      
-      return {
-        ...prev,
-        [task.columnId]: {
-          ...prev[task.columnId],
-          tasks: columnTasksCopy
-        }
-      };
-    });
-
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
     try {
       await withLoading('tasks', async () => {
-        // Create task with specific position
-        await createTask(newTask);
-            
-        // Now fix all positions to be sequential
-        const allColumnTasks = [...columnTasks, newTask]
-          .sort((a, b) => (a.position || 0) - (b.position || 0));
+        // Use createTaskAtTop for better positioning
+        await createTaskAtTop(newTask);
         
-        // Update all positions to be sequential: 0, 1, 2, 3...
-        const updatePromises = allColumnTasks.map((t, index) => {
-          if (t.position !== index) {
-            return updateTask({ ...t, position: index });
-          }
-          return Promise.resolve();
-        }).filter(p => p);
-        
-        await Promise.all(updatePromises);
-            
-        // Refresh to get clean state from backend
-        await refreshBoardData();
-
+        // Don't refresh - WebSocket will handle the update
       });
       
       // Set up pending animation - useEffect will trigger when columns update
@@ -2356,14 +2349,11 @@ export default function App() {
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
-
       }, TASK_CREATION_PAUSE_DURATION);
       
-      await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to copy task:', error);
+      console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
-      await refreshBoardData();
     }
   };
 

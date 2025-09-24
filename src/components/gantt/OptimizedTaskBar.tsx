@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { TaskHandle } from './TaskHandle';
 import { MoveHandle } from './MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './types';
@@ -34,7 +34,7 @@ interface OptimizedTaskBarProps {
   onTaskClick: (task: GanttTask) => void;
 }
 
-export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
+export const OptimizedTaskBar = ({
   task,
   gridPosition,
   taskIndex,
@@ -85,10 +85,14 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
   }, [gridPosition, isDragging, currentHoverDate, activeDragItem, task.startDate]);
 
   // Memoize priority color
-  const priorityColor = useMemo(() => 
-    getPriorityColor(task.priority), 
-    [getPriorityColor, task.priority]
-  );
+  const priorityColor = useMemo(() => {
+    const color = getPriorityColor(task.priority);
+    // Debug for specific task
+    if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
+      console.log('🎨 OptimizedTaskBar: task priority:', task.priority, 'color:', color);
+    }
+    return color;
+  }, [getPriorityColor, task.priority]);
 
   // Memoize drag data
   const dragData = useMemo(() => ({
@@ -252,6 +256,6 @@ export const OptimizedTaskBar = memo<OptimizedTaskBarProps>(({
       </div>
     </div>
   );
-});
+};
 
 OptimizedTaskBar.displayName = 'OptimizedTaskBar';
