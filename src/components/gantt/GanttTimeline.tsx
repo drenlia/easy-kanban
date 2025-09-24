@@ -1,4 +1,4 @@
-import React, { memo, useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { Task } from '../../types';
 import { TaskHandle } from './TaskHandle';
@@ -50,7 +50,7 @@ interface GanttTimelineProps {
 }
 
 // Droppable cell component
-const DroppableCell = memo(({ 
+const DroppableCell = ({ 
   dateString, 
   dateIndex,
   isToday,
@@ -102,12 +102,12 @@ const DroppableCell = memo(({
       }}
     />
   );
-});
+};
 
 DroppableCell.displayName = 'DroppableCell';
 
 // Task bar component
-const TaskBar = memo(({ 
+const TaskBar = ({ 
   task,
   gridPosition,
   isDragging,
@@ -128,6 +128,11 @@ const TaskBar = memo(({
 }: any) => {
   const { startDayIndex, endDayIndex } = gridPosition;
   
+  // Debug for specific task
+  if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
+    console.log('🎨 TaskBar: task priority:', task.priority, 'color:', getPriorityColor(task.priority));
+  }
+  
   
   // Calculate display position based on drag state and local data
   let displayStartIndex = startDayIndex;
@@ -138,13 +143,15 @@ const TaskBar = memo(({
     const dragType = (activeDragItem as GanttDragItem).dragType;
     const localDates = localDragState.localTaskData[task.id];
     
-    // Find the indices for the local dates
-    const localStartIndex = dateRange.findIndex((d: any) => 
-      d.date.toISOString().split('T')[0] === localDates.startDate
-    );
-    const localEndIndex = dateRange.findIndex((d: any) => 
-      d.date.toISOString().split('T')[0] === localDates.dueDate
-    );
+    // Find the indices for the local dates - use a more efficient approach
+    // Create a temporary map for this lookup to avoid O(n) findIndex
+    const tempDateMap = new Map();
+    dateRange.forEach((d: any, index: number) => {
+      tempDateMap.set(d.date.toISOString().split('T')[0], index);
+    });
+    
+    const localStartIndex = tempDateMap.get(localDates.startDate) ?? -1;
+    const localEndIndex = tempDateMap.get(localDates.dueDate) ?? -1;
     
     if (localStartIndex >= 0) displayStartIndex = localStartIndex;
     if (localEndIndex >= 0) displayEndIndex = localEndIndex;
@@ -156,15 +163,8 @@ const TaskBar = memo(({
       onRelationshipClick(task.id);
     } else if (isMultiSelectMode) {
       onTaskSelect(task.id);
-    } else {
-      // Convert GanttTask back to Task format with string dates
-      const taskForSelection = {
-        ...task,
-        startDate: task.startDate ? `${task.startDate.getFullYear()}-${String(task.startDate.getMonth() + 1).padStart(2, '0')}-${String(task.startDate.getDate()).padStart(2, '0')}` : '',
-        dueDate: task.endDate ? `${task.endDate.getFullYear()}-${String(task.endDate.getMonth() + 1).padStart(2, '0')}-${String(task.endDate.getDate()).padStart(2, '0')}` : task.dueDate || ''
-      };
-      onSelectTask(taskForSelection);
     }
+    // Removed TaskDetails opening - taskbars no longer open TaskDetails on click
   };
 
 
@@ -187,6 +187,7 @@ const TaskBar = memo(({
         pointerEvents: isDragging ? 'none' : 'auto'
       }}
       onClick={handleClick}
+      title={task.title}
     >
       {/* Resize handles */}
       {taskViewMode !== 'shrink' && (
@@ -235,7 +236,7 @@ const TaskBar = memo(({
 
       {/* Multi-select checkbox */}
       {isMultiSelectMode && (
-        <div className="flex items-center mr-1">
+        <div className="flex items-center mr-3">
           <input
             type="checkbox"
             checked={isSelected}
@@ -281,11 +282,11 @@ const TaskBar = memo(({
       )}
     </div>
   );
-});
+};
 
 TaskBar.displayName = 'TaskBar';
 
-const GanttTimeline = memo(({
+const GanttTimeline = ({
   groupedTasks,
   dateRange,
   activeDragItem,
@@ -431,10 +432,24 @@ const GanttTimeline = memo(({
                 const isDragging = (activeDragItem as GanttDragItem)?.taskId === task.id;
                 const isSelected = selectedTasks.includes(task.id);
                 
+                // Debug log for specific 1-day task (disabled to reduce console spam)
+                // if (task.id === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+                //   console.log('📅 Target task rendering:', {
+                //     taskId: task.id,
+                //     title: task.title,
+                //     isSelected,
+                //     isDragging,
+                //     isMultiSelectMode,
+                //     gridPosition,
+                //     startDate: task.startDate,
+                //     endDate: task.endDate
+                //   });
+                // }
+                
                 
                 return (
                   <div 
-                    key={task.id} 
+                    key={`timeline-task-${task.id}-${columnId}-${taskIndex}`} 
                     data-task-id={task.id}
                     className={`relative border-b border-gray-200 dark:border-gray-600 ${
                       taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'
@@ -527,7 +542,7 @@ const GanttTimeline = memo(({
       </div>
     </div>
   );
-});
+};
 
 GanttTimeline.displayName = 'GanttTimeline';
 

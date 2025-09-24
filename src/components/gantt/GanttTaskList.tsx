@@ -1,9 +1,8 @@
 import React, { memo } from 'react';
-import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, closestCenter } from '@dnd-kit/core';
+import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Task, Columns } from '../../types';
-import { RowHandle } from './RowHandle';
 import { Copy, Trash2 } from 'lucide-react';
 import { SortableTaskRowItem } from './types';
 
@@ -25,24 +24,36 @@ interface GanttTaskListProps {
   onRelationshipClick: (taskId: string) => void;
   onCopyTask?: (task: Task) => Promise<void>;
   onRemoveTask?: (taskId: string, event?: React.MouseEvent) => Promise<void>;
-  sensors: any;
-  onDragStart: (event: DragStartEvent) => void;
-  onDragEnd: (event: DragEndEvent) => void;
-  onDragOver: (event: DragOverEvent) => void;
   highlightedTaskId?: string | null;
 }
 
 // Drop zone component
-const DropZone = memo(({ columnId, isVisible }: { 
+const DropZone = memo(({ columnId, columnName, isVisible }: { 
   columnId: string; 
+  columnName?: string;
   isVisible: boolean;
 }) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `drop-zone-${columnId}`,
+    data: {
+      type: 'column-drop-zone',
+      columnId: columnId
+    }
+  });
+  
   if (!isVisible) return null;
   
   return (
-    <div className="px-4 py-2 bg-blue-50 dark:bg-blue-900 border-2 border-dashed border-blue-300 dark:border-blue-600 rounded-lg mx-2 my-1 text-center">
+    <div 
+      ref={setNodeRef}
+      className={`px-4 py-2 border-2 border-dashed rounded-lg mx-2 my-1 text-center transition-colors ${
+        isOver 
+          ? 'bg-green-50 dark:bg-green-900 border-green-400 dark:border-green-500' 
+          : 'bg-blue-50 dark:bg-blue-900 border-blue-300 dark:border-blue-600'
+      }`}
+    >
       <div className="text-blue-600 dark:text-blue-200 text-xs font-medium">
-        📋 Drop here to move task
+        📋 Drop here to move task to {columnName || 'this group'}
       </div>
     </div>
   );
@@ -52,7 +63,25 @@ DropZone.displayName = 'DropZone';
 
 // Droppable group wrapper
 const DroppableGroup = memo(({ children, columnId }: { children: React.ReactNode; columnId: string }) => {
-  return <div data-column-id={columnId}>{children}</div>;
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column-${columnId}`,
+    data: {
+      type: 'column-drop',
+      columnId: columnId
+    }
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-column-id={columnId}
+      className={`transition-colors duration-200 ${
+        isOver ? 'bg-blue-50 dark:bg-blue-900' : ''
+      }`}
+    >
+      {children}
+    </div>
+  );
 });
 
 DroppableGroup.displayName = 'DroppableGroup';
@@ -80,6 +109,8 @@ const TaskRow = memo(({
     (activeDragItem as SortableTaskRowItem).task.id === task.id;
 
   const {
+    attributes,
+    listeners,
     setNodeRef,
     transform,
     transition,
@@ -102,11 +133,6 @@ const TaskRow = memo(({
     opacity: isThisTaskDragging ? 0 : (isDragging ? 0.3 : 1),
   };
 
-  const getPriorityColor = (priority: string) => {
-    if (!priorities || priorities.length === 0) return '#808080';
-    const priorityOption = priorities.find((p: any) => p.name === priority);
-    return priorityOption?.color || '#808080';
-  };
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -144,53 +170,80 @@ const TaskRow = memo(({
       }`}
       onClick={handleClick}
     >
-      {/* Drag handle */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 group-hover:opacity-100 transition-opacity">
-        <RowHandle
-          taskId={task.id}
-          taskTitle={task.title}
-          taskIndex={taskIndex}
-          onRowReorder={() => {}}
-        />
+      {/* Drag handle - connected to useSortable */}
+      <div 
+        className="absolute left-0 top-1/2 -translate-y-1/2 opacity-0 hover:opacity-100 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing"
+        {...attributes}
+        {...listeners}
+        onClick={(e) => e.stopPropagation()}
+        title={`Drag to reorder ${task.title}`}
+      >
+        <div className="flex items-center justify-center w-6 h-6 text-gray-400 hover:text-gray-600 transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 10h2v2H8v-2zm6 0h2v2h-2v-2zM8 14h2v2H8v-2zm6 0h2v2h-2v-2z"/>
+          </svg>
+        </div>
       </div>
 
-      {/* Task content */}
-      <div className={`flex items-center gap-2 ${taskViewMode === 'compact' ? '' : 'h-full'} ml-6 pr-2`}>
-
-
-        {/* Priority dot */}
-        <div
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: getPriorityColor(task.priority) }}
-          title={task.priority}
-        />
-
-        {/* Task info */}
-        <div className="flex-1 min-w-0">
-          <div className={`font-medium text-gray-900 dark:text-gray-100 truncate ${
-            taskViewMode === 'compact' ? 'text-sm' : ''
-          }`}>
-            {task.title}
+      {/* Main content area with proper flex layout */}
+      <div className="flex items-center gap-2 ml-6 pr-2">
+        {/* ROW REORDERING ZONE - Only for vertical dragging */}
+        <button
+          className={`text-left flex-1 min-w-0 rounded px-1 py-1 transition-all duration-300 ${
+            highlightedTaskId === task.id 
+              ? 'bg-yellow-200 dark:bg-yellow-800 ring-2 ring-yellow-400 dark:ring-yellow-600 ring-inset' 
+              : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+          }`}
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{task.ticket}</div>
+            {(task.startDate || task.endDate) && (
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {task.startDate && task.endDate && task.startDate.getTime() === task.endDate.getTime() 
+                  ? `📅 ${task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                  : task.startDate && task.endDate
+                  ? `📅 ${task.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                  : task.endDate
+                    ? `📅 ${task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : task.startDate
+                    ? `📅 ${task.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+                    : ''
+                  }
+              </span>
+            )}
           </div>
-          {taskViewMode !== 'compact' && (
-            <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
-              {task.ticket}
-            </div>
+          {/* Compact: Only TASK-XXXXX with dates */}
+          {taskViewMode === 'compact' ? null : (
+            <>
+              {taskViewMode !== 'shrink' && taskViewMode !== 'compact' && (
+                <div className="text-sm text-gray-600 dark:text-gray-300 truncate">{task.title}</div>
+              )}
+              {taskViewMode !== 'compact' && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  📋 {task.status}
+                </div>
+              )}
+            </>
           )}
-        </div>
-
-        {/* Action buttons */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        </button>
+        
+        {/* Action buttons - Now positioned on the right */}
+        <div 
+          className="flex items-center gap-1 relative z-50"
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           {onCopyTask && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onCopyTask(task);
               }}
-              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
-              title="Copy task"
+              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+              title="Copy Task"
             >
-              <Copy className="w-4 h-4" />
+              <Copy size={14} className="text-gray-500 hover:text-gray-700" />
             </button>
           )}
           {onRemoveTask && (
@@ -199,10 +252,10 @@ const TaskRow = memo(({
                 e.stopPropagation();
                 onRemoveTask(task.id, e);
               }}
-              className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded text-red-600 dark:text-red-400"
-              title="Delete task"
+              className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors"
+              title="Delete Task"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 size={14} className="text-gray-500 hover:text-red-600" />
             </button>
           )}
         </div>
@@ -230,10 +283,6 @@ const GanttTaskList = memo(({
   onRelationshipClick,
   onCopyTask,
   onRemoveTask,
-  sensors,
-  onDragStart,
-  onDragEnd,
-  onDragOver,
   highlightedTaskId
 }: GanttTaskListProps) => {
   return (
@@ -246,18 +295,11 @@ const GanttTaskList = memo(({
         <span className="text-sm text-blue-700 dark:text-blue-200 font-medium">Add tasks here →</span>
       </div>
       
-      {/* Task List with DnD */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-        onDragOver={onDragOver}
+      {/* Task List with Sortable */}
+      <SortableContext 
+        items={visibleTasks.filter(task => task && task.id).map(task => task.id)} 
+        strategy={verticalListSortingStrategy}
       >
-        <SortableContext 
-          items={visibleTasks.map(task => task.id)} 
-          strategy={verticalListSortingStrategy}
-        >
           {Object.entries(groupedTasks).map(([columnId, tasks], groupIndex) => {
             // Always render column separator, even for empty columns
             if (tasks.length === 0) {
@@ -281,6 +323,7 @@ const GanttTaskList = memo(({
                 {/* Drop zone */}
                 <DropZone 
                   columnId={columnId}
+                  columnName={columns[columnId]?.title || `Column ${columnId}`}
                   isVisible={((activeDragItem as SortableTaskRowItem)?.type === 'task-row-reorder') && 
                     activeDragItem && 
                     (activeDragItem as SortableTaskRowItem).task.columnId !== columnId}
@@ -289,7 +332,7 @@ const GanttTaskList = memo(({
                 {/* Tasks */}
                 {tasks.map((task, taskIndex) => (
                   <TaskRow
-                    key={task.id}
+                    key={`tasklist-task-${task.id}-${columnId}-${taskIndex}`}
                     task={task}
                     taskIndex={taskIndex}
                     isSelected={selectedTasks.includes(task.id)}
@@ -311,7 +354,6 @@ const GanttTaskList = memo(({
             );
           })}
         </SortableContext>
-      </DndContext>
     </div>
   );
 });

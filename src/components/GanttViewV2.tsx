@@ -1,4 +1,4 @@
-import React, { memo, useState, useRef, useCallback, useMemo, useEffect, startTransition } from 'react';
+import React, { useState, useRef, useCallback, useMemo, useEffect, startTransition } from 'react';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core';
 import { restrictToHorizontalAxis } from '@dnd-kit/modifiers';
 import { Task, Columns } from '../types';
@@ -9,6 +9,8 @@ import TaskDependencyArrows from './gantt/TaskDependencyArrows';
 import { DRAG_TYPES, GanttDragItem, SortableTaskRowItem } from './gantt/types';
 import { GanttHeader } from './gantt/GanttHeader';
 import { getAllPriorities, addTaskRelationship, removeTaskRelationship } from '../api';
+import websocketClient from '../services/websocketClient';
+import { loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
 
 interface GanttViewV2Props {
   columns: Columns;
@@ -29,14 +31,26 @@ interface GanttViewV2Props {
 }
 
 // Parse date helper
-const parseLocalDate = (dateString: string): Date => {
-  if (!dateString) return new Date();
-  const dateOnly = dateString.split('T')[0];
-  const [year, month, day] = dateOnly.split('-').map(Number);
-  return new Date(year, month - 1, day);
+const parseLocalDate = (dateInput: string | Date): Date => {
+  if (!dateInput) return new Date();
+  
+  // If it's already a Date object, return it
+  if (dateInput instanceof Date) {
+    return dateInput;
+  }
+  
+  // If it's a string, parse it
+  if (typeof dateInput === 'string') {
+    const dateOnly = dateInput.split('T')[0];
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+  
+  // Fallback
+  return new Date();
 };
 
-const GanttViewV2 = memo(({
+const GanttViewV2 = ({
   columns,
   onSelectTask,
   taskViewMode = 'expand',
@@ -53,14 +67,32 @@ const GanttViewV2 = memo(({
   onRemoveTask,
   siteSettings
 }: GanttViewV2Props) => {
+  // Debug columns data
+  // Debug only for specific task
+  if (columns && Object.keys(columns).length > 0) {
+    Object.values(columns).forEach(column => {
+      const trackedTask = column.tasks?.find(t => t.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234');
+      if (trackedTask) {
+        console.log('📊 Tracked task in columns:', { id: trackedTask.id, title: trackedTask.title, priority: trackedTask.priority });
+      }
+    });
+  }
   // State
   const [priorities, setPriorities] = useState<any[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
   const activeDragItemRef = useRef<any>(null);
   const [currentHoverDate, setCurrentHoverDate] = useState<string | null>(null);
   const [taskColumnWidth, setTaskColumnWidth] = useState(320);
+  const [isResizing, setIsResizing] = useState(false);
   const [selectedTasks, setSelectedTasks] = useState<string[]>([]);
-  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [isMultiSelectMode, setIsMultiSelectModeState] = useState(false);
+  
+  // Custom setter that also updates the immediate ref
+  const setIsMultiSelectMode = useCallback((value: boolean) => {
+    setIsMultiSelectModeState(value);
+    isMultiSelectModeImmediateRef.current = value;
+  }, []);
+  
   const [isRelationshipMode, setIsRelationshipMode] = useState(false);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
   const [selectedParentTask, setSelectedParentTask] = useState<string | null>(null);
@@ -90,9 +122,22 @@ const GanttViewV2 = memo(({
   const columnsRef = useRef(columns);
   columnsRef.current = columns;
   
+  // Refs to store current state for keyboard navigation
+  const isMultiSelectModeRef = useRef(isMultiSelectMode);
+  isMultiSelectModeRef.current = isMultiSelectMode;
+  
+  const selectedTasksRef = useRef(selectedTasks);
+  selectedTasksRef.current = selectedTasks;
+  
   // Debouncing for arrow key navigation
   const arrowKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isArrowKeyPressedRef = useRef(false);
+  
+  // Flag to prevent task selection immediately after exiting multi-select mode
+  const isExitingMultiSelectRef = useRef(false);
+  
+  // Flag to track if we're in multi-select mode (immediate, not dependent on state)
+  const isMultiSelectModeImmediateRef = useRef(false);
   const [localDragState, setLocalDragState] = useState<any>({
     isDragging: false,
     draggedTaskId: null,
@@ -285,9 +330,10 @@ const GanttViewV2 = memo(({
     })();
   }, [navigateToDate]);
   
-  // Handle ESC key to exit relationship mode and multi-select mode
+  // Combined keyboard handler for ESC/Enter and arrow key navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Handle ESC key to exit relationship mode and multi-select mode
       if (event.key === 'Escape') {
         event.preventDefault();
         if (isRelationshipMode) {
@@ -295,86 +341,192 @@ const GanttViewV2 = memo(({
           setSelectedParentTask(null);
         }
         if (isMultiSelectMode) {
+          // Immediately set flag to prevent task selection
+          isExitingMultiSelectRef.current = true;
+          
+          // Reset all states (custom setter will update immediate ref)
           setIsMultiSelectMode(false);
           setSelectedTasks([]);
+          setHighlightedTaskId(null); // Clear any highlighted tasks
+          // Clear any active drag state to prevent frozen tasks
+          setActiveDragItem(null);
+          activeDragItemRef.current = null;
+          // Clear local drag state to prevent stale data from arrow key movement
+          setLocalDragState({
+            isDragging: false,
+            draggedTaskId: null,
+            localTaskData: {},
+            originalTaskData: {}
+          });
+          // Reset arrow key state to prevent frozen tasks
+          isArrowKeyPressedRef.current = false;
+          if (arrowKeyTimeoutRef.current) {
+            clearTimeout(arrowKeyTimeoutRef.current);
+            arrowKeyTimeoutRef.current = null;
+          }
+          
+          // Clear the exit flag after a short delay
+          setTimeout(() => {
+            isExitingMultiSelectRef.current = false;
+          }, 100);
         }
-      } else if (event.key === 'Enter') {
+        return;
+      }
+      
+      // Handle Enter key to exit relationship mode and multi-select mode
+      if (event.key === 'Enter') {
+        console.log('🔑 Enter key pressed:', { 
+          isRelationshipMode, 
+          isMultiSelectMode, 
+          selectedTasks,
+          isArrowKeyPressed: isArrowKeyPressedRef.current,
+          hasArrowTimeout: !!arrowKeyTimeoutRef.current
+        });
         event.preventDefault();
-        if (isRelationshipMode) {
-          // Exit relationship mode
+        
+        // Use a single state update to ensure all changes happen atomically
+        if (isRelationshipMode || isMultiSelectMode) {
+          console.log('🔑 Exiting modes:', { isRelationshipMode, isMultiSelectMode });
+          
+          // Immediately set flag to prevent task selection
+          isExitingMultiSelectRef.current = true;
+          
+          // Reset all states in one go (custom setter will update immediate ref)
           setIsRelationshipMode(false);
           setSelectedParentTask(null);
-        }
-        if (isMultiSelectMode) {
-          // Exit multi-select mode
           setIsMultiSelectMode(false);
           setSelectedTasks([]);
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isRelationshipMode, isMultiSelectMode, selectedParentTask]);
-
-  // Handle keyboard navigation for selected tasks with debouncing
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isMultiSelectMode || selectedTasks.length === 0) return;
-      
-      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        event.preventDefault();
-        
-        // If arrow key is already being processed, ignore this event
-        if (isArrowKeyPressedRef.current) return;
-        
-        // Set flag to prevent multiple rapid calls
-        isArrowKeyPressedRef.current = true;
-        
-        const moveAmount = event.key === 'ArrowLeft' ? -1 : 1; // Move left or right by 1 day
-        
-        // Clear any existing timeout
-        if (arrowKeyTimeoutRef.current) {
-          clearTimeout(arrowKeyTimeoutRef.current);
-        }
-        
-        // Move all selected tasks
-        selectedTasks.forEach(async (taskId) => {
-          // Find the original task from columns to get the full task data
-          const originalTask = Object.values(columnsRef.current)
-            .flatMap(col => col.tasks || [])
-            .find(t => t.id === taskId);
-            
-          if (originalTask && originalTask.startDate && originalTask.dueDate && onUpdateTask) {
-            const newStartDate = new Date(originalTask.startDate);
-            const newDueDate = new Date(originalTask.dueDate);
-            
-            newStartDate.setDate(newStartDate.getDate() + moveAmount);
-            newDueDate.setDate(newDueDate.getDate() + moveAmount);
-            
-            // Create updated task object with proper date format
-            const updatedTask = {
-              ...originalTask,
-              startDate: newStartDate.toISOString().split('T')[0], // Format as YYYY-MM-DD
-              dueDate: newDueDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
-            };
-            
-            // Update the task
-            await onUpdateTask(updatedTask);
-          }
-        });
-        
-        // Reset flag after a short delay to allow for single key presses
-        arrowKeyTimeoutRef.current = setTimeout(() => {
+          setHighlightedTaskId(null);
+          
+          // Clear any active drag state
+          setActiveDragItem(null);
+          activeDragItemRef.current = null;
+          
+          // Clear local drag state
+          setLocalDragState({
+            isDragging: false,
+            draggedTaskId: null,
+            localTaskData: {},
+            originalTaskData: {}
+          });
+          
+          // Reset arrow key state
           isArrowKeyPressedRef.current = false;
-        }, 100); // 100ms debounce
+          if (arrowKeyTimeoutRef.current) {
+            clearTimeout(arrowKeyTimeoutRef.current);
+            arrowKeyTimeoutRef.current = null;
+          }
+          
+          // Clear the exit flag after a short delay to allow state updates to complete
+          setTimeout(() => {
+            isExitingMultiSelectRef.current = false;
+            console.log('🔑 Multi-select exit completed');
+          }, 100);
+        }
+        return;
+      }
+      
+      // Handle arrow key navigation for selected tasks (only in multi-select mode)
+      if (isMultiSelectModeRef.current && selectedTasksRef.current.length > 0) {
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          // console.log('🔑 Arrow key pressed:', { 
+          //   key: event.key, 
+          //   selectedTasks, 
+          //   isArrowKeyPressed: isArrowKeyPressedRef.current 
+          // });
+          event.preventDefault();
+          
+          // If arrow key is already being processed, ignore this event
+          if (isArrowKeyPressedRef.current) {
+            // console.log('🔑 Arrow key ignored - already processing');
+            return;
+          }
+          
+          // Set flag to prevent multiple rapid calls
+          isArrowKeyPressedRef.current = true;
+          // console.log('🔑 Arrow key processing started');
+          
+          const moveAmount = event.key === 'ArrowLeft' ? -1 : 1; // Move left or right by 1 day
+          
+          // Clear any existing timeout
+          if (arrowKeyTimeoutRef.current) {
+            clearTimeout(arrowKeyTimeoutRef.current);
+          }
+          
+          // Move all selected tasks
+          selectedTasksRef.current.forEach(async (taskId) => {
+            // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+            //   console.log('🔑 Moving task:', { taskId });
+            // }
+            // Find the original task from columns to get the full task data
+            const originalTask = Object.values(columnsRef.current)
+              .flatMap(col => col.tasks || [])
+              .find(t => t.id === taskId);
+              
+            if (originalTask && originalTask.startDate && originalTask.dueDate && onUpdateTask) {
+              const isOneDayTask = originalTask.startDate === originalTask.dueDate;
+              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+              //   console.log('🔑 Task details:', { 
+              //     taskId, 
+              //     title: originalTask.title,
+              //     isOneDayTask,
+              //     startDate: originalTask.startDate,
+              //     dueDate: originalTask.dueDate,
+              //     moveAmount
+              //   });
+              // }
+              
+              const newStartDate = new Date(originalTask.startDate);
+              const newDueDate = new Date(originalTask.dueDate);
+              
+              newStartDate.setDate(newStartDate.getDate() + moveAmount);
+              newDueDate.setDate(newDueDate.getDate() + moveAmount);
+              
+              // Create updated task object with proper date format
+              const updatedTask = {
+                ...originalTask,
+                startDate: newStartDate.toISOString().split('T')[0], // Format as YYYY-MM-DD
+                dueDate: newDueDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
+              };
+              
+              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+              //   console.log('🔑 Updating task:', { 
+              //     taskId, 
+              //     oldStart: originalTask.startDate,
+              //     oldDue: originalTask.dueDate,
+              //     newStart: updatedTask.startDate,
+              //     newDue: updatedTask.dueDate
+              //   });
+              // }
+              
+              // Update the task
+              await onUpdateTask(updatedTask);
+              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+              //   console.log('🔑 Task update completed:', { taskId });
+              // }
+            } else {
+              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
+              //   console.log('🔑 Task not found or missing data:', { taskId, originalTask });
+              // }
+            }
+          });
+          
+          // Reset flag after a short delay to allow for single key presses
+          arrowKeyTimeoutRef.current = setTimeout(() => {
+            // console.log('🔑 Arrow key processing completed');
+            isArrowKeyPressedRef.current = false;
+          }, 100); // 100ms debounce
+        }
       }
     };
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        // console.log('🔑 Arrow key released:', { 
+        //   key: event.key,
+        //   isArrowKeyPressed: isArrowKeyPressedRef.current,
+        //   hasArrowTimeout: !!arrowKeyTimeoutRef.current
+        // });
         // Reset flag immediately on key release
         isArrowKeyPressedRef.current = false;
         if (arrowKeyTimeoutRef.current) {
@@ -384,19 +536,18 @@ const GanttViewV2 = memo(({
       }
     };
 
-    if (isMultiSelectMode) {
-      document.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('keyup', handleKeyUp);
-      return () => {
-        document.removeEventListener('keydown', handleKeyDown);
-        document.removeEventListener('keyup', handleKeyUp);
-        // Cleanup timeout on unmount
-        if (arrowKeyTimeoutRef.current) {
-          clearTimeout(arrowKeyTimeoutRef.current);
-        }
-      };
-    }
-  }, [isMultiSelectMode, selectedTasks, onUpdateTask]);
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      // Cleanup timeout on unmount
+      if (arrowKeyTimeoutRef.current) {
+        clearTimeout(arrowKeyTimeoutRef.current);
+      }
+    };
+  }, [isRelationshipMode, isMultiSelectMode, selectedParentTask, selectedTasks, onUpdateTask]);
   
   // Initialize date range with a reasonable default
   useEffect(() => {
@@ -524,8 +675,224 @@ const GanttViewV2 = memo(({
 
   // Load priorities
   useEffect(() => {
-    getAllPriorities().then(setPriorities).catch(console.error);
+    console.log('🔄 Loading priorities...');
+    getAllPriorities()
+      .then(priorities => {
+        console.log('✅ Priorities loaded:', priorities);
+        setPriorities(priorities);
+      })
+      .catch(error => {
+        console.error('❌ Failed to load priorities:', error);
+      });
   }, []);
+
+  // Load task column width from user preferences
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const preferences = await loadUserPreferencesAsync();
+        setTaskColumnWidth(preferences.ganttTaskColumnWidth);
+      } catch (error) {
+        // Keep default value
+      }
+    };
+    loadPreferences();
+  }, []);
+
+  // Save task column width to user preferences when it changes (heavily debounced for performance)
+  useEffect(() => {
+    const savePreference = () => {
+      // Use requestIdleCallback for non-blocking operation
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
+          try {
+            const currentPreferences = await loadUserPreferencesAsync();
+            await saveUserPreferences({
+              ...currentPreferences,
+              ganttTaskColumnWidth: taskColumnWidth
+            });
+          } catch (error) {
+            // Silent fail to avoid blocking
+          }
+        });
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(async () => {
+          try {
+            const currentPreferences = await loadUserPreferencesAsync();
+            await saveUserPreferences({
+              ...currentPreferences,
+              ganttTaskColumnWidth: taskColumnWidth
+            });
+          } catch (error) {
+            // Silent fail to avoid blocking
+          }
+        }, 100);
+      }
+    };
+    
+    // Heavily debounce the save to avoid blocking during resize (2 seconds)
+    const timeoutId = setTimeout(() => {
+      // Only save if not the initial default value (avoid saving on mount)
+      if (taskColumnWidth !== 320) {
+        savePreference();
+      }
+    }, 2000); // 2000ms debounce for performance
+    
+    return () => clearTimeout(timeoutId);
+  }, [taskColumnWidth]);
+
+  // Handle task column resizing
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    setIsResizing(true);
+    // Store the initial mouse position and current width
+    const initialX = e.clientX;
+    const initialWidth = taskColumnWidth;
+    
+    const handleMove = (moveE: MouseEvent) => {
+      const deltaX = moveE.clientX - initialX;
+      const newWidth = Math.max(200, Math.min(600, initialWidth + deltaX));
+      setTaskColumnWidth(newWidth);
+    };
+    
+    const handleEnd = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMove);
+      document.removeEventListener('mouseup', handleEnd);
+    };
+    
+    document.addEventListener('mousemove', handleMove);
+    document.addEventListener('mouseup', handleEnd);
+  }, [taskColumnWidth]);
+
+  // WebSocket listeners for priority updates
+  useEffect(() => {
+    const handlePriorityUpdated = async (data: any) => {
+      console.log('📨 GanttViewV2: Priority updated via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setPriorities(priorities);
+        console.log('📨 GanttViewV2: Priorities refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh priorities after update:', error);
+      }
+    };
+
+    const handlePriorityCreated = async (data: any) => {
+      console.log('📨 GanttViewV2: Priority created via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setPriorities(priorities);
+        console.log('📨 GanttViewV2: Priorities refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh priorities after creation:', error);
+      }
+    };
+
+    const handlePriorityDeleted = async (data: any) => {
+      console.log('📨 GanttViewV2: Priority deleted via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setPriorities(priorities);
+        console.log('📨 GanttViewV2: Priorities refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh priorities after deletion:', error);
+      }
+    };
+
+    const handlePriorityReordered = async (data: any) => {
+      console.log('📨 GanttViewV2: Priority reordered via WebSocket:', data);
+      try {
+        const priorities = await getAllPriorities();
+        setPriorities(priorities);
+        console.log('📨 GanttViewV2: Priorities refreshed after reorder');
+      } catch (error) {
+        console.error('Failed to refresh priorities after reorder:', error);
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onPriorityCreated(handlePriorityCreated);
+    websocketClient.onPriorityUpdated(handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(handlePriorityDeleted);
+    websocketClient.onPriorityReordered(handlePriorityReordered);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offPriorityCreated(handlePriorityCreated);
+      websocketClient.offPriorityUpdated(handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(handlePriorityDeleted);
+      websocketClient.offPriorityReordered(handlePriorityReordered);
+    };
+  }, []);
+
+  // WebSocket listeners for task updates (to refresh task data when priorities change)
+  useEffect(() => {
+    const handleTaskUpdated = async (data: any) => {
+      // Only debug for specific task
+      if (data.task && data.task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
+        console.log('📨 WebSocket task-updated event for tracked task:', data.task);
+        console.log('📨 Task priority in WebSocket:', data.task.priority);
+      }
+      // Only refresh if the task is for the current board
+      if (data.boardId === boardId && onRefreshData) {
+        try {
+          // Set flag to prevent polling from overriding this update
+          if (window.setJustUpdatedFromWebSocket) {
+            window.setJustUpdatedFromWebSocket(true);
+            // Reset the flag after a short delay
+            setTimeout(() => {
+              if (window.setJustUpdatedFromWebSocket) {
+                window.setJustUpdatedFromWebSocket(false);
+              }
+            }, 2000);
+          }
+          await onRefreshData();
+          console.log('📨 Board data refreshed successfully');
+        } catch (error) {
+          console.error('Failed to refresh board data after task update:', error);
+        }
+      }
+    };
+
+    const handleTaskCreated = async (data: any) => {
+      console.log('📨 GanttViewV2: Task created via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === boardId && onRefreshData) {
+        try {
+          await onRefreshData();
+          console.log('📨 GanttViewV2: Board data refreshed after task creation');
+        } catch (error) {
+          console.error('Failed to refresh board data after task creation:', error);
+        }
+      }
+    };
+
+    const handleTaskDeleted = async (data: any) => {
+      console.log('📨 GanttViewV2: Task deleted via WebSocket:', data);
+      // Only refresh if the task is for the current board
+      if (data.boardId === boardId && onRefreshData) {
+        try {
+          await onRefreshData();
+          console.log('📨 GanttViewV2: Board data refreshed after task deletion');
+        } catch (error) {
+          console.error('Failed to refresh board data after task deletion:', error);
+        }
+      }
+    };
+
+    // Register WebSocket event listeners
+    websocketClient.onTaskUpdated(handleTaskUpdated);
+    websocketClient.onTaskCreated(handleTaskCreated);
+    websocketClient.onTaskDeleted(handleTaskDeleted);
+
+    // Cleanup function
+    return () => {
+      websocketClient.offTaskUpdated(handleTaskUpdated);
+      websocketClient.offTaskCreated(handleTaskCreated);
+      websocketClient.offTaskDeleted(handleTaskDeleted);
+    };
+  }, [boardId, onRefreshData]);
 
   // Update local drag state ref
   useEffect(() => {
@@ -572,12 +939,29 @@ const GanttViewV2 = memo(({
     useSensor(KeyboardSensor)
   );
 
+  // Get priority color
+  const getPriorityColor = useCallback((priority: string) => {
+    if (!priorities || priorities.length === 0) {
+      console.log('🎨 No priorities available, using default color');
+      return '#808080';
+    }
+    const priorityOption = priorities.find(p => p.priority === priority);
+    const color = priorityOption?.color || '#808080';
+    
+    return color;
+  }, [priorities]);
+
   // Process tasks
   const ganttTasks = useMemo(() => {
     const tasks: any[] = [];
     
     Object.values(columns).forEach(column => {
       column.tasks.forEach(task => {
+        // Skip tasks without valid IDs
+        if (!task || !task.id) {
+          return;
+        }
+        
         let startDate = null;
         let endDate = null;
         
@@ -595,7 +979,7 @@ const GanttViewV2 = memo(({
         }
         
         
-        tasks.push({
+        const ganttTask = {
           ...task,
           id: task.id,
           title: task.title,
@@ -608,7 +992,21 @@ const GanttViewV2 = memo(({
           columnId: task.columnId,
           columnPosition: column.position || 0,
           taskPosition: task.position || 0
-        });
+        };
+        
+        // Debug specific task we're tracking
+        if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
+          console.log('🔍 Processing tracked task:', {
+            id: task.id,
+            title: task.title,
+            priority: task.priority,
+            effectivePriority: effectiveTask.priority,
+            ganttPriority: ganttTask.priority
+          });
+          console.log('🎨 getPriorityColor for tracked task:', getPriorityColor(task.priority || 'normal'));
+        }
+        
+        tasks.push(ganttTask);
       });
     });
     
@@ -639,6 +1037,7 @@ const GanttViewV2 = memo(({
       }
     });
     
+    
     Object.keys(groups).forEach(columnId => {
       groups[columnId].sort((a, b) => a.taskPosition - b.taskPosition);
     });
@@ -649,12 +1048,6 @@ const GanttViewV2 = memo(({
   // Visible tasks for list
   const visibleTasks = ganttTasks;
 
-  // Get priority color
-  const getPriorityColor = useCallback((priority: string) => {
-    if (!priorities || priorities.length === 0) return '#808080';
-    const priorityOption = priorities.find(p => p.name === priority);
-    return priorityOption?.color || '#808080';
-  }, [priorities]);
 
   // Calculate task positions for dependency arrows
   const calculateTaskPositions = useCallback(() => {
@@ -702,7 +1095,16 @@ const GanttViewV2 = memo(({
     return () => clearTimeout(timer);
   }, [ganttTasks, calculateTaskPositions]);
 
-  // Get task bar grid position
+  // Create a memoized date-to-index map for O(1) lookups
+  const dateToIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    dateRange.forEach((dateObj, index) => {
+      map.set(dateObj.date.toISOString().split('T')[0], index);
+    });
+    return map;
+  }, [dateRange]);
+
+  // Get task bar grid position - optimized with O(1) lookup
   const getTaskBarGridPosition = useCallback((task: any) => {
     if (!task.startDate || !task.endDate) return null;
     
@@ -710,32 +1112,81 @@ const GanttViewV2 = memo(({
     const taskStartStr = task.startDate.toISOString().split('T')[0];
     const taskEndStr = task.endDate.toISOString().split('T')[0];
     
-    const startIndex = dateRange.findIndex(d => 
-      d.date.toISOString().split('T')[0] === taskStartStr
-    );
-    const endIndex = dateRange.findIndex(d => 
-      d.date.toISOString().split('T')[0] === taskEndStr
-    );
+    // Use O(1) lookup instead of O(n) findIndex
+    const startIndex = dateToIndexMap.get(taskStartStr) ?? -1;
+    const endIndex = dateToIndexMap.get(taskEndStr) ?? -1;
     
     if (startIndex === -1 || endIndex === -1) {
       // Task is outside current date range
       return null;
     }
     
-    
-    return {
+    const result = {
       startDayIndex: startIndex,
       endDayIndex: endIndex
     };
-  }, [dateRange]);
+    
+    // CRITICAL FIX: For 1-day tasks (startDate === endDate), ensure they span exactly 1 column
+    // This prevents the task bar from having zero width, which makes it unclickable
+    if (startIndex === endIndex) {
+      // For 1-day tasks, we need to ensure the task bar has a visible width
+      // The TaskBar component will handle the visual width, but we need valid indices
+      result.endDayIndex = startIndex; // Keep them the same, but ensure they're valid
+    }
+    
+    return result;
+  }, [dateToIndexMap]);
 
   // Task selection
   const handleTaskSelect = useCallback((taskId: string) => {
+    // Prevent task selection if we're in the process of exiting multi-select mode
+    if (isExitingMultiSelectRef.current) {
+      console.log('🎯 handleTaskSelect blocked - exiting multi-select mode');
+      return;
+    }
+    
+    // Only allow task selection if we're actually in multi-select mode
+    if (!isMultiSelectModeImmediateRef.current) {
+      console.log('🎯 handleTaskSelect blocked - not in multi-select mode');
+      return;
+    }
+    
+    console.log('🎯 handleTaskSelect called:', { 
+      taskId, 
+      isMultiSelectMode: isMultiSelectModeRef.current, 
+      selectedTasks: selectedTasksRef.current.length,
+      currentSelected: selectedTasksRef.current
+    });
     setSelectedTasks(prev => {
-      if (prev.includes(taskId)) {
-        return prev.filter(id => id !== taskId);
-      }
-      return [...prev, taskId];
+      const newTasks = prev.includes(taskId) 
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId];
+      console.log('🎯 handleTaskSelect result:', { 
+        taskId, 
+        prev: prev.length, 
+        newTasks: newTasks.length,
+        newSelected: newTasks
+      });
+      return newTasks;
+    });
+  }, []); // No dependencies needed since we use refs
+
+  // Reset arrow key state to prevent frozen tasks
+  const resetArrowKeyState = useCallback(() => {
+    isArrowKeyPressedRef.current = false;
+    if (arrowKeyTimeoutRef.current) {
+      clearTimeout(arrowKeyTimeoutRef.current);
+      arrowKeyTimeoutRef.current = null;
+    }
+    // Also clear any active drag state
+    setActiveDragItem(null);
+    activeDragItemRef.current = null;
+    // Clear local drag state to prevent stale data
+    setLocalDragState({
+      isDragging: false,
+      draggedTaskId: null,
+      localTaskData: {},
+      originalTaskData: {}
     });
   }, []);
 
@@ -919,17 +1370,180 @@ const GanttViewV2 = memo(({
   const handleTaskListDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     
-    if (over && active.id !== over.id) {
-      // Handle task reordering (implement this)
-      console.log('Reorder task:', active.id, 'to', over.id);
+    console.log('🎯 Task list drag end:', {
+      activeId: active.id,
+      overId: over?.id,
+      activeData: active.data.current,
+      overData: over?.data.current
+    });
+    
+    if (over) {
+      const activeData = active.data.current as SortableTaskRowItem;
+      const overData = over.data.current;
+      
+      // Handle dropping on column drop zone (cross-column move) - check by ID first
+      if (activeData.type === 'task-row-reorder' && over.id && over.id.startsWith('drop-zone-')) {
+        const targetColumnId = over.id.replace('drop-zone-', '');
+        const activeTask = activeData.task;
+        
+        console.log('🔄 Cross-column drop detected (by ID):', {
+          activeTaskId: activeTask.id,
+          activeTaskColumnId: activeTask.columnId,
+          targetColumnId,
+          isDifferentColumn: activeTask.columnId !== targetColumnId
+        });
+        
+        if (activeTask.columnId !== targetColumnId && onUpdateTask) {
+          // Move task to different column
+          const sourceColumn = columns[activeTask.columnId];
+          const targetColumn = columns[targetColumnId];
+          
+          if (sourceColumn && targetColumn) {
+            // Get source tasks sorted by position - filter out invalid tasks
+            const sourceTasks = [...sourceColumn.tasks]
+              .filter(task => task && task.id && typeof task.position === 'number')
+              .sort((a, b) => (a.position || 0) - (b.position || 0));
+            const targetTasks = [...targetColumn.tasks]
+              .filter(task => task && task.id && typeof task.position === 'number')
+              .sort((a, b) => (a.position || 0) - (b.position || 0));
+            
+            // Remove task from source column
+            const filteredSourceTasks = sourceTasks.filter(t => t.id !== activeTask.id);
+            
+            // Add task to target column at position 0
+            const newTargetTasks = [activeTask, ...targetTasks];
+            
+            // Update positions for source column tasks (0 to n-1)
+            filteredSourceTasks.forEach((task, index) => {
+              if (task.position !== index) {
+                // Find the original task data from the source column
+                const originalTask = sourceColumn.tasks.find(t => t.id === task.id);
+                if (originalTask && originalTask.id) {
+                  onUpdateTask({
+                    ...originalTask,
+                    position: index
+                  });
+                }
+              }
+            });
+            
+            // Update positions for target column tasks (including moved task)
+            newTargetTasks.forEach((task, index) => {
+              // Find the original task data from the appropriate column
+              const originalTask = task.id === activeTask.id 
+                ? sourceColumn.tasks.find(t => t.id === task.id)
+                : targetColumn.tasks.find(t => t.id === task.id);
+              
+              if (originalTask && originalTask.id) {
+                onUpdateTask({
+                  ...originalTask,
+                  columnId: targetColumnId,
+                  position: index
+                });
+              }
+            });
+          }
+        }
+        
+        // Clear drag state immediately for cross-column drops to prevent snap-back
+        setActiveDragItem(null);
+        activeDragItemRef.current = null;
+        
+        // Refresh data to show the updated UI immediately
+        if (onRefreshData) {
+          console.log('🔄 Refreshing data after cross-column move');
+          // Add a small delay to ensure backend updates are processed
+          setTimeout(() => {
+            onRefreshData();
+          }, 100);
+        }
+        return;
+      }
+      
+      // Handle task reordering within the same column
+      if (active.id !== over.id && activeData.type === 'task-row-reorder' && overData?.type === 'task-row-reorder') {
+        const activeTask = activeData.task;
+        const overTask = overData.task;
+        
+        if (activeTask.columnId === overTask.columnId) {
+          // Same column reordering - use exact logic from original GanttView
+          const column = columns[activeTask.columnId];
+          if (column && onUpdateTask) {
+            // Get all tasks in the same column, sorted by current order
+            // Filter out tasks with invalid IDs or positions first
+            const columnTasks = [...column.tasks]
+              .filter(task => task && task.id && typeof task.position === 'number')
+              .sort((a, b) => (a.position || 0) - (b.position || 0));
+            
+            // Find indices within the column only
+            const draggedIndex = columnTasks.findIndex(t => t.id === activeTask.id);
+            const targetIndex = columnTasks.findIndex(t => t.id === overTask.id);
+            
+            console.log('🔄 Reordering debug:', {
+              activeTaskId: activeTask.id,
+              overTaskId: overTask.id,
+              draggedIndex,
+              targetIndex,
+              columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position })),
+              originalColumnTasks: column.tasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
+            });
+            
+            if (draggedIndex !== -1 && targetIndex !== -1) {
+              // Create new array with reordered tasks
+              const newTasks = [...columnTasks];
+              const [draggedTaskData] = newTasks.splice(draggedIndex, 1);
+              newTasks.splice(targetIndex, 0, draggedTaskData);
+              
+              // Update positions for all affected tasks (0 to n-1)
+              // Use the original task data from columnTasks, not the drag data
+              newTasks.forEach((task, index) => {
+                if (task.position !== index) {
+                  // Find the original task data from the column to ensure we have complete data
+                  const originalTask = column.tasks.find(t => t.id === task.id);
+                  if (originalTask && originalTask.id) {
+                    console.log('📝 Updating task position:', {
+                      taskId: originalTask.id,
+                      taskTitle: originalTask.title,
+                      oldPosition: originalTask.position,
+                      newPosition: index
+                    });
+                    onUpdateTask({
+                      ...originalTask,
+                      position: index
+                    });
+                  } else {
+                    console.error('❌ Could not find original task or task has no ID:', {
+                      taskId: task.id,
+                      taskTitle: task.title,
+                      originalTask: !!originalTask,
+                      originalTaskId: originalTask?.id
+                    });
+                  }
+                }
+              });
+            }
+          }
+        } else {
+          // Cross-column move - not implemented yet
+        }
+      }
     }
     
     setActiveDragItem(null);
     activeDragItemRef.current = null;
-  }, []);
+  }, [columns, onUpdateTask]);
 
   const handleTaskListDragOver = useCallback((event: DragOverEvent) => {
     // Handle drag over for visual feedback
+    const { active, over } = event;
+    
+    if (over) {
+      const overData = over.data.current;
+      if (overData?.type === 'column-drop') {
+        // Visual feedback for column drop zones
+        console.log('Dragging over column:', overData.columnId);
+      }
+    }
   }, []);
 
   // Drag handlers for timeline (task bars)
@@ -1132,6 +1746,8 @@ const GanttViewV2 = memo(({
           setIsMultiSelectMode={setIsMultiSelectMode}
           selectedTasks={selectedTasks}
           setSelectedTasks={setSelectedTasks}
+          setHighlightedTaskId={setHighlightedTaskId}
+          resetArrowKeyState={resetArrowKeyState}
           isLoading={false}
           onJumpToTask={handleJumpToTask}
           selectedParentTask={selectedParentTask}
@@ -1140,7 +1756,7 @@ const GanttViewV2 = memo(({
       </div>
       
       {/* Timeline header - sticky under Gantt header */}
-      <div className="sticky top-[168px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="sticky top-[189px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex">
           <div 
             className="sticky left-0 z-30 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700"
@@ -1261,29 +1877,17 @@ const GanttViewV2 = memo(({
                     </svg>
                   </button>
                   
-                  {/* Separator */}
-                  <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1"></div>
+                  {/* Resize handle */}
+                  <div
+                    className={`w-1 h-6 transition-colors cursor-col-resize ${
+                      isResizing 
+                        ? 'bg-blue-500' 
+                        : 'bg-gray-300 dark:bg-gray-500 hover:bg-gray-400 dark:hover:bg-gray-400'
+                    }`}
+                    onMouseDown={handleResizeStart}
+                    title="Drag to resize task column"
+                  />
                   
-                  {/* Jump to task */}
-                  <div className="relative" ref={taskJumpRef}>
-                  <button
-                    onClick={() => {
-                      console.log('Jump button clicked, current state:', showTaskJumpDropdown, 'tasks:', ganttTasks.length);
-                      setShowTaskJumpDropdown(!showTaskJumpDropdown);
-                    }}
-                    disabled={ganttTasks.length === 0}
-                    className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Jump to a specific task"
-                  >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                      </svg>
-                      <span>Jump</span>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1342,30 +1946,55 @@ const GanttViewV2 = memo(({
 
       {/* Main content */}
       <div ref={mainContentRef} className="relative flex">
-        {/* Task list */}
-        <GanttTaskList
-          columns={columns}
-          groupedTasks={groupedTasks}
-          visibleTasks={visibleTasks}
-          selectedTasks={selectedTasks}
-          isMultiSelectMode={isMultiSelectMode}
-          isRelationshipMode={isRelationshipMode}
-          selectedParentTask={selectedParentTask}
-          activeDragItem={activeDragItem}
-          priorities={priorities}
-          taskColumnWidth={taskColumnWidth}
-          taskViewMode={taskViewMode}
-          onSelectTask={onSelectTask}
-          onTaskSelect={handleTaskSelect}
-          onRelationshipClick={handleRelationshipClick}
-          onCopyTask={onCopyTask}
-          onRemoveTask={onRemoveTask}
+        {/* Task list with DnD */}
+        <DndContext
           sensors={sensors}
+          collisionDetection={closestCenter}
           onDragStart={handleTaskListDragStart}
           onDragEnd={handleTaskListDragEnd}
           onDragOver={handleTaskListDragOver}
-          highlightedTaskId={highlightedTaskId}
-        />
+        >
+          <GanttTaskList
+            columns={columns}
+            groupedTasks={groupedTasks}
+            visibleTasks={visibleTasks}
+            selectedTasks={selectedTasks}
+            isMultiSelectMode={isMultiSelectMode}
+            isRelationshipMode={isRelationshipMode}
+            selectedParentTask={selectedParentTask}
+            activeDragItem={activeDragItem}
+            priorities={priorities}
+            taskColumnWidth={taskColumnWidth}
+            taskViewMode={taskViewMode}
+            onSelectTask={onSelectTask}
+            onTaskSelect={handleTaskSelect}
+            onRelationshipClick={handleRelationshipClick}
+            onCopyTask={onCopyTask}
+            onRemoveTask={onRemoveTask}
+            highlightedTaskId={highlightedTaskId}
+          />
+          
+          {/* Task drag preview */}
+          <DragOverlay dropAnimation={null}>
+            {activeDragItem && (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' ? (
+              <div className="bg-white dark:bg-gray-800 border-2 border-blue-500 rounded-lg shadow-2xl p-4 flex items-center gap-3 opacity-95 transform rotate-1 relative min-w-[200px]">
+                <div className="flex items-center justify-center w-6 h-6 text-blue-500">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 6h2v2H8V6zm6 0h2v2h-2V6zM8 10h2v2H8v-2zm6 0h2v2h-2v-2zM8 14h2v2H8v-2zm6 0h2v2h-2v-2z"/>
+                  </svg>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm">
+                    {(activeDragItem as SortableTaskRowItem).task.title}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    {(activeDragItem as SortableTaskRowItem).task.ticket || `TASK-${(activeDragItem as SortableTaskRowItem).task.id.slice(-8)}`}
+                  </span>
+                </div>
+              </div>
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         {/* Timeline */}
         <DndContext
@@ -1464,9 +2093,35 @@ const GanttViewV2 = memo(({
       </div>,
       document.body
     )}
+    
+    {/* Legend */}
+    <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800">
+      <div className="flex items-center gap-6 text-xs text-gray-600 dark:text-gray-400">
+        <div className="flex items-center gap-2">
+          <span className="text-blue-600 dark:text-blue-400 font-semibold">Today</span>
+          <div className="w-4 h-3 bg-blue-100 dark:bg-blue-900 border border-blue-200 dark:border-blue-700"></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>Weekends</span>
+          <div className="w-4 h-3 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600"></div>
+        </div>
+        <div className="flex items-center gap-4">
+          <span>Priority:</span>
+          {priorities.map((priority) => (
+            <div key={priority.id} className="flex items-center gap-1">
+              <div 
+                className="w-3 h-3 rounded" 
+                style={{ backgroundColor: priority.color }}
+              ></div>
+              <span className="capitalize">{priority.priority}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
     </>
   );
-});
+};
 
 GanttViewV2.displayName = 'GanttViewV2';
 
