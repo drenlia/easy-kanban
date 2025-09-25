@@ -46,14 +46,6 @@ export const TaskHandle: React.FC<TaskHandleProps> = React.memo(({
     data: dragData
   });
 
-  // console.log('🔧 [TaskHandle] Component rendered:', {
-  //   taskId,
-  //   handleType,
-  //   dragData,
-  //   isDragging,
-  //   hasListeners: !!listeners,
-  //   hasAttributes: !!attributes
-  // });
 
   // Don't apply transform during drag to avoid visual displacement
   // The task bar itself will show the visual feedback

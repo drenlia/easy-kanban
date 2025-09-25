@@ -441,19 +441,6 @@ const GanttTimeline = ({
                 const isDragging = (activeDragItem as GanttDragItem)?.taskId === task.id;
                 const isSelected = selectedTasks.includes(task.id);
                 
-                // Debug log for specific 1-day task (disabled to reduce console spam)
-                // if (task.id === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-                //   console.log('📅 Target task rendering:', {
-                //     taskId: task.id,
-                //     title: task.title,
-                //     isSelected,
-                //     isDragging,
-                //     isMultiSelectMode,
-                //     gridPosition,
-                //     startDate: task.startDate,
-                //     endDate: task.endDate
-                //   });
-                // }
                 
                 
                 return (
