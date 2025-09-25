@@ -878,12 +878,12 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             return (
               <div 
                 key={activity.id} 
-                className={`flex items-start rounded hover:bg-gray-100 transition-colors ${
+                className={`flex items-start rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
                   isNarrowMode ? 'space-x-1 p-1' : 'space-x-1.5 p-1.5'
                 } ${
                   isUnread 
-                    ? 'bg-blue-50 border-l-2 border-blue-500' 
-                    : 'bg-gray-50'
+                    ? 'bg-blue-50 dark:bg-blue-900/20 border-l-2 border-blue-500' 
+                    : 'bg-gray-50 dark:bg-gray-700/50'
                 }`}
               >
                 {!isExtraNarrowMode && (
@@ -896,11 +896,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                     {isNarrowMode ? (
                       // Compact layout for narrow widths
                       <div className="space-y-0.5">
-                        <div className={`font-medium truncate ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
+                        <div className={`font-medium truncate ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
                           {highlightText(name, filterText)}
                         </div>
                         <div 
-                          className="text-gray-700 text-xs leading-tight"
+                          className="text-gray-700 dark:text-gray-200 text-xs leading-tight"
                           dangerouslySetInnerHTML={{ 
                             __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
                               ALLOWED_TAGS: ['a', 'span'],
@@ -912,12 +912,12 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                     ) : (
                       // Normal layout
                       <>
-                        <span className={`font-medium ${isUnread ? 'text-blue-700' : 'text-blue-600'}`}>
+                        <span className={`font-medium ${isUnread ? 'text-blue-700 dark:text-blue-300' : 'text-blue-600 dark:text-blue-400'}`}>
                           {highlightText(name, filterText)}
                         </span>
                         {' '}
                         <span 
-                          className="text-gray-700"
+                          className="text-gray-700 dark:text-gray-200"
                           dangerouslySetInnerHTML={{ 
                             __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
                               ALLOWED_TAGS: ['a', 'span'],
@@ -929,8 +929,8 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                     )}
                   </div>
                   <div className={`flex items-center mt-0.5 ${isNarrowMode ? 'space-x-0.5' : 'space-x-1'}`}>
-                    <Clock className="w-2 h-2 text-gray-400 flex-shrink-0" />
-                    <span className="text-xs text-gray-500 leading-none truncate">
+                    <Clock className="w-2 h-2 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                    <span className="text-xs text-gray-500 dark:text-gray-400 leading-none truncate">
                       {isNarrowMode ? formatTimeAgo(activity.created_at).replace(' ago', '') : formatTimeAgo(activity.created_at)}
                     </span>
                     {isUnread && (
@@ -945,23 +945,23 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       </div>
 
       {/* Footer */}
-      <div className={`border-t border-gray-200 bg-gray-50 rounded-b space-y-1 ${isNarrowMode ? 'p-1' : 'p-1.5'}`}>
+      <div className={`border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 rounded-b space-y-1 ${isNarrowMode ? 'p-1' : 'p-1.5'}`}>
         {unreadCount > 0 ? (
           <button
             onClick={handleMarkAsRead}
-            className="w-full text-xs text-green-600 hover:text-green-700 font-medium py-0.5 bg-green-50 hover:bg-green-100 rounded transition-colors"
+            className="w-full text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 font-medium py-0.5 bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 rounded transition-colors"
           >
             {isNarrowMode ? `✓ ${unreadCount}` : `Mark ${unreadCount} as Read`}
           </button>
         ) : displayActivities.length > 0 ? (
           <button
             onClick={handleClearAll}
-            className="w-full text-xs text-red-600 hover:text-red-700 font-medium py-0.5 bg-red-50 hover:bg-red-100 rounded transition-colors"
+            className="w-full text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 font-medium py-0.5 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors"
           >
             {isNarrowMode ? 'Clear' : 'Clear All Activities'}
           </button>
         ) : (
-          <div className="text-xs text-gray-500 text-center py-1">
+          <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-1">
             {clearActivityId > 0 ? 'Feed cleared' : (isNarrowMode ? 'Auto 3s' : 'Auto-refreshing every 30s')}
           </div>
         )}

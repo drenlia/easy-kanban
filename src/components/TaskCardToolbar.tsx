@@ -469,9 +469,9 @@ export default function TaskCardToolbar({
                   m.id === member.id ? 'bg-blue-50 border border-blue-200' : ''
                 }`}
               >
-                {m.avatarUrl || m.googleAvatarUrl ? (
+                {m.googleAvatarUrl || m.avatarUrl ? (
                   <img
-                    src={m.avatarUrl || m.googleAvatarUrl}
+                    src={m.googleAvatarUrl || m.avatarUrl}
                     alt={m.name}
                     className="w-6 h-6 rounded-full object-cover"
                   />
