@@ -17,18 +17,36 @@ interface UseGanttScrollPositionProps {
 }
 
 /**
+ * Format a date to local date string (YYYY-MM-DD)
+ */
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/**
  * Get the leftmost visible date directly from the DOM timeline header
  */
-const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | null => {
+export const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | null => {
   try {
-    
-    // The timeline header is a sibling of the scroll container's parent
-    // Scroll container is inside the main content, timeline header is above it
-    let timelineHeader = scrollContainer.parentElement?.parentElement?.querySelector('.sticky.top-\\[189px\\]');
+    // Strategy 1: Look for data attribute (preferred - most resilient)
+    let timelineHeader = scrollContainer.parentElement?.parentElement?.querySelector('[data-gantt-timeline-header="true"]');
     
     if (!timelineHeader) {
-      // Try searching in the entire document
-      timelineHeader = document.querySelector('.sticky.top-\\[189px\\]');
+      // Strategy 2: Search in the entire document for data attribute
+      timelineHeader = document.querySelector('[data-gantt-timeline-header="true"]');
+    }
+    
+    if (!timelineHeader) {
+      // Strategy 3: Fallback to CSS class (for backward compatibility)
+      timelineHeader = scrollContainer.parentElement?.parentElement?.querySelector('.sticky.top-\\[169px\\]');
+    }
+    
+    if (!timelineHeader) {
+      // Strategy 4: Search entire document for CSS class
+      timelineHeader = document.querySelector('.sticky.top-\\[169px\\]');
     }
     
     if (!timelineHeader) {
@@ -36,8 +54,11 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
     }
     
     
-    // Find the day number row (second row in the timeline header)
-    const dayRow = timelineHeader.querySelector('.h-8.grid');
+    // Find the day number row using data attribute (preferred) or CSS class (fallback)
+    let dayRow = timelineHeader.querySelector('[data-gantt-day-row="true"]');
+    if (!dayRow) {
+      dayRow = timelineHeader.querySelector('.h-8.grid');
+    }
     
     if (!dayRow) {
       return null;
@@ -62,7 +83,10 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
         if (dayText && dayText.match(/^\d+$/)) {
           // This is a day number cell - we need to find the month/year for this specific cell
           // The month/year cells are sparse (only show on 1st and 15th), so we need to find the closest one
-          const monthYearRow = timelineHeader.querySelector('.h-6.grid');
+          let monthYearRow = timelineHeader.querySelector('[data-gantt-month-row="true"]');
+          if (!monthYearRow) {
+            monthYearRow = timelineHeader.querySelector('.h-6.grid');
+          }
           if (monthYearRow) {
             const monthYearCells = monthYearRow.querySelectorAll('div');
             
@@ -96,7 +120,11 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
                 if (monthIndex !== -1) {
                   // Calculate the actual date based on the day number and month/year
                   const date = new Date(parseInt(year), monthIndex, day);
-                  return date.toISOString().split('T')[0];
+                  // Use local date formatting to match the rest of the system
+                  const localYear = date.getFullYear();
+                  const localMonth = String(date.getMonth() + 1).padStart(2, '0');
+                  const localDay = String(date.getDate()).padStart(2, '0');
+                  return `${localYear}-${localMonth}-${localDay}`;
                 }
               }
             }
@@ -284,7 +312,7 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     dateRange: any[]
   ): number => {
     const targetIndex = dateRange.findIndex(d => 
-      d.date.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0]
+      formatLocalDate(d.date) === formatLocalDate(targetDate)
     );
     
     if (targetIndex >= 0) {
@@ -302,6 +330,7 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     getSavedScrollPosition,
     calculateCenterDate,
     generateDateRange,
-    calculateScrollPosition
+    calculateScrollPosition,
+    getLeftmostVisibleDateFromDOM
   };
 };

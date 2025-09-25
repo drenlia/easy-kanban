@@ -11,7 +11,7 @@ import { GanttHeader } from './gantt/GanttHeader';
 import { getAllPriorities, addTaskRelationship, removeTaskRelationship, getUserSettings } from '../api';
 import websocketClient from '../services/websocketClient';
 import { loadUserPreferencesAsync, saveUserPreferences, loadUserPreferences } from '../utils/userPreferences';
-import { useGanttScrollPosition } from '../hooks/useGanttScrollPosition';
+import { useGanttScrollPosition, getLeftmostVisibleDateFromDOM } from '../hooks/useGanttScrollPosition';
 
 interface GanttViewV2Props {
   columns: Columns;
@@ -126,6 +126,7 @@ const GanttViewV2 = ({
   // Refs to store current state for keyboard navigation
   const isMultiSelectModeRef = useRef(isMultiSelectMode);
   isMultiSelectModeRef.current = isMultiSelectMode;
+
   
   const selectedTasksRef = useRef(selectedTasks);
   selectedTasksRef.current = selectedTasks;
@@ -190,11 +191,13 @@ const GanttViewV2 = ({
   // Scroll position persistence hook
   const {
     isLoading: isScrollLoading,
+    lastSavedScrollDate,
     saveCurrentScrollPosition,
     getSavedScrollPosition,
     calculateCenterDate,
     calculateScrollPosition
   } = useGanttScrollPosition({ boardId: boardId || null, currentUser });
+
   
   // Constants for date range management
   const MAX_DAYS_IN_VIEW = 365; // Maximum days to keep in memory
@@ -266,7 +269,7 @@ const GanttViewV2 = ({
         container.scrollLeft = Math.max(0, scrollPosition);
         
         // Save scroll position after navigation
-        saveCurrentScrollPosition(container, newRange, { immediate: true });
+        saveCurrentScrollPosition(container, newRange, { immediate: true, targetBoardId: boardId || undefined });
       }
     }, 50);
   }, [generateDateRange, saveCurrentScrollPosition]);
@@ -648,7 +651,7 @@ const GanttViewV2 = ({
         
         // Save scroll position after any scroll event (debounced)
         if (!isBoardLoading && !isInitializing && !isSwitchingBoards) {
-          saveCurrentScrollPosition(timeline, dateRange);
+          saveCurrentScrollPosition(timeline, dateRange, { targetBoardId: boardId || undefined });
           // Update debug overlay after saving with a longer delay to ensure cookie is written
         } else {
         }
@@ -848,7 +851,6 @@ const GanttViewV2 = ({
       if (data.boardId === boardId && onRefreshData) {
         try {
           await onRefreshData();
-          console.log('📨 GanttViewV2: Board data refreshed after task deletion');
         } catch (error) {
           console.error('Failed to refresh board data after task deletion:', error);
         }
@@ -905,7 +907,6 @@ const GanttViewV2 = ({
   // Set flags immediately when boardId changes
   useEffect(() => {
     if (boardId) {
-      console.log(`🎯 BoardId changed to ${boardId}, setting flags to prevent scroll saves`);
       setIsSwitchingBoards(true);
       setIsInitializing(true);
     }
@@ -914,18 +915,13 @@ const GanttViewV2 = ({
   // Board initialization with scroll position restoration
   useEffect(() => {
     const initializeBoard = async () => {
-      console.log(`🎯 Board initialization effect triggered - boardId: ${boardId}`);
-      
       if (!boardId) {
-        console.log(`🎯 No boardId, setting loading to false`);
         setIsBoardLoading(false);
         return;
       }
 
-      console.log(`🎯 Initializing board: ${boardId}`);
       setIsBoardLoading(true);
       setIsInitializing(true);
-      console.log(`🎯 Set isInitializing to true for board: ${boardId}`);
 
       // Add a delay to ensure previous board's scroll position is saved
       await new Promise(resolve => setTimeout(resolve, 200));
@@ -945,7 +941,6 @@ const GanttViewV2 = ({
         endDate.setDate(endDate.getDate() + 90);
         
         const initialRange = generateDateRange(startDate, endDate);
-        console.log(`🎯 Generated date range: ${initialRange.length} days from ${formatLocalDate(startDate)} to ${formatLocalDate(endDate)}`);
         setDateRange(initialRange);
         
         // If we have a saved position, position the viewport
@@ -960,14 +955,12 @@ const GanttViewV2 = ({
                 initialRange
               );
               
-              console.log(`🎯 Positioning board at saved date: ${savedPositionDate}, scroll: ${scrollPosition}`);
               scrollContainerRef.current.scrollLeft = scrollPosition;
               
               // Wait longer before allowing scroll saves to ensure positioning is complete
               setTimeout(() => {
                 setIsInitializing(false);
                 setIsSwitchingBoards(false);
-                console.log(`🎯 Set flags to false for board: ${boardId} (after positioning)`);
               }, 500);
             }
           }, 100);
@@ -975,16 +968,12 @@ const GanttViewV2 = ({
           // No saved position, allow scroll saves immediately
           setIsInitializing(false);
           setIsSwitchingBoards(false);
-          console.log(`🎯 Set flags to false for board: ${boardId} (no saved position)`);
         }
-        
-        console.log(`🎯 Board initialized: ${boardId}`);
       } catch (error) {
         console.error(`Failed to initialize board ${boardId}:`, error);
         setIsInitializing(false);
         setIsSwitchingBoards(false);
       } finally {
-        console.log(`🎯 Setting isBoardLoading to false for board: ${boardId}`);
         setIsBoardLoading(false);
         // Don't reset isInitializing here - let the positioning logic handle it
       }
@@ -1007,7 +996,6 @@ const GanttViewV2 = ({
   // Get priority color
   const getPriorityColor = useCallback((priority: string) => {
     if (!priorities || priorities.length === 0) {
-      console.log('🎨 No priorities available, using default color');
       return '#808080';
     }
     const priorityOption = priorities.find(p => p.priority === priority);
@@ -1207,32 +1195,17 @@ const GanttViewV2 = ({
   const handleTaskSelect = useCallback((taskId: string) => {
     // Prevent task selection if we're in the process of exiting multi-select mode
     if (isExitingMultiSelectRef.current) {
-      console.log('🎯 handleTaskSelect blocked - exiting multi-select mode');
       return;
     }
     
     // Only allow task selection if we're actually in multi-select mode
     if (!isMultiSelectModeImmediateRef.current) {
-      console.log('🎯 handleTaskSelect blocked - not in multi-select mode');
       return;
     }
-    
-    console.log('🎯 handleTaskSelect called:', { 
-      taskId, 
-      isMultiSelectMode: isMultiSelectModeRef.current, 
-      selectedTasks: selectedTasksRef.current.length,
-      currentSelected: selectedTasksRef.current
-    });
     setSelectedTasks(prev => {
       const newTasks = prev.includes(taskId) 
         ? prev.filter(id => id !== taskId)
         : [...prev, taskId];
-      console.log('🎯 handleTaskSelect result:', { 
-        taskId, 
-        prev: prev.length, 
-        newTasks: newTasks.length,
-        newSelected: newTasks
-      });
       return newTasks;
     });
   }, []); // No dependencies needed since we use refs
@@ -1436,12 +1409,6 @@ const GanttViewV2 = ({
   const handleTaskListDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     
-    console.log('🎯 Task list drag end:', {
-      activeId: active.id,
-      overId: over?.id,
-      activeData: active.data.current,
-      overData: over?.data.current
-    });
     
     if (over) {
       const activeData = active.data.current as SortableTaskRowItem;
@@ -1452,12 +1419,6 @@ const GanttViewV2 = ({
         const targetColumnId = over.id.replace('drop-zone-', '');
         const activeTask = activeData.task;
         
-        console.log('🔄 Cross-column drop detected (by ID):', {
-          activeTaskId: activeTask.id,
-          activeTaskColumnId: activeTask.columnId,
-          targetColumnId,
-          isDifferentColumn: activeTask.columnId !== targetColumnId
-        });
         
         if (activeTask.columnId !== targetColumnId && onUpdateTask) {
           // Move task to different column
@@ -1517,7 +1478,6 @@ const GanttViewV2 = ({
         
         // Refresh data to show the updated UI immediately
         if (onRefreshData) {
-          console.log('🔄 Refreshing data after cross-column move');
           // Add a small delay to ensure backend updates are processed
           setTimeout(() => {
             onRefreshData();
@@ -1545,14 +1505,6 @@ const GanttViewV2 = ({
             const draggedIndex = columnTasks.findIndex(t => t.id === activeTask.id);
             const targetIndex = columnTasks.findIndex(t => t.id === overTask.id);
             
-            console.log('🔄 Reordering debug:', {
-              activeTaskId: activeTask.id,
-              overTaskId: overTask.id,
-              draggedIndex,
-              targetIndex,
-              columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position })),
-              originalColumnTasks: column.tasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
-            });
             
             if (draggedIndex !== -1 && targetIndex !== -1) {
               // Create new array with reordered tasks
@@ -1567,12 +1519,6 @@ const GanttViewV2 = ({
                   // Find the original task data from the column to ensure we have complete data
                   const originalTask = column.tasks.find(t => t.id === task.id);
                   if (originalTask && originalTask.id) {
-                    console.log('📝 Updating task position:', {
-                      taskId: originalTask.id,
-                      taskTitle: originalTask.title,
-                      oldPosition: originalTask.position,
-                      newPosition: index
-                    });
                     onUpdateTask({
                       ...originalTask,
                       position: index
@@ -1607,7 +1553,6 @@ const GanttViewV2 = ({
       const overData = over.data.current;
       if (overData?.type === 'column-drop') {
         // Visual feedback for column drop zones
-        console.log('Dragging over column:', overData.columnId);
       }
     }
   }, []);
@@ -1838,7 +1783,7 @@ const GanttViewV2 = ({
       </div>
       
       {/* Timeline header - sticky under Gantt header */}
-      <div className="sticky top-[189px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="sticky top-[169px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700" data-gantt-timeline-header="true">
         <div className="flex">
           <div 
             className="sticky left-0 z-30 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700"
@@ -1853,12 +1798,10 @@ const GanttViewV2 = ({
                   {/* Jump to earliest task */}
                   <button
                     onClick={() => {
-                      console.log('Jump to earliest clicked, tasks:', ganttTasks.length);
                       if (ganttTasks.length > 0) {
                         const earliestTask = ganttTasks.reduce((earliest, task) => 
                           (!earliest.startDate || (task.startDate && task.startDate < earliest.startDate)) ? task : earliest
                         );
-                        console.log('Earliest task:', earliestTask.title, earliestTask.startDate);
                         if (earliestTask.startDate) {
                           navigateToDate(earliestTask.startDate, 'start');
                         }
@@ -1989,6 +1932,7 @@ const GanttViewV2 = ({
               <div 
                 className="h-6 grid border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"
                 style={{ gridTemplateColumns: `repeat(${dateRange.length}, 40px)` }}
+                data-gantt-month-row="true"
               >
                 {dateRange.map((dateCol, index) => (
                   <div
@@ -2008,6 +1952,7 @@ const GanttViewV2 = ({
               <div 
                 className="h-8 grid border-b border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700"
                 style={{ gridTemplateColumns: `repeat(${dateRange.length}, 40px)` }}
+                data-gantt-day-row="true"
               >
                 {dateRange.map((dateCol, index) => (
                   <div
@@ -2143,7 +2088,6 @@ const GanttViewV2 = ({
                 <button
                   key={task.id}
                   onClick={() => {
-                    console.log('Jump to task clicked:', task.title, task.startDate);
                     if (task.startDate) {
                       navigateToDate(task.startDate, 'center');
                       
@@ -2201,6 +2145,7 @@ const GanttViewV2 = ({
         </div>
       </div>
     </div>
+
     </>
   );
 };

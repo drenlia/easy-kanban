@@ -1982,7 +1982,6 @@ export default function App() {
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = useCallback(async () => {
-    console.log('🔄 refreshBoardData called');
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
@@ -1992,16 +1991,6 @@ export default function App() {
         if (selectedBoard) {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
-            console.log('🔄 refreshBoardData: Updating columns with:', board.columns);
-                // Debug the specific task we're tracking
-                if (board.columns) {
-                  Object.values(board.columns).forEach(column => {
-                    const task = column.tasks?.find(t => t.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234');
-                    if (task) {
-                      console.log('🔍 refreshBoardData: Found tracked task in API data:', { id: task.id, title: task.title, priority: task.priority });
-                    }
-                  });
-                }
             // Force a deep clone to ensure React detects the change at all levels
             const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
             setColumns(newColumns);
