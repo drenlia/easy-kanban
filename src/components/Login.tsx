@@ -56,7 +56,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
         // Fallback to default credentials
         setDemoCredentials({
           admin: { email: 'admin@example.com', password: 'admin' },
-          demo: { email: 'demo@example.com', password: 'demo' }
+          demo: { email: 'demo@kanban.local', password: 'demo' }
         });
       }
     };
