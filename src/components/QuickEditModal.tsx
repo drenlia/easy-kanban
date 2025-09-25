@@ -63,23 +63,12 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     // Dropdown height estimate (max-h-48 = 192px + padding)
     const dropdownHeight = 200;
     
-    // Debug logging
-    console.log('Dropdown position calc:', {
-      spaceAbove,
-      spaceBelow,
-      dropdownHeight,
-      buttonTop: buttonRect.top,
-      buttonBottom: buttonRect.bottom,
-      viewportHeight
-    });
     
     // Prefer going up if there's enough space (more aggressive preference for upward)
     if (spaceAbove >= dropdownHeight) {
-      console.log('Going above - enough space');
       return 'above';
     }
     
-    console.log('Going below - not enough space above');
     return 'below';
   };
 
@@ -102,7 +91,6 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
         setTaskWatchers(currentWatchers || []);
         setTaskCollaborators(currentCollaborators || []);
         setTaskAttachments(currentAttachments || []);
-        console.log('✅ Loaded', currentAttachments?.length || 0, 'attachments for task', task.id);
       } catch (error) {
         console.error('Failed to load task data:', error);
       } finally {

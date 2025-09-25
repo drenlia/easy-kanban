@@ -56,12 +56,6 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
   // Update editedTask when task prop changes (e.g., when data is loaded)
   useEffect(() => {
     if (task.id && task.id !== editedTask.id) {
-      console.log('🔄 [useTaskDetails] Task ID changed, updating editedTask:', {
-        oldId: editedTask.id,
-        newId: task.id,
-        newTitle: task.title,
-        newPriority: task.priority
-      });
       setEditedTask({
         ...task,
         memberId: task.memberId || members[0]?.id || '',
@@ -122,23 +116,17 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
     }
 
     try {
-      console.log('🔄 [useTaskDetails] Loading data for task:', task.id);
       
       // Load tags
       const [allTags, taskTagsResponse] = await Promise.all([
         getAllTags(),
         getTaskTags(task.id)
       ]);
-      console.log('🏷️ [useTaskDetails] Tags loaded:', { 
-        allTags: allTags.length, 
-        taskTags: taskTagsResponse.length 
-      });
       setAvailableTags(allTags);
       setTaskTags(taskTagsResponse);
 
       // Load priorities
       const priorities = await getAllPriorities();
-      console.log('⚡ [useTaskDetails] Priorities loaded:', priorities.length);
       setAvailablePriorities(priorities);
 
       // Initialize watchers and collaborators from task prop
@@ -536,33 +524,27 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
   useEffect(() => {
     // Tag management event handlers
     const handleTagCreated = async (data: any) => {
-      console.log('📨 useTaskDetails: Tag created via WebSocket:', data);
       try {
         const tags = await getAllTags();
         setAvailableTags(tags);
-        console.log('📨 useTaskDetails: Tags refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh tags after creation:', error);
       }
     };
 
     const handleTagUpdated = async (data: any) => {
-      console.log('📨 useTaskDetails: Tag updated via WebSocket:', data);
       try {
         const tags = await getAllTags();
         setAvailableTags(tags);
-        console.log('📨 useTaskDetails: Tags refreshed after update');
       } catch (error) {
         console.error('Failed to refresh tags after update:', error);
       }
     };
 
     const handleTagDeleted = async (data: any) => {
-      console.log('📨 useTaskDetails: Tag deleted via WebSocket:', data);
       try {
         const tags = await getAllTags();
         setAvailableTags(tags);
-        console.log('📨 useTaskDetails: Tags refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh tags after deletion:', error);
       }
@@ -570,44 +552,36 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
 
     // Priority management event handlers
     const handlePriorityCreated = async (data: any) => {
-      console.log('📨 useTaskDetails: Priority created via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
-        console.log('📨 useTaskDetails: Priorities refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh priorities after creation:', error);
       }
     };
 
     const handlePriorityUpdated = async (data: any) => {
-      console.log('📨 useTaskDetails: Priority updated via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
-        console.log('📨 useTaskDetails: Priorities refreshed after update');
       } catch (error) {
         console.error('Failed to refresh priorities after update:', error);
       }
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      console.log('📨 useTaskDetails: Priority deleted via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
-        console.log('📨 useTaskDetails: Priorities refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh priorities after deletion:', error);
       }
     };
 
     const handlePriorityReordered = async (data: any) => {
-      console.log('📨 useTaskDetails: Priority reordered via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
-        console.log('📨 useTaskDetails: Priorities refreshed after reorder');
       } catch (error) {
         console.error('Failed to refresh priorities after reorder:', error);
       }

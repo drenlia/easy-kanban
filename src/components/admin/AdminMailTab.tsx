@@ -141,7 +141,6 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       try {
                         // Save the specific setting directly
                         await api.put('/admin/settings', { key: 'MAIL_ENABLED', value: newValue });
-                        console.log(`✅ Mail server ${newValue === 'true' ? 'enabled' : 'disabled'} successfully`);
                         
                         // If disabling, clear test result to require re-testing
                         if (newValue === 'false' && testEmailResult) {

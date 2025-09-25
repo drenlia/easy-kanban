@@ -151,11 +151,9 @@ export default function SearchInterface({
   const loadSavedFilters = async () => {
     setIsLoadingFilters(true);
     try {
-      console.log('🔍 [SearchInterface] Loading user\'s own filters...');
       
       // Load user's own filters
       const myViews = await getSavedFilterViews();
-      console.log('📊 [SearchInterface] Loaded my views:', myViews.length);
       setSavedFilterViews(myViews);
     } catch (error) {
       console.error('❌ [SearchInterface] Failed to load saved filter views:', error);

@@ -492,7 +492,7 @@ const initializeDefaultData = (db) => {
     const demoUserId = crypto.randomUUID();
     const demoPasswordHash = bcrypt.hashSync('demo', 10);
     
-    const existingDemoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@example.com');
+    const existingDemoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@kanban.local');
     if (!existingDemoUser) {
       // Create demo avatar
       const demoAvatarPath = createLetterAvatar('D', demoUserId, 'demo');
@@ -500,7 +500,7 @@ const initializeDefaultData = (db) => {
       db.prepare(`
         INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(demoUserId, 'demo@example.com', demoPasswordHash, 'Demo', 'User', demoAvatarPath);
+      `).run(demoUserId, 'demo@kanban.local', demoPasswordHash, 'Demo', 'User', demoAvatarPath);
 
       // Assign user role to demo user
       const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;

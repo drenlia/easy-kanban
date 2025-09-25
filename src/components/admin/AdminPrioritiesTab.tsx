@@ -392,7 +392,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                 </tr>
               </thead>
               <SortableContext
-                items={priorities.map(p => p.id)}
+                items={priorities.filter(p => p && p.id).map(p => p.id)}
                 strategy={verticalListSortingStrategy}
               >
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">

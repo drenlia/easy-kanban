@@ -23,8 +23,8 @@ interface TaskPageProps {
   onRefresh: () => Promise<void>;
   onInviteUser?: (email: string) => Promise<void>;
   // Auto-refresh toggle
-  isAutoRefreshEnabled: boolean;
-  onToggleAutoRefresh: () => void;
+  // isAutoRefreshEnabled: boolean; // Disabled - using real-time updates
+  // onToggleAutoRefresh: () => void; // Disabled - using real-time updates
 }
 
 export default function TaskPage({ 
@@ -37,11 +37,9 @@ export default function TaskPage({
   onPageChange, 
   onRefresh, 
   onInviteUser,
-  isAutoRefreshEnabled,
-  onToggleAutoRefresh
+  // isAutoRefreshEnabled, // Disabled - using real-time updates
+  // onToggleAutoRefresh // Disabled - using real-time updates
 }: TaskPageProps) {
-  console.log('🚀 TaskPage component mounting!');
-  console.log('🚀 TaskPage currentUser:', currentUser?.id);
   const [task, setTask] = useState<Task | null>(null);
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,9 +72,7 @@ export default function TaskPage({
     taskFlow: boolean;
     taskInfo: boolean;
   }>(() => {
-    console.log('📁 TaskPage: Initializing collapsed sections state');
     if (currentUser?.id) {
-      console.log('📁 TaskPage: User found during init:', currentUser.id);
       const prefs = loadUserPreferences(currentUser.id);
       console.log('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
       if (prefs.taskPageCollapsed) {
@@ -828,8 +824,8 @@ export default function TaskPage({
         currentUser={currentUser}
         siteSettings={siteSettings || {}}
         currentPage={'kanban'} // Task page is part of kanban flow
-        isPolling={isPolling}
-        lastPollTime={lastPollTime}
+        // isPolling={isPolling} // Removed - using real-time WebSocket updates
+        // lastPollTime={lastPollTime} // Removed - using real-time WebSocket updates
         members={members}
         onProfileClick={() => setShowProfileModal(true)}
         onLogout={onLogout}
@@ -837,8 +833,8 @@ export default function TaskPage({
         onRefresh={onRefresh}
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={onInviteUser}
-        isAutoRefreshEnabled={isAutoRefreshEnabled}
-        onToggleAutoRefresh={onToggleAutoRefresh}
+        // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+        // onToggleAutoRefresh={onToggleAutoRefresh} // Disabled - using real-time updates
       />
       
       {/* Task Navigation Bar - Sticky */}

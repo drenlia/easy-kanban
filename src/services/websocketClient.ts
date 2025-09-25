@@ -9,19 +9,12 @@ class WebSocketClient {
   private readyCallbacks: (() => void)[] = [];
 
   connect() {
-    console.log('🔌 WebSocket connect() called');
     if (this.socket?.connected) {
-      console.log('🔌 WebSocket already connected');
       return;
     }
 
     // Use the same URL as the frontend - the frontend will proxy WebSocket connections to the backend
     const serverUrl = window.location.origin;
-
-    console.log('🔌 Connecting to WebSocket:', serverUrl);
-    console.log('🔌 Current location:', window.location.href);
-    console.log('🔌 Protocol:', window.location.protocol);
-    console.log('🔌 Host:', window.location.host);
 
     this.socket = io(serverUrl, {
       transports: ['polling', 'websocket'], // Try polling first, then websocket
@@ -33,21 +26,17 @@ class WebSocketClient {
     });
 
     this.socket.on('connect', () => {
-      console.log('✅ WebSocket connected:', this.socket?.id);
-      console.log('🔍 WebSocket server URL:', serverUrl);
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000; // Reset delay
       
       // Trigger ready callbacks directly
       this.readyCallbacks.forEach(callback => {
-        console.log('🎯 Calling WebSocket ready callback');
         callback();
       });
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.log('🔌 WebSocket disconnected:', reason);
       this.isConnected = false;
     });
 
@@ -57,7 +46,6 @@ class WebSocketClient {
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
-      console.log('🔄 WebSocket reconnected after', attemptNumber, 'attempts');
       this.isConnected = true;
       this.reconnectAttempts = 0;
     });
@@ -84,16 +72,12 @@ class WebSocketClient {
 
   joinBoard(boardId: string) {
     if (this.socket?.connected) {
-      console.log('📋 Joining board:', boardId);
       this.socket.emit('join-board', boardId);
-    } else {
-      console.log('⚠️ WebSocket not connected, cannot join board:', boardId);
     }
   }
 
   leaveBoard(boardId: string) {
     if (this.socket?.connected) {
-      console.log('📋 Leaving board:', boardId);
       this.socket.emit('leave-board', boardId);
     }
   }
@@ -192,7 +176,6 @@ class WebSocketClient {
     
     // If already connected, call immediately
     if (this.isConnected) {
-      console.log('🎯 WebSocket already connected, calling ready callback immediately');
       callback();
     }
   }

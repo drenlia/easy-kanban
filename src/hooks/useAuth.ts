@@ -61,7 +61,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     }
     
     if (!isAuthenticated && intendedDestination) {
-      console.log('🎯 Unauthenticated user with intended destination - redirecting to login:', intendedDestination);
       // Store intended destination in localStorage for OAuth callback
       localStorage.setItem('oauthIntendedDestination', intendedDestination);
       // Redirect to root login page to avoid keeping pathname
@@ -78,7 +77,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     
     // Redirect to intended destination if available
     if (intendedDestination) {
-      console.log('🎯 Local login redirect - intended destination:', intendedDestination);
       
       // Handle full path vs hash-only destinations
       if (intendedDestination.startsWith('/')) {
@@ -340,7 +338,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         
         // Store the token in localStorage
         localStorage.setItem('authToken', token);
-        console.log('🔑 Token stored in localStorage:', token.substring(0, 20) + '...');
         
         // Set authenticated immediately after storing token
         setIsAuthenticated(true);
@@ -350,11 +347,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         api.getCurrentUser()
           .then(response => {
             setCurrentUser(response.user);
-            console.log('✅ Google OAuth complete for:', response.user.email, 'auth_provider:', response.user.authProvider || 'google');
           })
           .catch(() => {
             // Fallback: just let the auth effect handle it
-            console.log('⚠️ Failed to fetch user data, but token is stored');
           });
         
         return; // Exit early to prevent routing conflicts

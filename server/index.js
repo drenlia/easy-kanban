@@ -321,7 +321,7 @@ app.get('/api/auth/check-default-admin', (req, res) => {
 
 app.get('/api/auth/check-demo-user', (req, res) => {
   try {
-    const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@example.com');
+    const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
     res.json({ exists: !!demoUser });
   } catch (error) {
     console.error('Error checking demo user:', error);
@@ -340,7 +340,7 @@ app.get('/api/auth/demo-credentials', (req, res) => {
         password: adminPassword || 'admin' // Fallback to default if not found
       },
       demo: {
-        email: 'demo@example.com',
+        email: 'demo@kanban.local',
         password: demoPassword || 'demo' // Fallback to default if not found
       }
     });

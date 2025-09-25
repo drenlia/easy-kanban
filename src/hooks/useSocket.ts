@@ -39,17 +39,14 @@ export function useSocket(options: UseSocketOptions = {}) {
   const [error, setError] = useState<string | null>(null);
   
   useEffect(() => {
-    console.log('🔌 useSocket: checking connection status, enabled:', enabled);
     
     if (!enabled) {
-      console.log('🔌 Socket.IO disabled');
       setIsConnected(false);
       return;
     }
 
     // Check if already connected
     if (isSocketConnected()) {
-      console.log('🔌 Socket already connected');
       setIsConnected(true);
       onConnect?.();
       return;
@@ -57,16 +54,13 @@ export function useSocket(options: UseSocketOptions = {}) {
 
     const token = localStorage.getItem('authToken');
     if (!token) {
-      console.log('❌ No authentication token available');
       setError('No authentication token available');
       return;
     }
 
     // Initialize connection only if not connected
-    console.log('🔌 Initializing Socket.IO connection...');
     initializeSocket(token)
       .then(() => {
-        console.log('✅ Socket.IO ready');
         setIsConnected(true);
         setError(null);
         onConnect?.();

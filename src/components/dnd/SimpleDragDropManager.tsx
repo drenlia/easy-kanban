@@ -179,7 +179,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           top: rect.top - 30, // Extend 30px above the tabs for more room
           bottom: rect.bottom 
         };
-        // console.log('🎯 DETECTED TAB BOUNDS (extended +30px up):', bounds);
         setTabAreaBounds(bounds);
         return bounds;
       } else {
@@ -209,7 +208,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       const sourceColumn = columns[task.columnId];
       const sourceTaskCount = sourceColumn ? sourceColumn.tasks.length : 0;
       
-      // console.log('🚀 Drag Start Debug:', {
       //   taskId: task.id,
       //   sourceColumnId: task.columnId,
       //   sourceTaskCount,
@@ -238,7 +236,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       setUsingYCoordinateDetection(true);
       
       if (isInTabArea && !isHoveringBoardTabDelayed) {
-        // console.log('🎯 ENTERED TAB AREA (Y-based - PRIORITY):', { 
         // mouseY: currentMouseY, 
         // tabTop: tabAreaBounds.top, 
         // tabBottom: tabAreaBounds.bottom 
@@ -247,7 +244,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
         onBoardTabHover?.(true);
         onDragPreviewChange?.(null);
       } else if (!isInTabArea && isHoveringBoardTabDelayed) {
-        // console.log('🎯 LEFT TAB AREA (Y-based - PRIORITY):', { 
         // mouseY: currentMouseY, 
         // tabTop: tabAreaBounds.top, 
         // tabBottom: tabAreaBounds.bottom 

@@ -211,11 +211,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
       // Show refresh indicator if comments were added/removed (but not on initial task load)
       if (commentsChanged && prev.comments && prev.comments.length > 0 && !isInitialTaskLoad) {
-        console.log('💬 Comments updated! Showing refresh indicator', {
-          prevCount: prev.comments.length,
-          newCount: processedComments.length,
-          taskId: task.id
-        });
         setShowRefreshIndicator(true);
         setTimeout(() => setShowRefreshIndicator(false), 3000); // Hide after 3 seconds
       }
@@ -298,23 +293,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     // Dropdown height estimate (max-h-48 = 192px + padding)
     const dropdownHeight = 200;
     
-    // Debug logging
-    console.log('TaskDetails dropdown position calc:', {
-      spaceAbove,
-      spaceBelow,
-      dropdownHeight,
-      buttonTop: buttonRect.top,
-      buttonBottom: buttonRect.bottom,
-      viewportHeight
-    });
     
     // Prefer going up if there's enough space (more aggressive preference for upward)
     if (spaceAbove >= dropdownHeight) {
-      console.log('TaskDetails: Going above - enough space');
       return 'above';
     }
     
-    console.log('TaskDetails: Going below - not enough space above');
     return 'below';
   };
 

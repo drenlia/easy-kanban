@@ -99,7 +99,6 @@ export default function TaskCardToolbar({
     setIsDragPrepared(true);
     setDragStartPosition(startPos);
     
-    console.log('🔗 Link button pressed - preparing for potential drag');
   };
 
   // Handle global mouse move to detect drag
@@ -113,7 +112,6 @@ export default function TaskCardToolbar({
         
         // If moved beyond threshold, start linking mode
         if (deltaX > dragThreshold || deltaY > dragThreshold) {
-          console.log('🔗 Drag detected - starting linking mode');
           setIsDragPrepared(false);
           onStartLinking(task, dragStartPosition);
           setDragStartPosition(null);
@@ -124,7 +122,6 @@ export default function TaskCardToolbar({
     const handleGlobalMouseUp = (e: MouseEvent) => {
       if (isDragPrepared) {
         // Released without dragging - cancel linking
-        console.log('🔗 Released without dragging - canceling linking');
         setIsDragPrepared(false);
         setDragStartPosition(null);
       }
@@ -472,9 +469,9 @@ export default function TaskCardToolbar({
                   m.id === member.id ? 'bg-blue-50 border border-blue-200' : ''
                 }`}
               >
-                {m.avatarUrl || m.googleAvatarUrl ? (
+                {m.googleAvatarUrl || m.avatarUrl ? (
                   <img
-                    src={m.avatarUrl || m.googleAvatarUrl}
+                    src={m.googleAvatarUrl || m.avatarUrl}
                     alt={m.name}
                     className="w-6 h-6 rounded-full object-cover"
                   />

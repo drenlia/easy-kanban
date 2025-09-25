@@ -74,6 +74,14 @@ import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
+// Extend Window interface for WebSocket flags
+declare global {
+  interface Window {
+    justUpdatedFromWebSocket?: boolean;
+    setJustUpdatedFromWebSocket?: (value: boolean) => void;
+  }
+}
+
 
 
 export default function App() {
@@ -88,7 +96,7 @@ export default function App() {
   const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
   
   // Auto-refresh toggle state (loaded from user preferences)
-  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
+  // const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true); // Disabled - using real-time updates
   const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
     x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
     y: 66 
@@ -115,6 +123,10 @@ export default function App() {
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
   const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
   const dragStartedRef = useRef<boolean>(false);
+  
+  // Throttle WebSocket updates to prevent performance issues
+  const lastWebSocketUpdateRef = useRef<number>(0);
+  const WEBSOCKET_THROTTLE_MS = 250; // Throttle to max 4 updates per second for better performance
   const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
@@ -142,7 +154,7 @@ export default function App() {
   };
 
   // Enhanced setSelectedTask that also updates user preferences
-  const handleSelectTask = (task: Task | null, options?: { scrollToComments?: boolean }) => {
+  const handleSelectTask = useCallback((task: Task | null, options?: { scrollToComments?: boolean }) => {
     setSelectedTask(task);
     updateCurrentUserPreference('selectedTaskId', task?.id || null);
     
@@ -152,7 +164,7 @@ export default function App() {
     } else {
       setTaskDetailsOptions({});
     }
-  };
+  }, []);
 
   // Task deletion handler with confirmation
   const handleTaskDelete = async (taskId: string) => {
@@ -570,27 +582,27 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       const prefs = loadUserPreferences(currentUser.id);
-      setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true);
+      // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
     }
   }, [currentUser]);
 
-  // Auto-refresh toggle handler
-  const handleToggleAutoRefresh = useCallback(async () => {
-    const newValue = !isAutoRefreshEnabled;
-    setIsAutoRefreshEnabled(newValue);
-    
-    // Save to user preferences
-    if (currentUser) {
-      try {
-        await updateUserPreference('appSettings', {
-          ...loadUserPreferences(currentUser.id).appSettings,
-          autoRefreshEnabled: newValue
-        }, currentUser.id);
-      } catch (error) {
-        // console.error('Failed to save auto-refresh preference:', error);
-      }
-    }
-  }, [isAutoRefreshEnabled, currentUser]);
+  // Auto-refresh toggle handler - DISABLED (using real-time updates)
+  // const handleToggleAutoRefresh = useCallback(async () => {
+  //   const newValue = !isAutoRefreshEnabled;
+  //   setIsAutoRefreshEnabled(newValue);
+  //   
+  //   // Save to user preferences
+  //   if (currentUser) {
+  //     try {
+  //       await updateUserPreference('appSettings', {
+  //         ...loadUserPreferences(currentUser.id).appSettings,
+  //         autoRefreshEnabled: newValue
+  //       }, currentUser.id);
+  //     } catch (error) {
+  //       // console.error('Failed to save auto-refresh preference:', error);
+  //     }
+  //   }
+  // }, [isAutoRefreshEnabled, currentUser]);
 
   // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
@@ -671,26 +683,8 @@ export default function App() {
   // Data polling for backup/fallback only (WebSocket handles real-time updates)
   // Disable polling when help modal is open or auto-refresh is disabled
   // Only poll every 60 seconds as backup when WebSocket might be unavailable
-  const shouldPoll = isAuthenticated && currentPage === 'kanban' && !!selectedBoard && !draggedTask && !draggedColumn && !dragCooldown && !taskCreationPause && !boardCreationPause && isAutoRefreshEnabled && !showHelpModal;
+  const shouldPoll = false; // Temporarily disable polling to test WebSocket updates
   
-  // Debug logging for polling state
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔍 [App] Polling state:', {
-        shouldPoll,
-        isAuthenticated,
-        currentPage,
-        selectedBoard: !!selectedBoard,
-        draggedTask: !!draggedTask,
-        draggedColumn: !!draggedColumn,
-        dragCooldown,
-        taskCreationPause,
-        boardCreationPause,
-        isAutoRefreshEnabled,
-        showHelpModal
-      });
-    }
-  }, [shouldPoll, isAuthenticated, currentPage, selectedBoard, draggedTask, draggedColumn, dragCooldown, taskCreationPause, boardCreationPause, isAutoRefreshEnabled, showHelpModal]);
   
   const { isPolling, lastPollTime, updateLastPollTime } = useDataPolling({
     enabled: shouldPoll,
@@ -774,29 +768,22 @@ export default function App() {
 
   // Initialize WebSocket connection and real-time updates
   useEffect(() => {
-    console.log('🔍 WebSocket useEffect - isAuthenticated:', isAuthenticated, 'selectedBoard:', selectedBoard);
     if (!isAuthenticated) {
-      console.log('⚠️ WebSocket useEffect - not authenticated, skipping');
       return;
     }
 
     // Connect to WebSocket
-    console.log('🔌 Connecting to WebSocket');
     websocketClient.connect();
 
     // Join current board when WebSocket is ready
     const joinBoard = () => {
       if (selectedBoard) {
-        console.log('🔍 Attempting to join board:', selectedBoard);
         websocketClient.joinBoard(selectedBoard);
-      } else {
-        console.log('⚠️ No selected board to join');
       }
     };
 
     // Listen for WebSocket ready event
     const handleWebSocketReady = () => {
-      console.log('🎯 WebSocket ready, joining board');
       joinBoard();
     };
 
@@ -806,25 +793,101 @@ export default function App() {
     const handleTaskCreated = (data: any) => {
       console.log('📨 Task created via WebSocket:', data);
       console.log('🔍 Current board ID:', selectedBoard, 'Event board ID:', data.boardId);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.task) {
+        // Throttle updates to prevent performance issues
+        const now = Date.now();
+        if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
+          return;
+        }
+        lastWebSocketUpdateRef.current = now;
+        
+        // Optimized: Add the specific task instead of full refresh
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          const targetColumnId = data.task.columnId;
+          if (updatedColumns[targetColumnId]) {
+            updatedColumns[targetColumnId] = {
+              ...updatedColumns[targetColumnId],
+              tasks: [...updatedColumns[targetColumnId].tasks, data.task]
+            };
+          }
+          return updatedColumns;
+        });
       }
     };
 
     const handleTaskUpdated = (data: any) => {
-      console.log('📨 Task updated via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.task) {
+        // Skip if this update came from GanttViewV2 (it handles its own updates via onRefreshData)
+        if (window.justUpdatedFromWebSocket) {
+          return;
+        }
+        
+        // Throttle updates to prevent performance issues
+        const now = Date.now();
+        if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
+          return;
+        }
+        lastWebSocketUpdateRef.current = now;
+        
+        // Handle task updates including cross-column moves
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          const taskId = data.task.id;
+          const newColumnId = data.task.columnId;
+          
+          // First, remove the task from all columns (in case it moved)
+          Object.keys(updatedColumns).forEach(columnId => {
+            const column = updatedColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+            if (taskIndex !== -1) {
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: [
+                  ...column.tasks.slice(0, taskIndex),
+                  ...column.tasks.slice(taskIndex + 1)
+                ]
+              };
+            }
+          });
+          
+          // Then, add the task to its new column
+          if (updatedColumns[newColumnId]) {
+            updatedColumns[newColumnId] = {
+              ...updatedColumns[newColumnId],
+              tasks: [...updatedColumns[newColumnId].tasks, data.task]
+            };
+          }
+          
+          return updatedColumns;
+        });
       }
     };
 
     const handleTaskDeleted = (data: any) => {
       console.log('📨 Task deleted via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
-        refreshBoardData();
+      // Only update if the task is for the current board
+      if (data.boardId === selectedBoard && data.taskId) {
+        // Optimized: Remove the specific task instead of full refresh
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          Object.keys(updatedColumns).forEach(columnId => {
+            const column = updatedColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+            if (taskIndex !== -1) {
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: [
+                  ...column.tasks.slice(0, taskIndex),
+                  ...column.tasks.slice(taskIndex + 1)
+                ]
+              };
+            }
+          });
+          return updatedColumns;
+        });
       }
     };
 
@@ -1398,7 +1461,7 @@ export default function App() {
 
   const handleRefreshData = async () => {
     await refreshBoardData();
-    updateLastPollTime(); // Update the last poll time when manual refresh is triggered
+    // updateLastPollTime(); // Removed - no longer using polling system
   };
 
   // Task linking handlers
@@ -1879,36 +1942,23 @@ export default function App() {
   }, [isAuthenticated, includeSystem, currentUser?.id]);
 
   // Update columns when selected board changes
+  // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
     if (selectedBoard) {
-      // When polling is disabled, always refresh from server to get fresh data
-      // When polling is enabled, use cached data for better performance
-      if (!isAutoRefreshEnabled) {
-        // Polling disabled - always refresh from server to ensure fresh data
-        refreshBoardData();
-      } else {
-        // Polling enabled - use cached data for better performance
-        const board = boards.find(b => b.id === selectedBoard);
-        if (board) {
-          // Update columns immediately from the boards array
-          setColumns(board.columns || {});
-          
-          // Always load relationships when switching boards (even with polling enabled)
-          getBoardTaskRelationships(selectedBoard)
-            .then(relationships => {
-              setBoardRelationships(relationships);
-            })
-            .catch(error => {
-              console.warn('Failed to load relationships:', error);
-              setBoardRelationships([]);
-            });
-        } else {
-          // If board not found in current array, refresh from server
-          refreshBoardData();
-        }
-      }
+      // Always refresh from server to get fresh data (no polling, so always fresh)
+      refreshBoardData();
+      
+      // Load relationships when switching boards
+      getBoardTaskRelationships(selectedBoard)
+        .then(relationships => {
+          setBoardRelationships(relationships);
+        })
+        .catch(error => {
+          console.warn('Failed to load relationships:', error);
+          setBoardRelationships([]);
+        });
     }
-  }, [selectedBoard, isAutoRefreshEnabled]);
+  }, [selectedBoard]);
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
@@ -1944,10 +1994,6 @@ export default function App() {
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = useCallback(async () => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('🔄 [App] refreshBoardData called');
-    }
-    
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
@@ -1957,7 +2003,9 @@ export default function App() {
         if (selectedBoard) {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
-            setColumns(board.columns || {});
+            // Force a deep clone to ensure React detects the change at all levels
+            const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
+            setColumns(newColumns);
             
             // Also load relationships for the selected board
             try {
@@ -1976,9 +2024,22 @@ export default function App() {
         }
       }
     } catch (error) {
-      // console.error('Failed to refresh board data:', error);
+      console.error('Failed to refresh board data:', error);
     }
   }, [selectedBoard]);
+
+  // Track when we've just updated from WebSocket to prevent polling from overriding
+  const [justUpdatedFromWebSocket, setJustUpdatedFromWebSocket] = useState(false);
+  
+  // Expose the flag to window for WebSocket handlers
+  useEffect(() => {
+    window.setJustUpdatedFromWebSocket = setJustUpdatedFromWebSocket;
+    window.justUpdatedFromWebSocket = justUpdatedFromWebSocket;
+    return () => {
+      delete window.setJustUpdatedFromWebSocket;
+      delete window.justUpdatedFromWebSocket;
+    };
+  }, [justUpdatedFromWebSocket]);
 
   const fetchQueryLogs = async () => {
     // DISABLED: Debug query logs fetching
@@ -2121,7 +2182,7 @@ export default function App() {
     }
   };
 
-  const handleAddTask = async (columnId: string) => {
+  const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string) => {
     if (!selectedBoard || !currentUser) return;
     
     // Always assign new tasks to the logged-in user, not the filtered selection
@@ -2131,14 +2192,17 @@ export default function App() {
       return;
     }
     
-    const startDate = new Date().toISOString().split('T')[0];
+    // Use provided dates or default to today
+    const taskStartDate = startDate || new Date().toISOString().split('T')[0];
+    const taskDueDate = dueDate || taskStartDate;
+    
     const newTask: Task = {
       id: generateUUID(),
       title: 'New Task',
       description: '',
       memberId: currentUserMember.id,
-      startDate: startDate,
-      dueDate: startDate, // Set dueDate to be the same as startDate
+      startDate: taskStartDate,
+      dueDate: taskDueDate,
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
@@ -2148,14 +2212,7 @@ export default function App() {
       comments: []
     };
 
-    // Optimistic update - add to top immediately
-    setColumns(prev => ({
-      ...prev,
-      [columnId]: {
-        ...prev[columnId],
-        tasks: [newTask, ...(prev[columnId]?.tasks || [])]
-      }
-    }));
+    // Don't do optimistic update - let WebSocket handle it to avoid duplicate keys
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
@@ -2166,8 +2223,7 @@ export default function App() {
         // Let backend handle positioning and shifting
         await createTaskAtTop(newTask);
         
-        // Refresh to get clean state from backend
-        await refreshBoardData();
+        // Don't refresh - WebSocket will handle the update
       });
       
       // Check if the new task would be filtered out and show warning
@@ -2208,28 +2264,20 @@ export default function App() {
     }
   };
 
-  const handleEditTask = async (task: Task) => {
+  const handleEditTask = useCallback(async (task: Task) => {
+    
     // Optimistic update
     const previousColumns = { ...columns };
-    
-    // console.log('🔄 [App] handleEditTask called with:', {
-    //   taskId: task.id,
-    //   title: task.title,
-    //   startDate: task.startDate,
-    //   dueDate: task.dueDate,
-    //   columnId: task.columnId,
-    //   boardId: task.boardId
-    // });
     
     // Update UI immediately
     setColumns(prev => {
       // Safety check: ensure the column exists
       if (!prev[task.columnId]) {
-        // console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
         return prev; // Return unchanged state if column doesn't exist
       }
       
-      return {
+      const updatedColumns = {
         ...prev,
         [task.columnId]: {
           ...prev[task.columnId],
@@ -2238,6 +2286,9 @@ export default function App() {
           )
         }
       };
+      
+      
+      return updatedColumns;
     });
     
     try {
@@ -2246,11 +2297,11 @@ export default function App() {
         await fetchQueryLogs();
       });
     } catch (error) {
+      console.error('❌ [App] Failed to update task:', error);
       // Rollback on error
       setColumns(previousColumns);
-      // console.error('Failed to update task:', error);
     }
-  };
+  }, [withLoading, fetchQueryLogs]);
 
   const handleCopyTask = async (task: Task) => {
     // Find the original task's position in the sorted list
@@ -2277,47 +2328,15 @@ export default function App() {
       dueDate: task.dueDate || task.startDate
     };
 
-
-    // Optimistic update - insert copy right after original
-    setColumns(prev => {
-      const columnTasksCopy = [...(prev[task.columnId]?.tasks || [])];
-      const insertIndex = originalTaskIndex + 1;
-      columnTasksCopy.splice(insertIndex, 0, newTask);
-      
-      return {
-        ...prev,
-        [task.columnId]: {
-          ...prev[task.columnId],
-          tasks: columnTasksCopy
-        }
-      };
-    });
-
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
     try {
       await withLoading('tasks', async () => {
-        // Create task with specific position
-        await createTask(newTask);
-            
-        // Now fix all positions to be sequential
-        const allColumnTasks = [...columnTasks, newTask]
-          .sort((a, b) => (a.position || 0) - (b.position || 0));
+        // Use createTaskAtTop for better positioning
+        await createTaskAtTop(newTask);
         
-        // Update all positions to be sequential: 0, 1, 2, 3...
-        const updatePromises = allColumnTasks.map((t, index) => {
-          if (t.position !== index) {
-            return updateTask({ ...t, position: index });
-          }
-          return Promise.resolve();
-        }).filter(p => p);
-        
-        await Promise.all(updatePromises);
-            
-        // Refresh to get clean state from backend
-        await refreshBoardData();
-
+        // Don't refresh - WebSocket will handle the update
       });
       
       // Set up pending animation - useEffect will trigger when columns update
@@ -2331,14 +2350,11 @@ export default function App() {
       // Resume polling after brief delay
       setTimeout(() => {
         setTaskCreationPause(false);
-
       }, TASK_CREATION_PAUSE_DURATION);
       
-      await fetchQueryLogs();
     } catch (error) {
-      // console.error('Failed to copy task:', error);
+      console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
-      await refreshBoardData();
     }
   };
 
@@ -2364,21 +2380,28 @@ export default function App() {
     }
   };
 
-  const handleTaskDragStart = (task: Task) => {
+  const handleTaskDragStart = useCallback((task: Task) => {
     // console.log('🎯 [App] handleTaskDragStart called with task:', task.id);
     setDraggedTask(task);
     // Pause polling during drag to prevent state conflicts
-  };
+  }, []);
 
   // Clear drag state (for Gantt drag end)
-  const handleTaskDragEnd = () => {
+  const handleTaskDragEnd = useCallback(() => {
     // console.log('🎯 [App] handleTaskDragEnd called - clearing draggedTask');
     setDraggedTask(null);
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
     }, DRAG_COOLDOWN_DURATION);
-  };
+  }, []);
+
+  // Clear drag state without cooldown (for multi-select exit)
+  const handleClearDragState = useCallback(() => {
+    // console.log('🎯 [App] handleClearDragState called - clearing draggedTask without cooldown');
+    setDraggedTask(null);
+    setDragCooldown(false);
+  }, []);
   
   // Failsafe: Clear drag state on any click if drag is stuck
   useEffect(() => {
@@ -2786,7 +2809,7 @@ export default function App() {
       }
         
       // Step 3: Update all target column tasks (except the moved one)
-      for (const task of updatedTargetTasks.filter(t => t.id !== updatedTask.id)) {
+      for (const task of updatedTargetTasks.filter(t => t.id !== finalMovedTask.id)) {
         await updateTask(task);
       }
         
@@ -3529,8 +3552,8 @@ export default function App() {
           onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
           onInviteUser={handleInviteUser}
-          isAutoRefreshEnabled={isAutoRefreshEnabled}
-          onToggleAutoRefresh={handleToggleAutoRefresh}
+          // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+          // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
         />
       </ThemeProvider>
     );
@@ -3599,15 +3622,15 @@ export default function App() {
         currentUser={currentUser}
         siteSettings={siteSettings}
         currentPage={currentPage}
-        isPolling={isPolling}
-        lastPollTime={lastPollTime}
+        // isPolling={isPolling} // Removed - using real-time WebSocket updates
+        // lastPollTime={lastPollTime} // Removed - using real-time WebSocket updates
         members={members}
         onProfileClick={() => setShowProfileModal(true)}
         onLogout={handleLogout}
         onPageChange={handlePageChange}
-        onRefresh={handleRefreshData}
-        isAutoRefreshEnabled={isAutoRefreshEnabled}
-        onToggleAutoRefresh={handleToggleAutoRefresh}
+          onRefresh={handleRefreshData}
+          // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+          // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
       />
@@ -3729,6 +3752,7 @@ export default function App() {
                                     getColumnTaskCount={getColumnTaskCount}
                                     onTaskDragStart={handleTaskDragStart}
                                     onTaskDragEnd={handleTaskDragEnd}
+                                    onClearDragState={handleClearDragState}
                                     onTaskDragOver={handleTaskDragOver}
                                     onRefreshBoardData={refreshBoardData}
                                     onSetDragCooldown={handleSetDragCooldown}
