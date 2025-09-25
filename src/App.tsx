@@ -2394,6 +2394,13 @@ export default function App() {
       setDragCooldown(false);
     }, DRAG_COOLDOWN_DURATION);
   }, []);
+
+  // Clear drag state without cooldown (for multi-select exit)
+  const handleClearDragState = useCallback(() => {
+    // console.log('🎯 [App] handleClearDragState called - clearing draggedTask without cooldown');
+    setDraggedTask(null);
+    setDragCooldown(false);
+  }, []);
   
   // Failsafe: Clear drag state on any click if drag is stuck
   useEffect(() => {
@@ -3744,6 +3751,7 @@ export default function App() {
                                     getColumnTaskCount={getColumnTaskCount}
                                     onTaskDragStart={handleTaskDragStart}
                                     onTaskDragEnd={handleTaskDragEnd}
+                                    onClearDragState={handleClearDragState}
                                     onTaskDragOver={handleTaskDragOver}
                                     onRefreshBoardData={refreshBoardData}
                                     onSetDragCooldown={handleSetDragCooldown}

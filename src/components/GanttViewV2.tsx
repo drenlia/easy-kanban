@@ -19,6 +19,7 @@ interface GanttViewV2Props {
   onUpdateTask?: (task: Task) => void;
   onTaskDragStart?: (task: Task) => void;
   onTaskDragEnd?: () => void;
+  onClearDragState?: () => void;
   boardId?: string | null;
   onAddTask?: (columnId: string, startDate?: string, dueDate?: string) => Promise<void>;
   currentUser?: any;
@@ -57,6 +58,7 @@ const GanttViewV2 = ({
   onUpdateTask,
   onTaskDragStart,
   onTaskDragEnd,
+  onClearDragState,
   boardId,
   onAddTask,
   currentUser,
@@ -341,8 +343,9 @@ const GanttViewV2 = ({
           setSelectedParentTask(null);
         }
         if (isMultiSelectMode) {
-          // Immediately set flag to prevent task selection
+          // Immediately set flags to prevent task selection
           isExitingMultiSelectRef.current = true;
+          isMultiSelectModeImmediateRef.current = false; // Immediately disable multi-select mode
           
           // Reset all states (custom setter will update immediate ref)
           setIsMultiSelectMode(false);
@@ -365,6 +368,11 @@ const GanttViewV2 = ({
             arrowKeyTimeoutRef.current = null;
           }
           
+          // Clear any stuck drag state without triggering cooldown
+          if (onClearDragState) {
+            onClearDragState();
+          }
+          
           // Clear the exit flag after a short delay
           setTimeout(() => {
             isExitingMultiSelectRef.current = false;
@@ -383,13 +391,15 @@ const GanttViewV2 = ({
           hasArrowTimeout: !!arrowKeyTimeoutRef.current
         });
         event.preventDefault();
+        event.stopPropagation(); // Prevent other Enter key handlers from firing
         
         // Use a single state update to ensure all changes happen atomically
         if (isRelationshipMode || isMultiSelectMode) {
           console.log('🔑 Exiting modes:', { isRelationshipMode, isMultiSelectMode });
           
-          // Immediately set flag to prevent task selection
+          // Immediately set flags to prevent task selection
           isExitingMultiSelectRef.current = true;
+          isMultiSelectModeImmediateRef.current = false; // Immediately disable multi-select mode
           
           // Reset all states in one go (custom setter will update immediate ref)
           setIsRelationshipMode(false);
@@ -415,6 +425,11 @@ const GanttViewV2 = ({
           if (arrowKeyTimeoutRef.current) {
             clearTimeout(arrowKeyTimeoutRef.current);
             arrowKeyTimeoutRef.current = null;
+          }
+          
+          // Clear any stuck drag state without triggering cooldown
+          if (onClearDragState) {
+            onClearDragState();
           }
           
           // Clear the exit flag after a short delay to allow state updates to complete
@@ -1718,7 +1733,8 @@ const GanttViewV2 = ({
       originalTaskData: {}
     });
     
-    if (onTaskDragEnd) {
+    // Only call onTaskDragEnd if there was actually a drag operation
+    if (onTaskDragEnd && localDragState.isDragging) {
       onTaskDragEnd();
     }
   }, [localDragState, columns, onUpdateTask, onTaskDragEnd, ganttTasks]);
