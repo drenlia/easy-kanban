@@ -55,7 +55,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
         console.error('Failed to fetch demo credentials:', error);
         // Fallback to default credentials
         setDemoCredentials({
-          admin: { email: 'admin@example.com', password: 'admin' },
+          admin: { email: 'admin@kanban.local', password: 'admin' },
           demo: { email: 'demo@kanban.local', password: 'demo' }
         });
       }

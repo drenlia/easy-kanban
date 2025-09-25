@@ -14,6 +14,16 @@ import { initializeDatabase } from './config/database.js';
 import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_IN } from './middleware/auth.js';
 import { attachmentUpload, avatarUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
+
+// Import generateRandomPassword function
+const generateRandomPassword = (length = 12) => {
+  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += charset.charAt(Math.floor(Math.random() * charset.length));
+  }
+  return password;
+};
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initNotificationService, getNotificationService } from './services/notificationService.js';
@@ -311,7 +321,7 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
 
 app.get('/api/auth/check-default-admin', (req, res) => {
   try {
-    const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@example.com');
+    const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
     res.json({ exists: !!defaultAdmin });
   } catch (error) {
     console.error('Error checking default admin:', error);
@@ -336,7 +346,7 @@ app.get('/api/auth/demo-credentials', (req, res) => {
     
     res.json({
       admin: {
-        email: 'admin@example.com',
+        email: 'admin@kanban.local',
         password: adminPassword || 'admin' // Fallback to default if not found
       },
       demo: {

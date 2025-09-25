@@ -377,17 +377,16 @@ const createTables = (db) => {
 
 // Initialize default data
 const initializeDefaultData = (db) => {
-  // Generate random passwords for both admin and demo users (always generate new ones)
-  const adminPassword = generateRandomPassword(12);
-  const demoPassword = generateRandomPassword(12);
-  
-  // Store passwords in settings
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ADMIN_PASSWORD', adminPassword);
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('DEMO_PASSWORD', demoPassword);
-
   // Initialize authentication data if no roles exist
   const rolesCount = db.prepare('SELECT COUNT(*) as count FROM roles').get().count;
   if (rolesCount === 0) {
+    // Generate random passwords for both admin and demo users (only when creating users)
+    const adminPassword = generateRandomPassword(12);
+    const demoPassword = generateRandomPassword(12);
+    
+    // Store passwords in settings
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ADMIN_PASSWORD', adminPassword);
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('DEMO_PASSWORD', demoPassword);
     // Insert default roles
     db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)').run('admin', 'Administrator role');
     db.prepare('INSERT INTO roles (name, description) VALUES (?, ?)').run('user', 'Regular user role');
@@ -408,6 +407,22 @@ const initializeDefaultData = (db) => {
     const adminRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('admin').id;
     db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(adminId, adminRoleId);
 
+    // Create default demo user with random password
+    const demoUserId = crypto.randomUUID();
+    const demoPasswordHash = bcrypt.hashSync(demoPassword, 10);
+    
+    // Create demo avatar
+    const demoAvatarPath = createLetterAvatar('D', demoUserId, 'demo');
+    
+    db.prepare(`
+      INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(demoUserId, 'demo@kanban.local', demoPasswordHash, 'Demo', 'User', demoAvatarPath);
+
+    // Assign user role to demo user
+    const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
+    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(demoUserId, userRoleId);
+
     // Log admin credentials for easy access
     console.log('');
     console.log('🔐 ===========================================');
@@ -415,6 +430,13 @@ const initializeDefaultData = (db) => {
     console.log('===========================================');
     console.log(`   Email: admin@kanban.local`);
     console.log(`   Password: ${adminPassword}`);
+    console.log('===========================================');
+    console.log('');
+    console.log('🔐 ===========================================');
+    console.log('   DEMO ACCOUNT CREDENTIALS');
+    console.log('===========================================');
+    console.log(`   Email: demo@kanban.local`);
+    console.log(`   Password: ${demoPassword}`);
     console.log('===========================================');
     console.log('');
 
@@ -509,34 +531,15 @@ const initializeDefaultData = (db) => {
   // Initialize default data if no boards exist
   const boardsCount = db.prepare('SELECT COUNT(*) as count FROM boards').get().count;
   if (boardsCount === 0) {
-    // Get the demo password from settings (already generated above)
-    const demoPassword = db.prepare('SELECT value FROM settings WHERE key = ?').get('DEMO_PASSWORD')?.value;
-    
-    // Create default demo user account
-    const demoUserId = crypto.randomUUID();
-    const demoPasswordHash = bcrypt.hashSync(demoPassword, 10);
-    
-    const existingDemoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@kanban.local');
-    if (!existingDemoUser) {
-      // Create demo avatar
-      const demoAvatarPath = createLetterAvatar('D', demoUserId, 'demo');
-      
-      db.prepare(`
-        INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(demoUserId, 'demo@kanban.local', demoPasswordHash, 'Demo', 'User', demoAvatarPath);
-
-      // Assign user role to demo user
-      const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
-      db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(demoUserId, userRoleId);
-
-      // Create team member for demo user
+    // Create team member for demo user (if demo user exists)
+    const demoUser = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@kanban.local');
+    if (demoUser) {
       const demoMemberId = crypto.randomUUID();
       db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)').run(
         demoMemberId, 
         'Demo User', 
         '#4ECDC4', 
-        demoUserId
+        demoUser.id
       );
     }
 
@@ -565,7 +568,8 @@ const initializeDefaultData = (db) => {
     });
 
     // Create a sample task
-    const demoMember = db.prepare('SELECT id FROM members WHERE user_id = ?').get(demoUserId);
+    const demoUserRecord = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@kanban.local');
+    const demoMember = demoUserRecord ? db.prepare('SELECT id FROM members WHERE user_id = ?').get(demoUserRecord.id) : null;
     if (demoMember) {
       const taskId = crypto.randomUUID();
       const now = new Date().toISOString();
