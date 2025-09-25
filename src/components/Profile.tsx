@@ -45,8 +45,6 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       const loadSystemSettings = async () => {
         try {
           const response = await api.get('/settings');
-          console.log('Profile: Loaded system settings:', response.data);
-          console.log('Profile: MAIL_ENABLED value:', response.data?.MAIL_ENABLED, 'Type:', typeof response.data?.MAIL_ENABLED);
           setSystemSettings(response.data || {});
         } catch (error) {
           console.error('Failed to load system settings:', error);
@@ -222,9 +220,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       // Handle avatar upload separately (non-blocking)
       if (currentUser?.authProvider === 'local' && selectedFile) {
         try {
-          console.log('📷 Uploading avatar in background...');
           await uploadAvatar(selectedFile);
-          console.log('✅ Avatar uploaded successfully');
           // The WebSocket will handle the real-time update
         } catch (avatarError) {
           console.error('❌ Avatar upload failed:', avatarError);

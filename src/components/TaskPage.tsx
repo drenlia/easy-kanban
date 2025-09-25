@@ -40,8 +40,6 @@ export default function TaskPage({
   isAutoRefreshEnabled,
   onToggleAutoRefresh
 }: TaskPageProps) {
-  console.log('🚀 TaskPage component mounting!');
-  console.log('🚀 TaskPage currentUser:', currentUser?.id);
   const [task, setTask] = useState<Task | null>(null);
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,9 +72,7 @@ export default function TaskPage({
     taskFlow: boolean;
     taskInfo: boolean;
   }>(() => {
-    console.log('📁 TaskPage: Initializing collapsed sections state');
     if (currentUser?.id) {
-      console.log('📁 TaskPage: User found during init:', currentUser.id);
       const prefs = loadUserPreferences(currentUser.id);
       console.log('📁 TaskPage: Initial preferences loaded:', prefs.taskPageCollapsed);
       if (prefs.taskPageCollapsed) {

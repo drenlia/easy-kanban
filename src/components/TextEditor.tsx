@@ -403,19 +403,16 @@ export default function TextEditor({
               deleteBtn.style.cssText = 'display: none; width: 18px; height: 18px; top: -6px; right: -6px; font-size: 12px; line-height: 1;';
               deleteBtn.onclick = (e) => {
                 e.preventDefault();
-                console.log('🔴 Image X clicked - removing image immediately');
                 
                 // STEP 1: Remove image from editor immediately
                 const pos = getPos();
                 if (typeof pos === 'number') {
                   editor.commands.deleteRange({ from: pos, to: pos + 1 });
-                  console.log('✅ Image removed from editor');
                 }
                 
                 // STEP 2: Extract filename for deletion
                 const imageFilename = node.attrs['data-filename'] || node.attrs.alt;
                 if (imageFilename) {
-                  console.log('🔍 Found filename for cleanup:', imageFilename);
                   
                   // STEP 3: Clean up local state immediately
                   setNewAttachments(prev => prev.filter(att => att.name !== imageFilename));
@@ -423,7 +420,6 @@ export default function TextEditor({
                   
                   // STEP 4: Use the global cleanup function to handle server deletion
                   if (onImageRemovalNeeded) {
-                    console.log('🧹 Calling global cleanup for:', imageFilename);
                     onImageRemovalNeeded(imageFilename);
                   }
                 }
@@ -548,7 +544,7 @@ export default function TextEditor({
     },
     editorProps: {
       attributes: {
-        class: `prose prose-sm max-w-none focus:outline-none ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${editorClassName}`,
+        class: `text-editor-prosemirror prose prose-sm max-w-none focus:outline-none ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${editorClassName}`,
         style: `min-height: ${compact ? '60px' : minHeight}`,
         placeholder: placeholder
       },
@@ -1011,45 +1007,47 @@ export default function TextEditor({
 
   return (
     <>
-      <style jsx>{`
-        .ProseMirror {
-          color: #1f2937; /* text-gray-800 */
-        }
-        .dark .ProseMirror {
-          color: #f3f4f6; /* text-gray-100 */
-        }
-        .ProseMirror p {
-          margin: 0.5rem 0;
-        }
-        .ProseMirror p:first-child {
-          margin-top: 0;
-        }
-        .ProseMirror p:last-child {
-          margin-bottom: 0;
-        }
-        .ProseMirror ul, .ProseMirror ol {
-          padding-left: 1.5rem;
-        }
-        .ProseMirror li {
-          margin: 0.25rem 0;
-        }
-        .ProseMirror a {
-          color: #3b82f6; /* text-blue-500 */
-          text-decoration: underline;
-        }
-        .dark .ProseMirror a {
-          color: #60a5fa; /* text-blue-400 */
-        }
-        .ProseMirror strong {
-          font-weight: 600;
-        }
-        .ProseMirror em {
-          font-style: italic;
-        }
-        .ProseMirror u {
-          text-decoration: underline;
-        }
-      `}</style>
+      <style dangerouslySetInnerHTML={{
+        __html: `
+          .text-editor-prosemirror {
+            color: #1f2937; /* text-gray-800 */
+          }
+          .dark .text-editor-prosemirror {
+            color: #f3f4f6; /* text-gray-100 */
+          }
+          .text-editor-prosemirror p {
+            margin: 0.5rem 0;
+          }
+          .text-editor-prosemirror p:first-child {
+            margin-top: 0;
+          }
+          .text-editor-prosemirror p:last-child {
+            margin-bottom: 0;
+          }
+          .text-editor-prosemirror ul, .text-editor-prosemirror ol {
+            padding-left: 1.5rem;
+          }
+          .text-editor-prosemirror li {
+            margin: 0.25rem 0;
+          }
+          .text-editor-prosemirror a {
+            color: #3b82f6; /* text-blue-500 */
+            text-decoration: underline;
+          }
+          .dark .text-editor-prosemirror a {
+            color: #60a5fa; /* text-blue-400 */
+          }
+          .text-editor-prosemirror strong {
+            font-weight: 600;
+          }
+          .text-editor-prosemirror em {
+            font-style: italic;
+          }
+          .text-editor-prosemirror u {
+            text-decoration: underline;
+          }
+        `
+      }} />
       <div 
         ref={editorRef}
         className={`${compact ? 'border border-gray-300 dark:border-gray-600 rounded' : 'border border-gray-300 dark:border-gray-600 rounded-lg'} overflow-hidden bg-white dark:bg-gray-800 ${className}`}

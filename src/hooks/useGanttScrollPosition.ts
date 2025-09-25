@@ -21,38 +21,30 @@ interface UseGanttScrollPositionProps {
  */
 const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | null => {
   try {
-    console.log('🎯 Looking for timeline header in DOM...');
     
     // The timeline header is a sibling of the scroll container's parent
     // Scroll container is inside the main content, timeline header is above it
     let timelineHeader = scrollContainer.parentElement?.parentElement?.querySelector('.sticky.top-\\[189px\\]');
-    console.log('🎯 Found with .sticky.top-\\[189px\\]:', !!timelineHeader);
     
     if (!timelineHeader) {
       // Try searching in the entire document
       timelineHeader = document.querySelector('.sticky.top-\\[189px\\]');
-      console.log('🎯 Found in document with .sticky.top-\\[189px\\]:', !!timelineHeader);
     }
     
     if (!timelineHeader) {
-      console.log('🎯 Timeline header not found');
       return null;
     }
     
-    console.log('🎯 Timeline header found:', timelineHeader);
     
     // Find the day number row (second row in the timeline header)
     const dayRow = timelineHeader.querySelector('.h-8.grid');
-    console.log('🎯 Day row found with .h-8.grid:', !!dayRow);
     
     if (!dayRow) {
-      console.log('🎯 Day row not found');
       return null;
     }
     
     const dayCells = dayRow.querySelectorAll('div');
     if (dayCells.length === 0) {
-      console.log('🎯 No day cells found');
       return null;
     }
     
@@ -67,7 +59,6 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
       // Check if this cell is visible (not scrolled out of view)
       if (cellRect.left >= containerRect.left) {
         const dayText = cell.textContent?.trim();
-        console.log(`🎯 Cell ${i}: day=${dayText}, left=${cellRect.left}, containerLeft=${containerRect.left}, visible=${cellRect.left >= containerRect.left}`);
         if (dayText && dayText.match(/^\d+$/)) {
           // This is a day number cell - we need to find the month/year for this specific cell
           // The month/year cells are sparse (only show on 1st and 15th), so we need to find the closest one
@@ -87,7 +78,6 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
                 if (text && text.match(/[A-Za-z]+'\d{2}/)) {
                   monthYearText = text;
                   monthYearIndex = j;
-                  console.log(`🎯 Found month/year at index ${j}: ${text}`);
                   break;
                 }
               }
@@ -106,7 +96,6 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
                 if (monthIndex !== -1) {
                   // Calculate the actual date based on the day number and month/year
                   const date = new Date(parseInt(year), monthIndex, day);
-                  console.log(`🎯 Created date for cell ${i}: ${date.toISOString().split('T')[0]}`);
                   return date.toISOString().split('T')[0];
                 }
               }
@@ -116,7 +105,6 @@ const getLeftmostVisibleDateFromDOM = (scrollContainer: HTMLElement): string | n
       }
     }
     
-    console.log('🎯 No visible day cell found');
     return null;
   } catch (error) {
     console.error('🎯 Error getting leftmost visible date from DOM:', error);
@@ -153,12 +141,10 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     const leftmostVisibleDate = getLeftmostVisibleDateFromDOM(scrollContainer);
     
     if (!leftmostVisibleDate) {
-      console.log(`🎯 Could not determine leftmost visible date from DOM`);
       return;
     }
     
     const currentLeftmostDate = leftmostVisibleDate;
-    console.log(`🎯 Leftmost visible date from DOM: ${currentLeftmostDate}`);
     
     if (!currentLeftmostDate) {
       return;
@@ -176,7 +162,6 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
 
     const performSave = async () => {
       if (!currentUser?.id) {
-        console.log('🎯 Scroll save skipped - user not logged in');
         return;
       }
 
@@ -193,15 +178,12 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
           }
         };
         
-        console.log(`🎯 About to save scroll position - boardId: ${currentBoardId}, date: ${currentLeftmostDate}, userId: ${currentUser.id}`);
-        console.log(`🎯 Scroll positions being saved:`, newScrollPositions);
         
         await saveUserPreferences({
           ...latestPreferences,
           ganttScrollPositions: newScrollPositions
         }, currentUser.id);
         
-        console.log(`🎯 saveUserPreferences completed successfully`);
         
         // Verify what was actually saved to cookie
         const cookieName = `easy-kanban-user-prefs-${currentUser.id}`;
@@ -210,15 +192,12 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
         );
         if (savedCookie) {
           const cookieData = JSON.parse(decodeURIComponent(savedCookie.split('=')[1]));
-          console.log(`🎯 Cookie after save contains:`, cookieData.ganttScrollPositions?.[currentBoardId]);
-          console.log(`🎯 Cookie save timestamp: ${new Date().toISOString()}`);
         }
         
         // Update tracking to prevent loops
         lastSavedScrollDateRef.current[currentBoardId] = currentLeftmostDate;
         setLastSavedScrollDate(currentLeftmostDate);
         
-        console.log(`🎯 Scroll position saved for board ${currentBoardId}: ${currentLeftmostDate}`);
       } catch (error) {
         console.error(`Failed to save scroll position for board ${currentBoardId}:`, error);
       }
@@ -250,11 +229,9 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
       
       const savedPosition = scrollPositions[currentBoardId];
       if (savedPosition?.date) {
-        console.log(`🎯 Loaded saved position for board ${currentBoardId}: ${savedPosition.date}`);
         return savedPosition.date;
       }
       
-      console.log(`🎯 No saved position found for board ${currentBoardId}`);
       return null;
     } catch (error) {
       console.error(`Failed to load scroll position for board ${currentBoardId}:`, error);

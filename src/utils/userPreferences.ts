@@ -227,7 +227,6 @@ export const loadAdminDefaults = async (): Promise<void> => {
       };
     }
     
-    console.log('Admin defaults loaded:', ADMIN_DEFAULT_PREFERENCES);
   } catch (error) {
     console.warn('Failed to load admin defaults, using base defaults:', error);
     ADMIN_DEFAULT_PREFERENCES = {};
@@ -286,7 +285,6 @@ export const initializeNewUserPreferences = async (userId: string): Promise<void
     // Save the defaults as the user's initial preferences
     await saveUserPreferences(defaults, userId);
     
-    console.log('New user initialized with admin defaults:', userId);
   } catch (error) {
     console.error('Failed to initialize new user preferences:', error);
     // Fallback to base defaults
@@ -541,7 +539,6 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
       
       // If we updated any preferences from database, save the merged result back to cookies
       if (needsCookieUpdate) {
-        console.log('Updating cookies with database preferences for missing/default values');
         // Save synchronously to cookies only (don't trigger another database save)
         const cookieName = getUserCookieName(userId);
         const prefsJson = JSON.stringify(preferences);

@@ -124,7 +124,6 @@ export const usePerformanceMonitor = (options: UsePerformanceMonitorOptions = {}
     }
 
     if (enableConsoleLog) {
-      console.log(`📊 ${name}: ${value.toFixed(2)}ms`);
     }
   }, [sampleRate, maxMetrics, enableConsoleLog]);
 
