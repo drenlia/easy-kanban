@@ -52,6 +52,14 @@ const parseLocalDate = (dateInput: string | Date): Date => {
   return new Date();
 };
 
+// Format date helper for local dates
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const GanttViewV2 = ({
   columns,
   onSelectTask,
@@ -509,8 +517,8 @@ const GanttViewV2 = ({
               // Create updated task object with proper date format
               const updatedTask = {
                 ...originalTask,
-                startDate: newStartDate.toISOString().split('T')[0], // Format as YYYY-MM-DD
-                dueDate: newDueDate.toISOString().split('T')[0] // Format as YYYY-MM-DD
+                startDate: formatLocalDate(newStartDate), // Format as YYYY-MM-DD
+                dueDate: formatLocalDate(newDueDate) // Format as YYYY-MM-DD
               };
               
               // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
@@ -1011,7 +1019,7 @@ const GanttViewV2 = ({
         endDate.setDate(endDate.getDate() + 90);
         
         const initialRange = generateDateRange(startDate, endDate);
-        console.log(`🎯 Generated date range: ${initialRange.length} days from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+        console.log(`🎯 Generated date range: ${initialRange.length} days from ${formatLocalDate(startDate)} to ${formatLocalDate(endDate)}`);
         setDateRange(initialRange);
         
         // If we have a saved position, position the viewport
@@ -1205,7 +1213,7 @@ const GanttViewV2 = ({
     setTaskPositions(positions);
   }, [ganttTasks, dateRange]);
 
-  // Calculate task positions when tasks change
+  // Calculate task positions when tasks change or view mode changes
   useEffect(() => {
     // Wait for DOM to update
     const timer = setTimeout(() => {
@@ -1213,7 +1221,7 @@ const GanttViewV2 = ({
     }, 100);
     
     return () => clearTimeout(timer);
-  }, [ganttTasks, calculateTaskPositions]);
+  }, [ganttTasks, calculateTaskPositions, taskViewMode]);
 
   // Create a memoized date-to-index map for O(1) lookups
   const dateToIndexMap = useMemo(() => {
@@ -1691,19 +1699,20 @@ const GanttViewV2 = ({
       const task = ganttTasks.find(t => t.id === taskId);
       
       if (task) {
+        
         const dragState = {
           isDragging: true,
           draggedTaskId: taskId,
           localTaskData: {
             [taskId]: {
-              startDate: task.startDate?.toISOString().split('T')[0] || '',
-              dueDate: task.endDate?.toISOString().split('T')[0] || ''
+              startDate: task.startDate ? formatLocalDate(task.startDate) : '',
+              dueDate: task.endDate ? formatLocalDate(task.endDate) : ''
             }
           },
           originalTaskData: {
             [taskId]: {
-              startDate: task.startDate?.toISOString().split('T')[0] || '',
-              dueDate: task.endDate?.toISOString().split('T')[0] || ''
+              startDate: task.startDate ? formatLocalDate(task.startDate) : '',
+              dueDate: task.endDate ? formatLocalDate(task.endDate) : ''
             }
           }
         };
@@ -1744,12 +1753,14 @@ const GanttViewV2 = ({
           if (dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
             const originalStart = new Date(localDragState.originalTaskData[taskId].startDate);
             const originalEnd = new Date(localDragState.originalTaskData[taskId].dueDate);
-            const duration = Math.floor((originalEnd.getTime() - originalStart.getTime()) / (1000 * 60 * 60 * 24));
+            // Add 1 day to duration since both start and end dates are inclusive
+            const duration = originalEnd.getTime() - originalStart.getTime() + (24 * 60 * 60 * 1000);
             
             newStartDate = overData.date;
             const newStart = new Date(overData.date);
-            newStart.setDate(newStart.getDate() + duration);
-            newDueDate = newStart.toISOString().split('T')[0];
+            const newEnd = new Date(newStart.getTime() + duration);
+            newDueDate = formatLocalDate(newEnd);
+            
           } else if (dragType === DRAG_TYPES.TASK_START_HANDLE) {
             newStartDate = overData.date;
             // Ensure we don't go past the end date
@@ -1803,8 +1814,8 @@ const GanttViewV2 = ({
           const task = ganttTasks.find(t => t.id === taskId);
           
           if (task) {
-            let newStartDate = task.startDate?.toISOString().split('T')[0] || '';
-            let newDueDate = task.endDate?.toISOString().split('T')[0] || '';
+            let newStartDate = task.startDate ? formatLocalDate(task.startDate) : '';
+            let newDueDate = task.endDate ? formatLocalDate(task.endDate) : '';
             
             if (dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
               // Use the final dates from local state which were updated during drag over
@@ -1826,6 +1837,7 @@ const GanttViewV2 = ({
                 newDueDate = newStartDate;
               }
             }
+            
             
             const updatedTask = {
               ...originalTask,

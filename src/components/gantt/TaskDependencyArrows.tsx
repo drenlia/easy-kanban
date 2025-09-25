@@ -75,13 +75,13 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   // Connection drawing state (simplified for icon-based approach)
   // const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
-  // Trigger position recalculation when tasks change
+  // Trigger position recalculation when tasks change or view mode changes
   useEffect(() => {
     const timer = setTimeout(() => {
       setPositionKey(prev => prev + 1);
     }, 50); // Small delay to ensure DOM is updated
     return () => clearTimeout(timer);
-  }, [ganttTasks.length]); // Only depend on task count, not positions
+  }, [ganttTasks.length, taskViewMode]); // Depend on task count and view mode
 
   // Listen for scroll events to recalculate arrows when timeline changes
   useEffect(() => {
@@ -127,8 +127,8 @@ const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
   // Generate SVG path for arrow using same positioning as tasks
   const generateArrowPath = (from: TaskPosition, to: TaskPosition): string => {
-    // Use fixed 20px column width (same as tasks)
-    const COLUMN_WIDTH = 20;
+    // Use 40px column width (same as tasks)
+    const COLUMN_WIDTH = 40;
     
     const fromX = from.x + from.width; // Right edge of parent task (end date)
     const fromY = from.y + (from.height / 2); // Vertical center of parent task

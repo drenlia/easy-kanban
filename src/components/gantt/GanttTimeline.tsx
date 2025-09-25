@@ -6,6 +6,14 @@ import { MoveHandle } from './MoveHandle';
 import { DRAG_TYPES, GanttDragItem } from './types';
 import TaskDependencyArrows from './TaskDependencyArrows';
 
+// Format date helper for local dates
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 interface GanttTask {
   id: string;
   ticket: string;
@@ -143,7 +151,12 @@ const TaskBar = ({
     // Create a temporary map for this lookup to avoid O(n) findIndex
     const tempDateMap = new Map();
     dateRange.forEach((d: any, index: number) => {
-      tempDateMap.set(d.date.toISOString().split('T')[0], index);
+      // Format date as local date to avoid timezone issues
+      const year = d.date.getFullYear();
+      const month = String(d.date.getMonth() + 1).padStart(2, '0');
+      const day = String(d.date.getDate()).padStart(2, '0');
+      const localDateStr = `${year}-${month}-${day}`;
+      tempDateMap.set(localDateStr, index);
     });
     
     const localStartIndex = tempDateMap.get(localDates.startDate) ?? -1;
@@ -192,7 +205,7 @@ const TaskBar = ({
             taskId={task.id}
             task={{
               ...task,
-              dueDate: task.endDate?.toISOString().split('T')[0] || ''
+              dueDate: task.endDate ? formatLocalDate(task.endDate) : ''
             } as any}
             handleType="start"
             onDateChange={() => {}}
@@ -202,7 +215,7 @@ const TaskBar = ({
             taskId={task.id}
             task={{
               ...task,
-              dueDate: task.endDate?.toISOString().split('T')[0] || ''
+              dueDate: task.endDate ? formatLocalDate(task.endDate) : ''
             } as any}
             handleType="end"
             onDateChange={() => {}}
@@ -217,7 +230,7 @@ const TaskBar = ({
           taskId={task.id}
           task={{
             ...task,
-            dueDate: task.endDate?.toISOString().split('T')[0] || ''
+            dueDate: task.endDate ? formatLocalDate(task.endDate) : ''
           } as any}
           onTaskMove={() => {}}
         />
@@ -363,21 +376,21 @@ const GanttTimeline = ({
             <div
               key={`create-${index}`}
               className={`border-r border-blue-300 dark:border-blue-600 ${
-                taskCreationStart?.date === dateCol.date.toISOString().split('T')[0] ? 'bg-blue-200 dark:bg-blue-700' : ''
+                taskCreationStart?.date === formatLocalDate(dateCol.date) ? 'bg-blue-200 dark:bg-blue-700' : ''
               }`}
               style={{ minWidth: '40px' }}
-              onMouseDown={(e) => onTaskCreationMouseDown(e, dateCol.date.toISOString().split('T')[0])}
-              onMouseEnter={(e) => onTaskCreationMouseEnter(e, dateCol.date.toISOString().split('T')[0])}
+              onMouseDown={(e) => onTaskCreationMouseDown(e, formatLocalDate(dateCol.date))}
+              onMouseEnter={(e) => onTaskCreationMouseEnter(e, formatLocalDate(dateCol.date))}
             />
           ))}
           
           {/* Task creation preview */}
           {isCreatingTask && taskCreationStart && taskCreationEnd && (() => {
             const startIdx = dateRange.findIndex(d => 
-              d.date.toISOString().split('T')[0] === taskCreationStart.date
+              formatLocalDate(d.date) === taskCreationStart.date
             );
             const endIdx = dateRange.findIndex(d => 
-              d.date.toISOString().split('T')[0] === taskCreationEnd.date
+              formatLocalDate(d.date) === taskCreationEnd.date
             );
             
             if (startIdx >= 0 && endIdx >= 0) {
@@ -451,7 +464,7 @@ const GanttTimeline = ({
                       taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'
                     } hover:bg-blue-50 dark:hover:bg-blue-900 transition-colors ${
                       taskViewMode === 'compact' ? 'h-12' : 
-                      taskViewMode === 'shrink' ? 'h-20' : 'h-20'
+                      taskViewMode === 'shrink' ? 'h-14' : 'h-20'
                     }`}
                   >
                     {/* Background grid - Always visible */}
@@ -474,17 +487,27 @@ const GanttTimeline = ({
                       activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE || 
                       activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) && (
                       <div className="absolute inset-0 grid" style={{ gridTemplateColumns: `repeat(${dateRange.length}, 40px)` }}>
-                        {dateRange.map((dateCol, dateIndex) => (
-                          <DroppableCell
-                            key={`cell-${task.id}-${dateIndex}`}
-                            dateString={dateCol.date.toISOString().split('T')[0]}
-                            dateIndex={dateIndex}
-                            isToday={dateCol.isToday}
-                            isWeekend={dateCol.isWeekend}
-                            activeDragItem={activeDragItem}
-                            disabled={false}
-                          />
-                        ))}
+                        {dateRange.map((dateCol, dateIndex) => {
+                          // Format date as local date to avoid timezone issues
+                          const formatLocalDate = (date: Date) => {
+                            const year = date.getFullYear();
+                            const month = String(date.getMonth() + 1).padStart(2, '0');
+                            const day = String(date.getDate()).padStart(2, '0');
+                            return `${year}-${month}-${day}`;
+                          };
+                          
+                          return (
+                            <DroppableCell
+                              key={`cell-${task.id}-${dateIndex}`}
+                              dateString={formatLocalDate(dateCol.date)}
+                              dateIndex={dateIndex}
+                              isToday={dateCol.isToday}
+                              isWeekend={dateCol.isWeekend}
+                              activeDragItem={activeDragItem}
+                              disabled={false}
+                            />
+                          );
+                        })}
                       </div>
                     )}
                     

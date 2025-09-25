@@ -62,16 +62,20 @@ export const OptimizedTaskBar = ({
       
       if (activeDragItem.dragType === DRAG_TYPES.TASK_MOVE_HANDLE) {
         // For moving, shift both start and end
-        const dragOffset = parseInt(currentHoverDate.split('-')[2]) - (task.startDate?.getDate() || 0);
+        const hoverDate = new Date(currentHoverDate);
+        const taskStartDate = new Date(task.startDate);
+        const dragOffset = hoverDate.getDate() - taskStartDate.getDate();
         startIdx += dragOffset;
         endIdx = startIdx + taskDuration;
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_START_HANDLE) {
         // For start resize, only change start
-        const newStart = parseInt(currentHoverDate.split('-')[2]);
+        const hoverDate = new Date(currentHoverDate);
+        const newStart = hoverDate.getDate();
         startIdx = Math.min(newStart - 1, endIdx); // Don't go past end
       } else if (activeDragItem.dragType === DRAG_TYPES.TASK_END_HANDLE) {
         // For end resize, only change end
-        const newEnd = parseInt(currentHoverDate.split('-')[2]);
+        const hoverDate = new Date(currentHoverDate);
+        const newEnd = hoverDate.getDate();
         endIdx = Math.max(newEnd - 1, startIdx); // Don't go before start
       }
     }
@@ -151,7 +155,7 @@ export const OptimizedTaskBar = ({
     <div
       className={`absolute ${isDragging ? 'opacity-50 z-30' : 'z-20'} 
         ${taskViewMode === 'compact' ? 'h-8' : 
-          taskViewMode === 'shrink' ? 'h-10' : 
+          taskViewMode === 'shrink' ? 'h-8' : 
           'h-12'} 
         top-1 transition-opacity duration-200`}
       style={{

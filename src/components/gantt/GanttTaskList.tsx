@@ -160,7 +160,7 @@ const TaskRow = memo(({
       style={style}
       className={`relative p-2 border-b border-gray-100 ${
         taskViewMode === 'compact' ? 'h-12' : 
-        taskViewMode === 'shrink' ? 'h-20' : 
+        taskViewMode === 'shrink' ? 'h-14' : 
         'h-20'
       } ${taskIndex % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700'} 
       hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 ease-out ${
