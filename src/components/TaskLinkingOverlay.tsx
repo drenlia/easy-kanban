@@ -40,7 +40,6 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
       // If mouse up happens on the overlay (not on a task), cancel linking
       const target = event.target as Element;
       if (!target.closest('.task-card')) {
-        console.log('🚫 Mouse up outside task - canceling linking');
         onCancelLinking();
       }
     };

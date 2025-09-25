@@ -41,11 +41,9 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
 
   // Build task tree from optimized API response
   const buildTaskTreeFromAPI = async (rootTaskId: string): Promise<{ tasks: Map<string, any>, relationships: any[] }> => {
-    console.log(`🚀 TaskFlowChart: Fetching flow chart data for: ${rootTaskId}`);
     
     try {
       const flowData = await getTaskFlowChart(rootTaskId);
-      console.log(`✅ TaskFlowChart: Received flow data:`, flowData);
       
       // Convert tasks array to map for easier lookup
       const tasksMap = new Map();
@@ -84,8 +82,6 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       });
       setAvailableStatuses(Array.from(statuses).sort());
       
-      console.log(`🌳 TaskFlowChart: Built tree with ${tasksMap.size} tasks and ${flowData.relationships.length} relationships`);
-      console.log(`🎯 TaskFlowChart: Available statuses:`, Array.from(statuses));
       return { tasks: tasksMap, relationships: flowData.relationships };
       
     } catch (error) {

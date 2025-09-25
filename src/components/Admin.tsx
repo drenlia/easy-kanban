@@ -160,22 +160,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
     // Tag management event handlers
     const handleTagCreated = async (data: any) => {
-      console.log('📨 Admin: Tag created via WebSocket:', data);
       try {
         const tags = await getTags();
         setTags(tags);
-        console.log('📨 Admin: Tags refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh tags after creation:', error);
       }
     };
 
     const handleTagUpdated = async (data: any) => {
-      console.log('📨 Admin: Tag updated via WebSocket:', data);
       try {
         const tags = await getTags();
         setTags(tags);
-        console.log('📨 Admin: Tags refreshed after update');
       } catch (error) {
         console.error('Failed to refresh tags after update:', error);
       }

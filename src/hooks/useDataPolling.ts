@@ -287,14 +287,10 @@ export const useDataPolling = ({
             if (columnsChanged) {
               // Check if we just updated from WebSocket to avoid overriding
               if (window.justUpdatedFromWebSocket) {
-                console.log('🔄 Polling: Skipping column update due to recent WebSocket update');
                 return;
               }
-              console.log('🔄 Polling detected column changes, updating...');
-              console.log('🔄 Polling: New columns data:', currentBoard.columns);
               onColumnsUpdate(currentBoard.columns || {});
             } else {
-              console.log('🔄 Polling: No column changes detected');
             }
           }
         }

@@ -221,9 +221,7 @@ const GanttViewV2 = ({
   
   // Navigate to a specific date with sliding window
   const navigateToDate = useCallback((targetDate: Date, position: 'start' | 'center' | 'end' = 'center') => {
-    console.log('navigateToDate called with:', targetDate, position);
     if (!scrollContainerRef.current) {
-      console.log('No scroll container ref');
       return;
     }
     
@@ -243,7 +241,6 @@ const GanttViewV2 = ({
       newEnd.setDate(newEnd.getDate() + VIEWPORT_DAYS / 2);
     }
     
-    console.log('Generating new range from', newStart, 'to', newEnd);
     // Generate new range
     const newRange = generateDateRange(newStart, newEnd);
     setDateRange(newRange);
@@ -254,7 +251,6 @@ const GanttViewV2 = ({
         d.date.toISOString().split('T')[0] === targetDate.toISOString().split('T')[0]
       );
       
-      console.log('Target index:', targetIndex);
       if (targetIndex >= 0 && scrollContainerRef.current) {
         const container = scrollContainerRef.current;
         let scrollPosition;
@@ -267,7 +263,6 @@ const GanttViewV2 = ({
           scrollPosition = (targetIndex * 40) - (container.clientWidth / 2) + 20;
         }
         
-        console.log('Scrolling to position:', scrollPosition);
         container.scrollLeft = Math.max(0, scrollPosition);
         
         // Save scroll position after navigation
@@ -400,19 +395,11 @@ const GanttViewV2 = ({
       
       // Handle Enter key to exit relationship mode and multi-select mode
       if (event.key === 'Enter') {
-        console.log('🔑 Enter key pressed:', { 
-          isRelationshipMode, 
-          isMultiSelectMode, 
-          selectedTasks,
-          isArrowKeyPressed: isArrowKeyPressedRef.current,
-          hasArrowTimeout: !!arrowKeyTimeoutRef.current
-        });
         event.preventDefault();
         event.stopPropagation(); // Prevent other Enter key handlers from firing
         
         // Use a single state update to ensure all changes happen atomically
         if (isRelationshipMode || isMultiSelectMode) {
-          console.log('🔑 Exiting modes:', { isRelationshipMode, isMultiSelectMode });
           
           // Immediately set flags to prevent task selection
           isExitingMultiSelectRef.current = true;
@@ -452,7 +439,6 @@ const GanttViewV2 = ({
           // Clear the exit flag after a short delay to allow state updates to complete
           setTimeout(() => {
             isExitingMultiSelectRef.current = false;
-            console.log('🔑 Multi-select exit completed');
           }, 100);
         }
         return;
@@ -461,22 +447,15 @@ const GanttViewV2 = ({
       // Handle arrow key navigation for selected tasks (only in multi-select mode)
       if (isMultiSelectModeRef.current && selectedTasksRef.current.length > 0) {
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-          // console.log('🔑 Arrow key pressed:', { 
-          //   key: event.key, 
-          //   selectedTasks, 
-          //   isArrowKeyPressed: isArrowKeyPressedRef.current 
-          // });
           event.preventDefault();
           
           // If arrow key is already being processed, ignore this event
           if (isArrowKeyPressedRef.current) {
-            // console.log('🔑 Arrow key ignored - already processing');
             return;
           }
           
           // Set flag to prevent multiple rapid calls
           isArrowKeyPressedRef.current = true;
-          // console.log('🔑 Arrow key processing started');
           
           const moveAmount = event.key === 'ArrowLeft' ? -1 : 1; // Move left or right by 1 day
           
@@ -487,9 +466,6 @@ const GanttViewV2 = ({
           
           // Move all selected tasks
           selectedTasksRef.current.forEach(async (taskId) => {
-            // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-            //   console.log('🔑 Moving task:', { taskId });
-            // }
             // Find the original task from columns to get the full task data
             const originalTask = Object.values(columnsRef.current)
               .flatMap(col => col.tasks || [])
@@ -497,16 +473,6 @@ const GanttViewV2 = ({
               
             if (originalTask && originalTask.startDate && originalTask.dueDate && onUpdateTask) {
               const isOneDayTask = originalTask.startDate === originalTask.dueDate;
-              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-              //   console.log('🔑 Task details:', { 
-              //     taskId, 
-              //     title: originalTask.title,
-              //     isOneDayTask,
-              //     startDate: originalTask.startDate,
-              //     dueDate: originalTask.dueDate,
-              //     moveAmount
-              //   });
-              // }
               
               const newStartDate = new Date(originalTask.startDate);
               const newDueDate = new Date(originalTask.dueDate);
@@ -521,31 +487,15 @@ const GanttViewV2 = ({
                 dueDate: formatLocalDate(newDueDate) // Format as YYYY-MM-DD
               };
               
-              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-              //   console.log('🔑 Updating task:', { 
-              //     taskId, 
-              //     oldStart: originalTask.startDate,
-              //     oldDue: originalTask.dueDate,
-              //     newStart: updatedTask.startDate,
-              //     newDue: updatedTask.dueDate
-              //   });
-              // }
               
               // Update the task
               await onUpdateTask(updatedTask);
-              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-              //   console.log('🔑 Task update completed:', { taskId });
-              // }
             } else {
-              // if (taskId === 'b9b6029c-9ee7-4914-8e68-86d993e62a92') {
-              //   console.log('🔑 Task not found or missing data:', { taskId, originalTask });
-              // }
             }
           });
           
           // Reset flag after a short delay to allow for single key presses
           arrowKeyTimeoutRef.current = setTimeout(() => {
-            // console.log('🔑 Arrow key processing completed');
             isArrowKeyPressedRef.current = false;
           }, 100); // 100ms debounce
         }
@@ -554,11 +504,6 @@ const GanttViewV2 = ({
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-        // console.log('🔑 Arrow key released:', { 
-        //   key: event.key,
-        //   isArrowKeyPressed: isArrowKeyPressedRef.current,
-        //   hasArrowTimeout: !!arrowKeyTimeoutRef.current
-        // });
         // Reset flag immediately on key release
         isArrowKeyPressedRef.current = false;
         if (arrowKeyTimeoutRef.current) {
@@ -702,13 +647,10 @@ const GanttViewV2 = ({
         }
         
         // Save scroll position after any scroll event (debounced)
-        console.log(`🎯 Scroll event - isBoardLoading: ${isBoardLoading}, isInitializing: ${isInitializing}, isSwitchingBoards: ${isSwitchingBoards}`);
         if (!isBoardLoading && !isInitializing && !isSwitchingBoards) {
-          console.log(`🎯 Saving scroll position...`);
           saveCurrentScrollPosition(timeline, dateRange);
           // Update debug overlay after saving with a longer delay to ensure cookie is written
         } else {
-          console.log(`🎯 Skipping scroll save - board loading, initializing, or switching`);
         }
       }, 100); // 100ms throttle
     };
@@ -723,10 +665,8 @@ const GanttViewV2 = ({
 
   // Load priorities
   useEffect(() => {
-    console.log('🔄 Loading priorities...');
     getAllPriorities()
       .then(priorities => {
-        console.log('✅ Priorities loaded:', priorities);
         setPriorities(priorities);
       })
       .catch(error => {
@@ -816,44 +756,36 @@ const GanttViewV2 = ({
   // WebSocket listeners for priority updates
   useEffect(() => {
     const handlePriorityUpdated = async (data: any) => {
-      console.log('📨 GanttViewV2: Priority updated via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setPriorities(priorities);
-        console.log('📨 GanttViewV2: Priorities refreshed after update');
       } catch (error) {
         console.error('Failed to refresh priorities after update:', error);
       }
     };
 
     const handlePriorityCreated = async (data: any) => {
-      console.log('📨 GanttViewV2: Priority created via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setPriorities(priorities);
-        console.log('📨 GanttViewV2: Priorities refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh priorities after creation:', error);
       }
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      console.log('📨 GanttViewV2: Priority deleted via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setPriorities(priorities);
-        console.log('📨 GanttViewV2: Priorities refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh priorities after deletion:', error);
       }
     };
 
     const handlePriorityReordered = async (data: any) => {
-      console.log('📨 GanttViewV2: Priority reordered via WebSocket:', data);
       try {
         const priorities = await getAllPriorities();
         setPriorities(priorities);
-        console.log('📨 GanttViewV2: Priorities refreshed after reorder');
       } catch (error) {
         console.error('Failed to refresh priorities after reorder:', error);
       }
@@ -879,8 +811,6 @@ const GanttViewV2 = ({
     const handleTaskUpdated = async (data: any) => {
       // Only debug for specific task
       if (data.task && data.task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
-        console.log('📨 WebSocket task-updated event for tracked task:', data.task);
-        console.log('📨 Task priority in WebSocket:', data.task.priority);
       }
       // Only refresh if the task is for the current board
       if (data.boardId === boardId && onRefreshData) {
@@ -896,7 +826,6 @@ const GanttViewV2 = ({
             }, 2000);
           }
           await onRefreshData();
-          console.log('📨 Board data refreshed successfully');
         } catch (error) {
           console.error('Failed to refresh board data after task update:', error);
         }
@@ -904,12 +833,10 @@ const GanttViewV2 = ({
     };
 
     const handleTaskCreated = async (data: any) => {
-      console.log('📨 GanttViewV2: Task created via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === boardId && onRefreshData) {
         try {
           await onRefreshData();
-          console.log('📨 GanttViewV2: Board data refreshed after task creation');
         } catch (error) {
           console.error('Failed to refresh board data after task creation:', error);
         }
@@ -917,7 +844,6 @@ const GanttViewV2 = ({
     };
 
     const handleTaskDeleted = async (data: any) => {
-      console.log('📨 GanttViewV2: Task deleted via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === boardId && onRefreshData) {
         try {

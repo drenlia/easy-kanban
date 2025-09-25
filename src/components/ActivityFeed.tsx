@@ -169,7 +169,6 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         const newY = Math.max(66, viewportHeight - expandedHeight - 20); // 66 is header height + gap
         const adjustedPosition = { x: position.x, y: newY };
         
-        console.log(`Adjusting position on maximize: ${currentY} -> ${newY} (height: ${expandedHeight})`);
         onPositionChange?.(adjustedPosition);
         
         // Save the adjusted position
