@@ -53,7 +53,7 @@ interface DependencyArrow {
   color: string;
 }
 
-export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
+const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   ganttTasks,
   taskPositions,
   isRelationshipMode = false,
@@ -75,13 +75,13 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
   // Connection drawing state (simplified for icon-based approach)
   // const [hoveredTask, setHoveredTask] = useState<string | null>(null);
 
-  // Trigger position recalculation when tasks change
+  // Trigger position recalculation when tasks change or view mode changes
   useEffect(() => {
     const timer = setTimeout(() => {
       setPositionKey(prev => prev + 1);
     }, 50); // Small delay to ensure DOM is updated
     return () => clearTimeout(timer);
-  }, [ganttTasks.length]); // Only depend on task count, not positions
+  }, [ganttTasks.length, taskViewMode]); // Depend on task count and view mode
 
   // Listen for scroll events to recalculate arrows when timeline changes
   useEffect(() => {
@@ -127,8 +127,8 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
 
   // Generate SVG path for arrow using same positioning as tasks
   const generateArrowPath = (from: TaskPosition, to: TaskPosition): string => {
-    // Use fixed 20px column width (same as tasks)
-    const COLUMN_WIDTH = 20;
+    // Use 40px column width (same as tasks)
+    const COLUMN_WIDTH = 40;
     
     const fromX = from.x + from.width; // Right edge of parent task (end date)
     const fromY = from.y + (from.height / 2); // Vertical center of parent task
@@ -301,14 +301,10 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
             key={`arrow-path-${arrow.id}-${arrow.path.slice(0,20)}`}
             d={arrow.path}
             stroke={arrow.color}
-            strokeWidth={hoveredArrow === arrow.id ? 4 : 3}
+            strokeWidth={3}
             strokeOpacity={0.5}
             fill="none"
             markerEnd={`url(#arrow-${arrow.relationship})`}
-            className="transition-all duration-200"
-            style={{
-              filter: hoveredArrow === arrow.id ? 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' : 'none'
-            }}
           />
           
           {/* Invisible wider path for easier hovering */}
@@ -327,7 +323,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
             onMouseLeave={() => {
               hoverTimeoutRef.current = setTimeout(() => {
                 setHoveredArrow(null);
-              }, 100);
+              }, 500);
             }}
           />
           
@@ -363,7 +359,7 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
                       onMouseLeave={() => {
                         hoverTimeoutRef.current = setTimeout(() => {
                           setHoveredArrow(null);
-                        }, 100);
+                        }, 500);
                       }}
                     />
                     {/* Delete button background */}
@@ -413,3 +409,5 @@ export const TaskDependencyArrows: React.FC<TaskDependencyArrowsProps> = ({
     </div>
   );
 };
+
+export default TaskDependencyArrows;

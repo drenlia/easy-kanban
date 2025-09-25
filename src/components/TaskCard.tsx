@@ -872,7 +872,6 @@ export default function TaskCard({
               onFinishLinking(task);
             } else {
               // Same task - cancel linking
-              console.log('🔗 Released on same task - canceling linking');
               onFinishLinking(null);
             }
           }

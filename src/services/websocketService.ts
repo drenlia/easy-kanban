@@ -103,6 +103,18 @@ class WebSocketService {
       this.io?.emit('member-updated', data);
     });
 
+    // Task relationship created
+    redisService.subscribe('task-relationship-created', (data) => {
+      console.log('📨 Broadcasting task-relationship-created:', data);
+      this.io?.to(`board-${data.boardId}`).emit('task-relationship-created', data);
+    });
+
+    // Task relationship deleted
+    redisService.subscribe('task-relationship-deleted', (data) => {
+      console.log('📨 Broadcasting task-relationship-deleted:', data);
+      this.io?.to(`board-${data.boardId}`).emit('task-relationship-deleted', data);
+    });
+
     // Activity updates
     redisService.subscribe('activity-updated', (data) => {
       console.log('📨 Broadcasting activity-updated:', data);

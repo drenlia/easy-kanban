@@ -37,12 +37,18 @@ interface GanttHeaderProps {
   setIsMultiSelectMode: (mode: boolean) => void;
   selectedTasks: string[];
   setSelectedTasks: (tasks: string[]) => void;
+  setHighlightedTaskId?: (taskId: string | null) => void;
+  resetArrowKeyState?: () => void;
   
   // Loading state
   isLoading: boolean;
   
   // Task jump handler
   onJumpToTask: (task: GanttTask) => void;
+  
+  // Relationship mode handlers
+  selectedParentTask?: string | null;
+  setSelectedParentTask?: (taskId: string | null) => void;
 }
 
 export const GanttHeader: React.FC<GanttHeaderProps> = ({
@@ -59,8 +65,12 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
   setIsMultiSelectMode,
   selectedTasks,
   setSelectedTasks,
+  setHighlightedTaskId,
+  resetArrowKeyState,
   isLoading,
-  onJumpToTask
+  onJumpToTask,
+  selectedParentTask,
+  setSelectedParentTask
 }) => {
   return (
     <div className="border-b border-gray-200 p-4">
@@ -86,6 +96,8 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
                     // Exit multi-select mode and clear selections
                     setIsMultiSelectMode(false);
                     setSelectedTasks([]);
+                    setHighlightedTaskId?.(null); // Clear any highlighted tasks
+                    resetArrowKeyState?.(); // Reset arrow key state to prevent frozen tasks
                   } else {
                     // Enter multi-select mode
                     setIsMultiSelectMode(true);
@@ -138,8 +150,9 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
               if (isRelationshipMode) {
                 // Exit relationship mode and clear selected parent
                 setIsRelationshipMode(false);
-                // Note: setSelectedParentTask is not available in GanttHeader
-                // The keyboard handler will clear it
+                if (setSelectedParentTask) {
+                  setSelectedParentTask(null);
+                }
               } else {
                 // Enter relationship mode
                 setIsRelationshipMode(true);

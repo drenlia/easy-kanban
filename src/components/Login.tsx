@@ -56,7 +56,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
         // Fallback to default credentials
         setDemoCredentials({
           admin: { email: 'admin@example.com', password: 'admin' },
-          demo: { email: 'demo@example.com', password: 'demo' }
+          demo: { email: 'demo@kanban.local', password: 'demo' }
         });
       }
     };
@@ -146,11 +146,9 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
     try {
       // Store intended destination before OAuth redirect
       if (intendedDestination) {
-        console.log('🎯 Storing intended destination before Google OAuth:', intendedDestination);
         localStorage.setItem('oauthIntendedDestination', intendedDestination);
       } else {
         // Clear any stale intended destination for normal login
-        console.log('🎯 Clearing stale intended destination for normal Google OAuth login');
         localStorage.removeItem('oauthIntendedDestination');
       }
 

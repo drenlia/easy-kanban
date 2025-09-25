@@ -11,9 +11,9 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
   const allTasks = Object.values(filteredColumns).flatMap(column => column.tasks || []);
   const totalTasks = allTasks.length;
   
-  // Count completed tasks (tasks in finished columns)
+  // Count completed tasks (tasks in finished or archived columns)
   const completedTasks = Object.values(filteredColumns)
-    .filter(column => column.is_finished)
+    .filter(column => column.is_finished || column.is_archived)
     .flatMap(column => column.tasks || [])
     .length;
   

@@ -683,7 +683,6 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
         
         // If we're near the beginning and can load more, load earlier dates first
         if (container.scrollLeft < container.clientWidth && !isLoading) {
-          console.log('Loading earlier dates for Earlier button...');
           await loadEarlier();
           // After loading, the scroll position is automatically adjusted
         } else {
@@ -704,7 +703,6 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
         
         // If we're near the end and can load more, load later dates first
         if (container.scrollLeft > maxScroll - container.clientWidth && !isLoading) {
-          console.log('Loading later dates for Later button...');
           await loadLater();
           // Continue with normal scroll after loading
         }

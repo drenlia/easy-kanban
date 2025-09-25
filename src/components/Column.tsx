@@ -692,6 +692,7 @@ export default function KanbanColumn({
           /* Column with tasks - use SortableContext */
           <SortableContext
             items={[...filteredTasks]
+              .filter(task => task && task.id) // Filter out null/undefined tasks
               .sort((a, b) => (a.position || 0) - (b.position || 0))
               .map(task => task.id) // Use filtered tasks to match what's actually rendered
             }
