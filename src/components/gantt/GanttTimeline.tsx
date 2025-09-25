@@ -128,10 +128,6 @@ const TaskBar = ({
 }: any) => {
   const { startDayIndex, endDayIndex } = gridPosition;
   
-  // Debug for specific task
-  if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
-    console.log('🎨 TaskBar: task priority:', task.priority, 'color:', getPriorityColor(task.priority));
-  }
   
   
   // Calculate display position based on drag state and local data
