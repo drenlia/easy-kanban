@@ -74,6 +74,14 @@ import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
+// Extend Window interface for WebSocket flags
+declare global {
+  interface Window {
+    justUpdatedFromWebSocket?: boolean;
+    setJustUpdatedFromWebSocket?: (value: boolean) => void;
+  }
+}
+
 
 
 export default function App() {
@@ -88,7 +96,7 @@ export default function App() {
   const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
   
   // Auto-refresh toggle state (loaded from user preferences)
-  const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true);
+  // const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true); // Disabled - using real-time updates
   const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
     x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
     y: 66 
@@ -574,27 +582,27 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       const prefs = loadUserPreferences(currentUser.id);
-      setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true);
+      // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
     }
   }, [currentUser]);
 
-  // Auto-refresh toggle handler
-  const handleToggleAutoRefresh = useCallback(async () => {
-    const newValue = !isAutoRefreshEnabled;
-    setIsAutoRefreshEnabled(newValue);
-    
-    // Save to user preferences
-    if (currentUser) {
-      try {
-        await updateUserPreference('appSettings', {
-          ...loadUserPreferences(currentUser.id).appSettings,
-          autoRefreshEnabled: newValue
-        }, currentUser.id);
-      } catch (error) {
-        // console.error('Failed to save auto-refresh preference:', error);
-      }
-    }
-  }, [isAutoRefreshEnabled, currentUser]);
+  // Auto-refresh toggle handler - DISABLED (using real-time updates)
+  // const handleToggleAutoRefresh = useCallback(async () => {
+  //   const newValue = !isAutoRefreshEnabled;
+  //   setIsAutoRefreshEnabled(newValue);
+  //   
+  //   // Save to user preferences
+  //   if (currentUser) {
+  //     try {
+  //       await updateUserPreference('appSettings', {
+  //         ...loadUserPreferences(currentUser.id).appSettings,
+  //         autoRefreshEnabled: newValue
+  //       }, currentUser.id);
+  //     } catch (error) {
+  //       // console.error('Failed to save auto-refresh preference:', error);
+  //     }
+  //   }
+  // }, [isAutoRefreshEnabled, currentUser]);
 
   // Activity feed toggle handler
   const handleActivityFeedToggle = (enabled: boolean) => {
@@ -812,6 +820,11 @@ export default function App() {
     const handleTaskUpdated = (data: any) => {
       // Only update if the task is for the current board
       if (data.boardId === selectedBoard && data.task) {
+        // Skip if this update came from GanttViewV2 (it handles its own updates via onRefreshData)
+        if (window.justUpdatedFromWebSocket) {
+          return;
+        }
+        
         // Throttle updates to prevent performance issues
         const now = Date.now();
         if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
@@ -819,23 +832,35 @@ export default function App() {
         }
         lastWebSocketUpdateRef.current = now;
         
-        // Optimized: Update the specific task instead of full refresh
+        // Handle task updates including cross-column moves
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
+          const taskId = data.task.id;
+          const newColumnId = data.task.columnId;
+          
+          // First, remove the task from all columns (in case it moved)
           Object.keys(updatedColumns).forEach(columnId => {
             const column = updatedColumns[columnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === data.task.id);
+            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
             if (taskIndex !== -1) {
               updatedColumns[columnId] = {
                 ...column,
                 tasks: [
                   ...column.tasks.slice(0, taskIndex),
-                  data.task,
                   ...column.tasks.slice(taskIndex + 1)
                 ]
               };
             }
           });
+          
+          // Then, add the task to its new column
+          if (updatedColumns[newColumnId]) {
+            updatedColumns[newColumnId] = {
+              ...updatedColumns[newColumnId],
+              tasks: [...updatedColumns[newColumnId].tasks, data.task]
+            };
+          }
+          
           return updatedColumns;
         });
       }
@@ -1436,7 +1461,7 @@ export default function App() {
 
   const handleRefreshData = async () => {
     await refreshBoardData();
-    updateLastPollTime(); // Update the last poll time when manual refresh is triggered
+    // updateLastPollTime(); // Removed - no longer using polling system
   };
 
   // Task linking handlers
@@ -1917,36 +1942,23 @@ export default function App() {
   }, [isAuthenticated, includeSystem, currentUser?.id]);
 
   // Update columns when selected board changes
+  // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
     if (selectedBoard) {
-      // When polling is disabled, always refresh from server to get fresh data
-      // When polling is enabled, use cached data for better performance
-      if (!isAutoRefreshEnabled) {
-        // Polling disabled - always refresh from server to ensure fresh data
-        refreshBoardData();
-      } else {
-        // Polling enabled - use cached data for better performance
-        const board = boards.find(b => b.id === selectedBoard);
-        if (board) {
-          // Update columns immediately from the boards array
-          setColumns(board.columns || {});
-          
-          // Always load relationships when switching boards (even with polling enabled)
-          getBoardTaskRelationships(selectedBoard)
-            .then(relationships => {
-              setBoardRelationships(relationships);
-            })
-            .catch(error => {
-              console.warn('Failed to load relationships:', error);
-              setBoardRelationships([]);
-            });
-        } else {
-          // If board not found in current array, refresh from server
-          refreshBoardData();
-        }
-      }
+      // Always refresh from server to get fresh data (no polling, so always fresh)
+      refreshBoardData();
+      
+      // Load relationships when switching boards
+      getBoardTaskRelationships(selectedBoard)
+        .then(relationships => {
+          setBoardRelationships(relationships);
+        })
+        .catch(error => {
+          console.warn('Failed to load relationships:', error);
+          setBoardRelationships([]);
+        });
     }
-  }, [selectedBoard, isAutoRefreshEnabled]);
+  }, [selectedBoard]);
 
   // Set default member selection when both members and currentUser are available
   useEffect(() => {
@@ -2797,7 +2809,7 @@ export default function App() {
       }
         
       // Step 3: Update all target column tasks (except the moved one)
-      for (const task of updatedTargetTasks.filter(t => t.id !== updatedTask.id)) {
+      for (const task of updatedTargetTasks.filter(t => t.id !== finalMovedTask.id)) {
         await updateTask(task);
       }
         
@@ -3540,8 +3552,8 @@ export default function App() {
           onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
           onInviteUser={handleInviteUser}
-          isAutoRefreshEnabled={isAutoRefreshEnabled}
-          onToggleAutoRefresh={handleToggleAutoRefresh}
+          // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+          // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
         />
       </ThemeProvider>
     );
@@ -3610,15 +3622,15 @@ export default function App() {
         currentUser={currentUser}
         siteSettings={siteSettings}
         currentPage={currentPage}
-        isPolling={isPolling}
-        lastPollTime={lastPollTime}
+        // isPolling={isPolling} // Removed - using real-time WebSocket updates
+        // lastPollTime={lastPollTime} // Removed - using real-time WebSocket updates
         members={members}
         onProfileClick={() => setShowProfileModal(true)}
         onLogout={handleLogout}
         onPageChange={handlePageChange}
-        onRefresh={handleRefreshData}
-        isAutoRefreshEnabled={isAutoRefreshEnabled}
-        onToggleAutoRefresh={handleToggleAutoRefresh}
+          onRefresh={handleRefreshData}
+          // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+          // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
       />

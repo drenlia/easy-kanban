@@ -37,7 +37,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   
   // Track original values to detect changes
   const [originalDisplayName, setOriginalDisplayName] = useState(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
-  const [originalAvatarUrl, setOriginalAvatarUrl] = useState(currentUser?.avatarUrl || currentUser?.googleAvatarUrl || '');
+  const [originalAvatarUrl, setOriginalAvatarUrl] = useState(currentUser?.googleAvatarUrl || currentUser?.avatarUrl || '');
 
   // Load system settings when modal opens
   useEffect(() => {
@@ -87,7 +87,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   useEffect(() => {
     if (isOpen && !isProfileBeingEdited) {
       const initialDisplayName = currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '';
-      const initialAvatarUrl = currentUser?.avatarUrl || currentUser?.googleAvatarUrl || '';
+      const initialAvatarUrl = currentUser?.googleAvatarUrl || currentUser?.avatarUrl || '';
       
       setDisplayName(initialDisplayName);
       setOriginalDisplayName(initialDisplayName);

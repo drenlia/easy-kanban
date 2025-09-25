@@ -537,7 +537,7 @@ export default function ListView({
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
           <img
-            src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
+            src={member.googleAvatarUrl || member.avatarUrl || '/default-avatar.png'}
             alt={`${member.firstName} ${member.lastName}`}
             className="w-5 h-5 rounded-full object-cover border border-gray-200"
           />
@@ -1467,11 +1467,33 @@ export default function ListView({
                 onClick={() => handleDropdownSelect(showDropdown.taskId, 'memberId', member.id)}
                 className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2"
               >
-                <img
-                  src={member.avatarUrl || member.googleAvatarUrl || '/default-avatar.png'}
-                  alt={member.name}
-                  className="w-4 h-4 rounded-full object-cover border border-gray-200"
-                />
+                {member.googleAvatarUrl || member.avatarUrl ? (
+                  <img
+                    src={member.googleAvatarUrl || member.avatarUrl}
+                    alt={member.name}
+                    className="w-4 h-4 rounded-full object-cover border border-gray-200"
+                    onError={(e) => {
+                      // Fallback to initials if image fails to load
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const parent = target.parentElement;
+                      if (parent) {
+                        const fallback = document.createElement('div');
+                        fallback.className = 'w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200';
+                        fallback.style.backgroundColor = member.color;
+                        fallback.textContent = member.name.charAt(0).toUpperCase();
+                        parent.appendChild(fallback);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div 
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200"
+                    style={{ backgroundColor: member.color }}
+                  >
+                    {member.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <span className="text-sm text-gray-900 dark:text-gray-100 font-medium">
                   {member.name}
                 </span>

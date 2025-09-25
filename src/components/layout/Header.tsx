@@ -7,8 +7,8 @@ interface HeaderProps {
   currentUser: CurrentUser | null;
   siteSettings: SiteSettings;
   currentPage: 'kanban' | 'admin';
-  isPolling: boolean;
-  lastPollTime: Date | null;
+  // isPolling: boolean; // Removed - using real-time WebSocket updates
+  // lastPollTime: Date | null; // Removed - using real-time WebSocket updates
   members: TeamMember[];
   onProfileClick: () => void;
   onLogout: () => void;
@@ -16,17 +16,17 @@ interface HeaderProps {
   onRefresh: () => Promise<void>;
   onHelpClick: () => void;
   onInviteUser?: (email: string) => Promise<void>;
-  // Auto-refresh toggle
-  isAutoRefreshEnabled: boolean;
-  onToggleAutoRefresh: () => void;
+  // Auto-refresh toggle - DISABLED (using real-time updates)
+  // isAutoRefreshEnabled: boolean;
+  // onToggleAutoRefresh: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
   currentUser,
   siteSettings,
   currentPage,
-  isPolling,
-  lastPollTime,
+  // isPolling, // Removed - using real-time WebSocket updates
+  // lastPollTime, // Removed - using real-time WebSocket updates
   members,
   onProfileClick,
   onLogout,
@@ -34,8 +34,8 @@ const Header: React.FC<HeaderProps> = ({
   onRefresh,
   onHelpClick,
   onInviteUser,
-  isAutoRefreshEnabled,
-  onToggleAutoRefresh,
+  // isAutoRefreshEnabled, // Disabled - using real-time updates
+  // onToggleAutoRefresh, // Disabled - using real-time updates
 }) => {
   const [showInviteDropdown, setShowInviteDropdown] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -229,11 +229,27 @@ const Header: React.FC<HeaderProps> = ({
                     onClick={onProfileClick}
                     title="Profile Settings"
                   >
-                    {currentUser?.avatarUrl ? (
+                    {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
                       <img
-                        src={currentUser.avatarUrl}
+                        src={currentUser.googleAvatarUrl || currentUser.avatarUrl}
                         alt="Profile"
                         className="h-8 w-8 rounded-full object-cover"
+                        onError={(e) => {
+                          // Fallback to initials if image fails to load
+                          const target = e.target as HTMLImageElement;
+                          target.style.display = 'none';
+                          const parent = target.parentElement;
+                          if (parent) {
+                            const fallback = document.createElement('div');
+                            fallback.className = 'h-8 w-8 rounded-full flex items-center justify-center';
+                            fallback.style.backgroundColor = members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4';
+                            const initials = document.createElement('span');
+                            initials.className = 'text-sm font-medium text-white';
+                            initials.textContent = `${currentUser.firstName?.[0] || ''}${currentUser.lastName?.[0] || ''}`;
+                            fallback.appendChild(initials);
+                            parent.appendChild(fallback);
+                          }
+                        }}
                       />
                     ) : (
                       <div 
@@ -302,7 +318,8 @@ const Header: React.FC<HeaderProps> = ({
           )}
           
           {/* Auto-refresh toggle */}
-          <button
+          {/* Auto-refresh toggle - DISABLED (using real-time updates) */}
+          {/* <button
             onClick={onToggleAutoRefresh}
             className="p-1 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title={isAutoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
@@ -312,40 +329,12 @@ const Header: React.FC<HeaderProps> = ({
             ) : (
               <ToggleLeft size={16} className="text-gray-400" />
             )}
-          </button>
+          </button> */}
           
           {/* Theme toggle */}
           <ThemeToggle />
           
-          {/* Simple polling status indicator */}
-          <div 
-            className={`flex items-center gap-2 px-2 py-1 rounded-full text-xs ${
-              isPolling 
-                ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300' 
-                : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-            }`}
-            title={
-              isPolling 
-                ? 'refresh active (3s interval)'
-                : 'refresh paused'
-            }
-          >
-            <div className={`w-2 h-2 rounded-full ${
-              isPolling ? 'bg-blue-500' : 'bg-gray-400'
-            }`} />
-            <span className="hidden sm:inline">
-              {isPolling ? 'refresh' : 'Manual'}
-            </span>
-            {lastPollTime && (
-              <span className="text-xs opacity-60 hidden md:inline">
-                {lastPollTime.toLocaleTimeString([], { 
-                  hour: '2-digit', 
-                  minute: '2-digit', 
-                  second: '2-digit' 
-                })}
-              </span>
-            )}
-          </div>
+          {/* Polling status indicator removed - using real-time WebSocket updates */}
           
           {/* Manual refresh button */}
           <button
