@@ -98,6 +98,7 @@ interface MainLayoutProps {
   onAddColumn: (afterColumnId: string) => Promise<void>;
   onTaskDragStart: (task: Task) => void;
   onTaskDragEnd: () => void;
+  onClearDragState: () => void;
   onTaskDragOver: (e: React.DragEvent) => void;
   onRefreshBoardData: () => Promise<void>;
   onSetDragCooldown: (active: boolean, duration?: number) => void;
