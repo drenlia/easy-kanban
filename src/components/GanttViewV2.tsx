@@ -8,9 +8,10 @@ import { createPortal } from 'react-dom';
 import TaskDependencyArrows from './gantt/TaskDependencyArrows';
 import { DRAG_TYPES, GanttDragItem, SortableTaskRowItem } from './gantt/types';
 import { GanttHeader } from './gantt/GanttHeader';
-import { getAllPriorities, addTaskRelationship, removeTaskRelationship } from '../api';
+import { getAllPriorities, addTaskRelationship, removeTaskRelationship, getUserSettings } from '../api';
 import websocketClient from '../services/websocketClient';
-import { loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
+import { loadUserPreferencesAsync, saveUserPreferences, loadUserPreferences } from '../utils/userPreferences';
+import { useGanttScrollPosition } from '../hooks/useGanttScrollPosition';
 
 interface GanttViewV2Props {
   columns: Columns;
@@ -69,16 +70,6 @@ const GanttViewV2 = ({
   onRemoveTask,
   siteSettings
 }: GanttViewV2Props) => {
-  // Debug columns data
-  // Debug only for specific task
-  if (columns && Object.keys(columns).length > 0) {
-    Object.values(columns).forEach(column => {
-      const trackedTask = column.tasks?.find(t => t.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234');
-      if (trackedTask) {
-        console.log('📊 Tracked task in columns:', { id: trackedTask.id, title: trackedTask.title, priority: trackedTask.priority });
-      }
-    });
-  }
   // State
   const [priorities, setPriorities] = useState<any[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
@@ -182,6 +173,21 @@ const GanttViewV2 = ({
   // Date range (simplified for now)
   const [dateRange, setDateRange] = useState<any[]>([]);
   
+  // Board loading state for scroll position restoration
+  const [isBoardLoading, setIsBoardLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [isSwitchingBoards, setIsSwitchingBoards] = useState(false);
+  
+  
+  // Scroll position persistence hook
+  const {
+    isLoading: isScrollLoading,
+    saveCurrentScrollPosition,
+    getSavedScrollPosition,
+    calculateCenterDate,
+    calculateScrollPosition
+  } = useGanttScrollPosition({ boardId: boardId || null, currentUser });
+  
   // Constants for date range management
   const MAX_DAYS_IN_VIEW = 365; // Maximum days to keep in memory
   const BUFFER_DAYS = 60; // Days to add when extending
@@ -255,9 +261,12 @@ const GanttViewV2 = ({
         
         console.log('Scrolling to position:', scrollPosition);
         container.scrollLeft = Math.max(0, scrollPosition);
+        
+        // Save scroll position after navigation
+        saveCurrentScrollPosition(container, newRange, { immediate: true });
       }
     }, 50);
-  }, [generateDateRange]);
+  }, [generateDateRange, saveCurrentScrollPosition]);
   
   // Handle task jump from dropdown with highlighting and scrolling
   const handleJumpToTask = useCallback((task: any) => {
@@ -564,8 +573,13 @@ const GanttViewV2 = ({
     };
   }, [isRelationshipMode, isMultiSelectMode, selectedParentTask, selectedTasks, onUpdateTask]);
   
-  // Initialize date range with a reasonable default
+  // Initialize date range with a reasonable default (only if no boardId)
   useEffect(() => {
+    if (boardId) {
+      // Board initialization will handle date range setup
+      return;
+    }
+    
     const today = new Date();
     const startDate = new Date(today);
     startDate.setDate(startDate.getDate() - 60); // 60 days in past
@@ -573,7 +587,7 @@ const GanttViewV2 = ({
     endDate.setDate(endDate.getDate() + 120); // 120 days in future
     
     setDateRange(generateDateRange(startDate, endDate));
-  }, [generateDateRange]);
+  }, [generateDateRange, boardId]);
   
   // Extend date range when scrolling near edges with sliding window
   useEffect(() => {
@@ -678,6 +692,16 @@ const GanttViewV2 = ({
             });
           });
         }
+        
+        // Save scroll position after any scroll event (debounced)
+        console.log(`🎯 Scroll event - isBoardLoading: ${isBoardLoading}, isInitializing: ${isInitializing}, isSwitchingBoards: ${isSwitchingBoards}`);
+        if (!isBoardLoading && !isInitializing && !isSwitchingBoards) {
+          console.log(`🎯 Saving scroll position...`);
+          saveCurrentScrollPosition(timeline, dateRange);
+          // Update debug overlay after saving with a longer delay to ensure cookie is written
+        } else {
+          console.log(`🎯 Skipping scroll save - board loading, initializing, or switching`);
+        }
       }, 100); // 100ms throttle
     };
     
@@ -686,7 +710,8 @@ const GanttViewV2 = ({
       timeline.removeEventListener('scroll', handleScroll);
       clearTimeout(scrollTimeout);
     };
-  }, [dateRange.length]);
+  }, [dateRange.length, isBoardLoading, isInitializing, isSwitchingBoards, saveCurrentScrollPosition]);
+
 
   // Load priorities
   useEffect(() => {
@@ -942,6 +967,97 @@ const GanttViewV2 = ({
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, []);
+
+  // Set flags immediately when boardId changes
+  useEffect(() => {
+    if (boardId) {
+      console.log(`🎯 BoardId changed to ${boardId}, setting flags to prevent scroll saves`);
+      setIsSwitchingBoards(true);
+      setIsInitializing(true);
+    }
+  }, [boardId]);
+
+  // Board initialization with scroll position restoration
+  useEffect(() => {
+    const initializeBoard = async () => {
+      console.log(`🎯 Board initialization effect triggered - boardId: ${boardId}`);
+      
+      if (!boardId) {
+        console.log(`🎯 No boardId, setting loading to false`);
+        setIsBoardLoading(false);
+        return;
+      }
+
+      console.log(`🎯 Initializing board: ${boardId}`);
+      setIsBoardLoading(true);
+      setIsInitializing(true);
+      console.log(`🎯 Set isInitializing to true for board: ${boardId}`);
+
+      // Add a delay to ensure previous board's scroll position is saved
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      try {
+        // Get saved scroll position for this board
+        const savedPositionDate = await getSavedScrollPosition();
+        
+        // Calculate center date (saved position or today)
+        const centerDate = calculateCenterDate(savedPositionDate);
+        
+        // Generate date range around center date
+        const startDate = new Date(centerDate);
+        startDate.setDate(startDate.getDate() - 90);
+        
+        const endDate = new Date(centerDate);
+        endDate.setDate(endDate.getDate() + 90);
+        
+        const initialRange = generateDateRange(startDate, endDate);
+        console.log(`🎯 Generated date range: ${initialRange.length} days from ${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`);
+        setDateRange(initialRange);
+        
+        // If we have a saved position, position the viewport
+        if (savedPositionDate) {
+          const targetDate = new Date(savedPositionDate);
+          
+          // Wait for DOM to be ready, then set scroll position
+          setTimeout(() => {
+            if (scrollContainerRef.current) {
+              const scrollPosition = calculateScrollPosition(
+                targetDate, 
+                initialRange
+              );
+              
+              console.log(`🎯 Positioning board at saved date: ${savedPositionDate}, scroll: ${scrollPosition}`);
+              scrollContainerRef.current.scrollLeft = scrollPosition;
+              
+              // Wait longer before allowing scroll saves to ensure positioning is complete
+              setTimeout(() => {
+                setIsInitializing(false);
+                setIsSwitchingBoards(false);
+                console.log(`🎯 Set flags to false for board: ${boardId} (after positioning)`);
+              }, 500);
+            }
+          }, 100);
+        } else {
+          // No saved position, allow scroll saves immediately
+          setIsInitializing(false);
+          setIsSwitchingBoards(false);
+          console.log(`🎯 Set flags to false for board: ${boardId} (no saved position)`);
+        }
+        
+        console.log(`🎯 Board initialized: ${boardId}`);
+      } catch (error) {
+        console.error(`Failed to initialize board ${boardId}:`, error);
+        setIsInitializing(false);
+        setIsSwitchingBoards(false);
+      } finally {
+        console.log(`🎯 Setting isBoardLoading to false for board: ${boardId}`);
+        setIsBoardLoading(false);
+        // Don't reset isInitializing here - let the positioning logic handle it
+      }
+    };
+
+    initializeBoard();
+  }, [boardId, getSavedScrollPosition, calculateCenterDate, generateDateRange, calculateScrollPosition]);
   
 
   // DnD sensors
@@ -1009,17 +1125,6 @@ const GanttViewV2 = ({
           taskPosition: task.position || 0
         };
         
-        // Debug specific task we're tracking
-        if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
-          console.log('🔍 Processing tracked task:', {
-            id: task.id,
-            title: task.title,
-            priority: task.priority,
-            effectivePriority: effectiveTask.priority,
-            ganttPriority: ganttTask.priority
-          });
-          console.log('🎨 getPriorityColor for tracked task:', getPriorityColor(task.priority || 'normal'));
-        }
         
         tasks.push(ganttTask);
       });
@@ -1114,7 +1219,12 @@ const GanttViewV2 = ({
   const dateToIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     dateRange.forEach((dateObj, index) => {
-      map.set(dateObj.date.toISOString().split('T')[0], index);
+      // Use local date format instead of UTC to avoid timezone issues
+      const year = dateObj.date.getFullYear();
+      const month = String(dateObj.date.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.date.getDate()).padStart(2, '0');
+      const localDateStr = `${year}-${month}-${day}`;
+      map.set(localDateStr, index);
     });
     return map;
   }, [dateRange]);
@@ -1123,9 +1233,16 @@ const GanttViewV2 = ({
   const getTaskBarGridPosition = useCallback((task: any) => {
     if (!task.startDate || !task.endDate) return null;
     
-    // Convert task dates to ISO string format for comparison
-    const taskStartStr = task.startDate.toISOString().split('T')[0];
-    const taskEndStr = task.endDate.toISOString().split('T')[0];
+    // Convert task dates to local date format for comparison (avoid timezone issues)
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const taskStartStr = formatLocalDate(task.startDate);
+    const taskEndStr = formatLocalDate(task.endDate);
     
     // Use O(1) lookup instead of O(n) findIndex
     const startIndex = dateToIndexMap.get(taskStartStr) ?? -1;
@@ -1741,7 +1858,18 @@ const GanttViewV2 = ({
 
   return (
     <>
+
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 overflow-visible relative">
+
+      {/* Board Loading Overlay */}
+      {isBoardLoading && (
+        <div className="absolute inset-0 bg-white dark:bg-gray-800 bg-opacity-90 dark:bg-opacity-90 z-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-2"></div>
+            <div className="text-sm text-gray-600 dark:text-gray-400">Loading Board...</div>
+          </div>
+        </div>
+      )}
 
       {/* Gantt Header - sticky under page header */}
       <div className="sticky top-16 z-50 bg-white dark:bg-gray-800">

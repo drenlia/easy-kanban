@@ -355,7 +355,10 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('lastSelectedBoard', preferences.lastSelectedBoard),
           
           // Selected Members (persistent filter)
-          saveIfDefined('selectedMembers', JSON.stringify(preferences.selectedMembers))
+          saveIfDefined('selectedMembers', JSON.stringify(preferences.selectedMembers)),
+          
+          // Gantt Scroll Positions
+          saveIfDefined('ganttScrollPositions', JSON.stringify(preferences.ganttScrollPositions))
         ]);
       } catch (dbError) {
         console.warn('Failed to save preferences to database:', dbError);
@@ -518,7 +521,22 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           lastSeenActivityId: smartMerge(preferences.activityFeed.lastSeenActivityId, dbSettings.lastSeenActivityId, defaults.activityFeed.lastSeenActivityId),
           clearActivityId: smartMerge(preferences.activityFeed.clearActivityId, dbSettings.clearActivityId, defaults.activityFeed.clearActivityId),
           filterText: smartMerge(preferences.activityFeed.filterText, dbSettings.activityFilterText, defaults.activityFeed.filterText),
-        }
+        },
+        
+        // Gantt Scroll Positions (special handling for object)
+        ganttScrollPositions: (() => {
+          const cookieScrollPositions = preferences.ganttScrollPositions;
+          const dbScrollPositions = dbSettings.ganttScrollPositions ? JSON.parse(dbSettings.ganttScrollPositions) : undefined;
+          
+          if (!isDefaultValue(cookieScrollPositions, defaults.ganttScrollPositions)) {
+            return cookieScrollPositions; // Cookie is customized, keep it
+          }
+          if (dbScrollPositions && !isDefaultValue(dbScrollPositions, defaults.ganttScrollPositions)) {
+            needsCookieUpdate = true;
+            return { ...defaults.ganttScrollPositions, ...dbScrollPositions }; // Use database
+          }
+          return cookieScrollPositions; // Keep cookie
+        })()
       };
       
       // If we updated any preferences from database, save the merged result back to cookies

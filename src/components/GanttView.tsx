@@ -1075,7 +1075,15 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
     const columnWidth = 40;
     const visibleColumnIndex = Math.floor(scrollLeft / columnWidth);
     const safeIndex = Math.max(0, Math.min(visibleColumnIndex, dateRange.length - 1));
-    const currentLeftmostDate = dateRange[safeIndex]?.date.toISOString().split('T')[0];
+    // Use local date format instead of UTC to avoid timezone issues
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const currentLeftmostDate = dateRange[safeIndex]?.date ? formatLocalDate(dateRange[safeIndex].date) : null;
     
     if (!currentLeftmostDate) return;
     
@@ -1374,7 +1382,13 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
         setIsRestoringPosition(true);
         
         // Calculate scroll position from the saved date
-        const savedDateIndex = initialRange.findIndex(d => d.date.toISOString().split('T')[0] === savedPositionDate);
+        const savedDateIndex = initialRange.findIndex(d => {
+          const year = d.date.getFullYear();
+          const month = String(d.date.getMonth() + 1).padStart(2, '0');
+          const day = String(d.date.getDate()).padStart(2, '0');
+          const localDateStr = `${year}-${month}-${day}`;
+          return localDateStr === savedPositionDate;
+        });
         if (savedDateIndex >= 0) {
           const calculatedScrollLeft = savedDateIndex * 40; // 40px per column
           
@@ -1445,8 +1459,16 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
   // Separate effect to handle viewportCenter scrolling after dateRange is updated
   useEffect(() => {
     if (viewportCenter && dateRange.length > 0 && scrollContainerRef.current) {
-      const targetDateStr = viewportCenter.toISOString().split('T')[0];
-      const targetIndex = dateRange.findIndex(d => d.date.toISOString().split('T')[0] === targetDateStr);
+      // Use local date format for consistent comparison
+      const formatLocalDate = (date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+      
+      const targetDateStr = formatLocalDate(viewportCenter);
+      const targetIndex = dateRange.findIndex(d => formatLocalDate(d.date) === targetDateStr);
       
       if (targetIndex >= 0) {
         // Wait for DOM to be fully updated with retry mechanism
@@ -1763,8 +1785,12 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
   const dateToIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     dateRange.forEach((dateCol, index) => {
-      const dateStr = dateCol.date.toISOString().split('T')[0];
-      map.set(dateStr, index);
+      // Use local date format instead of UTC to avoid timezone issues
+      const year = dateCol.date.getFullYear();
+      const month = String(dateCol.date.getMonth() + 1).padStart(2, '0');
+      const day = String(dateCol.date.getDate()).padStart(2, '0');
+      const localDateStr = `${year}-${month}-${day}`;
+      map.set(localDateStr, index);
     });
     return map;
   }, [dateRange]);
@@ -1845,11 +1871,19 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
   const scrollToTask = useCallback(async (startDate: Date, endDate: Date, position?: string) => {
     if (!scrollContainerRef.current) return;
     
-    const targetDateStr = startDate.toISOString().split('T')[0];
+    // Use local date format for consistent comparison
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const targetDateStr = formatLocalDate(startDate);
     
     // Check if target date is already in current range
     const targetIndex = dateRange.findIndex(d => 
-      d.date.toISOString().split('T')[0] === targetDateStr
+      formatLocalDate(d.date) === targetDateStr
     );
     
     if (targetIndex >= 0) {
@@ -1882,9 +1916,9 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
           targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
         } else if (position === 'end-right') {
           // For latest task, we need to use the end date
-          const endDateStr = endDate.toISOString().split('T')[0];
+          const endDateStr = formatLocalDate(endDate);
           const endIndex = dateRange.findIndex(d => 
-            d.date.toISOString().split('T')[0] === endDateStr
+            formatLocalDate(d.date) === endDateStr
           );
           if (endIndex >= 0) {
             const endScrollLeft = endIndex * columnWidth;
@@ -1936,7 +1970,7 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
         // After range updates, scroll to the target
         setTimeout(() => {
           const newTargetIndex = expandedRange.findIndex(d => 
-            d.date.toISOString().split('T')[0] === targetDateStr
+            formatLocalDate(d.date) === targetDateStr
           );
           
           if (newTargetIndex >= 0 && scrollContainerRef.current) {
@@ -1968,9 +2002,9 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
                 targetScroll = scrollLeft - (container.clientWidth / 2); // Center it
               } else if (position === 'end-right') {
                 // For latest task, we need to use the end date
-                const endDateStr = endDate.toISOString().split('T')[0];
+                const endDateStr = formatLocalDate(endDate);
                 const endIndex = expandedRange.findIndex(d => 
-                  d.date.toISOString().split('T')[0] === endDateStr
+                  formatLocalDate(d.date) === endDateStr
                 );
                 if (endIndex >= 0) {
                   const endScrollLeft = endIndex * columnWidth;
@@ -2193,8 +2227,16 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
   const getTaskBarGridPosition = useCallback((task: GanttTask) => {
     if (!task.startDate || !task.endDate) return null;
     
-    const taskStartStr = task.startDate.toISOString().split('T')[0];
-    const taskEndStr = task.endDate.toISOString().split('T')[0];
+    // Use local date format instead of UTC to avoid timezone issues
+    const formatLocalDate = (date: Date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    const taskStartStr = formatLocalDate(task.startDate);
+    const taskEndStr = formatLocalDate(task.endDate);
     
     // Fast O(1) lookup instead of O(n) linear search - MAJOR PERFORMANCE IMPROVEMENT
     let startDayIndex = dateToIndexMap.get(taskStartStr) ?? -1;
@@ -4345,8 +4387,16 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
                   
                   // Apply real-time visual feedback during drag
                   if (isDragging && currentHoverDate && activeDragItem) {
+                    // Use local date format for consistent comparison
+                    const formatLocalDate = (date: Date) => {
+                      const year = date.getFullYear();
+                      const month = String(date.getMonth() + 1).padStart(2, '0');
+                      const day = String(date.getDate()).padStart(2, '0');
+                      return `${year}-${month}-${day}`;
+                    };
+                    
                     const hoverDateIndex = dateRange.findIndex(d => 
-                      d.date.toISOString().split('T')[0] === currentHoverDate
+                      formatLocalDate(d.date) === currentHoverDate
                     );
                     
                     if (hoverDateIndex >= 0) {

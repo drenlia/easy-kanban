@@ -94,13 +94,21 @@ export const OptimizedTaskBar = ({
     return color;
   }, [getPriorityColor, task.priority]);
 
+  // Helper function to format local date (avoid timezone issues)
+  const formatLocalDate = (date: Date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // Memoize drag data
   const dragData = useMemo(() => ({
     id: `${task.id}-move`,
     taskId: task.id,
     taskTitle: task.title,
-    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
-    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    originalStartDate: task.startDate ? formatLocalDate(task.startDate) : '',
+    originalEndDate: task.endDate ? formatLocalDate(task.endDate) : '',
     dragType: DRAG_TYPES.TASK_MOVE_HANDLE
   }), [task.id, task.title, task.startDate, task.endDate]);
 
@@ -108,19 +116,19 @@ export const OptimizedTaskBar = ({
     id: `${task.id}-start`,
     taskId: task.id,
     taskTitle: task.title,
-    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
-    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    originalStartDate: task.startDate ? formatLocalDate(task.startDate) : '',
+    originalEndDate: task.endDate ? formatLocalDate(task.endDate) : '',
     dragType: DRAG_TYPES.TASK_START_HANDLE
-  }), [task.id, task.title, task.startDate, task.endDate]);
+  }), [task.id, task.title, task.startDate, task.endDate, formatLocalDate]);
 
   const endResizeDragData = useMemo(() => ({
     id: `${task.id}-end`,
     taskId: task.id,
     taskTitle: task.title,
-    originalStartDate: task.startDate?.toISOString().split('T')[0] || '',
-    originalEndDate: task.endDate?.toISOString().split('T')[0] || '',
+    originalStartDate: task.startDate ? formatLocalDate(task.startDate) : '',
+    originalEndDate: task.endDate ? formatLocalDate(task.endDate) : '',
     dragType: DRAG_TYPES.TASK_END_HANDLE
-  }), [task.id, task.title, task.startDate, task.endDate]);
+  }), [task.id, task.title, task.startDate, task.endDate, formatLocalDate]);
 
   // Memoize click handler
   const handleClick = useMemo(() => 
@@ -197,7 +205,7 @@ export const OptimizedTaskBar = ({
         {(() => {
           // Only show MoveHandle for multi-day tasks
           const isMultiDay = task.startDate && task.endDate && 
-            task.startDate.toISOString().split('T')[0] !== task.endDate.toISOString().split('T')[0];
+            formatLocalDate(task.startDate) !== formatLocalDate(task.endDate);
           
           
           if (!isMultiDay) return null;
@@ -228,7 +236,7 @@ export const OptimizedTaskBar = ({
         {(() => {
           // Only show non-draggable overlay for multi-day tasks
           const isMultiDay = task.startDate && task.endDate && 
-            task.startDate.toISOString().split('T')[0] !== task.endDate.toISOString().split('T')[0];
+            formatLocalDate(task.startDate) !== formatLocalDate(task.endDate);
           
           if (!isMultiDay) return null;
           
