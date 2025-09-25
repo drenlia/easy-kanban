@@ -2654,13 +2654,13 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
     // Only handle task row reordering
     if ((dragData as SortableTaskRowItem).type === 'task-row-reorder') {
       // Debug logging removed to prevent console spam
-      
-      // Batch state updates to prevent conflicts
-      requestAnimationFrame(() => {
-        setActiveDragItem(dragData);
+    
+    // Batch state updates to prevent conflicts
+    requestAnimationFrame(() => {
+    setActiveDragItem(dragData);
         activeDragItemRef.current = dragData;
-        setCurrentHoverDate(null);
-      });
+    setCurrentHoverDate(null);
+    });
     }
   }, []);
 
@@ -2895,7 +2895,7 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
   const DRAG_OVER_THROTTLE_MS = 16; // 60fps for smoother performance
   
   const throttledSetHoverDate = useCallback((date: string) => {
-    setCurrentHoverDate(date);
+      setCurrentHoverDate(date);
   }, []);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
@@ -2926,7 +2926,7 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
       // Only update if the date has actually changed to avoid unnecessary re-renders
       if (currentHoverDate !== targetDate) {
         // Use throttled update for better performance
-        throttledSetHoverDate(targetDate);
+          throttledSetHoverDate(targetDate);
       }
       
       // Update local drag state for smooth visual feedback (no backend calls)
@@ -3356,9 +3356,9 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
             localTaskData: {},
             originalTaskData: {}
           });
-          return;
-        }
-        
+        return;
+      }
+
         // Find the original task (check in ganttTasks if not in columns)
         let originalTask = Object.values(columns)
           .flatMap(column => column.tasks)
@@ -3377,9 +3377,9 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
         }
 
         if (!originalTask) {
-          return;
-        }
-
+            return;
+          }
+          
         // Create updated task with final dates
         const updatedTask = {
           ...originalTask,
@@ -3409,7 +3409,7 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
           });
           
           
-        } catch (error) {
+          } catch (error) {
           console.error('❌ [GanttView] Error updating task:', error);
           
           // Revert to original state on error
@@ -3421,14 +3421,14 @@ const GanttView: React.FC<GanttViewProps> = memo(({ columns, onSelectTask, taskV
           });
           
           // Clear drag state
-          setActiveDragItem(null);
+              setActiveDragItem(null);
           activeDragItemRef.current = null;
           isTaskBarDraggingRef.current = false;
-          setCurrentHoverDate(null);
-        }
-        
-        return; // Exit early for task bar drags
+        setCurrentHoverDate(null);
       }
+
+        return; // Exit early for task bar drags
+        }
     }
   }, [onTaskDragStart, onTaskDragEnd, onUpdateTask, localDragState]); // Added localDragState dependency
 

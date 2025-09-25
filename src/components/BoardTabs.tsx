@@ -654,7 +654,7 @@ export default function BoardTabs({
               ) : !draggedTask ? (
                 // Normal board management with DndContext (only when not dragging a task)
                 <DndContext onDragEnd={handleDragEnd}>
-                  <SortableContext items={boards.map(board => board.id)} strategy={rectSortingStrategy}>
+                  <SortableContext items={boards.filter(board => board && board.id).map(board => board.id)} strategy={rectSortingStrategy}>
                     <div className="flex items-center space-x-1 flex-shrink-0">
                   {boards.map(board => (
                   <div key={board.id}>
