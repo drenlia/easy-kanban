@@ -678,7 +678,7 @@ export default function App() {
           // console.error('🔗 [App] Failed to load initial relationships:', error);
         });
     }
-  }, [selectedBoard, currentPage, handleRelationshipsUpdate]);
+  }, [selectedBoard, currentPage]);
 
   // Data polling for backup/fallback only (WebSocket handles real-time updates)
   // Disable polling when help modal is open or auto-refresh is disabled

@@ -21,7 +21,6 @@ import TaskCard from '../TaskCard';
 import BoardTabs from '../BoardTabs';
 import LoadingSpinner from '../LoadingSpinner';
 import ListView from '../ListView';
-import GanttView from '../GanttView';
 import GanttViewV2 from '../GanttViewV2';
 
 
@@ -586,47 +585,24 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               />
             </div>
           ) : viewMode === 'gantt' ? (
-            <>
-              {/* Use GanttViewV2 by default, fallback to old GanttView if ?ganttv1=true is in URL */}
-              {new URLSearchParams(window.location.search).get('ganttv1') === 'true' ? (
-                <GanttView
-                  columns={getFullyFilteredColumns}
-                  onSelectTask={onSelectTask}
-                  taskViewMode={taskViewMode}
-                  onUpdateTask={onEditTask}
-                  onTaskDragStart={onTaskDragStart}
-                  onTaskDragEnd={onTaskDragEnd}
-                  boardId={selectedBoard}
-                  onAddTask={onAddTask}
-                  currentUser={currentUser}
-                  members={members}
-                  onRefreshData={onRefreshBoardData}
-                  relationships={boardRelationships}
-                  onCopyTask={onCopyTask}
-                  onRemoveTask={onRemoveTask}
-                  siteSettings={siteSettings}
-                />
-              ) : (
-                <GanttViewV2
-                  columns={getFullyFilteredColumns}
-                  onSelectTask={onSelectTask}
-                  taskViewMode={taskViewMode}
-                  onUpdateTask={onEditTask}
-                  onTaskDragStart={onTaskDragStart}
-                  onTaskDragEnd={onTaskDragEnd}
-                  onClearDragState={onClearDragState}
-                  boardId={selectedBoard}
-                  onAddTask={onAddTask}
-                  currentUser={currentUser}
-                  members={members}
-                  onRefreshData={onRefreshBoardData}
-                  relationships={boardRelationships}
-                  onCopyTask={onCopyTask}
-                  onRemoveTask={onRemoveTask}
-                  siteSettings={siteSettings}
-                />
-              )}
-            </>
+            <GanttViewV2
+              columns={getFullyFilteredColumns}
+              onSelectTask={onSelectTask}
+              taskViewMode={taskViewMode}
+              onUpdateTask={onEditTask}
+              onTaskDragStart={onTaskDragStart}
+              onTaskDragEnd={onTaskDragEnd}
+              onClearDragState={onClearDragState}
+              boardId={selectedBoard}
+              onAddTask={onAddTask}
+              currentUser={currentUser}
+              members={members}
+              onRefreshData={onRefreshBoardData}
+              relationships={boardRelationships}
+              onCopyTask={onCopyTask}
+              onRemoveTask={onRemoveTask}
+              siteSettings={siteSettings}
+            />
           ) : (
             <>
               {/* Columns Navigation Container */}

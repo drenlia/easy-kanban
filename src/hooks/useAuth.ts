@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { CurrentUser, SiteSettings } from '../types';
 import { DEFAULT_SITE_SETTINGS } from '../constants';
 import * as api from '../api';
+import { clearAllUserPreferenceCookies, clearOtherUserPreferenceCookies } from '../utils/userPreferences';
 
 // Get intended destination from HTML capture
 const getInitialIntendedDestination = (): string | null => {
@@ -73,6 +74,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     localStorage.setItem('authToken', token);
     setCurrentUser(userData);
     setIsAuthenticated(true);
+    
+    // Clear old user preference cookies to prevent accumulation
+    clearOtherUserPreferenceCookies(userData.id);
     
     
     // Redirect to intended destination if available
@@ -153,6 +157,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     sessionStorage.removeItem('originalIntendedUrl');
     setIntendedDestination(null);
     setJustRedirected(false);
+    
+    // Clear ALL user preference cookies to prevent cookie bloat
+    clearAllUserPreferenceCookies();
     
     callbacks.onPageChange('kanban'); // Reset to kanban page
     callbacks.onDataClear(); // Clear all app data

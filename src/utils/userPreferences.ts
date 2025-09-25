@@ -106,6 +106,30 @@ const getUserCookieName = (userId: string | null): string => {
   return `${COOKIE_NAME_PREFIX}-${userId}`;
 };
 
+// Clear all user preference cookies (useful for preventing cookie bloat)
+export const clearAllUserPreferenceCookies = (): void => {
+  const cookies = document.cookie.split(';');
+  cookies.forEach(cookie => {
+    const cookieName = cookie.trim().split('=')[0];
+    if (cookieName.startsWith(COOKIE_NAME_PREFIX)) {
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict`;
+    }
+  });
+};
+
+// Clear user preference cookies except for the current user
+export const clearOtherUserPreferenceCookies = (currentUserId: string | null): void => {
+  const cookies = document.cookie.split(';');
+  const currentUserCookieName = getUserCookieName(currentUserId);
+  
+  cookies.forEach(cookie => {
+    const cookieName = cookie.trim().split('=')[0];
+    if (cookieName.startsWith(COOKIE_NAME_PREFIX) && cookieName !== currentUserCookieName) {
+      document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Strict`;
+    }
+  });
+};
+
 // Base default preferences (fallback when no admin defaults are set)
 const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   taskViewMode: 'expand', // Default to expand
