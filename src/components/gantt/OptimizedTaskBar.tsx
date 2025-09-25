@@ -91,10 +91,6 @@ export const OptimizedTaskBar = ({
   // Memoize priority color
   const priorityColor = useMemo(() => {
     const color = getPriorityColor(task.priority);
-    // Debug for specific task
-    if (task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
-      console.log('🎨 OptimizedTaskBar: task priority:', task.priority, 'color:', color);
-    }
     return color;
   }, [getPriorityColor, task.priority]);
 
@@ -142,14 +138,6 @@ export const OptimizedTaskBar = ({
 
   // Don't render if no position
   if (!gridPosition) return null;
-
-  console.log('📊 [OptimizedTaskBar] Rendering task bar:', {
-    taskId: task.id,
-    taskTitle: task.title,
-    gridPosition,
-    isDragging,
-    activeDragItem: activeDragItem?.taskId === task.id ? activeDragItem : null
-  });
 
   return (
     <div

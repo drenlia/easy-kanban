@@ -53,15 +53,6 @@ export const MoveHandle: React.FC<MoveHandleProps> = React.memo(({
     data: dragData
   });
 
-  // Simple test to see if component is rendered (disabled to prevent spam)
-  // if (taskId === 'c83e8171-0e77-4a24-bd20-ffbcd7b7920d') {
-  //   console.log('🔧 [MoveHandle] Test task rendered:', {
-  //     taskId,
-  //     isDragging,
-  //     hasListeners: !!listeners,
-  //     hasAttributes: !!attributes
-  //   });
-  // }
 
   const style = {
     opacity: isDragging ? 0.3 : 1
