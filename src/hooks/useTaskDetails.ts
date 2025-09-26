@@ -4,6 +4,7 @@ import { createComment, uploadFile, updateTask, deleteComment, updateComment, fe
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import websocketClient from '../services/websocketClient';
+import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 
 interface UseTaskDetailsProps {
   task: Task;
@@ -145,7 +146,8 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
         filteredAttachments.forEach(attachment => {
           if (attachment.name.startsWith('img-')) {
             const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-            fixedDescription = fixedDescription.replace(blobPattern, attachment.url);
+            const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+            fixedDescription = fixedDescription.replace(blobPattern, authenticatedUrl || attachment.url);
           }
         });
         
@@ -400,9 +402,10 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
       let finalContent = content;
       uploadedAttachments.forEach(attachment => {
         if (attachment.name.startsWith('img-')) {
-          // Replace blob URLs with server URLs
+          // Replace blob URLs with authenticated server URLs
           const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-          finalContent = finalContent.replace(blobPattern, attachment.url);
+          const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+          finalContent = finalContent.replace(blobPattern, authenticatedUrl || attachment.url);
         }
       });
 

@@ -11,6 +11,8 @@ services:
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
       - REDIS_URL=redis://redis:6379
+      # JWT Secret for authentication (will be replaced by build.sh with random value)
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
       - DEMO_ENABLED=true
     volumes:

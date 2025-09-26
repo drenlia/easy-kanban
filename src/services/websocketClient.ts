@@ -7,16 +7,65 @@ class WebSocketClient {
   private maxReconnectAttempts = 5;
   private reconnectDelay = 1000; // Start with 1 second
   private readyCallbacks: (() => void)[] = [];
+  private eventCallbacks: Map<string, Function[]> = new Map();
+  private pendingBoardJoin: string | null = null; // Store board to join when ready
 
   connect() {
     if (this.socket?.connected) {
       return;
     }
 
+    // Get authentication token
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      console.log('🔌 No auth token available for WebSocket connection');
+      return;
+    }
+
+    // Check if we're in the middle of redirecting due to invalid token
+    if (window.location.hash === '#login') {
+      console.log('🔌 Skipping WebSocket connection - redirecting to login');
+      return;
+    }
+
+    // Validate token before connecting - make a test API call
+    this.validateTokenAndConnect(token);
+  }
+
+  private async validateTokenAndConnect(token: string) {
+    try {
+      // Make a simple API call to validate the token
+      const response = await fetch('/api/user/status', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        console.log('🔌 Token validation failed - skipping WebSocket connection');
+        return;
+      }
+
+      console.log('🔌 Token validated - proceeding with WebSocket connection');
+      this.establishConnection(token);
+    } catch (error) {
+      console.log('🔌 Token validation error - skipping WebSocket connection:', error);
+    }
+  }
+
+  private establishConnection(token: string) {
+    // Disconnect any existing socket to ensure fresh connection with new token
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+
     // Use the same URL as the frontend - the frontend will proxy WebSocket connections to the backend
     const serverUrl = window.location.origin;
 
     this.socket = io(serverUrl, {
+      auth: { token }, // Add authentication token
       transports: ['polling', 'websocket'], // Try polling first, then websocket
       timeout: 20000,
       reconnection: true,
@@ -26,14 +75,32 @@ class WebSocketClient {
     });
 
     this.socket.on('connect', () => {
+      console.log('✅ WebSocket connected successfully with ID:', this.socket?.id);
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000; // Reset delay
       
+      // Re-register all event listeners
+      this.reregisterEventListeners();
+      
+      // Add a general event listener to debug all events
+      this.socket.onAny((eventName, ...args) => {
+        console.log('🔍 WebSocket event received:', eventName, args);
+      });
+      
       // Trigger ready callbacks directly
-      this.readyCallbacks.forEach(callback => {
+      console.log('🔍 Triggering ready callbacks, count:', this.readyCallbacks.length);
+      this.readyCallbacks.forEach((callback, index) => {
+        console.log(`🔍 Calling ready callback ${index + 1}/${this.readyCallbacks.length}`);
         callback();
       });
+      
+      // Handle pending board join
+      if (this.pendingBoardJoin) {
+        console.log('🔍 WebSocket connected, joining pending board:', this.pendingBoardJoin);
+        this.joinBoard(this.pendingBoardJoin);
+        this.pendingBoardJoin = null;
+      }
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -43,6 +110,17 @@ class WebSocketClient {
     this.socket.on('connect_error', (error) => {
       console.error('❌ WebSocket connection error:', error);
       this.isConnected = false;
+      
+      // Handle authentication errors - but don't redirect immediately
+      // Let the API interceptor handle token validation
+      if (error.message === 'Invalid token' || error.message === 'Authentication required') {
+        console.log('🔑 WebSocket authentication failed - token may be invalid');
+        // Don't clear token here - let API calls determine if token is actually invalid
+        return;
+      }
+      
+      // For all other errors (network issues, server down, etc.), just log and continue
+      console.log('WebSocket connection error (will retry):', error.message);
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
@@ -72,7 +150,28 @@ class WebSocketClient {
 
   joinBoard(boardId: string) {
     if (this.socket?.connected) {
+      console.log('📋 Joining board via WebSocket:', boardId);
       this.socket.emit('join-board', boardId);
+      
+      // Add debugging to see if we're actually in the room
+      this.socket.on('joined-room', (data) => {
+        console.log('📋 Successfully joined room:', data);
+      });
+    } else {
+      console.log('📋 Cannot join board - WebSocket not connected');
+    }
+  }
+
+  // Method to join board when WebSocket becomes ready
+  joinBoardWhenReady(boardId: string) {
+    console.log('📋 joinBoardWhenReady called with boardId:', boardId);
+    if (this.socket?.connected) {
+      console.log('📋 WebSocket already connected, joining board immediately');
+      this.joinBoard(boardId);
+    } else {
+      console.log('📋 WebSocket not connected, will join when ready');
+      // Store the boardId to join when ready
+      this.pendingBoardJoin = boardId;
     }
   }
 
@@ -82,100 +181,135 @@ class WebSocketClient {
     }
   }
 
+  // Re-register all stored event listeners
+  private reregisterEventListeners() {
+    console.log('🔄 Re-registering WebSocket event listeners...');
+    this.eventCallbacks.forEach((callbacks, eventName) => {
+      callbacks.forEach(callback => {
+        this.socket?.on(eventName, callback);
+      });
+    });
+    console.log(`✅ Re-registered ${this.eventCallbacks.size} event types`);
+    
+    // Add debugging for task-updated events specifically
+    this.socket?.on('task-updated', (data) => {
+      console.log('🔍 Raw task-updated event received:', data);
+    });
+  }
+
+  // Helper method to store and register event listeners
+  private addEventListener(eventName: string, callback: Function) {
+    // Store the callback
+    if (!this.eventCallbacks.has(eventName)) {
+      this.eventCallbacks.set(eventName, []);
+    }
+    this.eventCallbacks.get(eventName)!.push(callback);
+    
+    // Register with socket if connected
+    if (this.socket?.connected) {
+      this.socket.on(eventName, callback);
+      if (eventName === 'task-updated') {
+        console.log('🔍 Registered task-updated handler directly on socket');
+      }
+    }
+  }
+
   // Event listeners
   onTaskCreated(callback: (data: any) => void) {
-    this.socket?.on('task-created', callback);
+    this.addEventListener('task-created', callback);
   }
 
   onTaskUpdated(callback: (data: any) => void) {
-    this.socket?.on('task-updated', callback);
+    this.addEventListener('task-updated', callback);
   }
 
   onTaskDeleted(callback: (data: any) => void) {
-    this.socket?.on('task-deleted', callback);
+    this.addEventListener('task-deleted', callback);
   }
 
   onTaskRelationshipCreated(callback: (data: any) => void) {
-    this.socket?.on('task-relationship-created', callback);
+    this.addEventListener('task-relationship-created', callback);
   }
 
   onTaskRelationshipDeleted(callback: (data: any) => void) {
-    this.socket?.on('task-relationship-deleted', callback);
+    this.addEventListener('task-relationship-deleted', callback);
   }
 
   onColumnCreated(callback: (data: any) => void) {
-    this.socket?.on('column-created', callback);
+    this.addEventListener('column-created', callback);
   }
 
   onColumnUpdated(callback: (data: any) => void) {
-    this.socket?.on('column-updated', callback);
+    this.addEventListener('column-updated', callback);
   }
 
   onColumnDeleted(callback: (data: any) => void) {
-    this.socket?.on('column-deleted', callback);
+    this.addEventListener('column-deleted', callback);
   }
 
   onColumnReordered(callback: (data: any) => void) {
-    this.socket?.on('column-reordered', callback);
+    this.addEventListener('column-reordered', callback);
   }
 
   onBoardCreated(callback: (data: any) => void) {
-    this.socket?.on('board-created', callback);
+    this.addEventListener('board-created', callback);
   }
 
   onBoardUpdated(callback: (data: any) => void) {
-    this.socket?.on('board-updated', callback);
+    this.addEventListener('board-updated', callback);
   }
 
   onBoardDeleted(callback: (data: any) => void) {
-    this.socket?.on('board-deleted', callback);
+    this.addEventListener('board-deleted', callback);
   }
 
   onBoardReordered(callback: (data: any) => void) {
-    this.socket?.on('board-reordered', callback);
+    this.addEventListener('board-reordered', callback);
   }
 
   onTaskWatcherAdded(callback: (data: any) => void) {
-    this.socket?.on('task-watcher-added', callback);
+    this.addEventListener('task-watcher-added', callback);
   }
 
   onTaskWatcherRemoved(callback: (data: any) => void) {
-    this.socket?.on('task-watcher-removed', callback);
+    this.addEventListener('task-watcher-removed', callback);
   }
 
   onTaskCollaboratorAdded(callback: (data: any) => void) {
-    this.socket?.on('task-collaborator-added', callback);
+    this.addEventListener('task-collaborator-added', callback);
   }
 
   onTaskCollaboratorRemoved(callback: (data: any) => void) {
-    this.socket?.on('task-collaborator-removed', callback);
+    this.addEventListener('task-collaborator-removed', callback);
   }
 
   onMemberUpdated(callback: (data: any) => void) {
-    this.socket?.on('member-updated', callback);
+    this.addEventListener('member-updated', callback);
   }
 
   onActivityUpdated(callback: (data: any) => void) {
-    this.socket?.on('activity-updated', callback);
+    this.addEventListener('activity-updated', callback);
   }
 
   onMemberCreated(callback: (data: any) => void) {
-    this.socket?.on('member-created', callback);
+    this.addEventListener('member-created', callback);
   }
 
   onMemberDeleted(callback: (data: any) => void) {
-    this.socket?.on('member-deleted', callback);
+    this.addEventListener('member-deleted', callback);
   }
 
   onUserActivity(callback: (data: any) => void) {
-    this.socket?.on('user-activity', callback);
+    this.addEventListener('user-activity', callback);
   }
 
   onWebSocketReady(callback: () => void) {
+    console.log('🔍 Registering WebSocket ready callback');
     this.readyCallbacks.push(callback);
     
     // If already connected, call immediately
     if (this.isConnected) {
+      console.log('🔍 WebSocket already connected, calling callback immediately');
       callback();
     }
   }
@@ -296,9 +430,19 @@ class WebSocketClient {
     return this.socket?.id;
   }
 
+  // Force reconnect with new token
+  reconnect() {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+    this.isConnected = false;
+    this.connect();
+  }
+
   // Filter events
   onFilterCreated(callback: (data: any) => void) {
-    this.socket?.on('filter-created', callback);
+    this.addEventListener('filter-created', callback);
   }
 
   offFilterCreated(callback?: (data: any) => void) {
@@ -306,7 +450,7 @@ class WebSocketClient {
   }
 
   onFilterUpdated(callback: (data: any) => void) {
-    this.socket?.on('filter-updated', callback);
+    this.addEventListener('filter-updated', callback);
   }
 
   offFilterUpdated(callback?: (data: any) => void) {
@@ -314,7 +458,7 @@ class WebSocketClient {
   }
 
   onFilterDeleted(callback: (data: any) => void) {
-    this.socket?.on('filter-deleted', callback);
+    this.addEventListener('filter-deleted', callback);
   }
 
   offFilterDeleted(callback?: (data: any) => void) {
@@ -323,7 +467,7 @@ class WebSocketClient {
 
   // Comment events
   onCommentCreated(callback: (data: any) => void) {
-    this.socket?.on('comment-created', callback);
+    this.addEventListener('comment-created', callback);
   }
 
   offCommentCreated(callback?: (data: any) => void) {
@@ -331,7 +475,7 @@ class WebSocketClient {
   }
 
   onCommentUpdated(callback: (data: any) => void) {
-    this.socket?.on('comment-updated', callback);
+    this.addEventListener('comment-updated', callback);
   }
 
   offCommentUpdated(callback?: (data: any) => void) {
@@ -339,7 +483,7 @@ class WebSocketClient {
   }
 
   onCommentDeleted(callback: (data: any) => void) {
-    this.socket?.on('comment-deleted', callback);
+    this.addEventListener('comment-deleted', callback);
   }
 
   offCommentDeleted(callback?: (data: any) => void) {
@@ -348,7 +492,7 @@ class WebSocketClient {
 
   // Attachment events
   onAttachmentCreated(callback: (data: any) => void) {
-    this.socket?.on('attachment-created', callback);
+    this.addEventListener('attachment-created', callback);
   }
 
   offAttachmentCreated(callback?: (data: any) => void) {
@@ -356,7 +500,7 @@ class WebSocketClient {
   }
 
   onAttachmentDeleted(callback: (data: any) => void) {
-    this.socket?.on('attachment-deleted', callback);
+    this.addEventListener('attachment-deleted', callback);
   }
 
   offAttachmentDeleted(callback?: (data: any) => void) {
@@ -365,7 +509,7 @@ class WebSocketClient {
 
   // User profile events
   onUserProfileUpdated(callback: (data: any) => void) {
-    this.socket?.on('user-profile-updated', callback);
+    this.addEventListener('user-profile-updated', callback);
   }
 
   offUserProfileUpdated(callback?: (data: any) => void) {
@@ -374,7 +518,7 @@ class WebSocketClient {
 
   // Tag management events
   onTagCreated(callback: (data: any) => void) {
-    this.socket?.on('tag-created', callback);
+    this.addEventListener('tag-created', callback);
   }
 
   offTagCreated(callback?: (data: any) => void) {
@@ -382,7 +526,7 @@ class WebSocketClient {
   }
 
   onTagUpdated(callback: (data: any) => void) {
-    this.socket?.on('tag-updated', callback);
+    this.addEventListener('tag-updated', callback);
   }
 
   offTagUpdated(callback?: (data: any) => void) {
@@ -390,7 +534,7 @@ class WebSocketClient {
   }
 
   onTagDeleted(callback: (data: any) => void) {
-    this.socket?.on('tag-deleted', callback);
+    this.addEventListener('tag-deleted', callback);
   }
 
   offTagDeleted(callback?: (data: any) => void) {
@@ -399,7 +543,7 @@ class WebSocketClient {
 
   // Priority management events
   onPriorityCreated(callback: (data: any) => void) {
-    this.socket?.on('priority-created', callback);
+    this.addEventListener('priority-created', callback);
   }
 
   offPriorityCreated(callback?: (data: any) => void) {
@@ -407,7 +551,7 @@ class WebSocketClient {
   }
 
   onPriorityUpdated(callback: (data: any) => void) {
-    this.socket?.on('priority-updated', callback);
+    this.addEventListener('priority-updated', callback);
   }
 
   offPriorityUpdated(callback?: (data: any) => void) {
@@ -415,7 +559,7 @@ class WebSocketClient {
   }
 
   onPriorityDeleted(callback: (data: any) => void) {
-    this.socket?.on('priority-deleted', callback);
+    this.addEventListener('priority-deleted', callback);
   }
 
   offPriorityDeleted(callback?: (data: any) => void) {
@@ -423,7 +567,7 @@ class WebSocketClient {
   }
 
   onPriorityReordered(callback: (data: any) => void) {
-    this.socket?.on('priority-reordered', callback);
+    this.addEventListener('priority-reordered', callback);
   }
 
   offPriorityReordered(callback?: (data: any) => void) {
@@ -432,7 +576,7 @@ class WebSocketClient {
 
   // Settings update events
   onSettingsUpdated(callback: (data: any) => void) {
-    this.socket?.on('settings-updated', callback);
+    this.addEventListener('settings-updated', callback);
   }
 
   offSettingsUpdated(callback?: (data: any) => void) {
@@ -441,7 +585,7 @@ class WebSocketClient {
 
   // User management events
   onUserCreated(callback: (data: any) => void) {
-    this.socket?.on('user-created', callback);
+    this.addEventListener('user-created', callback);
   }
 
   offUserCreated(callback?: (data: any) => void) {
@@ -449,7 +593,7 @@ class WebSocketClient {
   }
 
   onUserUpdated(callback: (data: any) => void) {
-    this.socket?.on('user-updated', callback);
+    this.addEventListener('user-updated', callback);
   }
 
   offUserUpdated(callback?: (data: any) => void) {
@@ -457,7 +601,7 @@ class WebSocketClient {
   }
 
   onUserRoleUpdated(callback: (data: any) => void) {
-    this.socket?.on('user-role-updated', callback);
+    this.addEventListener('user-role-updated', callback);
   }
 
   offUserRoleUpdated(callback?: (data: any) => void) {
@@ -465,7 +609,7 @@ class WebSocketClient {
   }
 
   onUserDeleted(callback: (data: any) => void) {
-    this.socket?.on('user-deleted', callback);
+    this.addEventListener('user-deleted', callback);
   }
 
   offUserDeleted(callback?: (data: any) => void) {
@@ -474,7 +618,7 @@ class WebSocketClient {
 
   // Task tag events
   onTaskTagAdded(callback: (data: any) => void) {
-    this.socket?.on('task-tag-added', callback);
+    this.addEventListener('task-tag-added', callback);
   }
 
   offTaskTagAdded(callback?: (data: any) => void) {
@@ -482,7 +626,7 @@ class WebSocketClient {
   }
 
   onTaskTagRemoved(callback: (data: any) => void) {
-    this.socket?.on('task-tag-removed', callback);
+    this.addEventListener('task-tag-removed', callback);
   }
 
   offTaskTagRemoved(callback?: (data: any) => void) {

@@ -8,6 +8,7 @@ import BulletList from '@tiptap/extension-bullet-list';
 import OrderedList from '@tiptap/extension-ordered-list';
 import ListItem from '@tiptap/extension-list-item';
 import Image from '@tiptap/extension-image';
+import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { 
   Bold, 
   Italic, 
@@ -193,9 +194,10 @@ export default function TextEditor({
     let fixedContent = htmlContent;
     attachments.forEach(attachment => {
       if (attachment.name.startsWith('img-')) {
-        // Replace blob URLs with server URLs
+        // Replace blob URLs with authenticated server URLs
         const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-        fixedContent = fixedContent.replace(blobPattern, attachment.url);
+        const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+        fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
       }
     });
     return fixedContent;

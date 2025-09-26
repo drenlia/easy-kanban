@@ -3,6 +3,7 @@ import { DragOverlay as DndKitDragOverlay } from '@dnd-kit/core';
 import { FileText } from 'lucide-react';
 import { Task, TeamMember } from '../../types';
 import DOMPurify from 'dompurify';
+import { getAuthenticatedAttachmentUrl } from '../../utils/authImageUrl';
 
 interface SimpleDragOverlayProps {
   draggedTask: Task | null;
@@ -77,9 +78,19 @@ const TaskDragPreview: React.FC<{ task: Task; member?: TeamMember }> = ({ task, 
           className="text-sm text-gray-600 line-clamp-2 mb-2 prose prose-sm max-w-none"
           dangerouslySetInnerHTML={{
             __html: DOMPurify.sanitize(
-              task.description.length > 50 
-                ? task.description.substring(0, 50) + '...' 
-                : task.description
+              (() => {
+                // Fix blob URLs in task description
+                let fixedDescription = task.description.length > 50 
+                  ? task.description.substring(0, 50) + '...' 
+                  : task.description;
+                const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+                fixedDescription = fixedDescription.replace(blobPattern, (_match, filename) => {
+                  // Convert blob URL to authenticated server URL
+                  const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+                  return authenticatedUrl || `/uploads/${filename}`;
+                });
+                return fixedDescription;
+              })()
             )
           }}
         />

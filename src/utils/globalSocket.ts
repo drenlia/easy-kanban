@@ -6,6 +6,20 @@ let isConnecting = false;
 
 export const initializeSocket = (token: string): Promise<Socket> => {
   return new Promise((resolve, reject) => {
+    // If no token provided, reject silently
+    if (!token) {
+      console.log('🔌 No token provided for global socket');
+      reject(new Error('No token provided'));
+      return;
+    }
+
+    // Check if we're redirecting to login
+    if (window.location.hash === '#login') {
+      console.log('🔌 Skipping global socket connection - redirecting to login');
+      reject(new Error('Redirecting to login'));
+      return;
+    }
+
     // If already connected, return existing socket
     if (globalSocket && globalSocket.connected) {
       console.log('🔌 Using existing Socket.IO connection');
@@ -54,6 +68,17 @@ export const initializeSocket = (token: string): Promise<Socket> => {
     globalSocket.on('connect_error', (error) => {
       console.error('❌ Global Socket.IO connection error:', error);
       isConnecting = false;
+      
+      // Handle authentication errors - but don't redirect immediately
+      // Let the API interceptor handle token validation
+      if (error.message === 'Invalid token' || error.message === 'Authentication required') {
+        console.log('🔑 Global Socket authentication failed - token may be invalid');
+        // Don't clear token here - let API calls determine if token is actually invalid
+        reject(new Error('Authentication failed'));
+        return;
+      }
+      
+      // For all other errors (network issues, server down, etc.), just reject and continue
       reject(error);
     });
 

@@ -3,6 +3,7 @@ import { X, Upload, User, Trash2 } from 'lucide-react';
 import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, getTaskDeleteConfirmSetting } from '../utils/userPreferences';
 import api from '../api';
+import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 interface ProfileProps {
   isOpen: boolean;
@@ -338,7 +339,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     if (currentUser?.googleAvatarUrl) {
       return (
         <img
-          src={currentUser.googleAvatarUrl}
+          src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl)}
           alt="Profile"
           className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-lg"
         />
@@ -348,7 +349,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
     if (currentUser?.avatarUrl) {
       return (
         <img
-          src={currentUser.avatarUrl}
+          src={getAuthenticatedAvatarUrl(currentUser.avatarUrl)}
           alt="Profile"
           className="h-20 w-20 rounded-full object-cover border-2 border-white shadow-lg"
         />

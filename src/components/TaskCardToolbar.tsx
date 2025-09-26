@@ -4,6 +4,7 @@ import { Copy, Edit2, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, 
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { setDndGloballyDisabled } from '../utils/globalDndState';
+import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -377,7 +378,7 @@ export default function TaskCardToolbar({
           >
             {member.googleAvatarUrl || member.avatarUrl ? (
               <img
-                src={member.googleAvatarUrl || member.avatarUrl}
+                src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                 alt={member.name}
                 className="w-8 h-8 rounded-full object-cover border-2 border-white"
               />
@@ -471,7 +472,7 @@ export default function TaskCardToolbar({
               >
                 {m.googleAvatarUrl || m.avatarUrl ? (
                   <img
-                    src={m.googleAvatarUrl || m.avatarUrl}
+                    src={getAuthenticatedAvatarUrl(m.googleAvatarUrl || m.avatarUrl)}
                     alt={m.name}
                     className="w-6 h-6 rounded-full object-cover"
                   />

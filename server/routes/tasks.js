@@ -396,7 +396,10 @@ router.put('/:id', async (req, res) => {
     // Publish to Redis for real-time updates
     const webSocketData = {
       boardId: task.boardId,
-      task: task,
+      task: {
+        ...task,
+        updatedBy: userId
+      },
       timestamp: new Date().toISOString()
     };
     console.log('📡 Publishing task-updated WebSocket event:', webSocketData);
@@ -533,11 +536,17 @@ router.post('/reorder', async (req, res) => {
       }
     );
 
+    // Get the updated task data for WebSocket
+    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
     // Publish to Redis for real-time updates
     console.log('📤 Publishing task-updated to Redis for board:', currentTask.boardId);
     await redisService.publish('task-updated', {
       boardId: currentTask.boardId,
-      taskId: taskId,
+      task: {
+        ...updatedTask,
+        updatedBy: userId
+      },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Task-updated published to Redis');
@@ -680,11 +689,17 @@ router.post('/move-to-board', async (req, res) => {
       }
     );
     
+    // Get the updated task data for WebSocket
+    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
     // Publish to Redis for real-time updates (both boards need to be notified)
     console.log('📤 Publishing task-updated to Redis for original board:', originalBoardId);
     await redisService.publish('task-updated', {
       boardId: originalBoardId,
-      taskId: taskId,
+      task: {
+        ...updatedTask,
+        updatedBy: userId
+      },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Task-updated published to Redis for original board');
@@ -692,7 +707,10 @@ router.post('/move-to-board', async (req, res) => {
     console.log('📤 Publishing task-updated to Redis for target board:', targetBoardId);
     await redisService.publish('task-updated', {
       boardId: targetBoardId,
-      taskId: taskId,
+      task: {
+        ...updatedTask,
+        updatedBy: userId
+      },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Task-updated published to Redis for target board');

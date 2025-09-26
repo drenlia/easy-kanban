@@ -9,6 +9,7 @@ import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 import DOMPurify from 'dompurify';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
+import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -77,6 +78,15 @@ export default function ListView({
   boards,
   siteSettings
 }: ListViewProps) {
+  
+  // Debug: Log when filteredColumns changes
+  useEffect(() => {
+    console.log('📋 ListView: filteredColumns updated', {
+      columnCount: Object.keys(filteredColumns).length,
+      totalTasks: Object.values(filteredColumns).reduce((sum, col) => sum + col.tasks.length, 0),
+      columns: Object.keys(filteredColumns)
+    });
+  }, [filteredColumns]);
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   
@@ -537,7 +547,7 @@ export default function ListView({
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
           <img
-            src={member.googleAvatarUrl || member.avatarUrl || '/default-avatar.png'}
+            src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl) || getAuthenticatedAvatarUrl('/default-avatar.png')}
             alt={`${member.firstName} ${member.lastName}`}
             className="w-5 h-5 rounded-full object-cover border border-gray-200"
           />
@@ -1104,7 +1114,19 @@ export default function ListView({
                                   startEditing(task.id, 'description', task.description);
                                 }}
                                 dangerouslySetInnerHTML={{
-                                  __html: DOMPurify.sanitize(task.description || '')
+                                  __html: DOMPurify.sanitize(
+                                    (() => {
+                                      // Fix blob URLs in task description
+                                      let fixedDescription = task.description || '';
+                                      const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+                                      fixedDescription = fixedDescription.replace(blobPattern, (_match, filename) => {
+                                        // Convert blob URL to authenticated server URL
+                                        const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+                                        return authenticatedUrl || `/uploads/${filename}`;
+                                      });
+                                      return fixedDescription;
+                                    })()
+                                  )
                                 }}
                               />
                             )
@@ -1383,10 +1405,19 @@ export default function ListView({
                     .map((comment, index) => {
                       const author = members.find(m => m.id === comment.authorId);
                       
-                      // Function to render HTML content with safe link handling
+                      // Function to render HTML content with safe link handling and blob URL fixing
                       const renderCommentHTML = (htmlText: string) => {
+                        // First, fix blob URLs by replacing them with authenticated server URLs
+                        let fixedContent = htmlText;
+                        const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+                        fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
+                          // Convert blob URL to authenticated server URL
+                          const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+                          return authenticatedUrl || `/uploads/${filename}`;
+                        });
+                        
                         const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = htmlText;
+                        tempDiv.innerHTML = fixedContent;
                         
                         const links = tempDiv.querySelectorAll('a');
                         links.forEach(link => {
@@ -1469,7 +1500,7 @@ export default function ListView({
               >
                 {member.googleAvatarUrl || member.avatarUrl ? (
                   <img
-                    src={member.googleAvatarUrl || member.avatarUrl}
+                    src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                     alt={member.name}
                     className="w-4 h-4 rounded-full object-cover border border-gray-200"
                     onError={(e) => {

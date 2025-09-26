@@ -57,6 +57,7 @@ router.post('/', async (req, res) => {
     await redisService.publish('column-created', {
       boardId: boardId,
       column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: false },
+      updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-created published to Redis');
@@ -130,6 +131,7 @@ router.put('/:id', async (req, res) => {
     await redisService.publish('column-updated', {
       boardId: column.boardId,
       column: { id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived },
+      updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-updated published to Redis');
@@ -160,6 +162,7 @@ router.delete('/:id', async (req, res) => {
     await redisService.publish('column-deleted', {
       boardId: column.boardId,
       columnId: id,
+      updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-deleted published to Redis');
@@ -208,6 +211,7 @@ router.post('/reorder', async (req, res) => {
       boardId: boardId,
       columnId: columnId,
       newPosition: newPosition,
+      updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-reordered published to Redis');

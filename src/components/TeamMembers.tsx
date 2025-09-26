@@ -1,6 +1,7 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { TeamMember } from '../types';
+import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -87,7 +88,7 @@ export default function TeamMembers({
     if (member.googleAvatarUrl) {
       return (
         <img 
-          src={member.googleAvatarUrl} 
+          src={getAuthenticatedAvatarUrl(member.googleAvatarUrl)} 
           alt={member.name}
           className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />
@@ -97,7 +98,7 @@ export default function TeamMembers({
     if (member.avatarUrl) {
       return (
         <img 
-          src={member.avatarUrl} 
+          src={getAuthenticatedAvatarUrl(member.avatarUrl)} 
           alt={member.name}
           className="w-7 h-7 rounded-full object-cover border-2 border-white shadow-sm"
         />

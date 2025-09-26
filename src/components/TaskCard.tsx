@@ -13,6 +13,7 @@ import { generateUUID } from '../utils/uuid';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { useSortable } from '@dnd-kit/sortable';
 import { useDroppable } from '@dnd-kit/core';
+import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
 import DOMPurify from 'dompurify';
@@ -77,7 +78,7 @@ interface TaskCardProps {
 
 
 
-export default function TaskCard({
+const TaskCard = React.memo(function TaskCard({
   task,
   member,
   members,
@@ -160,9 +161,10 @@ export default function TaskCard({
     let fixedContent = htmlContent;
     attachments.forEach(attachment => {
       if (attachment.name.startsWith('img-')) {
-        // Replace blob URLs with server URLs
+        // Replace blob URLs with authenticated server URLs
         const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-        fixedContent = fixedContent.replace(blobPattern, attachment.url);
+        const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+        fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
       }
     });
     return fixedContent;
@@ -1385,12 +1387,13 @@ export default function TaskCard({
                         
                         // Function to render HTML content with safe link handling and blob URL fixing
                         const renderCommentHTML = (htmlText: string) => {
-                          // First, fix blob URLs by replacing them with server URLs (matching TaskDetails/TaskPage)
+                          // First, fix blob URLs by replacing them with authenticated server URLs (matching TaskDetails/TaskPage)
                           let fixedContent = htmlText;
                           const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
                           fixedContent = fixedContent.replace(blobPattern, (_match, filename) => {
-                            // Convert blob URL to server URL
-                            return `/uploads/${filename}`;
+                            // Convert blob URL to authenticated server URL
+                            const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+                            return authenticatedUrl || `/uploads/${filename}`;
                           });
                           
                           // Create a temporary div to parse the HTML
@@ -1501,4 +1504,6 @@ export default function TaskCard({
       )}
     </>
   );
-}
+});
+
+export default TaskCard;

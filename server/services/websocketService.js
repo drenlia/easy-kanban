@@ -1,5 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
+import { JWT_SECRET } from '../middleware/auth.js';
 
 class WebSocketService {
   constructor() {
@@ -15,27 +17,82 @@ class WebSocketService {
       }
     });
     
-    console.log('🔌 WebSocket service initialized');
+    // Debug: Log the JWT secret being used
+    console.log('🔌 WebSocket service initialized with JWT_SECRET:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
+    
+    // Add authentication middleware
+    this.io.use((socket, next) => {
+      const token = socket.handshake.auth.token;
+      
+      if (!token) {
+        console.log('🔌 WebSocket connection rejected: No token provided');
+        return next(new Error('Authentication required'));
+      }
+      
+      console.log('🔌 WebSocket token received:', token ? `${token.substring(0, 20)}...` : 'undefined');
+      
+      jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+          console.log('🔌 WebSocket connection rejected: Invalid token', err.message);
+          console.log('🔌 JWT_SECRET being used:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
+          return next(new Error('Invalid token'));
+        }
+        
+        // Attach user info to socket
+        socket.userId = decoded.id;
+        socket.userEmail = decoded.email;
+        socket.userRole = decoded.role;
+        socket.userRoles = decoded.roles;
+        
+        console.log('🔌 WebSocket authentication successful for user:', decoded.email);
+        next();
+      });
+    });
+    
+    console.log('🔌 WebSocket service initialized with authentication');
 
     // Handle connections
     this.io.on('connection', (socket) => {
-      console.log('🔌 Client connected:', socket.id);
-      this.connectedClients.set(socket.id, { socketId: socket.id });
+      console.log('🔌 Client connected:', socket.id, 'User:', socket.userEmail);
+      this.connectedClients.set(socket.id, { 
+        socketId: socket.id, 
+        userId: socket.userId,
+        userEmail: socket.userEmail,
+        userRole: socket.userRole
+      });
 
       // Join board room
       socket.on('join-board', (boardId) => {
-        console.log(`📋 Received join-board event for board: ${boardId} from client: ${socket.id}`);
+        console.log(`📋 Received join-board event for board: ${boardId} from client: ${socket.id} (User: ${socket.userEmail})`);
+        
+        // For now, allow all authenticated users to join any board
+        // TODO: Add proper board access control based on user permissions
         socket.join(`board-${boardId}`);
-        this.connectedClients.set(socket.id, { socketId: socket.id, boardId });
-        console.log(`📋 Client ${socket.id} joined board: ${boardId}`);
+        this.connectedClients.set(socket.id, { 
+          socketId: socket.id, 
+          userId: socket.userId,
+          userEmail: socket.userEmail,
+          userRole: socket.userRole,
+          boardId 
+        });
+        console.log(`📋 Client ${socket.id} (${socket.userEmail}) joined board: ${boardId}`);
+        console.log(`📋 Room: board-${boardId}, Socket ID: ${socket.id}`);
         console.log(`📋 Total clients in board ${boardId}:`, this.getBoardClientCount(boardId));
+        
+        // Send confirmation back to client
+        socket.emit('joined-room', { boardId, room: `board-${boardId}` });
       });
 
       // Leave board room
       socket.on('leave-board', (boardId) => {
         socket.leave(`board-${boardId}`);
-        this.connectedClients.set(socket.id, { socketId: socket.id });
-        console.log(`📋 Client ${socket.id} left board: ${boardId}`);
+        this.connectedClients.set(socket.id, { 
+          socketId: socket.id, 
+          userId: socket.userId,
+          userEmail: socket.userEmail,
+          userRole: socket.userRole
+        });
+        console.log(`📋 Client ${socket.id} (${socket.userEmail}) left board: ${boardId}`);
       });
 
       // Handle user activity
@@ -45,13 +102,15 @@ class WebSocketService {
         if (client?.boardId) {
           socket.to(`board-${client.boardId}`).emit('user-activity', {
             ...data,
-            socketId: socket.id
+            socketId: socket.id,
+            userId: socket.userId,
+            userEmail: socket.userEmail
           });
         }
       });
 
       socket.on('disconnect', () => {
-        console.log('🔌 Client disconnected:', socket.id);
+        console.log('🔌 Client disconnected:', socket.id, 'User:', socket.userEmail);
         this.connectedClients.delete(socket.id);
       });
     });
@@ -61,9 +120,24 @@ class WebSocketService {
   }
 
   setupRedisSubscriptions() {
+    console.log('🔌 Setting up Redis subscriptions...');
+    console.log('🔌 Redis connected:', redisService.isRedisConnected());
+    
     // Task updates
     redisService.subscribe('task-updated', (data) => {
       console.log('📨 Broadcasting task-updated:', data);
+      console.log('📨 Board ID:', data.boardId);
+      console.log('📨 Connected clients:', this.connectedClients.size);
+      console.log('📨 Socket.IO instance:', !!this.io);
+      
+      // Debug: Check which clients are in the room
+      const room = `board-${data.boardId}`;
+      const roomClients = this.io?.sockets.adapter.rooms.get(room);
+      console.log('📨 Room:', room, 'Clients in room:', roomClients?.size || 0);
+      if (roomClients) {
+        console.log('📨 Client IDs in room:', Array.from(roomClients));
+      }
+      
       this.io?.to(`board-${data.boardId}`).emit('task-updated', data);
     });
 
