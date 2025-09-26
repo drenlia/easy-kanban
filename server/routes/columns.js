@@ -1,11 +1,12 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Create column
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
     const { db } = req.app.locals;
@@ -70,7 +71,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update column
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title, is_finished, is_archived } = req.body;
   try {
@@ -144,7 +145,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete column
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
@@ -175,7 +176,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Reorder columns
-router.post('/reorder', async (req, res) => {
+router.post('/reorder', authenticateToken, async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
     const { db } = req.app.locals;
@@ -224,7 +225,7 @@ router.post('/reorder', async (req, res) => {
 });
 
 // Renumber all columns in a board to ensure clean integer positions
-router.post('/renumber', async (req, res) => {
+router.post('/renumber', authenticateToken, async (req, res) => {
   const { boardId } = req.body;
   try {
     const { db } = req.app.locals;

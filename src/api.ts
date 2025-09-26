@@ -401,6 +401,18 @@ export const updateSetting = async (key: string, value: string) => {
   return data;
 };
 
+// Storage information
+export const getStorageInfo = async () => {
+  const { data } = await api.get('/storage/info');
+  return data;
+};
+
+// System information (admin only)
+export const getSystemInfo = async () => {
+  const { data } = await api.get('/admin/system-info');
+  return data;
+};
+
 // Tags (public endpoint for all users)
 export const getAllTags = async () => {
   const { data } = await api.get('/tags');

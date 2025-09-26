@@ -100,6 +100,13 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
                     resetArrowKeyState?.(); // Reset arrow key state to prevent frozen tasks
                   } else {
                     // Enter multi-select mode
+                    // First exit relationship mode if it's active
+                    if (isRelationshipMode) {
+                      setIsRelationshipMode(false);
+                      if (setSelectedParentTask) {
+                        setSelectedParentTask(null);
+                      }
+                    }
                     setIsMultiSelectMode(true);
                   }
                 }}
@@ -155,6 +162,13 @@ export const GanttHeader: React.FC<GanttHeaderProps> = ({
                 }
               } else {
                 // Enter relationship mode
+                // First exit multi-select mode if it's active
+                if (isMultiSelectMode) {
+                  setIsMultiSelectMode(false);
+                  setSelectedTasks([]);
+                  setHighlightedTaskId?.(null);
+                  resetArrowKeyState?.();
+                }
                 setIsRelationshipMode(true);
               }
             }}

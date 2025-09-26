@@ -3,6 +3,32 @@ import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, T
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
+import { getSystemInfo } from '../../api';
+
+interface SystemInfo {
+  memory: {
+    used: number;
+    total: number;
+    free: number;
+    percent: number;
+    usedFormatted: string;
+    totalFormatted: string;
+    freeFormatted: string;
+  };
+  cpu: {
+    percent: number;
+    loadAverage: number;
+    cores: number;
+  };
+  disk: {
+    used: number;
+    total: number;
+    percent: number;
+    usedFormatted: string;
+    totalFormatted: string;
+  };
+  timestamp: string;
+}
 
 interface HeaderProps {
   currentUser: CurrentUser | null;
@@ -44,6 +70,7 @@ const Header: React.FC<HeaderProps> = ({
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
 
   const handleRefresh = async () => {
     try {
@@ -69,6 +96,28 @@ const Header: React.FC<HeaderProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showInviteDropdown]);
+
+  // Fetch system info for admins
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+
+    const fetchSystemInfo = async () => {
+      try {
+        const info = await getSystemInfo();
+        setSystemInfo(info);
+      } catch (error) {
+        console.error('Failed to fetch system info:', error);
+      }
+    };
+
+    // Fetch immediately
+    fetchSystemInfo();
+
+    // Set up 5-second interval
+    const interval = setInterval(fetchSystemInfo, 5000);
+
+    return () => clearInterval(interval);
+  }, [currentUser?.roles]);
 
   const handleInviteClick = () => {
     setShowInviteDropdown(!showInviteDropdown);
@@ -364,6 +413,75 @@ const Header: React.FC<HeaderProps> = ({
           </a>
         </div>
       </div>
+      
+      {/* System Usage Panel - Vertical Compact for Admins (Always Visible) */}
+      {systemInfo && currentUser?.roles?.includes('admin') && (
+        <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10">
+          <div className="flex flex-col space-y-0.5 text-[10px]">
+            {/* RAM */}
+            <div className="flex items-center space-x-1.5">
+              <div className="text-gray-500 dark:text-gray-400 w-6">RAM</div>
+              <div className="flex items-center space-x-0.5">
+                <div className="w-6 bg-gray-200 dark:bg-gray-700 rounded-full h-0.5">
+                  <div 
+                    className={`h-0.5 rounded-full ${
+                      systemInfo.memory.percent > 80 ? 'bg-red-500' : 
+                      systemInfo.memory.percent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(systemInfo.memory.percent, 100)}%` }}
+                  ></div>
+                </div>
+                <span className="font-medium text-gray-900 dark:text-gray-100 w-6 text-right">
+                  {systemInfo.memory.percent}%
+                </span>
+              </div>
+            </div>
+
+            {/* CPU */}
+            <div className="flex items-center space-x-1.5">
+              <div className="text-gray-500 dark:text-gray-400 w-6">CPU</div>
+              <div className="flex items-center space-x-0.5">
+                <div className="w-6 bg-gray-200 dark:bg-gray-700 rounded-full h-0.5">
+                  <div 
+                    className={`h-0.5 rounded-full ${
+                      systemInfo.cpu.percent > 80 ? 'bg-red-500' : 
+                      systemInfo.cpu.percent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(systemInfo.cpu.percent, 100)}%` }}
+                  ></div>
+                </div>
+                <span className="font-medium text-gray-900 dark:text-gray-100 w-6 text-right">
+                  {systemInfo.cpu.percent}%
+                </span>
+              </div>
+            </div>
+
+            {/* Disk */}
+            <div className="flex items-center space-x-1.5">
+              <div className="text-gray-500 dark:text-gray-400 w-6">Disk</div>
+              <div className="flex items-center space-x-0.5">
+                <div className="w-6 bg-gray-200 dark:bg-gray-700 rounded-full h-0.5">
+                  <div 
+                    className={`h-0.5 rounded-full ${
+                      systemInfo.disk.percent > 80 ? 'bg-red-500' : 
+                      systemInfo.disk.percent > 60 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(systemInfo.disk.percent, 100)}%` }}
+                  ></div>
+                </div>
+                <span className="font-medium text-gray-900 dark:text-gray-100 w-6 text-right">
+                  {systemInfo.disk.percent}%
+                </span>
+              </div>
+            </div>
+
+            {/* Last updated indicator */}
+            <div className="text-gray-400 dark:text-gray-500 text-center pt-0.5 border-t border-gray-200 dark:border-gray-700">
+              {new Date(systemInfo.timestamp).toLocaleTimeString()}
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 };

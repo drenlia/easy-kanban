@@ -25,6 +25,7 @@ interface GanttTaskListProps {
   onCopyTask?: (task: Task) => Promise<void>;
   onRemoveTask?: (taskId: string, event?: React.MouseEvent) => Promise<void>;
   highlightedTaskId?: string | null;
+  siteSettings?: any;
 }
 
 // Drop zone component
@@ -102,11 +103,48 @@ const TaskRow = memo(({
   onRelationshipClick,
   onCopyTask,
   onRemoveTask,
-  highlightedTaskId
+  highlightedTaskId,
+  columns,
+  siteSettings
 }: any) => {
   const isThisTaskDragging = activeDragItem && 
     (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && 
     (activeDragItem as SortableTaskRowItem).task.id === task.id;
+
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
+
+  // Helper function to check if a task is overdue
+  const isTaskOverdue = (task: any) => {
+    if (!task.dueDate) return false;
+    const today = new Date();
+    const dueDate = parseLocalDate(task.dueDate);
+    // Set time to beginning of day for fair comparison
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
+  // Helper function to check if a column is finished
+  const isColumnFinished = (columnId: string) => {
+    const column = columns[columnId];
+    return column?.is_finished || false;
+  };
+
+  // Helper function to check if a column is archived
+  const isColumnArchived = (columnId: string) => {
+    const column = columns[columnId];
+    return column?.is_archived || false;
+  };
 
   const {
     attributes,
@@ -283,7 +321,8 @@ const GanttTaskList = memo(({
   onRelationshipClick,
   onCopyTask,
   onRemoveTask,
-  highlightedTaskId
+  highlightedTaskId,
+  siteSettings
 }: GanttTaskListProps) => {
   return (
     <div 
@@ -348,6 +387,8 @@ const GanttTaskList = memo(({
                     onCopyTask={onCopyTask}
                     onRemoveTask={onRemoveTask}
                     highlightedTaskId={highlightedTaskId}
+                    columns={columns}
+                    siteSettings={siteSettings}
                   />
                 ))}
               </DroppableGroup>

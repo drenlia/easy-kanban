@@ -463,7 +463,9 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
       ['DEFAULT_TASK_PREFIX', 'TASK-'], // Default task prefix
       ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done", "Completed", "Finished"]'], // Default finished column names
-      ['HIGHLIGHT_OVERDUE_TASKS', 'true'] // Highlight overdue tasks in light red
+      ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
+      ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
+      ['STORAGE_USED', '0'] // Current storage usage in bytes
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

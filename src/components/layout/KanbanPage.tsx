@@ -421,6 +421,11 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
         return; // Don't interfere with text editing
       }
       
+      // Don't handle arrow keys in Gantt view - let GanttViewV2 handle them
+      if (viewMode === 'gantt') {
+        return;
+      }
+      
       // Only handle arrow keys without modifiers for board navigation
       // Let cmd/ctrl + arrow keys work normally for text editing
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && 
@@ -439,7 +444,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [canScrollLeft, canScrollRight]);
+  }, [canScrollLeft, canScrollRight, viewMode]);
 
   // Cleanup scroll intervals on unmount and handle global mouse events
   useEffect(() => {

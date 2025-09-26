@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import http from 'http';
+import os from 'os';
 
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
@@ -42,6 +43,9 @@ import viewsRouter from './routes/views.js';
 import redisService from './services/redisService.js';
 import websocketService from './services/websocketService.js';
 
+// Import storage utilities
+import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorageLimit, formatBytes } from './utils/storageUtils.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Initialize database using extracted module
@@ -67,11 +71,6 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // DEBUG ENDPOINTS
 // ================================
 
-app.post('/api/debug/log', (req, res) => {
-  const { message, data } = req.body;
-  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
-  res.status(200).json({ success: true });
-});
 
 // ================================
 // AUTHENTICATION ENDPOINTS
@@ -420,6 +419,11 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
 
       // Commit transaction
       db.prepare('COMMIT').run();
+      
+      // Update storage usage if attachments were added
+      if (comment.attachments?.length > 0) {
+        updateStorageUsage(db);
+      }
       
       // Log comment creation activity
       await logCommentActivity(
@@ -1825,6 +1829,177 @@ app.get('/api/settings', (req, res) => {
   }
 });
 
+// Storage information endpoint
+app.get('/api/storage/info', authenticateToken, (req, res) => {
+  try {
+    const usage = getStorageUsage(db);
+    const limit = getStorageLimit(db);
+    const remaining = limit - usage;
+    const usagePercent = limit > 0 ? Math.round((usage / limit) * 100) : 0;
+    
+    res.json({
+      usage: usage,
+      limit: limit,
+      remaining: remaining,
+      usagePercent: usagePercent,
+      usageFormatted: formatBytes(usage),
+      limitFormatted: formatBytes(limit),
+      remainingFormatted: formatBytes(remaining)
+    });
+  } catch (error) {
+    console.error('Error getting storage info:', error);
+    res.status(500).json({ error: 'Failed to get storage information' });
+  }
+});
+
+// Helper function to read container memory info
+const getContainerMemoryInfo = () => {
+  try {
+    // Try different cgroup paths for Docker and Kubernetes
+    const cgroupPaths = [
+      '/sys/fs/cgroup',           // Docker (cgroup v2)
+      '/sys/fs/cgroup/memory',   // Docker (cgroup v1)
+      '/sys/fs/cgroup/kubepods', // Kubernetes
+      '/sys/fs/cgroup/system.slice', // Systemd containers
+    ];
+    
+    const memoryUsageFiles = [
+      'memory.current',           // cgroup v2
+      'memory.usage_in_bytes',   // cgroup v1
+    ];
+    
+    const memoryLimitFiles = [
+      'memory.max',               // cgroup v2
+      'memory.limit_in_bytes',   // cgroup v1
+    ];
+    
+    let memoryLimit = os.totalmem(); // Fallback to host memory
+    let memoryUsage = 0;
+    let foundContainerInfo = false;
+    
+    // Try to find container memory info
+    for (const cgroupPath of cgroupPaths) {
+      if (!fs.existsSync(cgroupPath)) continue;
+      
+      // Try to read memory usage
+      for (const usageFile of memoryUsageFiles) {
+        const usagePath = `${cgroupPath}/${usageFile}`;
+        if (fs.existsSync(usagePath)) {
+          try {
+            const usageData = fs.readFileSync(usagePath, 'utf8').trim();
+            memoryUsage = parseInt(usageData);
+            if (memoryUsage > 0) {
+              foundContainerInfo = true;
+              console.log(`Found container memory usage: ${formatBytes(memoryUsage)} from ${usagePath}`);
+              break;
+            }
+          } catch (usageError) {
+            console.log(`Error reading ${usagePath}:`, usageError.message);
+          }
+        }
+      }
+      
+      // Try to read memory limit
+      for (const limitFile of memoryLimitFiles) {
+        const limitPath = `${cgroupPath}/${limitFile}`;
+        if (fs.existsSync(limitPath)) {
+          try {
+            const limitData = fs.readFileSync(limitPath, 'utf8').trim();
+            if (limitData !== 'max' && limitData !== '') {
+              const limitBytes = parseInt(limitData);
+              if (limitBytes > 0 && limitBytes < os.totalmem()) {
+                memoryLimit = limitBytes;
+                console.log(`Found container memory limit: ${formatBytes(limitBytes)} from ${limitPath}`);
+                break;
+              }
+            }
+          } catch (limitError) {
+            console.log(`Error reading ${limitPath}:`, limitError.message);
+          }
+        }
+      }
+      
+      if (foundContainerInfo) break;
+    }
+    
+    // If no container memory usage found, fallback to host calculation
+    if (!foundContainerInfo) {
+      const freeMemory = os.freemem();
+      memoryUsage = os.totalmem() - freeMemory;
+      console.log('Using host memory calculation as fallback');
+    }
+    
+    // Ensure we have valid values
+    if (memoryUsage < 0) memoryUsage = 0;
+    if (memoryLimit <= 0) memoryLimit = os.totalmem();
+    
+    return {
+      total: memoryLimit,
+      used: memoryUsage,
+      free: memoryLimit - memoryUsage,
+      percent: Math.round((memoryUsage / memoryLimit) * 100)
+    };
+  } catch (error) {
+    console.error('Error reading container memory info:', error);
+    // Fallback to host memory
+    const totalMemory = os.totalmem();
+    const freeMemory = os.freemem();
+    const usedMemory = totalMemory - freeMemory;
+    return {
+      total: totalMemory,
+      used: usedMemory,
+      free: freeMemory,
+      percent: Math.round((usedMemory / totalMemory) * 100)
+    };
+  }
+};
+
+// System information endpoint (admin only)
+app.get('/api/admin/system-info', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    // Memory usage (container-aware)
+    const memoryInfo = getContainerMemoryInfo();
+    
+    // CPU usage (simplified - just load average)
+    const loadAvg = os.loadavg();
+    const cpuCores = os.cpus().length;
+    const cpuPercent = Math.round((loadAvg[0] / cpuCores) * 100);
+    
+    // Disk usage (storage info)
+    const storageUsage = getStorageUsage(db);
+    const storageLimit = getStorageLimit(db);
+    const diskPercent = storageLimit > 0 ? Math.round((storageUsage / storageLimit) * 100) : 0;
+    
+    res.json({
+      memory: {
+        used: memoryInfo.used,
+        total: memoryInfo.total,
+        free: memoryInfo.free,
+        percent: memoryInfo.percent,
+        usedFormatted: formatBytes(memoryInfo.used),
+        totalFormatted: formatBytes(memoryInfo.total),
+        freeFormatted: formatBytes(memoryInfo.free)
+      },
+      cpu: {
+        percent: cpuPercent,
+        loadAverage: loadAvg[0],
+        cores: cpuCores
+      },
+      disk: {
+        used: storageUsage,
+        total: storageLimit,
+        percent: diskPercent,
+        usedFormatted: formatBytes(storageUsage),
+        totalFormatted: formatBytes(storageLimit)
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error getting system info:', error);
+    res.status(500).json({ error: 'Failed to get system information' });
+  }
+});
+
 app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
@@ -2381,6 +2556,11 @@ app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) =
       // Commit transaction
       db.prepare('COMMIT').run();
       
+      // Update storage usage after adding attachments
+      if (insertedAttachments.length > 0) {
+        updateStorageUsage(db);
+      }
+      
       // Get the task's board ID for Redis publishing
       const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
       
@@ -2442,6 +2622,9 @@ app.delete('/api/attachments/:id', authenticateToken, async (req, res) => {
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Attachment record not found' });
     }
+    
+    // Update storage usage after deleting attachment
+    updateStorageUsage(db);
     
     // Get the task's board ID for Redis publishing
     const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
@@ -2626,6 +2809,9 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
+  
+  // Initialize storage usage tracking
+  initializeStorageUsage(db);
   
   // Initialize real-time services
   await initializeServices();

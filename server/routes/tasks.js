@@ -76,7 +76,7 @@ const generateTaskTicket = (db, prefix = 'TASK-') => {
 };
 
 // Get all tasks
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     const tasks = wrapQuery(db.prepare(`
@@ -97,7 +97,7 @@ router.get('/', (req, res) => {
 });
 
 // Get task by ID or ticket
-router.get('/:id', (req, res) => {
+router.get('/:id', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     const { id } = req.params;
@@ -207,7 +207,7 @@ router.get('/:id', (req, res) => {
 });
 
 // Create task
-router.post('/', async (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   const task = req.body;
   const userId = req.user?.id || 'system'; // Fallback for now
   
@@ -260,7 +260,7 @@ router.post('/', async (req, res) => {
 });
 
 // Create task at top
-router.post('/add-at-top', async (req, res) => {
+router.post('/add-at-top', authenticateToken, async (req, res) => {
   const task = req.body;
   const userId = req.user?.id || 'system';
   
@@ -318,7 +318,7 @@ router.post('/add-at-top', async (req, res) => {
 });
 
 // Update task
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const task = req.body;
   const userId = req.user?.id || 'system';
@@ -414,7 +414,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete task
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userId = req.user?.id || 'system';
   
@@ -454,6 +454,23 @@ router.delete('/:id', async (req, res) => {
     // Delete the task (cascades to attachments and comments)
     wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
     
+    // Renumber remaining tasks in the same column sequentially from 0
+    const remainingTasksStmt = db.prepare(`
+      SELECT id, position FROM tasks 
+      WHERE columnId = ? AND boardId = ? 
+      ORDER BY position ASC
+    `);
+    const remainingTasks = wrapQuery(remainingTasksStmt, 'SELECT').all(task.columnId, task.boardId);
+    
+    // Update positions sequentially from 0
+    const updatePositionStmt = db.prepare('UPDATE tasks SET position = ? WHERE id = ?');
+    remainingTasks.forEach((remainingTask, index) => {
+      if (remainingTask.position !== index) {
+        wrapQuery(updatePositionStmt, 'UPDATE').run(index, remainingTask.id);
+        console.log(`🔄 Renumbered task ${remainingTask.id} to position ${index}`);
+      }
+    });
+    
     // Log deletion activity
     await logTaskActivity(
       userId,
@@ -481,7 +498,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Reorder tasks
-router.post('/reorder', async (req, res) => {
+router.post('/reorder', authenticateToken, async (req, res) => {
   const { taskId, newPosition, columnId } = req.body;
   const userId = req.user?.id || 'system';
   
@@ -559,7 +576,7 @@ router.post('/reorder', async (req, res) => {
 });
 
 // Move task to different board
-router.post('/move-to-board', async (req, res) => {
+router.post('/move-to-board', authenticateToken, async (req, res) => {
   console.log('🔄 Cross-board move endpoint hit:', { taskId: req.body.taskId, targetBoardId: req.body.targetBoardId });
   const { taskId, targetBoardId } = req.body;
   const userId = req.user?.id || 'system';
@@ -730,7 +747,7 @@ router.post('/move-to-board', async (req, res) => {
 });
 
 // Get tasks by board
-router.get('/by-board/:boardId', (req, res) => {
+router.get('/by-board/:boardId', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
     const { db } = req.app.locals;
@@ -889,7 +906,7 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
 // Task Relationships endpoints
 
 // Get all relationships for a task
-router.get('/:taskId/relationships', (req, res) => {
+router.get('/:taskId/relationships', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId } = req.params;
@@ -1096,7 +1113,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
 });
 
 // Get tasks available for creating relationships (excludes current task and already related tasks)
-router.get('/:taskId/available-for-relationship', (req, res) => {
+router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId } = req.params;
