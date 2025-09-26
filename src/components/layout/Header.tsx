@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, ToggleLeft, ToggleRight } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
+import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 
 interface HeaderProps {
   currentUser: CurrentUser | null;
@@ -231,7 +232,7 @@ const Header: React.FC<HeaderProps> = ({
                   >
                     {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
                       <img
-                        src={currentUser.googleAvatarUrl || currentUser.avatarUrl}
+                        src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl || currentUser.avatarUrl)}
                         alt="Profile"
                         className="h-8 w-8 rounded-full object-cover"
                         onError={(e) => {

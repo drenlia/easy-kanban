@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
+import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 
 interface User {
   id: string;
@@ -408,7 +409,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     <div className="flex-shrink-0 h-10 w-10">
                       {(user.googleAvatarUrl || user.avatarUrl) ? (
                         <img
-                          src={user.googleAvatarUrl || user.avatarUrl}
+                          src={getAuthenticatedAvatarUrl(user.googleAvatarUrl || user.avatarUrl)}
                           alt={`${user.firstName} ${user.lastName}`}
                           className="h-10 w-10 rounded-full object-cover border-2 border-gray-200 dark:border-gray-600"
                         />
@@ -708,7 +709,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     <div className="flex-shrink-0">
                       {(editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
                         <img
-                          src={editingUserData.googleAvatarUrl || editingUserData.avatarUrl}
+                          src={getAuthenticatedAvatarUrl(editingUserData.googleAvatarUrl || editingUserData.avatarUrl)}
                           alt="User avatar"
                           className="w-12 h-12 rounded-full border-2 border-gray-200"
                         />

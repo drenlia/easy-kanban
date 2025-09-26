@@ -61,9 +61,7 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Serve static files
-app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
-app.use('/avatars', express.static(path.join(__dirname, 'avatars')));
+// Static file serving removed for security - files now served through authenticated endpoints
 
 // ================================
 // DEBUG ENDPOINTS
@@ -581,7 +579,7 @@ app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
 });
 
 // New endpoint to fetch comment attachments
-app.get('/api/comments/:commentId/attachments', (req, res) => {
+app.get('/api/comments/:commentId/attachments', authenticateToken, (req, res) => {
   try {
     const attachments = db.prepare(`
       SELECT 
@@ -602,15 +600,19 @@ app.get('/api/comments/:commentId/attachments', (req, res) => {
 });
 
 // File upload endpoints
-app.post('/api/upload', attachmentUpload.single('file'), (req, res) => {
+app.post('/api/upload', authenticateToken, attachmentUpload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
 
+  // Generate authenticated URL with token
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
+  
   res.json({
     id: crypto.randomUUID(),
     name: req.file.originalname,
-    url: `/attachments/${req.file.filename}`,
+    url: authenticatedUrl,
     type: req.file.mimetype,
     size: req.file.size
   });
@@ -641,9 +643,13 @@ app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), 
       console.log('✅ User-profile-updated published to Redis');
     }
     
+    // Generate authenticated URL with token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    const authenticatedUrl = token ? `/api/files/avatars/${req.file.filename}?token=${encodeURIComponent(token)}` : avatarPath;
+    
     res.json({
       message: 'Avatar uploaded successfully',
-      avatarUrl: avatarPath
+      avatarUrl: authenticatedUrl
     });
   } catch (error) {
     console.error('Error uploading avatar:', error);
@@ -2459,23 +2465,84 @@ app.delete('/api/attachments/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Serve attachment files
-app.get('/attachments/:filename', (req, res) => {
+// Direct file access removed for security - files now served through token-based endpoints
+
+// Token-based file access endpoints (for frontend img tags)
+app.get('/api/files/attachments/:filename', (req, res) => {
   const { filename } = req.params;
+  const token = req.query.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Token required' });
+  }
   
   try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Token is valid, serve the file
+    
     const filePath = path.join(__dirname, 'attachments', filename);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
     
+    // Set appropriate headers for file serving
+    res.setHeader('Content-Type', getContentType(filename));
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
     res.sendFile(filePath);
   } catch (error) {
     console.error('Error serving attachment:', error);
-    res.status(500).json({ error: 'Failed to serve file' });
+    res.status(401).json({ error: 'Invalid token' });
   }
 });
+
+app.get('/api/files/avatars/:filename', (req, res) => {
+  const { filename } = req.params;
+  const token = req.query.token;
+  
+  if (!token) {
+    return res.status(401).json({ error: 'Token required' });
+  }
+  
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Token is valid, serve the file
+    
+    const filePath = path.join(__dirname, 'avatars', filename);
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+    
+    // Set appropriate headers for file serving
+    res.setHeader('Content-Type', getContentType(filename));
+    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error serving avatar:', error);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+// Helper function to determine content type
+function getContentType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const contentTypes = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.pdf': 'application/pdf',
+    '.txt': 'text/plain',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.xls': 'application/vnd.ms-excel',
+    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  };
+  return contentTypes[ext] || 'application/octet-stream';
+}
 
 // ================================
 // DEBUG ENDPOINTS

@@ -43,6 +43,14 @@ export default defineConfig({
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,
       },
+      '/api/files/attachments': {
+        target: 'http://0.0.0.0:3222',
+        changeOrigin: true,
+      },
+      '/api/files/avatars': {
+        target: 'http://0.0.0.0:3222',
+        changeOrigin: true,
+      },
       '/socket.io': {
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,

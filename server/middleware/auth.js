@@ -1,8 +1,11 @@
 import jwt from 'jsonwebtoken';
 
 // JWT configuration
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || 'Ioqui8ziPhooFiesooshoughai5xeebaefeid7Joo2IeSh';
 const JWT_EXPIRES_IN = '24h';
+
+// Debug: Log the JWT secret being used
+console.log('🔑 Auth middleware initialized with JWT_SECRET:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
 
 // Authentication middleware
 export const authenticateToken = (req, res, next) => {

@@ -9,6 +9,7 @@ import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
+import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 
 interface TaskDetailsProps {
   task: Task;
@@ -1160,9 +1161,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         let updatedDescription = editedTask.description;
         uploadedAttachments.forEach(attachment => {
           if (attachment.name.startsWith('img-')) {
-            // Replace blob URLs with server URLs
+            // Replace blob URLs with authenticated server URLs
             const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-            updatedDescription = updatedDescription.replace(blobPattern, attachment.url);
+            const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+            updatedDescription = updatedDescription.replace(blobPattern, authenticatedUrl || attachment.url);
           }
         });
         
@@ -1845,14 +1847,15 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               const attachments = commentAttachments[comment.id] || [];
 
-              // Fix blob URLs in comment text by replacing them with server URLs
+              // Fix blob URLs in comment text by replacing them with authenticated server URLs
               const fixImageUrls = (htmlContent: string, attachments: Attachment[]) => {
                 let fixedContent = htmlContent;
                 attachments.forEach(attachment => {
                   if (attachment.name.startsWith('img-')) {
-                    // Replace blob URLs with server URLs
+                    // Replace blob URLs with authenticated server URLs
                     const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-                    fixedContent = fixedContent.replace(blobPattern, attachment.url);
+                    const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+                    fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
                   }
                 });
                 return fixedContent;
@@ -1967,7 +1970,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         >
                           <Paperclip size={14} />
                           <a
-                            href={attachment.url}
+                            href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="hover:text-blue-500"

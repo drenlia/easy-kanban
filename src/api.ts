@@ -1,16 +1,42 @@
-import axios from 'axios';
+import axios, { CancelTokenSource } from 'axios';
 import { TeamMember, Board, Task, Column, Comment } from './types';
 
 const api = axios.create({
   baseURL: '/api'
 });
 
+// Flag to prevent multiple redirects and API calls
+let isRedirecting = false;
+let hasInvalidToken = false;
+
+// Function to handle invalid token
+const handleInvalidToken = () => {
+  if (isRedirecting) return;
+  
+  console.log('🔑 Invalid token detected - stopping all API activity');
+  isRedirecting = true;
+  hasInvalidToken = true;
+  localStorage.removeItem('authToken');
+  
+  // Immediately redirect to login page
+  window.location.replace(window.location.origin + '/#login');
+};
+
 // Add auth token to requests
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('authToken');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  // Don't make API calls if we're redirecting or have invalid token
+  if (isRedirecting || hasInvalidToken) {
+    return Promise.reject(new Error('Invalid token - redirecting to login'));
   }
+  
+  const token = localStorage.getItem('authToken');
+  if (!token) {
+    // No token available, redirect to login
+    handleInvalidToken();
+    return Promise.reject(new Error('No token available'));
+  }
+  
+  config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
@@ -20,11 +46,8 @@ api.interceptors.response.use(
   (error) => {
     // Only clear token for 401 (unauthorized) errors
     // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
-    if (error.response?.status === 401) {
-      console.log('🔑 Clearing token due to 401 unauthorized error');
-      localStorage.removeItem('authToken');
-      // Redirect to login page
-      window.location.href = window.location.origin + '/#login';
+    if (error.response?.status === 401 && !isRedirecting) {
+      handleInvalidToken();
     }
     return Promise.reject(error);
   }
@@ -230,15 +253,24 @@ export const uploadFile = async (file: File) => {
 };
 
 export const fetchCommentAttachments = async (commentId: string) => {
-  const response = await fetch(`/api/comments/${commentId}/attachments`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch comment attachments');
+  // Don't make API calls if no token is available
+  if (!localStorage.getItem('authToken')) {
+    console.log('🔑 Skipping fetchCommentAttachments - no auth token available');
+    return [];
   }
-  return response.json();
+  
+  const { data } = await api.get(`/comments/${commentId}/attachments`);
+  return data;
 };
 
 // Task Attachments API
 export const fetchTaskAttachments = async (taskId: string) => {
+  // Don't make API calls if no token is available
+  if (!localStorage.getItem('authToken')) {
+    console.log('🔑 Skipping fetchTaskAttachments - no auth token available');
+    return [];
+  }
+  
   const { data } = await api.get(`/tasks/${taskId}/attachments`);
   return data;
 };

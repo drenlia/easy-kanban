@@ -65,6 +65,7 @@ class RedisService {
         try {
           const data = JSON.parse(message);
           console.log(`📥 Received from ${channel}:`, data);
+          console.log(`📥 Channel: ${channel}, Message: ${message}`);
           callback(data);
         } catch (parseError) {
           console.error(`❌ Failed to parse message from ${channel}:`, parseError);

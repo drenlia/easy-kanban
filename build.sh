@@ -50,10 +50,27 @@ echo "   Frontend Port: $FRONTEND_PORT"
 echo "   Demo Mode: $DEMO_ENABLED"
 echo ""
 
-# Update docker-compose.yml with user's configuration
-echo "🔧 Updating docker-compose.yml with your configuration..."
-sed -i "s/- \"[0-9]*:3010\"/- \"$FRONTEND_PORT:3010\"/" docker-compose.yml
-sed -i "s/DEMO_ENABLED=[a-z]*/DEMO_ENABLED=$DEMO_ENABLED/" docker-compose.yml
+# Generate a random JWT secret
+echo "🔐 Generating secure JWT secret..."
+if command -v openssl >/dev/null 2>&1; then
+    JWT_SECRET=$(openssl rand -base64 64 | tr -d "=+/" | cut -c1-64)
+    echo "   JWT Secret generated using OpenSSL: ${JWT_SECRET:0:8}..."
+else
+    # Fallback method using /dev/urandom
+    JWT_SECRET=$(head -c 64 /dev/urandom | base64 | tr -d "=+/" | cut -c1-64)
+    echo "   JWT Secret generated using /dev/urandom: ${JWT_SECRET:0:8}..."
+fi
+
+# Update docker-compose files with user's configuration
+echo "🔧 Updating docker-compose files with your configuration..."
+for compose_file in docker-compose*.yml; do
+    if [ -f "$compose_file" ]; then
+        echo "   Updating $compose_file..."
+        sed -i "s/- \"[0-9]*:3010\"/- \"$FRONTEND_PORT:3010\"/" "$compose_file"
+        sed -i "s/DEMO_ENABLED=[a-z]*/DEMO_ENABLED=$DEMO_ENABLED/" "$compose_file"
+        sed -i "s/JWT_SECRET=your-super-secret-jwt-key-change-in-production/JWT_SECRET=$JWT_SECRET/" "$compose_file"
+    fi
+done
 
 # Build the development image
 echo "📦 Building Docker image..."
@@ -80,6 +97,14 @@ if [ $? -eq 0 ]; then
     echo "==========================================="
     echo "   Email: admin@kanban.local"
     echo "   Password: [Generated randomly - check Docker logs]"
+    echo "==========================================="
+    echo ""
+    echo "🔑 ==========================================="
+    echo "   JWT SECRET INFORMATION"
+    echo "==========================================="
+    echo "   JWT Secret: [Generated securely and updated in docker-compose files]"
+    echo "   Secret Preview: ${JWT_SECRET:0:8}..."
+    echo "   Length: ${#JWT_SECRET} characters"
     echo "==========================================="
     echo ""
     echo ""

@@ -11,6 +11,7 @@ import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
 import TaskFlowChart from './TaskFlowChart';
 import DOMPurify from 'dompurify';
+import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 
 interface TaskPageProps {
   currentUser: CurrentUser | null;
@@ -467,9 +468,10 @@ export default function TaskPage({
         let finalContent = content;
         uploadedAttachments.forEach(attachment => {
           if (attachment.name.startsWith('img-')) {
-            // Replace blob URLs with server URLs
+            // Replace blob URLs with authenticated server URLs
             const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-            finalContent = finalContent.replace(blobPattern, attachment.url);
+            const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+            finalContent = finalContent.replace(blobPattern, authenticatedUrl || attachment.url);
           }
         });
 
@@ -620,9 +622,10 @@ export default function TaskPage({
         let updatedDescription = editedTask.description;
         uploadedAttachments.forEach(attachment => {
           if (attachment.name.startsWith('img-')) {
-            // Replace blob URLs with server URLs
+            // Replace blob URLs with authenticated server URLs
             const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-            updatedDescription = updatedDescription.replace(blobPattern, attachment.url);
+            const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+            updatedDescription = updatedDescription.replace(blobPattern, authenticatedUrl || attachment.url);
           }
         });
         
@@ -955,7 +958,7 @@ export default function TaskPage({
                       </div>
                       <div className="flex items-center space-x-2">
                         <a
-                          href={attachment.url}
+                          href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm"
@@ -1114,9 +1117,10 @@ export default function TaskPage({
                                 
                                 attachments.forEach(attachment => {
                                   if (attachment.name.startsWith('img-')) {
-                                    // Replace blob URLs with server URLs
+                                    // Replace blob URLs with authenticated server URLs
                                     const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-                                    fixedContent = fixedContent.replace(blobPattern, attachment.url);
+                                    const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+                                    fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
                                   }
                                 });
                                 
