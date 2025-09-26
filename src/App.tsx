@@ -92,7 +92,6 @@ export default function App() {
   
   // Debug: Log when selectedBoard changes and update ref
   useEffect(() => {
-    console.log('🔍 selectedBoard changed:', selectedBoard);
     selectedBoardRef.current = selectedBoard;
   }, [selectedBoard]);
   const [columns, setColumns] = useState<Columns>({});
@@ -178,15 +177,79 @@ export default function App() {
     try {
       await deleteTask(taskId);
       
-      // Remove task from local state
+      // Remove task from local state and renumber remaining tasks
       const updatedColumns = { ...columns };
+      const tasksToUpdate: Array<{ taskId: string; position: number; columnId: string }> = [];
+      
       Object.keys(updatedColumns).forEach(columnId => {
-        updatedColumns[columnId] = {
-          ...updatedColumns[columnId],
-          tasks: updatedColumns[columnId].tasks.filter(task => task.id !== taskId)
-        };
+        const column = updatedColumns[columnId];
+        if (column) {
+          // Remove the deleted task
+          const remainingTasks = column.tasks.filter(task => task.id !== taskId);
+          
+          // Renumber remaining tasks sequentially from 0
+          const renumberedTasks = remainingTasks
+            .sort((a, b) => (a.position || 0) - (b.position || 0))
+            .map((task, index) => {
+              // Track tasks that need position updates
+              if (task.position !== index) {
+                tasksToUpdate.push({
+                  taskId: task.id,
+                  position: index,
+                  columnId: columnId
+                });
+              }
+              return {
+                ...task,
+                position: index
+              };
+            });
+          
+          updatedColumns[columnId] = {
+            ...column,
+            tasks: renumberedTasks
+          };
+        }
       });
       setColumns(updatedColumns);
+      
+      // Also update filteredColumns to maintain consistency
+      setFilteredColumns(prevFilteredColumns => {
+        const updatedFilteredColumns = { ...prevFilteredColumns };
+        Object.keys(updatedFilteredColumns).forEach(columnId => {
+          const column = updatedFilteredColumns[columnId];
+          if (column) {
+            // Remove the deleted task
+            const remainingTasks = column.tasks.filter(task => task.id !== taskId);
+            
+            // Renumber remaining tasks sequentially from 0
+            const renumberedTasks = remainingTasks
+              .sort((a, b) => (a.position || 0) - (b.position || 0))
+              .map((task, index) => ({
+                ...task,
+                position: index
+              }));
+            
+            updatedFilteredColumns[columnId] = {
+              ...column,
+              tasks: renumberedTasks
+            };
+          }
+        });
+        return updatedFilteredColumns;
+      });
+      
+      // Send position updates to server for tasks that changed positions
+      if (tasksToUpdate.length > 0) {
+        try {
+          await Promise.all(tasksToUpdate.map(({ taskId, position, columnId }) => 
+            updateTask({ id: taskId, position, columnId })
+          ));
+          console.log('✅ Updated positions for', tasksToUpdate.length, 'tasks after deletion');
+        } catch (error) {
+          console.error('❌ Failed to update task positions after deletion:', error);
+        }
+      }
       
       // Refresh board data to ensure consistent state
       await refreshBoardData();
@@ -232,6 +295,7 @@ export default function App() {
   }, [members, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
+  const viewModeRef = useRef<ViewMode>(userPrefs.viewMode);
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
@@ -784,218 +848,214 @@ export default function App() {
 
     // Listen for WebSocket ready event (simplified since we now use joinBoardWhenReady)
     const handleWebSocketReady = () => {
-      console.log('🔍 WebSocket ready event received');
     };
 
-    console.log('🔍 About to register WebSocket ready handler');
     websocketClient.onWebSocketReady(handleWebSocketReady);
-    console.log('🔍 WebSocket ready handler registered');
 
     // Set up event handlers
     const handleTaskCreated = (data: any) => {
-      console.log('📨 Task created via WebSocket:', data);
-      console.log('🔍 Current board ID:', selectedBoard, 'Event board ID:', data.boardId);
-      console.log('🔍 WebSocket connection status:', websocketClient.isWebSocketConnected());
       // Only update if the task is for the current board
-      if (data.boardId === selectedBoard && data.task) {
-        // Throttle updates to prevent performance issues
-        const now = Date.now();
-        if (now - lastWebSocketUpdateRef.current < WEBSOCKET_THROTTLE_MS) {
-          return;
-        }
-        lastWebSocketUpdateRef.current = now;
+      if (data.boardId === selectedBoardRef.current && data.task) {
         
         // Optimized: Add the specific task instead of full refresh
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
           const targetColumnId = data.task.columnId;
           if (updatedColumns[targetColumnId]) {
+            // Add new task at front and renumber all tasks sequentially
+            const existingTasks = updatedColumns[targetColumnId].tasks;
+            const allTasks = [data.task, ...existingTasks];
+            const updatedTasks = allTasks.map((task, index) => ({
+              ...task,
+              position: index
+            }));
+            
             updatedColumns[targetColumnId] = {
               ...updatedColumns[targetColumnId],
-              tasks: [...updatedColumns[targetColumnId].tasks, data.task]
+              tasks: updatedTasks
             };
           }
           return updatedColumns;
+        });
+        
+        // CRITICAL FIX: Also update filteredColumns immediately to ensure the task is draggable
+        setFilteredColumns(prevFilteredColumns => {
+          const updatedFilteredColumns = { ...prevFilteredColumns };
+          const targetColumnId = data.task.columnId;
+          if (updatedFilteredColumns[targetColumnId]) {
+            // Add new task at front and renumber all tasks sequentially
+            const existingTasks = updatedFilteredColumns[targetColumnId].tasks;
+            const allTasks = [data.task, ...existingTasks];
+            const updatedTasks = allTasks.map((task, index) => ({
+              ...task,
+              position: index
+            }));
+            
+            updatedFilteredColumns[targetColumnId] = {
+              ...updatedFilteredColumns[targetColumnId],
+              tasks: updatedTasks
+            };
+          }
+          return updatedFilteredColumns;
         });
       }
     };
 
     const handleTaskUpdated = (data: any) => {
-      const functionId = Math.random().toString(36).substr(2, 9);
-      console.log(`📨 Task updated via WebSocket [${functionId}]:`, data);
-      console.log(`🔍 handleTaskUpdated function called [${functionId}] - starting execution`);
-      
-      try {
-        console.log(`🔍 selectedBoardRef.current [${functionId}]:`, selectedBoardRef.current);
-        console.log(`🔍 selectedBoard state [${functionId}]:`, selectedBoard);
-      } catch (error) {
-        console.error(`🔍 Error accessing selectedBoard values [${functionId}]:`, error);
-        return;
-      }
-      
       // Get current selectedBoard value from ref to avoid stale closure
-      console.log(`🔍 About to get currentSelectedBoard [${functionId}]`);
       const currentSelectedBoard = selectedBoardRef.current;
-      console.log(`🔍 Got currentSelectedBoard [${functionId}]:`, currentSelectedBoard);
-      console.log(`🔍 Current board ID [${functionId}]:`, currentSelectedBoard, 'Event board ID:', data.boardId);
-      console.log(`🔍 WebSocket handler instance [${functionId}]:`, Date.now());
-      console.log('🔍 Handler selectedBoard value:', currentSelectedBoard);
-      console.log('🔍 Task details:', {
-        id: data.task?.id,
-        title: data.task?.title,
-        columnId: data.task?.columnId,
-        position: data.task?.position,
-        updatedBy: data.task?.updatedBy
-      });
-      
-      // Debug: Check if we should process this update
+      // Check if we should process this update
       const shouldProcess = currentSelectedBoard && data.boardId === currentSelectedBoard && data.task;
-      console.log('🔍 Should process update?', {
-        hasSelectedBoard: !!currentSelectedBoard,
-        boardMatch: currentSelectedBoard === data.boardId,
-        hasTask: !!data.task,
-        willProcess: shouldProcess
-      });
-      console.log('🔍 Detailed check:', {
-        currentSelectedBoard,
-        dataBoardId: data.boardId,
-        dataTask: data.task,
-        condition1: !!currentSelectedBoard,
-        condition2: currentSelectedBoard === data.boardId,
-        condition3: !!data.task,
-        finalResult: shouldProcess
-      });
-      console.log('🔍 Full dataTask:', data.task);
-      console.log('🔍 Full currentSelectedBoard:', currentSelectedBoard);
-      console.log('🔍 Full dataBoardId:', data.boardId);
-      
-      // Only update if the task is for the current board and we have a selected board
-      const conditionResult = currentSelectedBoard && data.boardId === currentSelectedBoard && data.task;
-      console.log(`🔍 About to check condition [${functionId}]:`, {
-        currentSelectedBoard,
-        dataBoardId: data.boardId,
-        dataTask: data.task,
-        condition: conditionResult
-      });
-      console.log(`🔍 Condition result [${functionId}]:`, conditionResult);
       
       if (currentSelectedBoard && data.boardId === currentSelectedBoard && data.task) {
-        console.log(`🔍 Entering if block [${functionId}] - condition passed`);
-        
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // But allow updates from other users
-        console.log(`🔍 Checking skip condition [${functionId}]:`, {
-          justUpdatedFromWebSocket: window.justUpdatedFromWebSocket,
-          taskUpdatedBy: data.task.updatedBy,
-          currentUserId: currentUser?.id,
-          shouldSkip: window.justUpdatedFromWebSocket && data.task.updatedBy === currentUser?.id
-        });
-        
-        if (window.justUpdatedFromWebSocket && data.task.updatedBy === currentUser?.id) {
-          console.log(`🔍 Skipping task update [${functionId}] - came from current user`);
+        // Skip entirely if we're in Gantt view - GanttViewV2 handles its own WebSocket events
+        if (viewModeRef.current === 'gantt') {
           return;
         }
         
-        console.log(`🔍 Proceeding with task update [${functionId}] - not from current user`);
+        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
+        // This prevents duplicate processing when both App.tsx and GanttViewV2 process the same WebSocket event
+        if (window.justUpdatedFromWebSocket && data.task.updatedBy === currentUser?.id) {
+          return;
+        }
         
-        // Process all WebSocket updates immediately for real-time functionality
-        console.log(`🔍 Processing WebSocket update [${functionId}] - no throttling`);
+        // Also skip if this is a Gantt view update (indicated by the justUpdatedFromWebSocket flag)
+        // This prevents the infinite loop where both handlers process the same event
+        if (window.justUpdatedFromWebSocket) {
+          return;
+        }
         
-        // Handle task updates including cross-column moves
+        // Handle task updates including cross-column moves and same-column reordering
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
           const taskId = data.task.id;
           const newColumnId = data.task.columnId;
           
-          console.log('🔍 Processing task move:', {
-            taskId,
-            newColumnId,
-            availableColumns: Object.keys(updatedColumns)
-          });
           
-          console.log('🔍 Before update - columns state:', {
-            columnCount: Object.keys(prevColumns).length,
-            totalTasks: Object.values(prevColumns).reduce((sum, col) => sum + col.tasks.length, 0)
-          });
-          
-          // First, remove the task from all columns (in case it moved)
+          // Find which column currently contains this task
+          let currentColumnId = null;
           Object.keys(updatedColumns).forEach(columnId => {
             const column = updatedColumns[columnId];
             const taskIndex = column.tasks.findIndex(t => t.id === taskId);
             if (taskIndex !== -1) {
-              console.log(`🔍 Removing task from column ${columnId} at position ${taskIndex}`);
-              updatedColumns[columnId] = {
+              currentColumnId = columnId;
+            }
+          });
+          
+          if (currentColumnId === newColumnId) {
+            // Same column - update task in place (for reordering)
+            console.log(`🔍 Updating task in same column ${newColumnId}`);
+            const column = updatedColumns[newColumnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+            if (taskIndex !== -1) {
+              updatedColumns[newColumnId] = {
                 ...column,
                 tasks: [
                   ...column.tasks.slice(0, taskIndex),
+                  data.task,
                   ...column.tasks.slice(taskIndex + 1)
                 ]
               };
             }
-          });
-          
-          // Then, add the task to its new column
-          if (updatedColumns[newColumnId]) {
-            console.log(`🔍 Adding task to column ${newColumnId}`);
-            updatedColumns[newColumnId] = {
-              ...updatedColumns[newColumnId],
-              tasks: [...updatedColumns[newColumnId].tasks, data.task]
-            };
           } else {
-            console.error(`🔍 Target column ${newColumnId} not found!`);
+            // Different column - remove from old column and add to new column
+            
+            // Remove from current column
+            if (currentColumnId) {
+              const currentColumn = updatedColumns[currentColumnId];
+              const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
+              if (taskIndex !== -1) {
+                updatedColumns[currentColumnId] = {
+                  ...currentColumn,
+                  tasks: [
+                    ...currentColumn.tasks.slice(0, taskIndex),
+                    ...currentColumn.tasks.slice(taskIndex + 1)
+                  ]
+                };
+              }
+            }
+            
+            // Add to new column
+            if (updatedColumns[newColumnId]) {
+              updatedColumns[newColumnId] = {
+                ...updatedColumns[newColumnId],
+                tasks: [...updatedColumns[newColumnId].tasks, data.task]
+              };
+            } else {
+            }
           }
           
-          console.log('🔍 After update - columns state:', {
-            columnCount: Object.keys(updatedColumns).length,
-            totalTasks: Object.values(updatedColumns).reduce((sum, col) => sum + col.tasks.length, 0)
-          });
-          
-          console.log('🔍 Updated columns keys:', Object.keys(updatedColumns));
-          console.log('🔍 Task in new column:', updatedColumns[newColumnId]?.tasks.find(t => t.id === taskId));
           
           return updatedColumns;
         });
       } else {
-        console.log('🔍 Skipping task update - conditions not met:', {
-          selectedBoard: currentSelectedBoard,
-          eventBoardId: data.boardId,
-          hasTask: !!data.task,
-          reason: !currentSelectedBoard ? 'no selected board' : data.boardId !== currentSelectedBoard ? 'different board' : 'no task data'
-        });
       }
     };
 
     const handleTaskDeleted = (data: any) => {
-      console.log('📨 Task deleted via WebSocket:', data);
       // Only update if the task is for the current board
-      if (data.boardId === selectedBoard && data.taskId) {
-        // Optimized: Remove the specific task instead of full refresh
+      if (data.boardId === selectedBoardRef.current && data.taskId) {
+        // Optimized: Remove the specific task and renumber remaining tasks
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
           Object.keys(updatedColumns).forEach(columnId => {
             const column = updatedColumns[columnId];
             const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
             if (taskIndex !== -1) {
+              // Remove the deleted task
+              const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
+              
+              // Renumber remaining tasks sequentially from 0
+              const renumberedTasks = remainingTasks
+                .sort((a, b) => (a.position || 0) - (b.position || 0))
+                .map((task, index) => ({
+                  ...task,
+                  position: index
+                }));
+              
               updatedColumns[columnId] = {
                 ...column,
-                tasks: [
-                  ...column.tasks.slice(0, taskIndex),
-                  ...column.tasks.slice(taskIndex + 1)
-                ]
+                tasks: renumberedTasks
               };
             }
           });
           return updatedColumns;
         });
+        
+        // Also update filteredColumns to maintain consistency
+        setFilteredColumns(prevFilteredColumns => {
+          const updatedFilteredColumns = { ...prevFilteredColumns };
+          Object.keys(updatedFilteredColumns).forEach(columnId => {
+            const column = updatedFilteredColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+            if (taskIndex !== -1) {
+              // Remove the deleted task
+              const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
+              
+              // Renumber remaining tasks sequentially from 0
+              const renumberedTasks = remainingTasks
+                .sort((a, b) => (a.position || 0) - (b.position || 0))
+                .map((task, index) => ({
+                  ...task,
+                  position: index
+                }));
+              
+              updatedFilteredColumns[columnId] = {
+                ...column,
+                tasks: renumberedTasks
+              };
+            }
+          });
+          return updatedFilteredColumns;
+        });
       }
     };
 
     const handleTaskRelationshipCreated = (data: any) => {
-      console.log('📨 Task relationship created via WebSocket:', data);
       // Only refresh if the relationship is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Load just the relationships instead of full refresh
-        getBoardTaskRelationships(selectedBoard)
+        getBoardTaskRelationships(selectedBoardRef.current)
           .then(relationships => {
             setBoardRelationships(relationships);
           })
@@ -1008,11 +1068,10 @@ export default function App() {
     };
 
     const handleTaskRelationshipDeleted = (data: any) => {
-      console.log('📨 Task relationship deleted via WebSocket:', data);
       // Only refresh if the relationship is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Load just the relationships instead of full refresh
-        getBoardTaskRelationships(selectedBoard)
+        getBoardTaskRelationships(selectedBoardRef.current)
           .then(relationships => {
             setBoardRelationships(relationships);
           })
@@ -1027,7 +1086,7 @@ export default function App() {
     const handleColumnUpdated = (data: any) => {
       console.log('📨 Column updated via WebSocket:', data);
       // Only refresh if the column is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
         // But allow updates from other users
         if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
@@ -1040,7 +1099,7 @@ export default function App() {
     const handleColumnDeleted = (data: any) => {
       console.log('📨 Column deleted via WebSocket:', data);
       // Only refresh if the column is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
         // But allow updates from other users
         if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
@@ -1053,7 +1112,7 @@ export default function App() {
     const handleColumnReordered = (data: any) => {
       console.log('📨 Column reordered via WebSocket:', data);
       // Only refresh if the column is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
         // But allow updates from other users
         if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
@@ -1079,7 +1138,7 @@ export default function App() {
     const handleBoardDeleted = (data: any) => {
       console.log('📨 Board deleted via WebSocket:', data);
       // If the deleted board was selected, clear selection
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         setSelectedBoard(null);
         setColumns({});
       }
@@ -1096,7 +1155,7 @@ export default function App() {
     const handleTaskWatcherAdded = (data: any) => {
       console.log('📨 Task watcher added via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
         refreshBoardData();
@@ -1106,7 +1165,7 @@ export default function App() {
     const handleTaskWatcherRemoved = (data: any) => {
       console.log('📨 Task watcher removed via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
         refreshBoardData();
@@ -1116,7 +1175,7 @@ export default function App() {
     const handleTaskCollaboratorAdded = (data: any) => {
       console.log('📨 Task collaborator added via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
         refreshBoardData();
@@ -1126,7 +1185,7 @@ export default function App() {
     const handleTaskCollaboratorRemoved = (data: any) => {
       console.log('📨 Task collaborator removed via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
         refreshBoardData();
@@ -1136,7 +1195,7 @@ export default function App() {
     const handleColumnCreated = (data: any) => {
       console.log('📨 Column created via WebSocket:', data);
       // Only refresh if the column is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
         // But allow updates from other users
         if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
@@ -1324,7 +1383,7 @@ export default function App() {
     const handleTaskTagAdded = (data: any) => {
       console.log('📨 Task tag added via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         refreshBoardData();
       }
     };
@@ -1332,7 +1391,7 @@ export default function App() {
     const handleTaskTagRemoved = (data: any) => {
       console.log('📨 Task tag removed via WebSocket:', data);
       // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoard) {
+      if (data.boardId === selectedBoardRef.current) {
         refreshBoardData();
       }
     };
@@ -1819,6 +1878,7 @@ export default function App() {
       setIncludeSystem(userSpecificPrefs.includeSystem);
       setTaskViewMode(userSpecificPrefs.taskViewMode);
       setViewMode(userSpecificPrefs.viewMode);
+      viewModeRef.current = userSpecificPrefs.viewMode;
       setIsSearchActive(userSpecificPrefs.isSearchActive);
       setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
       setSearchFilters(userSpecificPrefs.searchFilters);
@@ -2801,8 +2861,22 @@ export default function App() {
     
     const currentIndex = columnTasks.findIndex(t => t.id === task.id);
 
+    console.log('🔄 handleSameColumnReorder called:', {
+      taskId: task.id,
+      taskTitle: task.title,
+      taskPosition: task.position,
+      columnId,
+      newIndex,
+      currentIndex,
+      columnTasksCount: columnTasks.length,
+      columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
+    });
+
     // Check if reorder is actually needed
+    // BUT: Allow reordering when dropping on another task (even if same position)
+    // This enables proper swapping of tasks at the same position
     if (currentIndex === newIndex) {
+        console.log('🔄 No reorder needed - currentIndex === newIndex:', currentIndex);
         return;
     }
 
@@ -2815,6 +2889,11 @@ export default function App() {
       ...t,
       position: index
     }));
+    
+    // Set flag to prevent WebSocket interference
+    if (window.setJustUpdatedFromWebSocket) {
+      window.setJustUpdatedFromWebSocket(true);
+    }
     
     setColumns(prev => ({
       ...prev,
@@ -2835,6 +2914,10 @@ export default function App() {
       setDragCooldown(true);
       setTimeout(() => {
         setDragCooldown(false);
+        // Reset WebSocket flag after drag operation completes
+        if (window.setJustUpdatedFromWebSocket) {
+          window.setJustUpdatedFromWebSocket(false);
+        }
         // Note: We don't refresh immediately to preserve the optimistic update
         // The next poll will sync the state if needed
       }, DRAG_COOLDOWN_DURATION);
@@ -2846,6 +2929,13 @@ export default function App() {
 
   // Handle moving task to different column via ListView dropdown or drag & drop
   const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string, position?: number) => {
+    console.log('🎯 handleMoveTaskToColumn called:', {
+      taskId,
+      targetColumnId,
+      position,
+      columnsCount: Object.keys(columns).length
+    });
+
     // Find the task and its current column
     let sourceTask: Task | null = null;
     let sourceColumnId: string | null = null;
@@ -2858,26 +2948,41 @@ export default function App() {
       }
     });
 
+    console.log('🎯 Task lookup result:', {
+      sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
+      sourceColumnId
+    });
+
     if (!sourceTask || !sourceColumnId) {
+      console.log('🎯 Task not found, returning early');
       return; // Task not found
     }
 
     const targetColumn = columns[targetColumnId];
     if (!targetColumn) {
-      // console.error('Target column not found:', targetColumnId);
+      console.log('🎯 Target column not found:', targetColumnId);
       return;
     }
 
     // If no position specified, move to end of target column
     const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
     
+    console.log('🎯 Move decision:', {
+      sourceColumnId,
+      targetColumnId,
+      targetIndex,
+      isSameColumn: sourceColumnId === targetColumnId
+    });
+    
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
       // Same column - use reorder logic
+      console.log('🎯 Calling handleSameColumnReorder');
       await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
     } else {
       // Different columns - use cross-column move logic
-    await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+      console.log('🎯 Calling handleCrossColumnMove');
+      await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
@@ -3199,6 +3304,7 @@ export default function App() {
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
+    viewModeRef.current = mode;
     updateCurrentUserPreference('viewMode', mode);
   };
 
@@ -3501,6 +3607,14 @@ export default function App() {
       }
       
       setFilteredColumns(filteredColumns);
+      
+      // Debug: Log filteredColumns update
+      console.log('🔍 filteredColumns updated:', {
+        columnsCount: Object.keys(columns).length,
+        filteredColumnsCount: Object.keys(filteredColumns).length,
+        totalTasks: Object.values(columns).reduce((sum, col) => sum + col.tasks.length, 0),
+        totalFilteredTasks: Object.values(filteredColumns).reduce((sum, col) => sum + col.tasks.length, 0)
+      });
     };
 
     performFiltering();

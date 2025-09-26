@@ -18,13 +18,11 @@ class WebSocketClient {
     // Get authentication token
     const token = localStorage.getItem('authToken');
     if (!token) {
-      console.log('🔌 No auth token available for WebSocket connection');
       return;
     }
 
     // Check if we're in the middle of redirecting due to invalid token
     if (window.location.hash === '#login') {
-      console.log('🔌 Skipping WebSocket connection - redirecting to login');
       return;
     }
 
@@ -43,14 +41,11 @@ class WebSocketClient {
       });
 
       if (!response.ok) {
-        console.log('🔌 Token validation failed - skipping WebSocket connection');
         return;
       }
 
-      console.log('🔌 Token validated - proceeding with WebSocket connection');
       this.establishConnection(token);
     } catch (error) {
-      console.log('🔌 Token validation error - skipping WebSocket connection:', error);
     }
   }
 
@@ -75,7 +70,6 @@ class WebSocketClient {
     });
 
     this.socket.on('connect', () => {
-      console.log('✅ WebSocket connected successfully with ID:', this.socket?.id);
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000; // Reset delay
@@ -85,19 +79,15 @@ class WebSocketClient {
       
       // Add a general event listener to debug all events
       this.socket.onAny((eventName, ...args) => {
-        console.log('🔍 WebSocket event received:', eventName, args);
       });
       
       // Trigger ready callbacks directly
-      console.log('🔍 Triggering ready callbacks, count:', this.readyCallbacks.length);
       this.readyCallbacks.forEach((callback, index) => {
-        console.log(`🔍 Calling ready callback ${index + 1}/${this.readyCallbacks.length}`);
         callback();
       });
       
       // Handle pending board join
       if (this.pendingBoardJoin) {
-        console.log('🔍 WebSocket connected, joining pending board:', this.pendingBoardJoin);
         this.joinBoard(this.pendingBoardJoin);
         this.pendingBoardJoin = null;
       }
@@ -114,13 +104,11 @@ class WebSocketClient {
       // Handle authentication errors - but don't redirect immediately
       // Let the API interceptor handle token validation
       if (error.message === 'Invalid token' || error.message === 'Authentication required') {
-        console.log('🔑 WebSocket authentication failed - token may be invalid');
         // Don't clear token here - let API calls determine if token is actually invalid
         return;
       }
       
       // For all other errors (network issues, server down, etc.), just log and continue
-      console.log('WebSocket connection error (will retry):', error.message);
     });
 
     this.socket.on('reconnect', (attemptNumber) => {
@@ -141,7 +129,6 @@ class WebSocketClient {
 
   disconnect() {
     if (this.socket) {
-      console.log('🔌 Disconnecting WebSocket');
       this.socket.disconnect();
       this.socket = null;
       this.isConnected = false;
@@ -150,26 +137,20 @@ class WebSocketClient {
 
   joinBoard(boardId: string) {
     if (this.socket?.connected) {
-      console.log('📋 Joining board via WebSocket:', boardId);
       this.socket.emit('join-board', boardId);
       
       // Add debugging to see if we're actually in the room
       this.socket.on('joined-room', (data) => {
-        console.log('📋 Successfully joined room:', data);
       });
     } else {
-      console.log('📋 Cannot join board - WebSocket not connected');
     }
   }
 
   // Method to join board when WebSocket becomes ready
   joinBoardWhenReady(boardId: string) {
-    console.log('📋 joinBoardWhenReady called with boardId:', boardId);
     if (this.socket?.connected) {
-      console.log('📋 WebSocket already connected, joining board immediately');
       this.joinBoard(boardId);
     } else {
-      console.log('📋 WebSocket not connected, will join when ready');
       // Store the boardId to join when ready
       this.pendingBoardJoin = boardId;
     }
@@ -183,17 +164,14 @@ class WebSocketClient {
 
   // Re-register all stored event listeners
   private reregisterEventListeners() {
-    console.log('🔄 Re-registering WebSocket event listeners...');
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach(callback => {
         this.socket?.on(eventName, callback);
       });
     });
-    console.log(`✅ Re-registered ${this.eventCallbacks.size} event types`);
     
     // Add debugging for task-updated events specifically
     this.socket?.on('task-updated', (data) => {
-      console.log('🔍 Raw task-updated event received:', data);
     });
   }
 
@@ -209,7 +187,6 @@ class WebSocketClient {
     if (this.socket?.connected) {
       this.socket.on(eventName, callback);
       if (eventName === 'task-updated') {
-        console.log('🔍 Registered task-updated handler directly on socket');
       }
     }
   }
@@ -304,12 +281,10 @@ class WebSocketClient {
   }
 
   onWebSocketReady(callback: () => void) {
-    console.log('🔍 Registering WebSocket ready callback');
     this.readyCallbacks.push(callback);
     
     // If already connected, call immediately
     if (this.isConnected) {
-      console.log('🔍 WebSocket already connected, calling callback immediately');
       callback();
     }
   }

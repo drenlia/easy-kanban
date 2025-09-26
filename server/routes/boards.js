@@ -1,11 +1,12 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Get all boards with columns and tasks (including tags)
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
@@ -112,7 +113,7 @@ router.get('/', (req, res) => {
 });
 
 // Get columns for a specific board
-router.get('/:boardId/columns', (req, res) => {
+router.get('/:boardId/columns', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
     const { db } = req.app.locals;
@@ -137,7 +138,7 @@ router.get('/:boardId/columns', (req, res) => {
 });
 
 // Create board
-router.post('/', (req, res) => {
+router.post('/', authenticateToken, (req, res) => {
   const { id, title } = req.body;
   try {
     const { db } = req.app.locals;
@@ -195,7 +196,7 @@ const generateProjectIdentifier = (db, prefix = 'PROJ-') => {
 };
 
 // Update board
-router.put('/:id', async (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title } = req.body;
   try {
@@ -230,7 +231,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete board
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
@@ -252,7 +253,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Reorder boards
-router.post('/reorder', async (req, res) => {
+router.post('/reorder', authenticateToken, async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
     const { db } = req.app.locals;
@@ -301,7 +302,7 @@ router.post('/reorder', async (req, res) => {
 });
 
 // Get all task relationships for a board
-router.get('/:boardId/relationships', (req, res) => {
+router.get('/:boardId/relationships', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
     const { db } = req.app.locals;

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBackgroundLoader } from './useBackgroundLoader';
 import { usePerformanceMonitor } from './usePerformanceMonitor';
 import { useWebWorker } from './useWebWorker';
+import { parseLocalDate } from '../utils/dateUtils';
 
 export interface DateColumn {
   date: Date;
@@ -89,8 +90,8 @@ export const useVirtualViewport = (options: UseVirtualViewportOptions = {}) => {
     if (!tasks || tasks.length === 0 || !startDate) return [];
     
     return tasks.map(task => {
-      const taskStartDate = task.startDate ? new Date(task.startDate) : null;
-      const taskEndDate = task.endDate ? new Date(task.endDate) : null;
+      const taskStartDate = task.startDate ? parseLocalDate(task.startDate) : null;
+      const taskEndDate = task.endDate ? parseLocalDate(task.endDate) : null;
       
       if (!taskStartDate) {
         return null; // Skip tasks without start dates

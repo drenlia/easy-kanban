@@ -430,6 +430,13 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
 
+    console.log('🎯 SimpleDragDropManager handleDragEnd:', {
+      activeId: active.id,
+      overId: over?.id,
+      overData: over?.data?.current,
+      activeData: active.data?.current
+    });
+
     if (!over) return;
 
     // console.log('🎯 Enhanced Drag End:', { 
@@ -452,10 +459,19 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     try {
       const activeData = active.data?.current;
       const overData = over.data?.current;
+      
+      console.log('🎯 Processing drag end:', {
+        activeDataType: activeData?.type,
+        overDataType: overData?.type,
+        activeTaskId: activeData?.task?.id,
+        overTaskId: overData?.task?.id
+      });
 
       if (activeData?.type === 'task') {
+        console.log('🎯 Entering task move logic');
         // Handle task moves
         const task = activeData.task as Task;
+        console.log('🎯 Task data:', { taskId: task.id, taskTitle: task.title, taskColumnId: task.columnId, taskPosition: task.position });
         
         if (overData?.type === 'board' && overData.boardId !== currentBoardId) {
           // Check if Y-coordinate detection should override collision detection
@@ -485,21 +501,28 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
           // console.log('✅ Cross-board move completed');
         } else {
+          console.log('🎯 Same board move - enhanced position calculation');
           // Same board move - enhanced position calculation
           let targetColumnId = task.columnId; // default to same column
           let position = task.position || 0;
           
           // **FIXED position calculation - exclude dragged task from calculations**
           if (overData?.type === 'task') {
+            console.log('🎯 Dropping on another task');
             // Dropping on another task - insert BEFORE that task
             const targetTask = overData.task;
             targetColumnId = targetTask.columnId;
+            console.log('🎯 Target task data:', { targetTaskId: targetTask.id, targetTaskTitle: targetTask.title, targetTaskColumnId: targetTask.columnId, targetTaskPosition: targetTask.position });
             
             // For same-column moves: use target task position directly
             // For cross-column moves: use filtered array index for insertion
             if (targetColumnId === task.columnId) {
-              // Same column: take the target task's position
-              position = targetTask.position || 0;
+              console.log('🎯 Same column move - inserting BEFORE target task');
+              // Same column: insert BEFORE the target task
+              // When dropping on another task, use a fractional position to ensure reordering
+              // This prevents the "same position" validation from skipping the move
+              position = (targetTask.position || 0) + 0.5;
+              console.log('🎯 Calculated position (fractional for reordering):', position);
             } else {
               // Cross column: use insertion index in filtered array
               const targetColumn = columns[targetColumnId];
@@ -575,6 +598,14 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           const isSameColumn = targetColumnId === task.columnId;
           const isSamePosition = sourcePosition === position;
           
+          console.log('🎯 Validation check:', {
+            sourcePosition,
+            targetPosition: position,
+            isSameColumn,
+            isSamePosition,
+            willSkip: isSameColumn && isSamePosition
+          });
+          
           // console.log('🔢 Position Calculation Debug:', {
           // taskId: task.id,
           // sourceColumnId: task.columnId,
@@ -586,14 +617,28 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           // willSkip: isSameColumn && isSamePosition
           // });
           
-          if (isSameColumn && isSamePosition) {
-            // console.log('⏭️ Skipping redundant move - same position');
+          // FIXED: Don't skip same-position moves when dropping on another task
+          // This allows reordering tasks that are at the same position
+          if (isSameColumn && isSamePosition && overData?.type !== 'task') {
+            console.log('⏭️ Skipping redundant move - same position (not dropping on task)');
             return;
           }
           
+          // ADDITIONAL FIX: Don't skip same-position moves when dropping on another task
+          // The server-side reordering logic will handle position updates correctly
+          if (isSameColumn && isSamePosition && overData?.type === 'task') {
+            console.log('🎯 Same position drop on task - allowing move for reordering');
+            // Don't return here - let the move proceed
+          }
+          
           // For same-column moves, ensure there's meaningful position change
-          if (isSameColumn && Math.abs(sourcePosition - position) < 1) {
-            // console.log('⏭️ Skipping micro-movement - position diff too small');
+          // BUT: Don't skip when dropping on another task (allows reordering)
+          if (isSameColumn && Math.abs(sourcePosition - position) < 1 && overData?.type !== 'task') {
+            console.log('⏭️ Skipping micro-movement - position diff too small:', {
+              sourcePosition,
+              position,
+              diff: Math.abs(sourcePosition - position)
+            });
             return;
           }
 

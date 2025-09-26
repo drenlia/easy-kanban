@@ -1,5 +1,6 @@
 import { Task, SearchFilters, Columns, Board, TeamMember } from '../types';
 import { getTaskWatchers, getTaskCollaborators } from '../api';
+import { parseLocalDate } from './dateUtils';
 
 /**
  * Filter tasks based on search criteria
@@ -33,13 +34,13 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
 
     // Date range filter (start date)
     if (searchFilters.dateFrom || searchFilters.dateTo) {
-      const taskDate = new Date(task.startDate);
+      const taskDate = parseLocalDate(task.startDate);
       if (searchFilters.dateFrom) {
-        const fromDate = new Date(searchFilters.dateFrom);
+        const fromDate = parseLocalDate(searchFilters.dateFrom);
         if (taskDate < fromDate) return false;
       }
       if (searchFilters.dateTo) {
-        const toDate = new Date(searchFilters.dateTo);
+        const toDate = parseLocalDate(searchFilters.dateTo);
         if (taskDate > toDate) return false;
       }
     }
@@ -47,13 +48,13 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
     // Due date range filter
     if (searchFilters.dueDateFrom || searchFilters.dueDateTo) {
       if (!task.dueDate) return false; // No due date set
-      const taskDueDate = new Date(task.dueDate);
+      const taskDueDate = parseLocalDate(task.dueDate);
       if (searchFilters.dueDateFrom) {
-        const fromDate = new Date(searchFilters.dueDateFrom);
+        const fromDate = parseLocalDate(searchFilters.dueDateFrom);
         if (taskDueDate < fromDate) return false;
       }
       if (searchFilters.dueDateTo) {
-        const toDate = new Date(searchFilters.dueDateTo);
+        const toDate = parseLocalDate(searchFilters.dueDateTo);
         if (taskDueDate > toDate) return false;
       }
     }
@@ -208,13 +209,13 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
     if (includeTask) {
       // Date range filter (start date)
       if (searchFilters.dateFrom || searchFilters.dateTo) {
-        const taskDate = new Date(task.startDate);
+        const taskDate = parseLocalDate(task.startDate);
         if (searchFilters.dateFrom) {
-          const fromDate = new Date(searchFilters.dateFrom);
+          const fromDate = parseLocalDate(searchFilters.dateFrom);
           if (taskDate < fromDate) includeTask = false;
         }
         if (searchFilters.dateTo) {
-          const toDate = new Date(searchFilters.dateTo);
+          const toDate = parseLocalDate(searchFilters.dateTo);
           if (taskDate > toDate) includeTask = false;
         }
       }
@@ -223,13 +224,13 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
       if (includeTask && (searchFilters.dueDateFrom || searchFilters.dueDateTo)) {
         if (!task.dueDate) includeTask = false;
         else {
-          const taskDueDate = new Date(task.dueDate);
+          const taskDueDate = parseLocalDate(task.dueDate);
           if (searchFilters.dueDateFrom) {
-            const fromDate = new Date(searchFilters.dueDateFrom);
+            const fromDate = parseLocalDate(searchFilters.dueDateFrom);
             if (taskDueDate < fromDate) includeTask = false;
           }
           if (searchFilters.dueDateTo) {
-            const toDate = new Date(searchFilters.dueDateTo);
+            const toDate = parseLocalDate(searchFilters.dueDateTo);
             if (taskDueDate > toDate) includeTask = false;
           }
         }

@@ -1,5 +1,25 @@
+// Safe local date parsing - avoids timezone issues
+export const parseLocalDate = (dateInput: string | Date): Date => {
+  if (!dateInput) return new Date();
+  
+  // If it's already a Date object, return it
+  if (dateInput instanceof Date) {
+    return dateInput;
+  }
+  
+  // If it's a string, parse it safely
+  if (typeof dateInput === 'string') {
+    const dateOnly = dateInput.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    return new Date(year, month - 1, day); // month is 0-indexed
+  }
+  
+  // Fallback
+  return new Date();
+};
+
 export const formatToYYYYMMDD = (dateString: string) => {
-  const date = new Date(dateString + 'T00:00:00');
+  const date = parseLocalDate(dateString);
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');

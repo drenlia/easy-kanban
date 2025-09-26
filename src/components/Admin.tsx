@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage } from '../api';
+import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getSystemInfo } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
@@ -48,16 +48,31 @@ interface Settings {
   SMTP_SECURE?: string;
   MAIL_ENABLED?: string;
   TASK_DELETE_CONFIRM?: string;
-  SHOW_ACTIVITY_FEED?: string;
-  DEFAULT_VIEW_MODE?: string;
-  DEFAULT_TASK_VIEW_MODE?: string;
-  DEFAULT_ACTIVITY_FEED_POSITION?: string;
-  DEFAULT_ACTIVITY_FEED_WIDTH?: string;
-  DEFAULT_ACTIVITY_FEED_HEIGHT?: string;
-  DEFAULT_PROJ_PREFIX?: string;
-  DEFAULT_TASK_PREFIX?: string;
-  DEFAULT_FINISHED_COLUMN_NAMES?: string;
-  [key: string]: string | undefined;
+}
+
+interface SystemInfo {
+  memory: {
+    used: number;
+    total: number;
+    free: number;
+    percent: number;
+    usedFormatted: string;
+    totalFormatted: string;
+    freeFormatted: string;
+  };
+  cpu: {
+    percent: number;
+    loadAverage: number;
+    cores: number;
+  };
+  disk: {
+    used: number;
+    total: number;
+    percent: number;
+    usedFormatted: string;
+    totalFormatted: string;
+  };
+  timestamp: string;
 }
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
@@ -71,6 +86,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   
   // Tab-specific message states to prevent leakage between tabs
   const [tabMessages, setTabMessages] = useState<{[tab: string]: {success: string | null, error: string | null}}>({});
@@ -327,6 +343,28 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       websocketClient.offUserDeleted(handleUserDeleted);
       websocketClient.offSettingsUpdated(handleSettingsUpdated);
     };
+  }, [currentUser?.roles]);
+
+  // System info fetching (only when on admin page)
+  useEffect(() => {
+    if (!currentUser?.roles?.includes('admin')) return;
+
+    const fetchSystemInfo = async () => {
+      try {
+        const info = await getSystemInfo();
+        setSystemInfo(info);
+      } catch (error) {
+        console.error('Failed to fetch system info:', error);
+      }
+    };
+
+    // Fetch immediately
+    fetchSystemInfo();
+
+    // Set up 5-second interval
+    const interval = setInterval(fetchSystemInfo, 5000);
+
+    return () => clearInterval(interval);
   }, [currentUser?.roles]);
 
   const loadData = async () => {
@@ -923,6 +961,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             Manage users, site settings, and authentication configuration
           </p>
         </div>
+
 
         {/* Security Warning - Default Admin Account */}
         {hasDefaultAdmin && (

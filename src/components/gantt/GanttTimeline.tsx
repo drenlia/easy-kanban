@@ -55,6 +55,8 @@ interface GanttTimelineProps {
   highlightedTaskId?: string | null;
   selectedParentTask?: string | null;
   onDeleteRelationship?: (relationshipId: string, fromTaskId: string) => void;
+  columns: any;
+  siteSettings?: any;
 }
 
 // Droppable cell component
@@ -132,11 +134,46 @@ const TaskBar = ({
   onRelationshipClick,
   localDragState,
   highlightedTaskId,
-  selectedParentTask
+  selectedParentTask,
+  columns,
+  siteSettings
 }: any) => {
   const { startDayIndex, endDayIndex } = gridPosition;
   
-  
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
+
+  // Helper function to check if a task is overdue
+  const isTaskOverdue = (task: any) => {
+    if (!task.dueDate) return false;
+    const today = new Date();
+    const dueDate = parseLocalDate(task.dueDate);
+    // Set time to beginning of day for fair comparison
+    today.setHours(0, 0, 0, 0);
+    dueDate.setHours(0, 0, 0, 0);
+    return dueDate < today;
+  };
+
+  // Helper function to check if a column is finished
+  const isColumnFinished = (columnId: string) => {
+    const column = columns[columnId];
+    return column?.is_finished || false;
+  };
+
+  // Helper function to check if a column is archived
+  const isColumnArchived = (columnId: string) => {
+    const column = columns[columnId];
+    return column?.is_archived || false;
+  };
   
   // Calculate display position based on drag state and local data
   let displayStartIndex = startDayIndex;
@@ -289,6 +326,53 @@ const TaskBar = ({
           </button>
         </>
       )}
+
+      {/* Status badge overlays */}
+      {/* DONE badge overlay */}
+      {isColumnFinished(task.columnId) && !isColumnArchived(task.columnId) && (
+        <div className="absolute inset-0 pointer-events-none z-30">
+          {/* Diagonal banner background */}
+          <div className="absolute top-0 right-0 w-full h-full">
+            <div 
+              className="absolute top-0 right-0 w-0 h-0"
+              style={{
+                borderLeft: '30px solid transparent',
+                borderBottom: '100% solid rgba(34, 197, 94, 0.2)',
+                transform: 'translateX(0)'
+              }}
+            />
+          </div>
+          {/* "DONE" stamp */}
+          <div className="absolute top-0.5 right-0.5">
+            <div className="bg-green-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+              DONE
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* LATE badge overlay */}
+      {!isColumnFinished(task.columnId) && !isColumnArchived(task.columnId) && isTaskOverdue(task) && siteSettings?.HIGHLIGHT_OVERDUE_TASKS === 'true' && (
+        <div className="absolute inset-0 pointer-events-none z-30">
+          {/* Diagonal banner background */}
+          <div className="absolute top-0 right-0 w-full h-full">
+            <div 
+              className="absolute top-0 right-0 w-0 h-0"
+              style={{
+                borderLeft: '30px solid transparent',
+                borderBottom: '100% solid rgba(239, 68, 68, 0.2)',
+                transform: 'translateX(0)'
+              }}
+            />
+          </div>
+          {/* "LATE" stamp */}
+          <div className="absolute top-0.5 right-0.5">
+            <div className="bg-red-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
+              LATE
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -322,7 +406,9 @@ const GanttTimeline = ({
   relationships,
   highlightedTaskId,
   selectedParentTask,
-  onDeleteRelationship
+  onDeleteRelationship,
+  columns,
+  siteSettings
 }: GanttTimelineProps) => {
   // Allow vertical scrolling to pass through to parent
   React.useEffect(() => {
@@ -518,6 +604,8 @@ const GanttTimeline = ({
                         localDragState={localDragState}
                         highlightedTaskId={highlightedTaskId}
                         selectedParentTask={selectedParentTask}
+                        columns={columns}
+                        siteSettings={siteSettings}
                       />
                     )}
                     

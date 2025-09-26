@@ -118,6 +118,22 @@ const GanttViewV2 = ({
       }
     }
   }, [relationships]);
+
+  // Reset modes when switching boards
+  useEffect(() => {
+    // Exit multi-select mode when switching boards
+    if (isMultiSelectMode) {
+      setIsMultiSelectMode(false);
+      setSelectedTasks([]);
+      setHighlightedTaskId(null);
+    }
+    
+    // Exit relationship mode when switching boards
+    if (isRelationshipMode) {
+      setIsRelationshipMode(false);
+      setSelectedParentTask(null);
+    }
+  }, [boardId]); // Reset when boardId changes
   
   // Ref to store current columns for keyboard navigation
   const columnsRef = useRef(columns);
@@ -134,6 +150,8 @@ const GanttViewV2 = ({
   // Debouncing for arrow key navigation
   const arrowKeyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isArrowKeyPressedRef = useRef(false);
+  const pendingUpdatesRef = useRef<Map<string, any>>(new Map());
+  const updateBatchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Flag to prevent task selection immediately after exiting multi-select mode
   const isExitingMultiSelectRef = useRef(false);
@@ -467,18 +485,41 @@ const GanttViewV2 = ({
             clearTimeout(arrowKeyTimeoutRef.current);
           }
           
-          // Move all selected tasks
-          selectedTasksRef.current.forEach(async (taskId) => {
+          // Batch updates to prevent rapid-fire WebSocket events
+          const batchUpdates = () => {
+            const updates = Array.from(pendingUpdatesRef.current.values());
+            if (updates.length > 0) {
+              // Process all updates at once
+              updates.forEach(async (updatedTask) => {
+                if (onUpdateTask) {
+                  await onUpdateTask(updatedTask);
+                }
+              });
+              pendingUpdatesRef.current.clear();
+            }
+          };
+
+          // Clear any existing batch timeout
+          if (updateBatchTimeoutRef.current) {
+            clearTimeout(updateBatchTimeoutRef.current);
+          }
+
+          // Move all selected tasks and queue updates
+          selectedTasksRef.current.forEach((taskId) => {
             // Find the original task from columns to get the full task data
             const originalTask = Object.values(columnsRef.current)
               .flatMap(col => col.tasks || [])
               .find(t => t.id === taskId);
               
-            if (originalTask && originalTask.startDate && originalTask.dueDate && onUpdateTask) {
+            if (originalTask && originalTask.startDate && originalTask.dueDate) {
               const isOneDayTask = originalTask.startDate === originalTask.dueDate;
               
-              const newStartDate = new Date(originalTask.startDate);
-              const newDueDate = new Date(originalTask.dueDate);
+              // Parse dates properly using the parseLocalDate function
+              const parsedStartDate = parseLocalDate(originalTask.startDate);
+              const parsedDueDate = parseLocalDate(originalTask.dueDate);
+              
+              const newStartDate = new Date(parsedStartDate);
+              const newDueDate = new Date(parsedDueDate);
               
               newStartDate.setDate(newStartDate.getDate() + moveAmount);
               newDueDate.setDate(newDueDate.getDate() + moveAmount);
@@ -490,17 +531,18 @@ const GanttViewV2 = ({
                 dueDate: formatLocalDate(newDueDate) // Format as YYYY-MM-DD
               };
               
-              
-              // Update the task
-              await onUpdateTask(updatedTask);
-            } else {
+              // Queue the update instead of applying immediately
+              pendingUpdatesRef.current.set(taskId, updatedTask);
             }
           });
+
+          // Set a timeout to batch all updates together
+          updateBatchTimeoutRef.current = setTimeout(batchUpdates, 150); // Increased debounce time
           
-          // Reset flag after a short delay to allow for single key presses
+          // Reset flag after a longer delay to prevent rapid key presses
           arrowKeyTimeoutRef.current = setTimeout(() => {
             isArrowKeyPressedRef.current = false;
-          }, 100); // 100ms debounce
+          }, 200); // Increased to 200ms debounce
         }
       }
     };
@@ -522,9 +564,12 @@ const GanttViewV2 = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
-      // Cleanup timeout on unmount
+      // Cleanup timeouts on unmount
       if (arrowKeyTimeoutRef.current) {
         clearTimeout(arrowKeyTimeoutRef.current);
+      }
+      if (updateBatchTimeoutRef.current) {
+        clearTimeout(updateBatchTimeoutRef.current);
       }
     };
   }, [isRelationshipMode, isMultiSelectMode, selectedParentTask, selectedTasks, onUpdateTask]);
@@ -812,9 +857,6 @@ const GanttViewV2 = ({
   // WebSocket listeners for task updates (to refresh task data when priorities change)
   useEffect(() => {
     const handleTaskUpdated = async (data: any) => {
-      // Only debug for specific task
-      if (data.task && data.task.id === '2b7f85ad-4a12-4c60-9664-6e8a2c0a8234') {
-      }
       // Only refresh if the task is for the current board
       if (data.boardId === boardId && onRefreshData) {
         try {
@@ -1217,6 +1259,12 @@ const GanttViewV2 = ({
       clearTimeout(arrowKeyTimeoutRef.current);
       arrowKeyTimeoutRef.current = null;
     }
+    if (updateBatchTimeoutRef.current) {
+      clearTimeout(updateBatchTimeoutRef.current);
+      updateBatchTimeoutRef.current = null;
+    }
+    // Clear any pending updates
+    pendingUpdatesRef.current.clear();
     // Also clear any active drag state
     setActiveDragItem(null);
     activeDragItemRef.current = null;
@@ -1999,6 +2047,7 @@ const GanttViewV2 = ({
             onCopyTask={onCopyTask}
             onRemoveTask={onRemoveTask}
             highlightedTaskId={highlightedTaskId}
+            siteSettings={siteSettings}
           />
           
           {/* Task drag preview */}
@@ -2060,6 +2109,8 @@ const GanttViewV2 = ({
             highlightedTaskId={highlightedTaskId}
             selectedParentTask={selectedParentTask}
             onDeleteRelationship={handleDeleteRelationship}
+            columns={columns}
+            siteSettings={siteSettings}
           />
           <DragOverlay dropAnimation={null} />
         </DndContext>

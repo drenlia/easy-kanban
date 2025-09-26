@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
-import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 import DOMPurify from 'dompurify';
@@ -79,14 +79,6 @@ export default function ListView({
   siteSettings
 }: ListViewProps) {
   
-  // Debug: Log when filteredColumns changes
-  useEffect(() => {
-    console.log('📋 ListView: filteredColumns updated', {
-      columnCount: Object.keys(filteredColumns).length,
-      totalTasks: Object.values(filteredColumns).reduce((sum, col) => sum + col.tasks.length, 0),
-      columns: Object.keys(filteredColumns)
-    });
-  }, [filteredColumns]);
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   
@@ -338,14 +330,14 @@ export default function ListView({
             bValue = bMember ? `${bMember.firstName} ${bMember.lastName}`.toLowerCase() : '';
             break;
           case 'dueDate':
-            const aDate = a.dueDate ? new Date(a.dueDate) : null;
-            const bDate = b.dueDate ? new Date(b.dueDate) : null;
+            const aDate = a.dueDate ? parseLocalDate(a.dueDate) : null;
+            const bDate = b.dueDate ? parseLocalDate(b.dueDate) : null;
             aValue = aDate && !isNaN(aDate.getTime()) ? aDate.getTime() : 0;
             bValue = bDate && !isNaN(bDate.getTime()) ? bDate.getTime() : 0;
             break;
           case 'startDate':
-            const aStart = new Date(a.startDate);
-            const bStart = new Date(b.startDate);
+            const aStart = parseLocalDate(a.startDate);
+            const bStart = parseLocalDate(b.startDate);
             aValue = !isNaN(aStart.getTime()) ? aStart.getTime() : 0;
             bValue = !isNaN(bStart.getTime()) ? bStart.getTime() : 0;
             break;
