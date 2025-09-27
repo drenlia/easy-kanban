@@ -9,6 +9,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import http from 'http';
 import os from 'os';
+import rateLimit from 'express-rate-limit';
 
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
@@ -65,6 +66,55 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// ================================
+// RATE LIMITING CONFIGURATION
+// ================================
+
+// Login rate limiter: 5 attempts per 15 minutes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 login attempts per window
+  message: {
+    error: 'Too many login attempts, please try again in 15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful logins
+});
+
+// Password reset rate limiter: 3 attempts per hour
+const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 password reset attempts per hour
+  message: {
+    error: 'Too many password reset attempts, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Registration rate limiter: 3 attempts per hour
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 registration attempts per hour
+  message: {
+    error: 'Too many registration attempts, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Account activation rate limiter: 10 attempts per hour
+const activationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // 10 activation attempts per hour
+  message: {
+    error: 'Too many activation attempts, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Static file serving removed for security - files now served through authenticated endpoints
 
 // ================================
@@ -76,7 +126,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // AUTHENTICATION ENDPOINTS
 // ================================
 
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   
   if (!email || !password) {
@@ -94,7 +144,17 @@ app.post('/api/auth/login', async (req, res) => {
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
+    // Debug logging for password verification
+    console.log('🔍 Login attempt:', {
+      email: email,
+      userId: user.id,
+      passwordLength: password.length,
+      isValidPassword: isValidPassword,
+      passwordHashLength: user.password_hash.length
+    });
+    
     if (!isValidPassword) {
+      console.log('❌ Login failed - invalid password for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
@@ -142,7 +202,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // Account activation endpoint
-app.post('/api/auth/activate-account', async (req, res) => {
+app.post('/api/auth/activate-account', activationLimiter, async (req, res) => {
   const { token, email, newPassword } = req.body;
   
   if (!token || !email || !newPassword) {
@@ -218,7 +278,7 @@ app.post('/api/auth/activate-account', async (req, res) => {
   }
 });
 
-app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/auth/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role } = req.body;
   
   if (!email || !password || !firstName || !lastName || !role) {
@@ -2039,6 +2099,7 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing settings-updated to Redis');
+    console.log('📤 Broadcasting value:', { key, value });
     await redisService.publish('settings-updated', {
       key: key,
       value: value,

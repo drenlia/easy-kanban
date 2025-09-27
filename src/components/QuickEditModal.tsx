@@ -1,20 +1,22 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ChevronDown, Check } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
-import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, addTaskAttachments, uploadFile, deleteAttachment } from '../api';
+import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
 import TextEditor from './TextEditor';
 import websocketClient from '../services/websocketClient';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
+import { useFileUpload } from '../hooks/useFileUpload';
 
 interface QuickEditModalProps {
   task: Task;
   members: TeamMember[];
   onClose: () => void;
   onSave: (task: Task) => void;
+  siteSettings?: { [key: string]: string };
 }
 
-export default function QuickEditModal({ task, members, onClose, onSave }: QuickEditModalProps) {
+export default function QuickEditModal({ task, members, onClose, onSave, siteSettings }: QuickEditModalProps) {
   const [editedTask, setEditedTask] = useState(task);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
@@ -47,7 +49,16 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
     type: string;
     size: number;
   }>>([]);
-  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
+  
+  // Use the new file upload hook
+  const {
+    pendingFiles: pendingAttachments,
+    isUploading: isUploadingAttachments,
+    uploadError: uploadError,
+    uploadTaskFiles,
+    clearFiles,
+    addFiles
+  } = useFileUpload([], siteSettings);
 
   // Helper function to calculate optimal dropdown position
   const calculateDropdownPosition = (buttonRef: React.RefObject<HTMLButtonElement>): 'above' | 'below' => {
@@ -310,32 +321,39 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
       if (pendingAttachments.length > 0) {
         console.log('📎 Uploading', pendingAttachments.length, 'attachments...');
         
-        // Upload files first
-        const uploadedAttachments = await Promise.all(
-          pendingAttachments.map(async (file) => {
-            const fileData = await uploadFile(file);
-            return {
-              id: fileData.id,
-              name: fileData.name,
-              url: fileData.url,
-              type: fileData.type,
-              size: fileData.size
-            };
-          })
-        );
-
-        // Add attachments to task
-        await addTaskAttachments(task.id, uploadedAttachments);
-        console.log('✅ Attachments saved successfully');
+        // Use the new upload utility
+        const uploadedAttachments = await uploadTaskFiles(task.id, {
+          currentTaskAttachments: taskAttachments,
+          onTaskAttachmentsUpdate: (updatedAttachments) => {
+            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+            setTaskAttachments(updatedAttachments);
+          },
+          onSuccess: (attachments) => {
+            console.log('✅ Attachments saved successfully:', attachments.length, 'files');
+          },
+          onError: (error) => {
+            console.error('❌ Failed to upload attachments:', error);
+          }
+        });
+        
+        console.log('📎 Upload completed, got:', uploadedAttachments.length, 'attachments');
       }
       
-      // Include current tags in the saved task
-      onSave({ ...editedTask, tags: taskTags });
+      // Include current tags and updated attachment count in the saved task
+      onSave({ 
+        ...editedTask, 
+        tags: taskTags,
+        attachmentCount: taskAttachments.length
+      });
       onClose();
     } catch (error) {
       console.error('❌ Failed to save task with attachments:', error);
       // Still save the task even if attachments fail
-      onSave({ ...editedTask, tags: taskTags });
+      onSave({ 
+        ...editedTask, 
+        tags: taskTags,
+        attachmentCount: taskAttachments.length
+      });
       onClose();
     }
   };
@@ -359,7 +377,9 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
 
   // Handle attachment changes from TextEditor
   const handleAttachmentsChange = (attachments: File[]) => {
-    setPendingAttachments(attachments);
+    // Clear existing files and add new ones
+    clearFiles();
+    addFiles(attachments);
   };
 
   // Handle immediate attachment deletion
@@ -773,6 +793,15 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
           </div>
         </div>
 
+        {/* Upload error display */}
+        {uploadError && (
+          <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+            <div className="text-sm text-red-600 dark:text-red-400">
+              Upload error: {uploadError}
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-end gap-3 mt-6 flex-shrink-0 border-t pt-4">
           <button
             type="button"
@@ -783,9 +812,14 @@ export default function QuickEditModal({ task, members, onClose, onSave }: Quick
           </button>
           <button
             type="submit"
-            className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600"
+            disabled={isUploadingAttachments}
+            className={`px-4 py-2 rounded-md ${
+              isUploadingAttachments
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : 'bg-blue-500 text-white hover:bg-blue-600'
+            }`}
           >
-            Save Changes
+            {isUploadingAttachments ? 'Uploading...' : 'Save Changes'}
           </button>
         </div>
       </form>

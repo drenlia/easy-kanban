@@ -465,7 +465,32 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done", "Completed", "Finished"]'], // Default finished column names
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
-      ['STORAGE_USED', '0'] // Current storage usage in bytes
+      ['STORAGE_USED', '0'], // Current storage usage in bytes
+      ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)
+      ['UPLOAD_FILETYPES', JSON.stringify({
+        'image/jpeg': true,
+        'image/jpg': true,
+        'image/png': true,
+        'image/gif': true,
+        'image/webp': true,
+        'image/svg+xml': true,
+        'application/pdf': true,
+        'text/plain': true,
+        'text/csv': true,
+        'application/msword': true,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
+        'application/vnd.ms-excel': true,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
+        'application/vnd.ms-powerpoint': true,
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
+        'application/zip': true,
+        'application/x-rar-compressed': true,
+        'application/x-7z-compressed': true,
+        'text/javascript': true,
+        'text/css': true,
+        'text/html': true,
+        'application/json': true
+      })] // Allowed file types as JSON object
     ];
 
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
