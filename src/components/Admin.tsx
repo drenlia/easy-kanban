@@ -78,8 +78,18 @@ interface SystemInfo {
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to default
-    const hash = window.location.hash.replace('#', '');
-    return ADMIN_TABS.includes(hash) ? hash : ROUTES.DEFAULT_ADMIN_TAB;
+    const fullHash = window.location.hash;
+    
+    // Check for sub-tab patterns like #admin#app-settings#user-interface
+    if (fullHash.startsWith('#admin#app-settings#')) {
+      return 'app-settings';
+    }
+    
+    // Parse compound hash format like #admin#sso
+    const hashParts = fullHash.split('#');
+    const tabHash = hashParts[hashParts.length - 1]; // Get the last part
+    
+    return ADMIN_TABS.includes(tabHash) ? tabHash : ROUTES.DEFAULT_ADMIN_TAB;
   });
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
@@ -138,9 +148,22 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   useEffect(() => {
     const handleHashChange = () => {
       const fullHash = window.location.hash;
-      // Parse compound hash format like #admin#sso
+      // Parse compound hash format like #admin#sso or #admin#app-settings#user-interface
       const hashParts = fullHash.split('#');
       const tabHash = hashParts[hashParts.length - 1]; // Get the last part
+      
+      // Check for sub-tab patterns like admin#app-settings#user-interface
+      if (fullHash.startsWith('#admin#app-settings#')) {
+        if (activeTab !== 'app-settings') {
+          setActiveTab('app-settings');
+          // Clear global messages when switching tabs
+          setSuccessMessage(null);
+          setError(null);
+          // Clear tab-specific messages for the new tab
+          clearTabMessages('app-settings');
+        }
+        return; // Don't process further, let AdminAppSettingsTab handle the sub-tab
+      }
       
       if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
@@ -157,7 +180,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const hashParts = fullHash.split('#');
     const tabHash = hashParts[hashParts.length - 1]; // Get the last part
     
-    if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
+    // Check for sub-tab patterns on initial load
+    if (fullHash.startsWith('#admin#app-settings#')) {
+      if (activeTab !== 'app-settings') {
+        setActiveTab('app-settings');
+        // Clear global messages when switching tabs
+        setSuccessMessage(null);
+        setError(null);
+        // Clear tab-specific messages for the new tab
+        clearTabMessages('app-settings');
+      }
+    } else if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
       // Clear global messages when switching tabs
       setSuccessMessage(null);
@@ -307,15 +340,29 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const handleSettingsUpdated = async (data: any) => {
       console.log('📨 Admin: Settings updated via WebSocket:', data);
       try {
-        const settingsResponse = await api.get('/admin/settings');
-        const loadedSettings = settingsResponse.data || {};
-        const settingsWithDefaults = {
-          ...loadedSettings,
-          TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
-        };
-        setSettings(settingsWithDefaults);
-        setEditingSettings(settingsWithDefaults); // Also update editing settings for real-time UI updates
-        console.log('📨 Admin: Settings refreshed after update');
+        // Update the specific setting directly from WebSocket data instead of fetching all settings
+        if (data.key && data.value !== undefined) {
+          setSettings(prev => ({
+            ...prev,
+            [data.key]: data.value
+          }));
+          setEditingSettings(prev => ({
+            ...prev,
+            [data.key]: data.value
+          }));
+          console.log(`📨 Admin: Updated ${data.key} to ${data.value} via WebSocket`);
+        } else {
+          // Fallback to fetching all settings if WebSocket data is incomplete
+          const settingsResponse = await api.get('/admin/settings');
+          const loadedSettings = settingsResponse.data || {};
+          const settingsWithDefaults = {
+            ...loadedSettings,
+            TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+          };
+          setSettings(settingsWithDefaults);
+          setEditingSettings(settingsWithDefaults);
+          console.log('📨 Admin: Settings refreshed after update');
+        }
       } catch (error) {
         console.error('Failed to refresh settings after update:', error);
       }
@@ -656,7 +703,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showDeleteConfirm, showDeleteTagConfirm]);
 
-  const handleSaveSettings = async () => {
+  const handleSaveSettings = async (newSettings?: { [key: string]: string | undefined }) => {
     try {
       // Clear both global and tab-specific messages
       setError(null);
@@ -664,9 +711,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       clearTabMessages(activeTab);
       
       let hasChanges = false;
+      // Use passed settings if available, otherwise use editingSettings
+      const settingsToSave = newSettings || editingSettings;
+      
       // Save each setting individually
-      for (const [key, value] of Object.entries(editingSettings)) {
+      for (const [key, value] of Object.entries(settingsToSave)) {
         if (value !== settings[key]) {
+          console.log(`Saving setting: ${key}`, {
+            oldValue: settings[key],
+            newValue: value
+          });
           await api.put('/admin/settings', { key, value });
           hasChanges = true;
         }

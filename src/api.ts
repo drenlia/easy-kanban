@@ -207,7 +207,12 @@ export const deleteComment = async (id: string) => {
 
 // Authentication
 export const login = async (email: string, password: string) => {
-  const { data } = await api.post('/auth/login', { email, password });
+  // Create a separate axios instance for login to avoid token interceptor issues
+  const loginApi = axios.create({
+    baseURL: '/api'
+  });
+  
+  const { data } = await loginApi.post('/auth/login', { email, password });
   return data;
 };
 
@@ -375,7 +380,12 @@ export const getSettings = async () => {
 };
 
 export const getPublicSettings = async () => {
-  const { data } = await api.get('/settings');
+  // Create a separate axios instance for public settings (no auth required)
+  const publicApi = axios.create({
+    baseURL: '/api'
+  });
+  
+  const { data } = await publicApi.get('/settings');
   return data;
 };
 

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import AdminFileUploadsTab from './AdminFileUploadsTab';
 
 interface AdminAppSettingsTabProps {
   settings: { [key: string]: string | undefined };
   editingSettings: { [key: string]: string | undefined };
   onSettingsChange: (settings: { [key: string]: string | undefined }) => void;
-  onSave: () => Promise<void>;
+  onSave: (settings?: { [key: string]: string | undefined }) => Promise<void>;
   onCancel: () => void;
   successMessage: string | null;
   error: string | null;
@@ -20,6 +21,39 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   error,
 }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads'>('ui');
+
+  // Initialize activeSubTab from URL hash
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#admin#app-settings#file-uploads') {
+      setActiveSubTab('uploads');
+    } else if (hash === '#admin#app-settings#user-interface') {
+      setActiveSubTab('ui');
+    }
+  }, []);
+
+  // Update URL hash when activeSubTab changes
+  const handleSubTabChange = (tab: 'ui' | 'uploads') => {
+    setActiveSubTab(tab);
+    const newHash = tab === 'ui' ? '#admin#app-settings#user-interface' : '#admin#app-settings#file-uploads';
+    window.location.hash = newHash;
+  };
+
+  // Listen for hash changes (back/forward navigation)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash === '#admin#app-settings#file-uploads') {
+        setActiveSubTab('uploads');
+      } else if (hash === '#admin#app-settings#user-interface') {
+        setActiveSubTab('ui');
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -87,126 +121,152 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     <div className="p-6">
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">App Settings</h2>
-        <p className="text-gray-600 dark:text-gray-400">
-          Configure application-wide behavior settings. These settings apply as defaults for all users, but users can override them in their personal preferences.
-        </p>
       </div>
 
-      {/* Success and Error Messages */}
-      {successMessage && (
-        <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-green-800">{successMessage}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Sub-tab Navigation */}
+      <div className="mb-6">
+        <nav className="flex space-x-8" aria-label="Tabs">
+          <button
+            onClick={() => handleSubTabChange('ui')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'ui'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            User Interface
+          </button>
+          <button
+            onClick={() => handleSubTabChange('uploads')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'uploads'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            File Uploads
+          </button>
+        </nav>
+      </div>
 
-      {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-              </svg>
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-medium text-red-800">{error}</p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Conditional Content Based on Active Sub-tab */}
+      {activeSubTab === 'ui' ? (
+        <>
+          {/* Success and Error Messages */}
+          {successMessage && (
+            <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-green-800">{successMessage}</p>
+                  </div>
+                  </div>
+                </div>
+          )}
 
-      {/* Settings Form */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">User Interface Settings</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Configure default behavior for user interactions
-          </p>
-        </div>
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-red-800">{error}</p>
+                  </div>
+                  </div>
+                </div>
+          )}
 
-        <div className="px-6 py-4 space-y-6">
-          {/* Task Delete Confirmation Setting */}
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                Task Delete Confirmation
-              </label>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Require confirmation before deleting tasks. Users can override this in their personal preferences.
+          {/* Settings Form */}
+          <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">User Interface Settings</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Configure application-wide behavior settings. These settings apply as defaults for all users, but users can override them in their personal preferences.
               </p>
-            </div>
-            <div className="ml-6 flex-shrink-0">
-              <select
-                value={editingSettings.TASK_DELETE_CONFIRM || 'true'}
-                onChange={(e) => handleTaskDeleteConfirmChange(e.target.value)}
-                className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-              >
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-            </div>
-          </div>
-        </div>
+                </div>
 
-        {/* New User Defaults Section */}
-        <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-          <h4 className="text-md font-medium text-gray-900 dark:text-gray-100 mb-4">New User Defaults</h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-            Configure default preferences for new users. Existing users keep their current settings.
-          </p>
-          
-          <div className="space-y-6">
-            {/* Default View Mode */}
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                  Default View Mode
-                </label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Default view mode for new users (Kanban or List view)
-                </p>
-              </div>
-              <div className="ml-6 flex-shrink-0">
-                <select
-                  value={editingSettings.DEFAULT_VIEW_MODE || 'kanban'}
-                  onChange={(e) => handleDefaultViewModeChange(e.target.value)}
-                  className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="kanban">Kanban</option>
-                  <option value="list">List</option>
-                </select>
-              </div>
-            </div>
+            <div className="px-6 py-4 space-y-6">
+              {/* Task Delete Confirmation Setting */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                    Task Delete Confirmation
+                  </label>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Require confirmation before deleting tasks. Users can override this in their personal preferences.
+                  </p>
+                  </div>
+                <div className="ml-6 flex-shrink-0">
+                    <select
+                    value={editingSettings.TASK_DELETE_CONFIRM || 'true'}
+                    onChange={(e) => handleTaskDeleteConfirmChange(e.target.value)}
+                    className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="true">Enabled</option>
+                    <option value="false">Disabled</option>
+                  </select>
+                  </div>
+                  </div>
+                </div>
+
+            {/* New User Defaults Section */}
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+              <h4 className="text-md font-medium text-gray-900 dark:text-gray-100 mb-4">New User Defaults</h4>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+                Configure default preferences for new users. Existing users keep their current settings.
+              </p>
+              
+              <div className="space-y-6">
+                {/* Default View Mode */}
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                      Default View Mode
+                    </label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Default view mode for new users (Kanban or List view)
+                    </p>
+                  </div>
+                  <div className="ml-6 flex-shrink-0">
+                    <select
+                      value={editingSettings.DEFAULT_VIEW_MODE || 'kanban'}
+                      onChange={(e) => handleDefaultViewModeChange(e.target.value)}
+                      className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="kanban">Kanban</option>
+                      <option value="list">List</option>
+                    </select>
+                  </div>
+                </div>
 
             {/* Default Task View Mode */}
-            <div className="flex items-start justify-between">
-              <div className="flex-1">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                   Default Task View Mode
-                </label>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    </label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                   Default task card size for new users (Expanded or Collapsed)
-                </p>
-              </div>
-              <div className="ml-6 flex-shrink-0">
-                <select
-                  value={editingSettings.DEFAULT_TASK_VIEW_MODE || 'expand'}
-                  onChange={(e) => handleDefaultTaskViewModeChange(e.target.value)}
-                  className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                >
-                  <option value="expand">Expanded</option>
-                  <option value="collapse">Collapsed</option>
-                </select>
-              </div>
-            </div>
+                    </p>
+                  </div>
+                  <div className="ml-6 flex-shrink-0">
+                    <select
+                      value={editingSettings.DEFAULT_TASK_VIEW_MODE || 'expand'}
+                      onChange={(e) => handleDefaultTaskViewModeChange(e.target.value)}
+                      className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="expand">Expanded</option>
+                      <option value="collapse">Collapsed</option>
+                    </select>
+                  </div>
+                </div>
 
             {/* Activity Feed Defaults */}
             <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
@@ -224,9 +284,9 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Whether the activity feed is shown by default
                   </p>
-                </div>
+                  </div>
                 <div className="ml-6 flex-shrink-0">
-                  <select
+                    <select
                     value={editingSettings.SHOW_ACTIVITY_FEED || 'true'}
                     onChange={(e) => handleShowActivityFeedChange(e.target.value)}
                     className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -234,8 +294,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     <option value="true">Enabled</option>
                     <option value="false">Disabled</option>
                   </select>
-                </div>
-              </div>
+                  </div>
+                  </div>
               
               {/* Activity Feed Position */}
               <div className="flex items-start justify-between mb-4">
@@ -246,7 +306,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Default position for activity feed (JSON format: {`{"x": 0, "y": 66}`})
                   </p>
-                </div>
+                  </div>
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="text"
@@ -255,8 +315,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder='{"x": 0, "y": 66}'
                   />
-                </div>
-              </div>
+                  </div>
+                  </div>
 
               {/* Activity Feed Width */}
               <div className="flex items-start justify-between mb-4">
@@ -267,7 +327,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Default width in pixels (180-400)
                   </p>
-                </div>
+                  </div>
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="number"
@@ -277,8 +337,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     onChange={(e) => handleDefaultActivityFeedWidthChange(e.target.value)}
                     className="block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
-                </div>
-              </div>
+                  </div>
+                  </div>
 
               {/* Activity Feed Height */}
               <div className="flex items-start justify-between">
@@ -289,7 +349,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Default height in pixels (200-800)
                   </p>
-                </div>
+                  </div>
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="number"
@@ -299,33 +359,45 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     onChange={(e) => handleDefaultActivityFeedHeightChange(e.target.value)}
                     className="block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />
+                  </div>
+                  </div>
                 </div>
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        {hasChanges() && (
-          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </button>
+            {/* Action Buttons */}
+            {hasChanges() && (
+              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={isSaving}
+                      className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                  {isSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+                  </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      ) : (
+        <AdminFileUploadsTab
+          settings={settings}
+          editingSettings={editingSettings}
+          onSettingsChange={onSettingsChange}
+          onSave={onSave}
+          onCancel={onCancel}
+          successMessage={successMessage}
+          error={error}
+        />
+      )}
     </div>
   );
 };

@@ -1371,9 +1371,19 @@ export default function App() {
     const handleSettingsUpdated = async (data: any) => {
       console.log('📨 Settings updated via WebSocket:', data);
       try {
-        const settings = await getSettings();
-        setSiteSettings(settings);
-        console.log('📨 Settings refreshed after update');
+        // Update the specific setting directly from WebSocket data instead of fetching all settings
+        if (data.key && data.value !== undefined) {
+          setSiteSettings(prev => ({
+            ...prev,
+            [data.key]: data.value
+          }));
+          console.log(`📨 App: Updated ${data.key} to ${data.value} via WebSocket`);
+        } else {
+          // Fallback to fetching all settings if WebSocket data is incomplete
+          const settings = await getSettings();
+          setSiteSettings(settings);
+          console.log('📨 Settings refreshed after update');
+        }
       } catch (error) {
         console.error('Failed to refresh settings after update:', error);
       }

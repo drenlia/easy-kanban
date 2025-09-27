@@ -3,7 +3,8 @@ import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
 import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch } from 'lucide-react';
 import { parseTaskRoute } from '../utils/routingUtils';
-import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, uploadFile, fetchTaskAttachments, addTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, addTagToTask, removeTagFromTask, deleteComment, updateComment, fetchTaskAttachments, deleteAttachment, fetchCommentAttachments, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
+import { useFileUpload } from '../hooks/useFileUpload';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import TextEditor from './TextEditor';
@@ -417,8 +418,17 @@ export default function TaskPage({
     type: string;
     size: number;
   }>>([]);
-  const [pendingAttachments, setPendingAttachments] = useState<File[]>([]);
-  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  
+  // Use the new file upload hook
+  const {
+    pendingFiles: pendingAttachments,
+    isUploading: isUploadingAttachments,
+    uploadError: uploadError,
+    uploadTaskFiles,
+    clearFiles,
+    addFiles
+  } = useFileUpload([], siteSettings);
+  
   const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
   const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
   const [commentAttachments, setCommentAttachments] = useState<Record<string, Attachment[]>>({});
@@ -523,8 +533,9 @@ export default function TaskPage({
 
   // Direct attachment management functions (matching TaskDetails exactly)
   const handleAttachmentsChange = useCallback((attachments: File[]) => {
-    setPendingAttachments(attachments);
-  }, []);
+    // Use the hook's addFiles function instead of direct state management
+    addFiles(attachments);
+  }, [addFiles]);
 
   const handleAttachmentDelete = useCallback(async (attachmentId: string) => {
     try {
@@ -536,17 +547,27 @@ export default function TaskPage({
       
       if (attachmentToDelete) {
         // Remove from ALL local state (just like image X button does)
-        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId && att.name !== attachmentToDelete.name));
+        setTaskAttachments(prev => {
+          const updated = prev.filter(att => att.id !== attachmentId && att.name !== attachmentToDelete.name);
+          // Update the task with the new attachment count
+          handleTaskUpdate({ attachmentCount: updated.length });
+          return updated;
+        });
         setPendingAttachments(prev => prev.filter(att => att.name !== attachmentToDelete.name));
       } else {
         // Fallback: just remove by ID
-        setTaskAttachments(prev => prev.filter(att => att.id !== attachmentId));
+        setTaskAttachments(prev => {
+          const updated = prev.filter(att => att.id !== attachmentId);
+          // Update the task with the new attachment count
+          handleTaskUpdate({ attachmentCount: updated.length });
+          return updated;
+        });
       }
     } catch (error) {
       console.error('Error deleting attachment:', error);
       throw error; // Re-throw to let TextEditor handle the error
     }
-  }, [taskAttachments]);
+  }, [taskAttachments, handleTaskUpdate]);
 
   const handleImageRemoval = useCallback(async (filename: string) => {
     // Track this attachment as recently deleted
@@ -578,69 +599,52 @@ export default function TaskPage({
     
     // Remove from ALL local state immediately
     setPendingAttachments(prev => prev.filter(att => att.name !== filename));
-    setTaskAttachments(prev => prev.filter(att => att.name !== filename));
+    setTaskAttachments(prev => {
+      const updated = prev.filter(att => att.name !== filename);
+      // Update the task with the new attachment count
+      handleTaskUpdate({ attachmentCount: updated.length });
+      return updated;
+    });
     
     // Clear the recently deleted flag after a longer delay
     setTimeout(() => {
       recentlyDeletedAttachmentsRef.current.delete(filename);
     }, 5000); // 5 seconds should be enough for any polling cycles
-  }, [taskAttachments, task?.id]);
+  }, [taskAttachments, task?.id, handleTaskUpdate]);
 
   const savePendingAttachments = useCallback(async () => {
     if (pendingAttachments.length > 0) {
       try {
-        setIsUploadingAttachments(true);
+        console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
         
-        // Upload files first
-        const uploadedAttachments = await Promise.all(
-          pendingAttachments.map(async (file) => {
-            const fileData = await uploadFile(file);
-            return {
-              id: fileData.id,
-              name: fileData.name,
-              url: fileData.url,
-              type: fileData.type,
-              size: fileData.size
-            };
-          })
-        );
-
-        // Add attachments to task
-        await addTaskAttachments(task?.id || '', uploadedAttachments);
-        
-        // Update local state - but only add attachments that weren't deleted during upload
-        setTaskAttachments(prev => {
-          const currentAttachmentNames = prev.map(att => att.name);
-          const newAttachments = uploadedAttachments.filter(uploaded => 
-            !currentAttachmentNames.includes(uploaded.name) // Don't re-add if already deleted
-          );
-          return [...prev, ...newAttachments];
-        });
-        setPendingAttachments([]);
-        
-        // Update the task description with server URLs immediately
-        let updatedDescription = editedTask.description;
-        uploadedAttachments.forEach(attachment => {
-          if (attachment.name.startsWith('img-')) {
-            // Replace blob URLs with authenticated server URLs
-            const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-            const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
-            updatedDescription = updatedDescription.replace(blobPattern, authenticatedUrl || attachment.url);
+        // Use the new upload utility
+        const uploadedAttachments = await uploadTaskFiles(task?.id || '', {
+          currentTaskAttachments: taskAttachments,
+          currentDescription: editedTask.description,
+          onTaskAttachmentsUpdate: (updatedAttachments) => {
+            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+            setTaskAttachments(updatedAttachments);
+            // Update the task with the new attachment count
+            handleTaskUpdate({ attachmentCount: updatedAttachments.length });
+          },
+          onDescriptionUpdate: (updatedDescription) => {
+            console.log('🔄 Updating task description with server URLs');
+            handleTaskUpdate({ description: updatedDescription });
+          },
+          onSuccess: (attachments) => {
+            console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          },
+          onError: (error) => {
+            console.error('❌ Failed to upload task attachments:', error);
           }
         });
         
-        // Always update the description to replace blob URLs
-        if (updatedDescription !== editedTask.description) {
-          // Update task description directly via hook (which will handle the save)
-          handleTaskUpdate({ description: updatedDescription });
-        }
+        console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
       } catch (error) {
-        console.error('❌ Failed to save attachments:', error);
-      } finally {
-        setIsUploadingAttachments(false);
+        console.error('❌ Failed to save task attachments:', error);
       }
     }
-  }, [pendingAttachments, task?.id, editedTask, handleTaskUpdate, saveImmediately]);
+  }, [pendingAttachments, task?.id, taskAttachments, editedTask.description, uploadTaskFiles, handleTaskUpdate]);
 
   // Only show saved attachments - no pending ones to avoid state sync issues
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
@@ -937,6 +941,15 @@ export default function TaskPage({
                   attachments: true
                 }}
               />
+              
+              {/* Upload error display */}
+              {uploadError && (
+                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
+                  <div className="text-sm text-red-600 dark:text-red-400">
+                    Upload error: {uploadError}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Attachments */}

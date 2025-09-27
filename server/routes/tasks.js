@@ -108,27 +108,41 @@ router.get('/:id', authenticateToken, (req, res) => {
     const isTicket = /^[A-Z]+-\d+$/i.test(id);
     console.log('🔍 [TASK API] ID type detection:', { id, isTicket });
     
-    // Build the query based on whether we're searching by ticket or UUID
-    const whereClause = isTicket ? 'WHERE t.ticket = ?' : 'WHERE t.id = ?';
-    console.log('🔍 [TASK API] Using where clause:', whereClause);
-    
     // Get task with attachment count and priority info
-    const task = wrapQuery(db.prepare(`
-      SELECT t.*, 
-             p.id as priorityId,
-             p.priority as priorityName,
-             p.color as priorityColor,
-             c.title as status,
-             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                  ELSE NULL END as attachmentCount
-      FROM tasks t
-      LEFT JOIN attachments a ON a.taskId = t.id
-      LEFT JOIN priorities p ON p.priority = t.priority
-      LEFT JOIN columns c ON c.id = t.columnId
-      ${whereClause}
-      GROUP BY t.id, p.id, c.id
-    `), 'SELECT').get(id);
+    // Use separate prepared statements to avoid SQL injection
+    const task = isTicket 
+      ? wrapQuery(db.prepare(`
+          SELECT t.*, 
+                 p.id as priorityId,
+                 p.priority as priorityName,
+                 p.color as priorityColor,
+                 c.title as status,
+                 CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                      THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                      ELSE NULL END as attachmentCount
+          FROM tasks t
+          LEFT JOIN attachments a ON a.taskId = t.id
+          LEFT JOIN priorities p ON p.priority = t.priority
+          LEFT JOIN columns c ON c.id = t.columnId
+          WHERE t.ticket = ?
+          GROUP BY t.id, p.id, c.id
+        `), 'SELECT').get(id)
+      : wrapQuery(db.prepare(`
+          SELECT t.*, 
+                 p.id as priorityId,
+                 p.priority as priorityName,
+                 p.color as priorityColor,
+                 c.title as status,
+                 CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                      THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                      ELSE NULL END as attachmentCount
+          FROM tasks t
+          LEFT JOIN attachments a ON a.taskId = t.id
+          LEFT JOIN priorities p ON p.priority = t.priority
+          LEFT JOIN columns c ON c.id = t.columnId
+          WHERE t.id = ?
+          GROUP BY t.id, p.id, c.id
+        `), 'SELECT').get(id);
     
     if (!task) {
       console.log('❌ [TASK API] Task not found for ID:', id);

@@ -18,12 +18,14 @@ import {
   Check,
   X
 } from 'lucide-react';
+import { useFileUpload, createFileInput } from '../hooks/useFileUpload';
 
 interface CommentEditorProps {
   onSubmit: (content: string, attachments: File[]) => Promise<void>;
   onCancel?: () => void;
   initialContent?: string;
   isEditing?: boolean;
+  siteSettings?: { [key: string]: string };
 }
 
 const formatDateTime = (dateString: string) => {
@@ -42,12 +44,22 @@ const getLocalISOString = (date: Date) => {
   return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString();
 };
 
-export default function CommentEditor({ onSubmit, onCancel, initialContent = '', isEditing = false }: CommentEditorProps) {
+export default function CommentEditor({ onSubmit, onCancel, initialContent = '', isEditing = false, siteSettings }: CommentEditorProps) {
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  // Use the new file upload hook
+  const {
+    pendingFiles: attachments,
+    isUploading,
+    uploadError,
+    removeFile,
+    clearFiles,
+    handleFileInputChange,
+    fileInputRef,
+    validatePendingFiles
+  } = useFileUpload([], siteSettings);
 
   const editor = useEditor({
     extensions: [
@@ -117,13 +129,6 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
     setLinkText('');
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      setAttachments(prev => [...prev, ...Array.from(files)]);
-    }
-  };
-
   const handleSubmit = async () => {
     if (!editor) return;
     
@@ -132,9 +137,16 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
     
     if (!isEmptyContent || attachments.length > 0) {
       try {
+        // Validate files before submission
+        const validation = validatePendingFiles();
+        if (!validation.valid) {
+          console.error('File validation failed:', validation.errors);
+          return;
+        }
+
         await onSubmit(content, [...attachments]);
         editor.commands.clearContent();
-        setAttachments([]);
+        clearFiles();
       } catch (error) {
         console.error('Failed to submit comment:', error);
       }
@@ -222,13 +234,22 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
                 <Paperclip size={14} className="text-gray-500" />
                 <span className="text-gray-700">{file.name}</span>
                 <button
-                  onClick={() => setAttachments(prev => prev.filter((_, i) => i !== index))}
+                  onClick={() => removeFile(index)}
                   className="ml-auto text-gray-500 hover:text-gray-700"
                 >
                   <X size={14} />
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Upload error display */}
+      {uploadError && (
+        <div className="p-2 border-t bg-red-50 border-red-200">
+          <div className="text-sm text-red-600">
+            Upload error: {uploadError}
           </div>
         </div>
       )}
@@ -244,25 +265,19 @@ export default function CommentEditor({ onSubmit, onCancel, initialContent = '',
         )}
         <button
           onClick={handleSubmit}
-          disabled={!editor?.getText().trim() && attachments.length === 0}
+          disabled={(!editor?.getText().trim() && attachments.length === 0) || isUploading}
           className={`flex items-center gap-1 px-3 py-1.5 rounded ${
-            !editor?.getText().trim() && attachments.length === 0
+            (!editor?.getText().trim() && attachments.length === 0) || isUploading
               ? 'bg-gray-300 cursor-not-allowed text-gray-500'
               : 'bg-blue-500 hover:bg-blue-600 text-white'
           }`}
         >
           <Check size={16} />
-          <span>{isEditing ? 'Update Comment' : 'Add Comment'}</span>
+          <span>{isUploading ? 'Uploading...' : (isEditing ? 'Update Comment' : 'Add Comment')}</span>
         </button>
       </div>
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileUpload}
-        className="hidden"
-        multiple
-      />
+      {createFileInput(fileInputRef, handleFileInputChange)}
 
       {showLinkDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

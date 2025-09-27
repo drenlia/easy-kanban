@@ -2,12 +2,35 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { wrapQuery } from '../utils/queryLogger.js';
 
 const router = express.Router();
 
+// Password reset request rate limiter: 3 attempts per hour
+const passwordResetRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // 3 password reset requests per hour
+  message: {
+    error: 'Too many password reset requests, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Password reset completion rate limiter: 6 attempts per hour (more generous)
+const passwordResetCompletionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 6, // 6 password reset completions per hour
+  message: {
+    error: 'Too many password reset attempts, please try again in 1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // Request password reset
-router.post('/request', async (req, res) => {
+router.post('/request', passwordResetRequestLimiter, async (req, res) => {
   const { email } = req.body;
   
   if (!email) {
@@ -100,7 +123,7 @@ router.post('/request', async (req, res) => {
 });
 
 // Reset password with token
-router.post('/reset', async (req, res) => {
+router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
   const { token, newPassword } = req.body;
   
   if (!token || !newPassword) {
@@ -124,6 +147,15 @@ router.post('/reset', async (req, res) => {
       `), 
       'SELECT'
     ).get(token);
+    
+    // Debug logging
+    console.log('🔍 Password reset attempt:', {
+      token: token.substring(0, 10) + '...',
+      foundToken: !!resetToken,
+      currentTime: new Date().toISOString(),
+      tokenExpiry: resetToken?.expires_at,
+      tokenUsed: resetToken?.used
+    });
     
     if (!resetToken) {
       return res.status(400).json({ error: 'Invalid or expired reset token' });
