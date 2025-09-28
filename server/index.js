@@ -29,6 +29,7 @@ const generateRandomPassword = (length = 12) => {
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initNotificationService, getNotificationService } from './services/notificationService.js';
+import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
@@ -55,6 +56,7 @@ const db = initializeDatabase();
 // Initialize activity logger and notification service with database instance
 initActivityLogger(db);
 initNotificationService(db);
+initNotificationThrottler(db);
 
 const app = express();
 
@@ -1972,7 +1974,6 @@ const getContainerMemoryInfo = () => {
             memoryUsage = parseInt(usageData);
             if (memoryUsage > 0) {
               foundContainerInfo = true;
-              console.log(`Found container memory usage: ${formatBytes(memoryUsage)} from ${usagePath}`);
               break;
             }
           } catch (usageError) {
@@ -1991,7 +1992,6 @@ const getContainerMemoryInfo = () => {
               const limitBytes = parseInt(limitData);
               if (limitBytes > 0 && limitBytes < os.totalmem()) {
                 memoryLimit = limitBytes;
-                console.log(`Found container memory limit: ${formatBytes(limitBytes)} from ${limitPath}`);
                 break;
               }
             }
@@ -2008,7 +2008,6 @@ const getContainerMemoryInfo = () => {
     if (!foundContainerInfo) {
       const freeMemory = os.freemem();
       memoryUsage = os.totalmem() - freeMemory;
-      console.log('Using host memory calculation as fallback');
     }
     
     // Ensure we have valid values
@@ -2898,4 +2897,31 @@ server.listen(PORT, '0.0.0.0', async () => {
   
   // Initialize real-time services
   await initializeServices();
+});
+
+// Graceful shutdown handler
+process.on('SIGINT', async () => {
+  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
+  
+  // Flush all pending notifications
+  const throttler = getNotificationThrottler();
+  if (throttler) {
+    await throttler.flushAllNotifications();
+  }
+  
+  console.log('✅ Graceful shutdown complete');
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
+  
+  // Flush all pending notifications
+  const throttler = getNotificationThrottler();
+  if (throttler) {
+    await throttler.flushAllNotifications();
+  }
+  
+  console.log('✅ Graceful shutdown complete');
+  process.exit(0);
 });

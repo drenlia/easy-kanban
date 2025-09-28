@@ -467,6 +467,17 @@ const initializeDefaultData = (db) => {
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
       ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)
+      ['NOTIFICATION_DELAY', '30'], // Email notification delay in minutes (default 30)
+      ['NOTIFICATION_DEFAULTS', JSON.stringify({
+        newTaskAssigned: true,
+        myTaskUpdated: true,
+        watchedTaskUpdated: true,
+        addedAsCollaborator: true,
+        collaboratingTaskUpdated: true,
+        commentAdded: true,
+        requesterTaskCreated: true,
+        requesterTaskUpdated: true
+      })], // Global notification defaults
       ['UPLOAD_FILETYPES', JSON.stringify({
         'image/jpeg': true,
         'image/jpg': true,

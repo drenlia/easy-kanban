@@ -106,7 +106,6 @@ router.get('/shared', authenticateToken, (req, res) => {
     
     const views = stmt.all(userId);
     console.log('📊 [GET /api/views/shared] Found shared views:', views.length);
-    console.log('📋 [GET /api/views/shared] Views:', views.map(v => ({ id: v.id, filterName: v.filterName, userId: v.userId, creatorName: v.creatorName })));
     
     const formattedViews = views.map(view => {
       const formatted = formatViewForResponse(view);

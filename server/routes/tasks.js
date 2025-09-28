@@ -416,9 +416,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       },
       timestamp: new Date().toISOString()
     };
-    console.log('📡 Publishing task-updated WebSocket event:', webSocketData);
     await redisService.publish('task-updated', webSocketData);
-    console.log('📡 Task-updated event published successfully');
     
     res.json(task);
   } catch (error) {
@@ -665,7 +663,6 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       ).get(targetBoardId);
       
       if (sourceColumn && targetColumn) {
-        console.log(`📋 Fallback placement: No matching column "${sourceColumn.title}" found, using first column "${targetColumn.title}"`);
       }
     }
     

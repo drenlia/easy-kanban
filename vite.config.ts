@@ -14,7 +14,7 @@ export default defineConfig({
     port: '3010',
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     ws: false, // Disable WebSocket completely
-    allowedHosts: process.env.VITE_ALLOWED_HOSTS ? process.env.VITE_ALLOWED_HOSTS.split(',') : ['localhost', '127.0.0.1'],
+    allowedHosts: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['localhost', '127.0.0.1'],
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',

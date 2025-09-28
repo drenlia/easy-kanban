@@ -1211,7 +1211,6 @@ export default function App() {
     };
 
     const handleColumnUpdated = (data: any) => {
-      console.log('📨 Column updated via WebSocket:', data);
       // Only refresh if the column is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
@@ -1224,7 +1223,6 @@ export default function App() {
     };
 
     const handleColumnDeleted = (data: any) => {
-      console.log('📨 Column deleted via WebSocket:', data);
       // Only refresh if the column is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
@@ -1237,7 +1235,6 @@ export default function App() {
     };
 
     const handleColumnReordered = (data: any) => {
-      console.log('📨 Column reordered via WebSocket:', data);
       // Only refresh if the column is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
@@ -1250,20 +1247,17 @@ export default function App() {
     };
 
     const handleBoardCreated = (data: any) => {
-      console.log('📨 Board created via WebSocket:', data);
       // Refresh boards list to show new board
       refreshBoardData();
     };
 
     const handleBoardUpdated = (data: any) => {
-      console.log('📨 Board updated via WebSocket:', data);
       console.log('🔄 Refreshing board data due to board update...');
       // Refresh boards list
       refreshBoardData();
     };
 
     const handleBoardDeleted = (data: any) => {
-      console.log('📨 Board deleted via WebSocket:', data);
       // If the deleted board was selected, clear selection
       if (data.boardId === selectedBoardRef.current) {
         setSelectedBoard(null);
@@ -1274,13 +1268,11 @@ export default function App() {
     };
 
     const handleBoardReordered = (data: any) => {
-      console.log('📨 Board reordered via WebSocket:', data);
       // Refresh boards list to show new order
       refreshBoardData();
     };
 
     const handleTaskWatcherAdded = (data: any) => {
-      console.log('📨 Task watcher added via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
@@ -1290,7 +1282,6 @@ export default function App() {
     };
 
     const handleTaskWatcherRemoved = (data: any) => {
-      console.log('📨 Task watcher removed via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
@@ -1300,7 +1291,6 @@ export default function App() {
     };
 
     const handleTaskCollaboratorAdded = (data: any) => {
-      console.log('📨 Task collaborator added via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
@@ -1310,7 +1300,6 @@ export default function App() {
     };
 
     const handleTaskCollaboratorRemoved = (data: any) => {
-      console.log('📨 Task collaborator removed via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
@@ -1320,7 +1309,6 @@ export default function App() {
     };
 
     const handleColumnCreated = (data: any) => {
-      console.log('📨 Column created via WebSocket:', data);
       // Only refresh if the column is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
@@ -1353,19 +1341,16 @@ export default function App() {
     };
 
     const handleActivityUpdated = (data: any) => {
-      console.log('📨 Activity updated via WebSocket:', data);
       // Refresh activity feed
       handleActivitiesUpdate(data.activities || []);
     };
 
     const handleMemberCreated = (data: any) => {
-      console.log('📨 Member created via WebSocket:', data);
       // Refresh members list
       handleMembersUpdate([data.member]);
     };
 
     const handleMemberDeleted = (data: any) => {
-      console.log('📨 Member deleted via WebSocket:', data);
       // Refresh members list
       handleMembersUpdate([]);
     };
@@ -1391,7 +1376,6 @@ export default function App() {
     };
 
     const handleFilterCreated = (data: any) => {
-      console.log('📨 Filter created via WebSocket:', data);
       // Refresh shared filters list
       if (data.filter && data.filter.shared) {
         handleSharedFilterViewsUpdate([data.filter]);
@@ -1399,17 +1383,13 @@ export default function App() {
     };
 
     const handleFilterUpdated = (data: any) => {
-      console.log('📨 Filter updated via WebSocket:', data);
-      console.log('📨 Filter shared status:', data.filter?.shared, 'type:', typeof data.filter?.shared);
       // Handle filter sharing/unsharing
       if (data.filter) {
         if (data.filter.shared) {
           // Filter was shared or updated - add/update it
-          console.log('📨 Adding/updating shared filter:', data.filter.filterName);
           handleSharedFilterViewsUpdate([data.filter]);
         } else {
           // Filter was unshared - remove it from the list
-          console.log('📨 Removing unshared filter:', data.filter.filterName);
           setSharedFilterViews(prev => prev.filter(f => f.id !== data.filter.id));
         }
       }
@@ -1505,7 +1485,6 @@ export default function App() {
 
     // Settings update event handler
     const handleSettingsUpdated = async (data: any) => {
-      console.log('📨 Settings updated via WebSocket:', data);
       try {
         // Update the specific setting directly from WebSocket data instead of fetching all settings
         if (data.key && data.value !== undefined) {
@@ -1513,7 +1492,6 @@ export default function App() {
             ...prev,
             [data.key]: data.value
           }));
-          console.log(`📨 App: Updated ${data.key} to ${data.value} via WebSocket`);
         } else {
           // Fallback to fetching all settings if WebSocket data is incomplete
           const settings = await getSettings();

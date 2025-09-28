@@ -21,22 +21,66 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   error,
 }) => {
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads'>('ui');
+  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads' | 'notifications'>('ui');
+  const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
+  const [autosaveSuccess, setAutosaveSuccess] = useState<string | null>(null);
+
+  // Initialize notification defaults from settings
+  useEffect(() => {
+    if (settings.NOTIFICATION_DEFAULTS) {
+      try {
+        const defaults = JSON.parse(settings.NOTIFICATION_DEFAULTS);
+        setNotificationDefaults(defaults);
+      } catch (error) {
+        console.error('Failed to parse notification defaults:', error);
+        // Set default values
+        setNotificationDefaults({
+          newTaskAssigned: true,
+          myTaskUpdated: true,
+          watchedTaskUpdated: true,
+          addedAsCollaborator: true,
+          collaboratingTaskUpdated: true,
+          commentAdded: true,
+          requesterTaskCreated: true,
+          requesterTaskUpdated: true
+        });
+      }
+    } else {
+      // Set default values if no settings exist
+      setNotificationDefaults({
+        newTaskAssigned: true,
+        myTaskUpdated: true,
+        watchedTaskUpdated: true,
+        addedAsCollaborator: true,
+        collaboratingTaskUpdated: true,
+        commentAdded: true,
+        requesterTaskCreated: true,
+        requesterTaskUpdated: true
+      });
+    }
+  }, [settings.NOTIFICATION_DEFAULTS]);
 
   // Initialize activeSubTab from URL hash
   useEffect(() => {
     const hash = window.location.hash;
     if (hash === '#admin#app-settings#file-uploads') {
       setActiveSubTab('uploads');
+    } else if (hash === '#admin#app-settings#notifications') {
+      setActiveSubTab('notifications');
     } else if (hash === '#admin#app-settings#user-interface') {
       setActiveSubTab('ui');
     }
   }, []);
 
   // Update URL hash when activeSubTab changes
-  const handleSubTabChange = (tab: 'ui' | 'uploads') => {
+  const handleSubTabChange = (tab: 'ui' | 'uploads' | 'notifications') => {
     setActiveSubTab(tab);
-    const newHash = tab === 'ui' ? '#admin#app-settings#user-interface' : '#admin#app-settings#file-uploads';
+    let newHash = '#admin#app-settings#user-interface';
+    if (tab === 'uploads') {
+      newHash = '#admin#app-settings#file-uploads';
+    } else if (tab === 'notifications') {
+      newHash = '#admin#app-settings#notifications';
+    }
     window.location.hash = newHash;
   };
 
@@ -46,6 +90,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       const hash = window.location.hash;
       if (hash === '#admin#app-settings#file-uploads') {
         setActiveSubTab('uploads');
+      } else if (hash === '#admin#app-settings#notifications') {
+        setActiveSubTab('notifications');
       } else if (hash === '#admin#app-settings#user-interface') {
         setActiveSubTab('ui');
       }
@@ -117,6 +163,64 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     });
   };
 
+  const handleNotificationDelayChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      NOTIFICATION_DELAY: value
+    });
+    
+    // Auto-save the notification delay change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          NOTIFICATION_DELAY: value
+        });
+        showAutosaveSuccess('Email throttling delay saved successfully');
+      } catch (error) {
+        console.error('Failed to save notification delay:', error);
+      }
+    }, 100);
+  };
+
+  // Helper function to get notification default value
+  const getNotificationDefault = (key: string): boolean => {
+    return notificationDefaults[key] ?? true;
+  };
+
+  // Helper function to show autosave success message
+  const showAutosaveSuccess = (message: string) => {
+    setAutosaveSuccess(message);
+    setTimeout(() => {
+      setAutosaveSuccess(null);
+    }, 3000);
+  };
+
+  // Handler for notification default changes
+  const handleNotificationDefaultChange = (key: string, value: boolean) => {
+    const newDefaults = { ...notificationDefaults, [key]: value };
+    setNotificationDefaults(newDefaults);
+    
+    // Auto-save the changes
+    onSettingsChange({
+      ...editingSettings,
+      NOTIFICATION_DEFAULTS: JSON.stringify(newDefaults)
+    });
+    
+    // Auto-save the notification defaults change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          NOTIFICATION_DEFAULTS: JSON.stringify(newDefaults)
+        });
+        showAutosaveSuccess('Notification defaults saved successfully');
+      } catch (error) {
+        console.error('Failed to save notification defaults:', error);
+      }
+    }, 100);
+  };
+
   return (
     <div className="p-6">
       <div className="mb-6">
@@ -145,6 +249,16 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
             }`}
           >
             File Uploads
+          </button>
+          <button
+            onClick={() => handleSubTabChange('notifications')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'notifications'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            Notifications
           </button>
         </nav>
       </div>
@@ -179,8 +293,23 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 <div className="ml-3">
                   <p className="text-sm font-medium text-red-800">{error}</p>
                   </div>
+                </div>
+              </div>
+          )}
+
+          {autosaveSuccess && (
+            <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">{autosaveSuccess}</p>
                   </div>
                 </div>
+              </div>
           )}
 
           {/* Settings Form */}
@@ -386,6 +515,180 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   </div>
             )}
           </div>
+        </>
+      ) : activeSubTab === 'notifications' ? (
+        <>
+          {/* Success and Error Messages for Notifications */}
+          {successMessage && (
+            <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">{successMessage}</p>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          {error && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-red-800">{error}</p>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          {autosaveSuccess && (
+            <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  </div>
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">{autosaveSuccess}</p>
+                  </div>
+                </div>
+              </div>
+          )}
+
+          <div className="space-y-6">
+            {/* Notification Delay Setting */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email Throttling</h3>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="notification-delay" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Notification Delay (minutes)
+                  </label>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+                    Accumulate task changes and send consolidated notifications. Set to 0 for immediate notifications.
+                  </p>
+                  <select
+                    id="notification-delay"
+                    value={editingSettings.NOTIFICATION_DELAY || '30'}
+                    onChange={(e) => handleNotificationDelayChange(e.target.value)}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
+                  >
+                    <option value="0">Immediate (0 minutes)</option>
+                    <option value="15">15 minutes</option>
+                    <option value="30">30 minutes (recommended)</option>
+                    <option value="60">1 hour</option>
+                    <option value="120">2 hours</option>
+                    <option value="240">4 hours</option>
+                    <option value="480">8 hours</option>
+                    <option value="1440">24 hours</option>
+                  </select>
+                  <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    When multiple changes occur to the same task within this time period, they will be combined into a single notification email.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Global Notification Defaults */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Global Notification Defaults</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                These settings control the default notification preferences for all users. Users can override these settings in their profile.
+              </p>
+              <div className="space-y-4">
+                {[
+                  { key: 'newTaskAssigned', label: 'New task assigned to me', description: 'Get notified when someone assigns a task to you' },
+                  { key: 'myTaskUpdated', label: 'My task is updated', description: 'Get notified when tasks assigned to you are modified' },
+                  { key: 'watchedTaskUpdated', label: 'A task I\'m watching is updated', description: 'Get notified when tasks you\'re watching are modified' },
+                  { key: 'addedAsCollaborator', label: 'I\'m added as a collaborator on a task', description: 'Get notified when someone adds you as a collaborator' },
+                  { key: 'collaboratingTaskUpdated', label: 'A task I\'m collaborating in is updated', description: 'Get notified when tasks you\'re collaborating on are modified' },
+                  { key: 'commentAdded', label: 'A comment is added to a task I\'m involved in', description: 'Get notified when comments are added to tasks you\'re assigned, watching, or collaborating on' },
+                  { key: 'requesterTaskCreated', label: 'A task is created and I\'m the requester', description: 'Get notified when tasks you requested are created' },
+                  { key: 'requesterTaskUpdated', label: 'A task is updated where I\'m the requester', description: 'Get notified when tasks you requested are modified' }
+                ].map((notification) => (
+                  <div key={notification.key} className="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className={`w-3 h-3 rounded-full ${
+                            notification.key === 'newTaskAssigned' ? 'bg-blue-500' :
+                            notification.key === 'myTaskUpdated' ? 'bg-green-500' :
+                            notification.key === 'watchedTaskUpdated' ? 'bg-purple-500' :
+                            notification.key === 'addedAsCollaborator' ? 'bg-yellow-500' :
+                            notification.key === 'collaboratingTaskUpdated' ? 'bg-orange-500' :
+                            notification.key === 'commentAdded' ? 'bg-red-500' :
+                            notification.key === 'requesterTaskCreated' ? 'bg-indigo-500' :
+                            'bg-teal-500'
+                          }`}></div>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{notification.label}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">{notification.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 ml-4">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={getNotificationDefault(notification.key)}
+                          onChange={(e) => handleNotificationDefaultChange(notification.key, e.target.checked)}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Email System Status */}
+            <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email System Status</h3>
+              <div className="flex items-center space-x-2">
+                <div className={`w-3 h-3 rounded-full ${settings.SMTP_HOST ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  {settings.SMTP_HOST ? 'Email system is configured and active' : 'Email system is not configured'}
+                </span>
+              </div>
+              {!settings.SMTP_HOST && (
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                  Configure SMTP settings in the Mail tab to enable email notifications.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          {hasChanges() && (
+            <div className="mt-6 flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          )}
         </>
       ) : (
         <AdminFileUploadsTab

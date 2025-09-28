@@ -227,11 +227,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     };
 
     const handleTagDeleted = async (data: any) => {
-      console.log('📨 Admin: Tag deleted via WebSocket:', data);
       try {
         const tags = await getTags();
         setTags(tags);
-        console.log('📨 Admin: Tags refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh tags after deletion:', error);
       }
@@ -239,44 +237,36 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
     // Priority management event handlers
     const handlePriorityCreated = async (data: any) => {
-      console.log('📨 Admin: Priority created via WebSocket:', data);
       try {
         const priorities = await getPriorities();
         setPriorities(priorities);
-        console.log('📨 Admin: Priorities refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh priorities after creation:', error);
       }
     };
 
     const handlePriorityUpdated = async (data: any) => {
-      console.log('📨 Admin: Priority updated via WebSocket:', data);
       try {
         const priorities = await getPriorities();
         setPriorities(priorities);
-        console.log('📨 Admin: Priorities refreshed after update');
       } catch (error) {
         console.error('Failed to refresh priorities after update:', error);
       }
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      console.log('📨 Admin: Priority deleted via WebSocket:', data);
       try {
         const priorities = await getPriorities();
         setPriorities(priorities);
-        console.log('📨 Admin: Priorities refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh priorities after deletion:', error);
       }
     };
 
     const handlePriorityReordered = async (data: any) => {
-      console.log('📨 Admin: Priority reordered via WebSocket:', data);
       try {
         const priorities = await getPriorities();
         setPriorities(priorities);
-        console.log('📨 Admin: Priorities refreshed after reorder');
       } catch (error) {
         console.error('Failed to refresh priorities after reorder:', error);
       }
@@ -293,11 +283,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
     // User management event handlers
     const handleUserCreated = async (data: any) => {
-      console.log('📨 Admin: User created via WebSocket:', data);
       try {
         const usersResponse = await api.get('/admin/users');
         setUsers(usersResponse.data || []);
-        console.log('📨 Admin: Users refreshed after creation');
       } catch (error) {
         console.error('Failed to refresh users after creation:', error);
       }
@@ -313,22 +301,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     };
 
     const handleUserRoleUpdated = async (data: any) => {
-      console.log('📨 Admin: User role updated via WebSocket:', data);
       try {
         const usersResponse = await api.get('/admin/users');
         setUsers(usersResponse.data || []);
-        console.log('📨 Admin: Users refreshed after role update');
       } catch (error) {
         console.error('Failed to refresh users after role update:', error);
       }
     };
 
     const handleUserDeleted = async (data: any) => {
-      console.log('📨 Admin: User deleted via WebSocket:', data);
       try {
         const usersResponse = await api.get('/admin/users');
         setUsers(usersResponse.data || []);
-        console.log('📨 Admin: Users refreshed after deletion');
       } catch (error) {
         console.error('Failed to refresh users after deletion:', error);
       }
@@ -336,7 +320,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
     // Settings event handlers
     const handleSettingsUpdated = async (data: any) => {
-      console.log('📨 Admin: Settings updated via WebSocket:', data);
       try {
         // Update the specific setting directly from WebSocket data instead of fetching all settings
         if (data.key && data.value !== undefined) {
@@ -348,7 +331,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             ...prev,
             [data.key]: data.value
           }));
-          console.log(`📨 Admin: Updated ${data.key} to ${data.value} via WebSocket`);
         } else {
           // Fallback to fetching all settings if WebSocket data is incomplete
           const settingsResponse = await api.get('/admin/settings');
@@ -359,7 +341,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           };
           setSettings(settingsWithDefaults);
           setEditingSettings(settingsWithDefaults);
-          console.log('📨 Admin: Settings refreshed after update');
         }
       } catch (error) {
         console.error('Failed to refresh settings after update:', error);
@@ -715,10 +696,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
         if (value !== settings[key]) {
-          console.log(`Saving setting: ${key}`, {
-            oldValue: settings[key],
-            newValue: value
-          });
+          // Skip console log for NOTIFICATION_* settings to reduce noise
+          if (!key.startsWith('NOTIFICATION_')) {
+            console.log(`Saving setting: ${key}`, {
+              oldValue: settings[key],
+              newValue: value
+            });
+          }
           await api.put('/admin/settings', { key, value });
           hasChanges = true;
         }

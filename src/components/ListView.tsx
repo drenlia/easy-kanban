@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
-import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board } from '../types';
+import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { formatMembersTooltip } from '../utils/taskUtils';
@@ -10,6 +10,7 @@ import DOMPurify from 'dompurify';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import ExportMenu from './ExportMenu';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -35,6 +36,7 @@ interface ListViewProps {
   onScrollControlsChange?: (controls: ListViewScrollControls) => void; // Expose scroll controls to parent
   boards?: Board[]; // To get project identifier from board
   siteSettings?: { [key: string]: string }; // Site settings for badge system
+  currentUser?: CurrentUser | null; // Current user for admin checks
 }
 
 type SortField = 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
@@ -76,7 +78,8 @@ export default function ListView({
   animateCopiedTaskId,
   onScrollControlsChange,
   boards,
-  siteSettings
+  siteSettings,
+  currentUser
 }: ListViewProps) {
   
   const [sortField, setSortField] = useState<SortField>('column');
@@ -935,14 +938,23 @@ export default function ListView({
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider relative group w-16">
                 <div className="flex items-center justify-between">
                   <span>#</span>
-                  <button
-                    ref={columnMenuButtonRef}
-                    onClick={handleColumnMenuToggle}
-                    className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
-                    title="Show/Hide Columns"
-                  >
-                    <Menu size={14} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <ExportMenu
+                      boards={boards || []}
+                      selectedBoard={boards?.find(b => b.id === selectedBoard) || boards?.[0] || { id: '', title: '', columns: {} }}
+                      members={members}
+                      availableTags={availableTags}
+                      isAdmin={currentUser?.roles?.includes('admin') || false}
+                    />
+                    <button
+                      ref={columnMenuButtonRef}
+                      onClick={handleColumnMenuToggle}
+                      className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
+                      title="Show/Hide Columns"
+                    >
+                      <Menu size={14} />
+                    </button>
+                  </div>
                 </div>
 
               </th>

@@ -1,6 +1,7 @@
 import EmailService from './emailService.js';
 import { EmailTemplates } from './emailTemplates.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getNotificationThrottler } from './notificationThrottler.js';
 
 /**
  * Notification Service - Handles email notifications for task activities
@@ -17,16 +18,48 @@ class NotificationService {
    */
   getUserNotificationPreferences(userId) {
     try {
-      const userSettings = wrapQuery(
-        this.db.prepare('SELECT notifications FROM user_settings WHERE user_id = ?'),
+      // First, get global notification defaults from settings
+      const globalDefaults = wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
-      ).get(userId);
+      ).get('NOTIFICATION_DEFAULTS');
 
-      if (userSettings && userSettings.notifications) {
-        return JSON.parse(userSettings.notifications);
+      let defaultPreferences = {
+        newTaskAssigned: true,
+        myTaskUpdated: true,
+        watchedTaskUpdated: true,
+        addedAsCollaborator: true,
+        collaboratingTaskUpdated: true,
+        commentAdded: true,
+        requesterTaskCreated: true,
+        requesterTaskUpdated: true
+      };
+
+      if (globalDefaults && globalDefaults.value) {
+        try {
+          defaultPreferences = JSON.parse(globalDefaults.value);
+        } catch (parseError) {
+          console.warn('Failed to parse global notification defaults:', parseError.message);
+        }
+      }
+
+      // Then, get user-specific settings
+      const userSettings = wrapQuery(
+        this.db.prepare('SELECT setting_value FROM user_settings WHERE userId = ? AND setting_key = ?'),
+        'SELECT'
+      ).get(userId, 'notifications');
+
+      if (userSettings && userSettings.setting_value) {
+        const userPreferences = JSON.parse(userSettings.setting_value);
+        // Merge user preferences with global defaults (user preferences override defaults)
+        return { ...defaultPreferences, ...userPreferences };
       }
       
-      // Default preferences (all enabled)
+      // Return global defaults if no user settings exist
+      return defaultPreferences;
+    } catch (error) {
+      console.warn('Failed to get user notification preferences:', error.message);
+      // Return hardcoded defaults on error
       return {
         newTaskAssigned: true,
         myTaskUpdated: true,
@@ -37,9 +70,6 @@ class NotificationService {
         requesterTaskCreated: true,
         requesterTaskUpdated: true
       };
-    } catch (error) {
-      console.warn('Failed to get user notification preferences:', error.message);
-      return {};
     }
   }
 
@@ -88,7 +118,7 @@ class NotificationService {
             SELECT m.user_id as userId, m.name, u.email 
             FROM members m 
             JOIN users u ON m.user_id = u.id 
-            WHERE u.id = ?
+            WHERE m.id = ?
           `),
           'SELECT'
         ).get(task.memberId);
@@ -102,19 +132,31 @@ class NotificationService {
             SELECT m.user_id as userId, m.name, u.email 
             FROM members m 
             JOIN users u ON m.user_id = u.id 
-            WHERE u.id = ?
+            WHERE m.id = ?
           `),
           'SELECT'
         ).get(task.requesterId);
       }
 
-      return {
+      const result = {
         task,
         assignee,
         requester,
         watchers,
         collaborators
       };
+      
+      console.log(`🔍 [NOTIFICATION] Task participants for task ${taskId}:`, {
+        hasTask: !!task,
+        hasAssignee: !!assignee,
+        hasRequester: !!requester,
+        watchersCount: watchers.length,
+        collaboratorsCount: collaborators.length,
+        assigneeUserId: assignee?.userId,
+        requesterUserId: requester?.userId
+      });
+      
+      return result;
     } catch (error) {
       console.warn('Failed to get task participants:', error.message);
       return {};
@@ -335,22 +377,48 @@ class NotificationService {
    */
   formatChangeDetails(details, oldValue, newValue) {
     if (oldValue !== undefined && newValue !== undefined) {
+      // Convert user IDs to human-readable names
+      const formatValue = (value) => {
+        if (!value) return value;
+        const strValue = String(value);
+        
+        // Simple approach: try to get member name for any ID that looks like a user/member ID
+        try {
+          const member = wrapQuery(
+            this.db.prepare(`
+              SELECT m.name 
+              FROM members m 
+              WHERE m.user_id = ? OR m.id = ?
+            `),
+            'SELECT'
+          ).get(strValue, strValue);
+          
+          if (member && member.name) {
+            return member.name;
+          }
+        } catch (error) {
+          // If lookup fails, just return the original value
+        }
+        
+        return strValue;
+      };
+
       // Handle specific field changes with before/after
       if (oldValue && newValue) {
         return `
           <div style="margin: 10px 0;">
             <div style="background-color: #fee2e2; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>Before:</strong> ${this.escapeHtml(String(oldValue))}
+              <strong>Before:</strong> ${this.escapeHtml(formatValue(oldValue))}
             </div>
             <div style="background-color: #dcfce7; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>After:</strong> ${this.escapeHtml(String(newValue))}
+              <strong>After:</strong> ${this.escapeHtml(formatValue(newValue))}
             </div>
           </div>
         `;
       } else if (newValue) {
-        return `<strong>Set to:</strong> ${this.escapeHtml(String(newValue))}`;
+        return `<strong>Set to:</strong> ${this.escapeHtml(formatValue(newValue))}`;
       } else if (oldValue) {
-        return `<strong>Cleared</strong> (was: ${this.escapeHtml(String(oldValue))})`;
+        return `<strong>Cleared</strong> (was: ${this.escapeHtml(formatValue(oldValue))})`;
       }
     }
     
@@ -392,9 +460,173 @@ class NotificationService {
   }
 
   /**
-   * Send notification email based on activity
+   * Send notification email based on activity (with throttling)
    */
   async sendTaskNotification(activityData) {
+    try {
+      const { userId, action, taskId, details, oldValue, newValue } = activityData;
+      
+      // Simple deduplication to prevent double processing within 1 second
+      const notificationKey = `${userId}-${action}-${taskId}`;
+      const now = Date.now();
+      
+      if (!this.recentNotifications) {
+        this.recentNotifications = new Map();
+      }
+      
+      if (this.recentNotifications.has(notificationKey)) {
+        const lastTime = this.recentNotifications.get(notificationKey);
+        if (now - lastTime < 1000) { // Within 1 second
+          console.log(`📧 [NOTIFICATION] Skipping duplicate processing: ${action} for task ${taskId} by user ${userId}`);
+          return;
+        }
+      }
+      
+      this.recentNotifications.set(notificationKey, now);
+      
+      // Clean up old entries (older than 10 seconds)
+      for (const [key, timestamp] of this.recentNotifications.entries()) {
+        if (now - timestamp > 10000) {
+          this.recentNotifications.delete(key);
+        }
+      }
+      
+      console.log(`📧 [NOTIFICATION] Processing task notification: ${action} for task ${taskId} by user ${userId} at ${new Date().toISOString()}`);
+      
+      // Get task participants
+      const participants = this.getTaskParticipants(taskId);
+      if (!participants.task) {
+        console.warn(`⚠️ [NOTIFICATION] No task found for taskId ${taskId}`);
+        return;
+      }
+
+      // Get actor information
+      const actor = wrapQuery(
+        this.db.prepare(`
+          SELECT m.name, u.email 
+          FROM members m 
+          JOIN users u ON m.user_id = u.id 
+          WHERE u.id = ?
+        `),
+        'SELECT'
+      ).get(userId);
+
+      if (!actor) {
+        console.warn(`⚠️ [NOTIFICATION] No actor found for userId ${userId}`);
+        return;
+      }
+
+      // Determine which users to notify based on the action
+      const notifications = this.determineNotifications(action, participants, userId);
+      console.log(`📧 [NOTIFICATION] Determined ${notifications.length} notifications to send for task ${taskId}`);
+      console.log(`🔍 [NOTIFICATION] Actor (person making change): ${userId}`);
+      console.log(`🔍 [NOTIFICATION] Participants:`, {
+        assignee: participants.assignee ? `${participants.assignee.name} (${participants.assignee.userId})` : 'none',
+        requester: participants.requester ? `${participants.requester.name} (${participants.requester.userId})` : 'none',
+        watchers: participants.watchers.map(w => `${w.name} (${w.userId})`),
+        collaborators: participants.collaborators.map(c => `${c.name} (${c.userId})`)
+      });
+      console.log(`🔍 [NOTIFICATION] Notifications to send:`, notifications.map(n => `${n.notificationType} to user ${n.recipientUserId}`));
+
+      // Use throttler for each notification
+      const throttler = getNotificationThrottler();
+      if (throttler) {
+        console.log(`📧 [NOTIFICATION] Using throttler for notifications`);
+        for (const notification of notifications) {
+          const { recipientUserId, notificationType } = notification;
+          
+          // Check user preferences
+          const userPrefs = this.getUserNotificationPreferences(recipientUserId);
+          console.log(`🔍 [NOTIFICATION] User ${recipientUserId} preferences for ${notificationType}:`, userPrefs[notificationType]);
+          if (!userPrefs[notificationType]) {
+            console.log(`📧 [NOTIFICATION] Skipping ${notificationType} for user ${recipientUserId} (preference disabled)`);
+            continue;
+          }
+
+          console.log(`📧 [NOTIFICATION] Adding ${notificationType} notification to throttler for user ${recipientUserId}`);
+          // Add to throttler queue
+          throttler.addNotification(recipientUserId, taskId, {
+            userId,
+            action,
+            taskId,
+            details,
+            oldValue,
+            newValue,
+            task: participants.task,
+            participants,
+            actor,
+            notificationType
+          });
+        }
+      } else {
+        console.log(`📧 [NOTIFICATION] Throttler not available, using immediate notification fallback`);
+        // Fallback to immediate sending if throttler not available
+        await this.sendImmediateNotification(activityData);
+      }
+
+    } catch (error) {
+      console.error('❌ [NOTIFICATION] Error sending task notification:', error);
+    }
+  }
+
+  /**
+   * Send email directly (used by throttler to avoid double processing)
+   */
+  async sendEmailDirectly(notificationData) {
+    try {
+      const { userId, action, taskId, details, oldValue, newValue, task, participants, actor, notificationType } = notificationData;
+      
+      // Get recipient email
+      const recipient = wrapQuery(
+        this.db.prepare(`
+          SELECT m.name, u.email 
+          FROM members m 
+          JOIN users u ON m.user_id = u.id 
+          WHERE u.id = ?
+        `),
+        'SELECT'
+      ).get(userId);
+
+      if (!recipient || !recipient.email) {
+        console.warn(`⚠️ [NOTIFICATION] No recipient found for userId ${userId}`);
+        return;
+      }
+
+      const templateData = {
+        task,
+        action,
+        details,
+        actor,
+        oldValue,
+        newValue,
+        participants
+      };
+
+      // Generate email template
+      const template = this.generateEmailTemplate(notificationType, templateData);
+      if (!template) {
+        console.warn(`⚠️ [NOTIFICATION] No template found for ${notificationType}`);
+        return;
+      }
+
+      // Send the email
+      console.log(`📧 [NOTIFICATION] Sending email to ${recipient.name} (${recipient.email}) for ${notificationType}`);
+      await this.emailService.sendEmail({
+        to: recipient.email,
+        subject: template.subject,
+        html: template.html
+      });
+
+      console.log(`✅ [NOTIFICATION] Email sent successfully to ${recipient.name} (${recipient.email}) for ${notificationType}`);
+    } catch (error) {
+      console.error('❌ [NOTIFICATION] Error sending email directly:', error);
+    }
+  }
+
+  /**
+   * Send immediate notification (fallback when throttler not available)
+   */
+  async sendImmediateNotification(activityData) {
     try {
       const { userId, action, taskId, details, oldValue, newValue } = activityData;
       
@@ -428,7 +660,9 @@ class NotificationService {
       // Determine which users to notify based on the action
       const notifications = this.determineNotifications(action, participants, userId);
 
-      // Send emails to each recipient
+      // Send emails to each recipient (deduplicate by email address)
+      const sentEmails = new Set();
+      
       for (const notification of notifications) {
         const { recipientUserId, notificationType } = notification;
         
@@ -449,26 +683,35 @@ class NotificationService {
 
         if (!recipient || !recipient.email) continue;
 
+        // Skip if we've already sent an email to this address for this task
+        const emailKey = `${recipient.email}-${taskId}`;
+        if (sentEmails.has(emailKey)) {
+          console.log(`📧 [NOTIFICATION] Skipping duplicate email to ${recipient.email} for task ${taskId}`);
+          continue;
+        }
+
         // Generate email template
         const template = this.generateEmailTemplate(notificationType, templateData);
         if (!template) continue;
 
         // Send the email
         try {
+          console.log(`📧 [NOTIFICATION] Sending email to ${recipient.name} (${recipient.email}) for ${notificationType}`);
           await this.emailService.sendEmail({
             to: recipient.email,
             subject: template.subject,
             html: template.html
           });
 
-          console.log(`📧 Notification sent to ${recipient.name} (${recipient.email}) for ${notificationType}`);
+          console.log(`✅ [NOTIFICATION] Email sent successfully to ${recipient.name} (${recipient.email}) for ${notificationType}`);
+          sentEmails.add(emailKey);
         } catch (emailError) {
-          console.error(`Failed to send email to ${recipient.email}:`, emailError.message);
+          console.error(`❌ [NOTIFICATION] Failed to send email to ${recipient.email}:`, emailError.message);
         }
       }
 
     } catch (error) {
-      console.error('Error sending task notification:', error);
+      console.error('Error sending immediate notification:', error);
     }
   }
 

@@ -34,7 +34,6 @@ class RedisService {
         await this.subscriber.disconnect();
       }
       this.isConnected = false;
-      console.log('🔌 Redis disconnected');
     } catch (error) {
       console.error('❌ Redis disconnect failed:', error);
     }
@@ -71,7 +70,6 @@ class RedisService {
           console.error(`❌ Failed to parse message from ${channel}:`, parseError);
         }
       });
-      console.log(`📡 Subscribed to ${channel}`);
     } catch (error) {
       console.error(`❌ Redis subscribe failed for ${channel}:`, error);
     }

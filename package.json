@@ -54,7 +54,7 @@
     "cors": "^2.8.5",
     "dompurify": "^3.2.6",
     "express": "^4.21.1",
-    "express-rate-limit": "^8.1.0",
+    "express-rate-limit": "8.1.0",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.344.0",
     "multer": "^1.4.5-lts.1",
@@ -66,6 +66,7 @@
     "redis": "^4.6.12",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
+    "xlsx": "0.18.5",
     "zod": "^4.0.17"
   },
   "devDependencies": {

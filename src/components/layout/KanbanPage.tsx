@@ -605,6 +605,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 onScrollControlsChange={setListViewScrollControls}
                 boards={boards}
                 siteSettings={siteSettings}
+                currentUser={currentUser}
               />
             </div>
           ) : viewMode === 'gantt' ? (
