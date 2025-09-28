@@ -101,10 +101,13 @@ list_backups() {
 
 # Function to select backup
 select_backup() {
+    # Get backup files directly from the directory
     local backup_files=()
-    while IFS= read -r line; do
-        backup_files+=("$line")
-    done < <(list_backups | tail -n +3 | head -n -1 | sed 's/.*\[[0-9]*\] //' | sed 's/ (LATEST)//' | sed 's/ - .*//')
+    while IFS= read -r -d '' file; do
+        if [[ "$file" == *"kanban-backup-"*".db" ]]; then
+            backup_files+=("$(basename "$file")")
+        fi
+    done < <(find "$BACKUP_DIR" -name "kanban-backup-*.db" -type f -print0 2>/dev/null | sort -rz)
     
     local total_backups=${#backup_files[@]}
     
@@ -113,18 +116,34 @@ select_backup() {
         exit 1
     fi
     
+    # Display available backups (to stderr so it doesn't interfere with return value)
+    print_status "Available backups:" >&2
+    echo "==================" >&2
+    for i in "${!backup_files[@]}"; do
+        local filename="${backup_files[$i]}"
+        local filepath="${BACKUP_DIR}/${filename}"
+        local size=$(du -h "$filepath" | cut -f1)
+        local date=$(stat -c %y "$filepath" 2>/dev/null || stat -f %Sm "$filepath" 2>/dev/null || echo "Unknown")
+        
+        if [ $i -eq 0 ]; then
+            echo "  [$((i+1))] $filename (LATEST) - $size - $date" >&2
+        else
+            echo "  [$((i+1))] $filename - $size - $date" >&2
+        fi
+    done
+    echo "" >&2
+    
     # Default to latest (first in the list)
     local default_choice=1
     local selected_file="${backup_files[0]}"
     
     if [ $total_backups -eq 1 ]; then
-        print_status "Only one backup available, using: $selected_file"
+        print_status "Only one backup available, using: $selected_file" >&2
         echo "$selected_file"
         return
     fi
     
-    echo ""
-    print_status "Select backup to restore (default: $default_choice - latest):"
+    print_status "Select backup to restore (default: $default_choice - latest):" >&2
     read -p "Enter choice [1-$total_backups] (or press Enter for latest): " choice
     
     # Use default if empty
@@ -142,7 +161,7 @@ select_backup() {
     local selected_index=$((choice - 1))
     selected_file="${backup_files[$selected_index]}"
     
-    print_status "Selected backup: $selected_file"
+    print_status "Selected backup: $selected_file" >&2
     echo "$selected_file"
 }
 

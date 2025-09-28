@@ -87,17 +87,70 @@ else
     echo "   JWT Secret generated using /dev/urandom: ${JWT_SECRET:0:8}..."
 fi
 
-# Update docker-compose files with user's configuration
-echo "🔧 Updating docker-compose files with your configuration..."
-for compose_file in docker-compose*.yml; do
-    if [ -f "$compose_file" ]; then
-        echo "   Updating $compose_file..."
-        sed -i "s/- \"[0-9]*:3010\"/- \"$FRONTEND_PORT:3010\"/" "$compose_file"
-        sed -i "s/DEMO_ENABLED=[a-z]*/DEMO_ENABLED=$DEMO_ENABLED/" "$compose_file"
-        sed -i "s/JWT_SECRET=your-super-secret-jwt-key-change-in-production/JWT_SECRET=$JWT_SECRET/" "$compose_file"
-        sed -i "s/ALLOWED_ORIGINS=.*/ALLOWED_ORIGINS=$ALLOWED_ORIGINS/" "$compose_file"
+# Create docker-compose.yml based on user's choice
+echo "🔧 Creating docker-compose.yml based on your configuration..."
+
+# Choose the base template based on demo mode
+if [ "$DEMO_ENABLED" = "true" ]; then
+    BASE_TEMPLATE="docker-compose-demo.yml"
+    echo "   Using demo template: $BASE_TEMPLATE"
+else
+    BASE_TEMPLATE="docker-compose-dev.yml"
+    echo "   Using development template: $BASE_TEMPLATE"
+fi
+
+# Copy the base template to docker-compose.yml
+if [ -f "$BASE_TEMPLATE" ]; then
+    cp "$BASE_TEMPLATE" "docker-compose.yml"
+    echo "   Created docker-compose.yml from $BASE_TEMPLATE"
+    
+    # Update the docker-compose.yml with user's configuration
+    echo "   Updating configuration..."
+    
+    # Update port mapping
+    sed -i "s/- \"[0-9]*:3010\"/- \"$FRONTEND_PORT:3010\"/" "docker-compose.yml"
+    
+    # Update DEMO_ENABLED
+    sed -i "s/DEMO_ENABLED=[a-z]*/DEMO_ENABLED=$DEMO_ENABLED/" "docker-compose.yml"
+    
+    # Update JWT_SECRET (use a more robust approach)
+    # First, let's ensure the JWT_SECRET doesn't contain any problematic characters
+    JWT_SECRET_CLEAN=$(echo "$JWT_SECRET" | tr -d '\n\r')
+    
+    # Use sed with a more specific pattern
+    sed -i "s|- JWT_SECRET=.*|- JWT_SECRET=$JWT_SECRET_CLEAN|" "docker-compose.yml"
+    
+    # Update ALLOWED_ORIGINS (use perl for better handling of special characters)
+    perl -i -pe "s|- ALLOWED_ORIGINS=.*|- ALLOWED_ORIGINS=$ALLOWED_ORIGINS|" "docker-compose.yml"
+    
+    # Extract hostnames from ALLOWED_ORIGINS for Vite allowedHosts
+    echo "   Configuring Vite allowedHosts..."
+    VITE_ALLOWED_HOSTS="localhost,127.0.0.1"
+    
+    # Parse ALLOWED_ORIGINS to extract hostnames
+    IFS=',' read -ra ORIGINS <<< "$ALLOWED_ORIGINS"
+    for origin in "${ORIGINS[@]}"; do
+        # Remove protocol (http:// or https://) and port if present
+        hostname=$(echo "$origin" | sed 's|^https\?://||' | sed 's|:.*||')
+        if [[ "$hostname" != "localhost" && "$hostname" != "127.0.0.1" && "$hostname" != "true" ]]; then
+            VITE_ALLOWED_HOSTS="$VITE_ALLOWED_HOSTS,$hostname"
+        fi
+    done
+    
+    # Add VITE_ALLOWED_HOSTS to docker-compose.yml
+    if ! grep -q "VITE_ALLOWED_HOSTS" "docker-compose.yml"; then
+        # Add it after ALLOWED_ORIGINS
+        sed -i "/ALLOWED_ORIGINS=.*/a\\      - VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS" "docker-compose.yml"
+    else
+        # Update existing VITE_ALLOWED_HOSTS
+        sed -i "s|VITE_ALLOWED_HOSTS=.*|VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS|" "docker-compose.yml"
     fi
-done
+    
+    echo "   ✅ Configuration updated successfully"
+else
+    echo "   ❌ Template file $BASE_TEMPLATE not found!"
+    exit 1
+fi
 
 # Build the development image
 echo "📦 Building Docker image..."
