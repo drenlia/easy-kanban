@@ -32,6 +32,7 @@ interface UseAuthReturn {
   handleProfileUpdated: () => Promise<void>;
   refreshSiteSettings: () => Promise<void>;
   setSiteSettings: (settings: SiteSettings) => void;
+  setCurrentUser: (user: CurrentUser | null) => void;
 }
 
 interface UseAuthCallbacks {
@@ -388,5 +389,6 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     handleProfileUpdated,
     refreshSiteSettings,
     setSiteSettings,
+    setCurrentUser,
   };
 };

@@ -32,7 +32,7 @@ import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -449,6 +449,7 @@ export default function App() {
     handleProfileUpdated,
     refreshSiteSettings,
     setSiteSettings,
+    setCurrentUser,
   } = useAuth({
     onDataClear: () => {
     setMembers([]);
@@ -944,7 +945,6 @@ export default function App() {
           
           if (currentColumnId === newColumnId) {
             // Same column - update task in place (for reordering)
-            console.log(`🔍 Updating task in same column ${newColumnId}`);
             const column = updatedColumns[newColumnId];
             const taskIndex = column.tasks.findIndex(t => t.id === taskId);
             if (taskIndex !== -1) {
@@ -987,6 +987,133 @@ export default function App() {
           
           
           return updatedColumns;
+        });
+        
+        // Also update filteredColumns to maintain consistency
+        setFilteredColumns(prevFilteredColumns => {
+          const updatedFilteredColumns = { ...prevFilteredColumns };
+          const taskId = data.task.id;
+          const newColumnId = data.task.columnId;
+          
+          // Find which column currently contains this task
+          let currentColumnId = null;
+          Object.keys(updatedFilteredColumns).forEach(columnId => {
+            const column = updatedFilteredColumns[columnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+            if (taskIndex !== -1) {
+              currentColumnId = columnId;
+            }
+          });
+          
+          if (currentColumnId === newColumnId) {
+            // Same column - update task in place (for reordering)
+            const column = updatedFilteredColumns[newColumnId];
+            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+            if (taskIndex !== -1) {
+              updatedFilteredColumns[newColumnId] = {
+                ...column,
+                tasks: [
+                  ...column.tasks.slice(0, taskIndex),
+                  data.task,
+                  ...column.tasks.slice(taskIndex + 1)
+                ]
+              };
+            }
+          } else {
+            // Different column - remove from old column and add to new column
+            
+            // Remove from current column
+            if (currentColumnId) {
+              const currentColumn = updatedFilteredColumns[currentColumnId];
+              const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
+              if (taskIndex !== -1) {
+                updatedFilteredColumns[currentColumnId] = {
+                  ...currentColumn,
+                  tasks: [
+                    ...currentColumn.tasks.slice(0, taskIndex),
+                    ...currentColumn.tasks.slice(taskIndex + 1)
+                  ]
+                };
+              }
+            }
+            
+            // Add to new column
+            if (updatedFilteredColumns[newColumnId]) {
+              updatedFilteredColumns[newColumnId] = {
+                ...updatedFilteredColumns[newColumnId],
+                tasks: [...updatedFilteredColumns[newColumnId].tasks, data.task]
+              };
+            }
+          }
+          
+          return updatedFilteredColumns;
+        });
+        
+        // Also update the boards state to keep tab counters in sync
+        setBoards(prevBoards => {
+          const updatedBoards = [...prevBoards];
+          const boardIndex = updatedBoards.findIndex(b => b.id === data.boardId);
+          
+          if (boardIndex !== -1) {
+            const updatedBoard = { ...updatedBoards[boardIndex] };
+            const taskId = data.task.id;
+            const newColumnId = data.task.columnId;
+            
+            // Find which column currently contains this task
+            let currentColumnId = null;
+            Object.keys(updatedBoard.columns || {}).forEach(columnId => {
+              const column = updatedBoard.columns[columnId];
+              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+              if (taskIndex !== -1) {
+                currentColumnId = columnId;
+              }
+            });
+            
+            if (currentColumnId === newColumnId) {
+              // Same column - update task in place (for reordering)
+              const column = updatedBoard.columns[newColumnId];
+              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+              if (taskIndex !== -1) {
+                updatedBoard.columns[newColumnId] = {
+                  ...column,
+                  tasks: [
+                    ...column.tasks.slice(0, taskIndex),
+                    data.task,
+                    ...column.tasks.slice(taskIndex + 1)
+                  ]
+                };
+              }
+            } else {
+              // Different column - remove from old column and add to new column
+              
+              // Remove from current column
+              if (currentColumnId) {
+                const currentColumn = updatedBoard.columns[currentColumnId];
+                const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
+                if (taskIndex !== -1) {
+                  updatedBoard.columns[currentColumnId] = {
+                    ...currentColumn,
+                    tasks: [
+                      ...currentColumn.tasks.slice(0, taskIndex),
+                      ...currentColumn.tasks.slice(taskIndex + 1)
+                    ]
+                  };
+                }
+              }
+              
+              // Add to new column
+              if (updatedBoard.columns[newColumnId]) {
+                updatedBoard.columns[newColumnId] = {
+                  ...updatedBoard.columns[newColumnId],
+                  tasks: [...updatedBoard.columns[newColumnId].tasks, data.task]
+                };
+              }
+            }
+            
+            updatedBoards[boardIndex] = updatedBoard;
+          }
+          
+          return updatedBoards;
         });
       } else {
       }
@@ -1206,7 +1333,6 @@ export default function App() {
     };
 
     const handleMemberUpdated = async (data: any) => {
-      console.log('📨 Member updated via WebSocket:', data);
       // Update the specific member in the members list
       if (data.member) {
         setMembers(prevMembers => {
@@ -1245,7 +1371,16 @@ export default function App() {
     };
 
     const handleUserProfileUpdated = async (data: any) => {
-      console.log('📨 User profile updated via WebSocket:', data);
+      // If this is the current user's profile update, refresh currentUser
+      if (data.userId === currentUser?.id) {
+        try {
+          const response = await getCurrentUser();
+          setCurrentUser(response.user);
+        } catch (error) {
+          console.error('Failed to refresh current user after profile update:', error);
+        }
+      }
+      
       // Refresh members list to update display name and avatar
       try {
         const loadedMembers = await getMembers(includeSystem);
@@ -1284,7 +1419,8 @@ export default function App() {
       console.log('📨 Filter deleted via WebSocket:', data);
       // Remove from shared filters list
       if (data.filterId) {
-        setSharedFilterViews(prev => prev.filter(f => f.id !== data.filterId));
+        const filterIdToDelete = parseInt(data.filterId, 10);
+        setSharedFilterViews(prev => prev.filter(f => f.id !== filterIdToDelete));
       }
     };
 
@@ -1407,7 +1543,6 @@ export default function App() {
     };
 
     // Register event listeners
-    console.log('🔍 Registering WebSocket event listeners...');
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskUpdated(handleTaskUpdated);
     websocketClient.onTaskDeleted(handleTaskDeleted);
@@ -1487,9 +1622,7 @@ export default function App() {
 
   // Join board when selectedBoard changes
   useEffect(() => {
-    console.log('🔍 Board join effect triggered:', { selectedBoard, isConnected: websocketClient.isWebSocketConnected() });
     if (selectedBoard) {
-      console.log('🔍 selectedBoard set, attempting to join board:', selectedBoard);
       websocketClient.joinBoardWhenReady(selectedBoard);
     }
   }, [selectedBoard]);
@@ -2140,12 +2273,22 @@ export default function App() {
     loadInitialData();
   }, [isAuthenticated, includeSystem, currentUser?.id]);
 
+  // Track board switching state to prevent task count flashing
+  const [isSwitchingBoard, setIsSwitchingBoard] = useState(false);
+  const lastTaskCountsRef = useRef<Record<string, number>>({});
+
   // Update columns when selected board changes
   // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
     if (selectedBoard) {
+      // Set switching state to prevent task count updates during board switch
+      setIsSwitchingBoard(true);
+      
       // Always refresh from server to get fresh data (no polling, so always fresh)
-      refreshBoardData();
+      refreshBoardData().finally(() => {
+        // Clear switching state after data is loaded
+        setIsSwitchingBoard(false);
+      });
       
       // Load relationships when switching boards
       getBoardTaskRelationships(selectedBoard)
@@ -2156,6 +2299,11 @@ export default function App() {
           console.warn('Failed to load relationships:', error);
           setBoardRelationships([]);
         });
+    } else {
+      // Clear columns when no board is selected
+      setColumns({});
+      setBoardRelationships([]);
+      setIsSwitchingBoard(false);
     }
   }, [selectedBoard]);
 
@@ -3618,13 +3766,6 @@ export default function App() {
       
       setFilteredColumns(filteredColumns);
       
-      // Debug: Log filteredColumns update
-      console.log('🔍 filteredColumns updated:', {
-        columnsCount: Object.keys(columns).length,
-        filteredColumnsCount: Object.keys(filteredColumns).length,
-        totalTasks: Object.values(columns).reduce((sum, col) => sum + col.tasks.length, 0),
-        totalFilteredTasks: Object.values(filteredColumns).reduce((sum, col) => sum + col.tasks.length, 0)
-      });
     };
 
     performFiltering();
@@ -3634,6 +3775,13 @@ export default function App() {
   const hasColumnFilters = selectedBoard ? (boardColumnVisibility[selectedBoard] && boardColumnVisibility[selectedBoard].length < Object.keys(columns).length) : false;
   const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters || hasColumnFilters;
   const getTaskCountForBoard = (board: Board) => {
+    // During board switching, return the last calculated count to prevent flashing
+    if (isSwitchingBoard && lastTaskCountsRef.current[board.id] !== undefined) {
+      return lastTaskCountsRef.current[board.id];
+    }
+
+    let taskCount = 0;
+
     // For the currently selected board, apply both search filtering AND column visibility filtering
     if (board.id === selectedBoard) {
       // Get visible columns for this board
@@ -3667,7 +3815,7 @@ export default function App() {
               totalCount += column.tasks.length;
             }
           });
-          return totalCount;
+          taskCount = totalCount;
         }
       }
       
@@ -3676,19 +3824,23 @@ export default function App() {
       Object.values(columnFilteredColumns).forEach(column => {
         totalCount += column.tasks.length;
       });
-      return totalCount;
+      taskCount = totalCount;
     }
     
     // For other boards, apply the same filtering logic used in performFiltering
     const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
     
     if (!isFiltering) {
-      // No filters active - return total count
+      // No filters active - return total count (excluding archived columns)
       let totalCount = 0;
       Object.values(board.columns || {}).forEach(column => {
-        totalCount += column.tasks?.length || 0;
+        // Convert to boolean to handle SQLite integer values (0/1)
+        const isArchived = Boolean(column.is_archived);
+        if (!isArchived) {
+          totalCount += column.tasks?.length || 0;
+        }
       });
-      return totalCount;
+      taskCount = totalCount;
     }
     
     // Apply search filters using the utility function
@@ -3703,13 +3855,17 @@ export default function App() {
       (includeRequesters && selectedMembers.length > 0);
     
     if (!hasMemberFiltering) {
-      return searchFilteredCount;
+      taskCount = searchFilteredCount;
     }
     
     // Apply member filtering on top of search filtering
     let totalCount = 0;
     Object.values(board.columns || {}).forEach(column => {
       if (!column.tasks || !Array.isArray(column.tasks)) return;
+      
+      // Skip archived columns
+      const isArchived = Boolean(column.is_archived);
+      if (isArchived) return;
       
       const filteredTasks = column.tasks.filter(task => {
         if (!task) return false;
@@ -3739,9 +3895,13 @@ export default function App() {
       totalCount += filteredTasks.length;
     });
     
-    return totalCount;
+    taskCount = totalCount;
+    
+    // Store the calculated count for potential use during board switching
+    lastTaskCountsRef.current[board.id] = taskCount;
+    
+    return taskCount;
   };
-
 
 
   // Handle password reset pages (accessible without authentication)

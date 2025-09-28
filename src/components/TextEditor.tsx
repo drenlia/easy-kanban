@@ -742,7 +742,6 @@ export default function TextEditor({
       return;
     }
     
-    console.log('🔍 removeImageByAttachment: Looking for images with filename:', attachmentName);
     
     // Find and remove images with matching filename
     const { doc } = editor.state;
@@ -754,12 +753,6 @@ export default function TextEditor({
         const nodeAlt = node.attrs.alt;
         const nodeSrc = node.attrs.src;
         
-        console.log('🔍 Found image:', {
-          nodeFilename,
-          nodeAlt,
-          nodeSrc: nodeSrc?.substring(0, 100) + '...',
-          lookingFor: attachmentName
-        });
         
         // Check multiple sources for filename match
         const matches = 
@@ -1381,12 +1374,6 @@ export default function TextEditor({
                         
                         // Also remove corresponding image from editor if it exists
                         console.log('🔄 New attachment removed, removing image from editor:', attachment.name);
-                        console.log('🔍 Attachment details:', {
-                          name: attachment.name,
-                          id: attachment.id,
-                          isNew: attachment.isNew,
-                          type: attachment.type
-                        });
                         removeImageByAttachment(attachment.name);
                       }
                     }

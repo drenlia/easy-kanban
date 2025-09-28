@@ -161,10 +161,8 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     // Find the root of the tree (task with no parents)
     let actualRoot = rootTaskId;
     const taskData = allTasks.get(rootTaskId);
-    console.log(`🔍 TaskFlowChart: Root task data:`, taskData ? { ticket: taskData.ticket, parents: taskData.parents?.length || 0 } : 'NOT FOUND');
     
     if (taskData && taskData.parents && taskData.parents.length > 0) {
-      console.log(`🔍 TaskFlowChart: Current task has ${taskData.parents.length} parents, finding ultimate root`);
       // Current task has parents, find the ultimate root
       actualRoot = taskData.parents[0]; // Start with first parent
       let depth = 0;
@@ -174,7 +172,6 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         depth++;
         actualRoot = currentTask.parents[0];
         currentTask = allTasks.get(actualRoot);
-        console.log(`🔍 TaskFlowChart: Going up tree, depth ${depth}, found parent: ${currentTask?.ticket || actualRoot}`);
       }
       
       if (depth >= 10) {

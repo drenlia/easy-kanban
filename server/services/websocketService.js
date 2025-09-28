@@ -12,8 +12,9 @@ class WebSocketService {
   initialize(server) {
     this.io = new SocketIOServer(server, {
       cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
+        origin: process.env.ALLOWED_ORIGINS?.split(',') || true,
+        methods: ["GET", "POST"],
+        credentials: true
       }
     });
     

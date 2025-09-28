@@ -47,6 +47,7 @@ interface TeamMembersProps {
   currentUser?: any; // To check if user is admin
   onlineUsers?: Set<string>;
   boardOnlineUsers?: Set<string>;
+  systemTaskCount?: number;
 }
 
 export default function TeamMembers({
@@ -69,7 +70,8 @@ export default function TeamMembers({
   currentUserId,
   currentUser,
   onlineUsers = new Set(),
-  boardOnlineUsers = new Set()
+  boardOnlineUsers = new Set(),
+  systemTaskCount = 0
 }: TeamMembersProps) {
   
   const handleClearSelections = () => {
@@ -227,7 +229,14 @@ export default function TeamMembers({
                   onChange={(e) => onToggleSystem(e.target.checked)}
                   className="w-3 h-3 text-amber-600 rounded focus:ring-amber-500 focus:ring-1"
                 />
-                <span className="text-xs text-amber-700 font-medium">system</span>
+                <span className="text-xs text-amber-700 font-medium">
+                  system
+                  {systemTaskCount > 0 && (
+                    <span className="ml-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded-full text-xs font-medium">
+                      {systemTaskCount}
+                    </span>
+                  )}
+                </span>
               </label>
             )}
           </div>

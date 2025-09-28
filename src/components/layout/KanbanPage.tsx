@@ -266,14 +266,31 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     const visibleColumnIds = getVisibleColumns(selectedBoard);
     const fullyFiltered: Columns = {};
     
+    
     visibleColumnIds.forEach(columnId => {
       if (filteredColumns[columnId]) {
         fullyFiltered[columnId] = filteredColumns[columnId];
       }
     });
     
+    
     return fullyFiltered;
   }, [filteredColumns, selectedBoard, boardColumnVisibility]);
+
+  // Count tasks assigned to system user
+  const getSystemTaskCount = useMemo(() => {
+    if (!selectedBoard) return 0;
+    
+    const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
+    let count = 0;
+    Object.values(columns).forEach(column => {
+      if (column.tasks) {
+        count += column.tasks.filter(task => task.memberId === SYSTEM_MEMBER_ID).length;
+      }
+    });
+    return count;
+  }, [columns, selectedBoard]);
+
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   
@@ -496,6 +513,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             onToggleSystem={onToggleSystem}
             currentUserId={currentUser?.id}
             currentUser={currentUser}
+            systemTaskCount={getSystemTaskCount}
           />
         </div>
         <BoardMetrics 

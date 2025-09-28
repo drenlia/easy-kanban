@@ -24,8 +24,8 @@ export function getAuthenticatedAvatarUrl(avatarUrl: string | undefined | null):
   // Get the authentication token
   const token = localStorage.getItem('authToken');
   if (!token) {
-    // Return a placeholder data URL to prevent 404 errors during login
-    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNmM2Y0ZjYiLz4KPHN2ZyB4PSI4IiB5PSI4IiB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSI+CjxwYXRoIGQ9Ik0xMiAxMmMtMi4yMSAwLTQtMS43OS00LTQgMC0yLjIxIDEuNzktNCA0LTQgMi4yMSAwIDQgMS43OSA0IDQgMCAyLjIxLTEuNzkgNC00IDR6bTAgMmMtMi42NyAwLTggMS4zNC04IDR2MmgxNnYtMmMwLTIuNjYtNS4zMy00LTgtNHoiIGZpbGw9IiM5Y2EzYWYiLz4KPC9zdmc+Cjwvc3ZnPg==';
+    // Return undefined to let the component handle the fallback (initials)
+    return undefined;
   }
   
   // Convert local avatar URL to token-based URL
@@ -59,8 +59,8 @@ export function getAuthenticatedAttachmentUrl(attachmentUrl: string | undefined 
   // Get the authentication token
   const token = localStorage.getItem('authToken');
   if (!token) {
-    // Return a placeholder data URL to prevent 404 errors during login
-    return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHZpZXdCb3g9IjAgMCA0MCA0MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMjAiIGZpbGw9IiNmM2Y0ZjYiLz4KPHN2ZyB4PSI4IiB5PSI4IiB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSI+CjxwYXRoIGQ9Ik0xMiAxMmMtMi4yMSAwLTQtMS43OS00LTQgMC0yLjIxIDEuNzktNCA0LTQgMi4yMSAwIDQgMS43OSA0IDQgMCAyLjIxLTEuNzkgNC00IDR6bTAgMmMtMi42NyAwLTggMS4zNC04IDR2MmgxNnYtMmMwLTIuNjYtNS4zMy00LTgtNHoiIGZpbGw9IiM5Y2EzYWYiLz4KPC9zdmc+Cjwvc3ZnPg==';
+    // Return undefined to let the component handle the fallback
+    return undefined;
   }
   
   // Convert local attachment URL to token-based URL

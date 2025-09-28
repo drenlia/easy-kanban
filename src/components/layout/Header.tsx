@@ -2,7 +2,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, ToggleLeft, ToggleRight } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
-import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
 import { getSystemInfo } from '../../api';
 
 interface SystemInfo {
@@ -71,6 +70,7 @@ const Header: React.FC<HeaderProps> = ({
   const [inviteSuccess, setInviteSuccess] = useState('');
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
 
   const handleRefresh = async () => {
     try {
@@ -78,6 +78,35 @@ const Header: React.FC<HeaderProps> = ({
     } catch (error) {
       console.error('Manual refresh failed:', error);
     }
+  };
+
+  // Helper function to get authenticated avatar URL using state
+  const getAuthenticatedAvatarUrl = (avatarUrl: string | undefined | null): string | undefined => {
+    if (!avatarUrl) return undefined;
+    
+    // If it's already a token-based URL, return as-is
+    if (avatarUrl.startsWith('/api/files/avatars/')) {
+      return avatarUrl;
+    }
+    
+    // If it's a Google avatar URL (external), return as-is
+    if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
+      return avatarUrl;
+    }
+    
+    // Use the state token instead of localStorage
+    if (!authToken) {
+      return undefined;
+    }
+    
+    // Convert local avatar URL to token-based URL
+    if (avatarUrl.startsWith('/avatars/')) {
+      const filename = avatarUrl.replace('/avatars/', '');
+      return `/api/files/avatars/${filename}?token=${encodeURIComponent(authToken)}`;
+    }
+    
+    // If it doesn't start with /avatars/, assume it's a filename and add the path
+    return `/api/files/avatars/${avatarUrl}?token=${encodeURIComponent(authToken)}`;
   };
 
   // Close invite dropdown when clicking outside
@@ -96,6 +125,22 @@ const Header: React.FC<HeaderProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showInviteDropdown]);
+
+  // Track auth token changes
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    setAuthToken(token);
+    
+    // Listen for storage changes (when token is updated in another tab)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'authToken') {
+        setAuthToken(e.newValue);
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   // Fetch system info for admins
   useEffect(() => {

@@ -148,15 +148,6 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
       'SELECT'
     ).get(token);
     
-    // Debug logging
-    console.log('🔍 Password reset attempt:', {
-      token: token.substring(0, 10) + '...',
-      foundToken: !!resetToken,
-      currentTime: new Date().toISOString(),
-      tokenExpiry: resetToken?.expires_at,
-      tokenUsed: resetToken?.used
-    });
-    
     if (!resetToken) {
       return res.status(400).json({ error: 'Invalid or expired reset token' });
     }

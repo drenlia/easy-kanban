@@ -187,7 +187,7 @@ const createTables = (db) => {
     );
 
     CREATE TABLE IF NOT EXISTS tasks (
-      id TEXT PRIMARY KEY,
+      id TEXT PRIMARY KEY NOT NULL,
       position INTEGER DEFAULT 0,
       title TEXT NOT NULL,
       description TEXT,

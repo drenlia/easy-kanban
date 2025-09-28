@@ -13,6 +13,8 @@ services:
       - REDIS_URL=redis://redis:6379
       # JWT Secret for authentication (will be replaced by build.sh with random value)
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      # Allowed origins for CORS
+      - ALLOWED_ORIGINS=http://localhost:3010,http://localhost:5173
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
       - DEMO_ENABLED=false
     volumes:

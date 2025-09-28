@@ -1089,7 +1089,6 @@ const GanttViewV2 = ({
           taskPosition: task.position || 0
         };
         
-        
         tasks.push(ganttTask);
       });
     });

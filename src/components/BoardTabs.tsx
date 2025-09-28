@@ -581,18 +581,6 @@ export default function BoardTabs({
 
   return (
     <div className="mb-6">
-      {/* Project Identifier - discrete display above tabs */}
-      {currentProject && (
-        <div className="mb-2 flex justify-center">
-          <a 
-            href={`/project/#${currentProject}`}
-            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-1 rounded-md text-xs text-gray-600 dark:text-gray-300 font-mono hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-600 transition-colors cursor-pointer"
-            title={`Direct link to ${currentProject}`}
-          >
-            {currentProject}
-          </a>
-        </div>
-      )}
       
       <div className="flex items-center justify-between">
         {/* Board Tabs */}

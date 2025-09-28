@@ -68,6 +68,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   
   // Refs for button positioning and focus
   const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
@@ -104,6 +105,15 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showColorPicker, colorPickerPosition]);
+
+  // Cleanup preview URL on component unmount
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
 
   // Handle Enter and ESC keys to choose "No"/cancel by default for all users
   useEffect(() => {
@@ -213,6 +223,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         return;
       }
 
+      // Create preview URL
+      const previewUrl = URL.createObjectURL(file);
+      setAvatarPreviewUrl(previewUrl);
+
       setEditingUserData(prev => ({ ...prev, selectedFile: file }));
     }
   };
@@ -240,6 +254,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   };
 
   const handleEditUserClick = (user: User) => {
+    // Clean up any existing preview URL
+    if (avatarPreviewUrl) {
+      URL.revokeObjectURL(avatarPreviewUrl);
+      setAvatarPreviewUrl(null);
+    }
+    
     setEditingUserData({
       id: user.id,
       email: user.email,
@@ -262,6 +282,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       setIsSubmitting(true);
       setLocalError(null);
       await onSaveUser(editingUserData);
+      
+      // Clean up preview URL after successful save
+      if (avatarPreviewUrl) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+        setAvatarPreviewUrl(null);
+      }
+      
       setShowEditUserForm(false);
     } catch (err: any) {
       console.error('Failed to save user:', err);
@@ -273,6 +300,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   };
 
   const handleCancelEditUser = () => {
+    // Clean up preview URL
+    if (avatarPreviewUrl) {
+      URL.revokeObjectURL(avatarPreviewUrl);
+      setAvatarPreviewUrl(null);
+    }
+    
     setShowEditUserForm(false);
     setEditingUserData({
       id: '',
@@ -707,7 +740,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   <div className="flex items-center space-x-3">
                     {/* Current Avatar Display */}
                     <div className="flex-shrink-0">
-                      {(editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
+                      {avatarPreviewUrl ? (
+                        <img
+                          src={avatarPreviewUrl}
+                          alt="Avatar preview"
+                          className="w-12 h-12 rounded-full border-2 border-gray-200"
+                        />
+                      ) : (editingUserData.googleAvatarUrl || editingUserData.avatarUrl) ? (
                         <img
                           src={getAuthenticatedAvatarUrl(editingUserData.googleAvatarUrl || editingUserData.avatarUrl)}
                           alt="User avatar"

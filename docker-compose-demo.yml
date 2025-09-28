@@ -14,6 +14,8 @@ services:
       # JWT Secret for authentication (will be replaced by build.sh with random value)
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
+      # Allowed origins for CORS
+      - ALLOWED_ORIGINS=true
       - DEMO_ENABLED=true
     volumes:
       - .:/app

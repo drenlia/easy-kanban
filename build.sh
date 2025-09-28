@@ -44,10 +44,36 @@ while true; do
     esac
 done
 
+# Question 3: Allowed origins for CORS
+echo ""
+echo "🌐 CORS Configuration:"
+echo "   This determines which domains can access your application."
+echo "   Examples:"
+echo "   - For local development: http://localhost:3000,http://localhost:5173"
+echo "   - For production: https://yourdomain.com,https://www.yourdomain.com"
+echo "   - For any domain (less secure): true"
+echo ""
+while true; do
+    read -p "What URL(s) will be used to access this app? (comma-separated, default: http://localhost:$FRONTEND_PORT,http://localhost:5173): " ALLOWED_ORIGINS_INPUT
+    if [ -z "$ALLOWED_ORIGINS_INPUT" ]; then
+        ALLOWED_ORIGINS="http://localhost:$FRONTEND_PORT,http://localhost:5173"
+        break
+    fi
+    
+    # Validate that it's not empty and contains valid characters
+    if [[ -n "$ALLOWED_ORIGINS_INPUT" ]]; then
+        ALLOWED_ORIGINS="$ALLOWED_ORIGINS_INPUT"
+        break
+    else
+        echo "❌ Please enter at least one URL"
+    fi
+done
+
 echo ""
 echo "📋 Configuration Summary:"
 echo "   Frontend Port: $FRONTEND_PORT"
 echo "   Demo Mode: $DEMO_ENABLED"
+echo "   Allowed Origins: $ALLOWED_ORIGINS"
 echo ""
 
 # Generate a random JWT secret
@@ -69,6 +95,7 @@ for compose_file in docker-compose*.yml; do
         sed -i "s/- \"[0-9]*:3010\"/- \"$FRONTEND_PORT:3010\"/" "$compose_file"
         sed -i "s/DEMO_ENABLED=[a-z]*/DEMO_ENABLED=$DEMO_ENABLED/" "$compose_file"
         sed -i "s/JWT_SECRET=your-super-secret-jwt-key-change-in-production/JWT_SECRET=$JWT_SECRET/" "$compose_file"
+        sed -i "s/ALLOWED_ORIGINS=.*/ALLOWED_ORIGINS=$ALLOWED_ORIGINS/" "$compose_file"
     fi
 done
 

@@ -300,17 +300,25 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
  */
 export const getFilteredTaskCountForBoard = (board: Board, searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): number => {
   if (!isSearchActive) {
-    // Return total task count when no filters are active
+    // Return total task count when no filters are active (excluding archived columns)
     let totalCount = 0;
     Object.values(board.columns || {}).forEach(column => {
-      totalCount += column.tasks.length;
+      // Convert to boolean to handle SQLite integer values (0/1)
+      const isArchived = Boolean(column.is_archived);
+      if (!isArchived) {
+        totalCount += column.tasks.length;
+      }
     });
     return totalCount;
   }
   
   let totalCount = 0;
   Object.values(board.columns || {}).forEach(column => {
-    totalCount += filterTasks(column.tasks, searchFilters, isSearchActive, members, boards).length;
+    // Convert to boolean to handle SQLite integer values (0/1)
+    const isArchived = Boolean(column.is_archived);
+    if (!isArchived) {
+      totalCount += filterTasks(column.tasks, searchFilters, isSearchActive, members, boards).length;
+    }
   });
   return totalCount;
 };

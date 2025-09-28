@@ -14,7 +14,7 @@ import rateLimit from 'express-rate-limit';
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
 import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_IN } from './middleware/auth.js';
-import { attachmentUpload, avatarUpload } from './config/multer.js';
+import { attachmentUpload, avatarUpload, createAttachmentUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
 
 // Import generateRandomPassword function
@@ -61,8 +61,23 @@ const app = express();
 // Make database available to routes
 app.locals.db = db;
 
+// Security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // Enable CORS and JSON parsing
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -143,15 +158,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     
     // Check password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
-    
-    // Debug logging for password verification
-    console.log('🔍 Login attempt:', {
-      email: email,
-      userId: user.id,
-      passwordLength: password.length,
-      isValidPassword: isValidPassword,
-      passwordHashLength: user.password_hash.length
-    });
     
     if (!isValidPassword) {
       console.log('❌ Login failed - invalid password for:', email);
@@ -664,22 +670,38 @@ app.get('/api/comments/:commentId/attachments', authenticateToken, (req, res) =>
 });
 
 // File upload endpoints
-app.post('/api/upload', authenticateToken, attachmentUpload.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded' });
-  }
+app.post('/api/upload', authenticateToken, async (req, res) => {
+  try {
+    // Create multer instance with admin settings
+    const attachmentUploadWithValidation = await createAttachmentUpload(db);
+    
+    // Use the validated multer instance
+    attachmentUploadWithValidation.single('file')(req, res, (err) => {
+      if (err) {
+        console.error('File upload validation error:', err.message);
+        return res.status(400).json({ error: err.message });
+      }
+      
+      if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
 
-  // Generate authenticated URL with token
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
-  
-  res.json({
-    id: crypto.randomUUID(),
-    name: req.file.originalname,
-    url: authenticatedUrl,
-    type: req.file.mimetype,
-    size: req.file.size
-  });
+      // Generate authenticated URL with token
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
+      
+      res.json({
+        id: crypto.randomUUID(),
+        name: req.file.originalname,
+        url: authenticatedUrl,
+        type: req.file.mimetype,
+        size: req.file.size
+      });
+    });
+  } catch (error) {
+    console.error('File upload error:', error);
+    res.status(500).json({ error: 'File upload failed' });
+  }
 });
 
 // Avatar upload endpoints

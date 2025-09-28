@@ -3,6 +3,7 @@ import path from 'path';
 import { mkdir } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import { createFileFilter, createMulterLimits } from '../utils/fileValidation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -78,5 +79,17 @@ export const avatarUpload = multer({
     fileSize: 5 * 1024 * 1024 // 5MB limit for avatars
   }
 });
+
+// Create attachment upload with admin settings
+export const createAttachmentUpload = async (db) => {
+  const limits = await createMulterLimits(db);
+  const fileFilter = createFileFilter(db);
+  
+  return multer({
+    storage: attachmentStorage,
+    fileFilter: fileFilter,
+    limits: limits
+  });
+};
 
 export { ensureDirectories };
