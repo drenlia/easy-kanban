@@ -1,0 +1,62 @@
+# Production Dockerfile for Easy Kanban - Kubernetes Deployment
+# Multi-stage build for optimized production image
+
+# Stage 1: Build the frontend
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci --include=dev
+
+# Copy source code
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Stage 2: Build the backend and create production image
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Install dumb-init and curl for proper signal handling and health checks
+RUN apk add --no-cache dumb-init curl
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev dependencies for Vite)
+RUN npm ci && npm cache clean --force
+
+# Copy source code (no need for built frontend)
+COPY . .
+
+# Note: We exclude node_modules via .dockerignore
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
+    chown -R nextjs:nodejs /app
+
+# Switch to non-root user
+USER nextjs
+
+# Expose both frontend and backend ports
+EXPOSE 3010 3222
+
+# Health check (check frontend port since that's what users access)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3010/ || exit 1
+
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
+
+# Start both frontend and backend (like development)
+CMD ["npm", "run", "dev"]

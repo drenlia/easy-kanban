@@ -9,11 +9,27 @@ export default defineConfig({
   define: {
     'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED),
   },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets',
+    sourcemap: false, // Disable sourcemaps in production
+    minify: 'terser',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['lucide-react', '@dnd-kit/core', '@dnd-kit/sortable'],
+        },
+      },
+    },
+  },
   server: {
     host: '0.0.0.0',
-    port: '3010',
-    hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
-    ws: false, // Disable WebSocket completely
+    port: 3010,
+    // Production server config - no file watching needed
+    watch: {
+      ignored: ['**'] // Disable file watching completely
+    },
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',

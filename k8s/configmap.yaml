@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: easy-kanban-config
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+data:
+  NODE_ENV: "production"
+  DOCKER_ENV: "true"
+  PORT: "3222"
+  VITE_API_URL: "http://localhost:3222"
+  REDIS_URL: "redis://redis:6379"
+  DEMO_ENABLED: "false"
+  # Add any other environment variables your app needs
+  # JWT_SECRET: "your-jwt-secret-here"
+  # EMAIL_HOST: "smtp.gmail.com"
+  # EMAIL_PORT: "587"
+  # EMAIL_USER: "your-email@gmail.com"
+  # EMAIL_PASS: "your-app-password"
