@@ -14,6 +14,9 @@ export default defineConfig({
     port: '3010',
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     ws: false, // Disable WebSocket completely
+    watch: {
+      ignored: ['**'] // Disable file watching completely
+    },
     headers: {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
