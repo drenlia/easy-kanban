@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: easy-kanban
+  labels:
+    name: easy-kanban
+    app: kanban-board
