@@ -1,0 +1,55 @@
+services:
+  kanban-app:
+    build: .
+    container_name: easy-kanban
+    ports:
+      - "3010:3010"
+      - "3222:3222"
+    environment:
+      - NODE_ENV=production
+      - DOCKER_ENV=true
+      - PORT=3222
+      - VITE_API_URL=http://localhost:3222
+      - REDIS_URL=redis://redis:6379
+      # JWT Secret for authentication (will be replaced by build.sh with random value)
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      # Allowed origins for CORS
+      - ALLOWED_ORIGINS=localhost,127.0.0.1,kanban.drenlia.dev
+      # Enable demo mode to show countdown timer for hourly resets (demo environments only)
+      - DEMO_ENABLED=false
+      # License settings (BASIC PLAN)
+      - LICENSE_ENABLED=true
+      - USER_LIMIT=5
+      - TASK_LIMIT=100
+      - BOARD_LIMIT=10
+      - STORAGE_LIMIT=1073741824
+      - SUPPORT_TYPE=basic
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - kanban-data:/app/server/data
+      - kanban-attachments:/app/server/attachments
+      - kanban-avatars:/app/server/avatars
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: easy-kanban-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+volumes:
+  kanban-data:
+    driver: local
+  kanban-attachments:
+    driver: local
+  kanban-avatars:
+    driver: local
+  redis_data:
+    driver: local

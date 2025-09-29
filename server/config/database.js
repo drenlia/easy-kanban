@@ -363,6 +363,15 @@ const createTables = (db) => {
       UNIQUE(task_id, relationship, to_task_id)
     );
 
+    CREATE TABLE IF NOT EXISTS license_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      setting_key TEXT UNIQUE NOT NULL,
+      setting_value TEXT NOT NULL,
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- Create indexes for better query performance
     CREATE INDEX IF NOT EXISTS idx_watchers_taskId ON watchers(taskId);
     CREATE INDEX IF NOT EXISTS idx_watchers_memberId ON watchers(memberId);
