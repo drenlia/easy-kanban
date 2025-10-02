@@ -47,7 +47,6 @@ class RedisService {
     
     try {
       await this.publisher.publish(channel, JSON.stringify(data));
-      console.log(`📤 Published to ${channel}:`, data);
     } catch (error) {
       console.error(`❌ Redis publish failed for ${channel}:`, error);
     }
@@ -63,8 +62,6 @@ class RedisService {
       await this.subscriber.subscribe(channel, (message) => {
         try {
           const data = JSON.parse(message);
-          console.log(`📥 Received from ${channel}:`, data);
-          console.log(`📥 Channel: ${channel}, Message: ${message}`);
           callback(data);
         } catch (parseError) {
           console.error(`❌ Failed to parse message from ${channel}:`, parseError);

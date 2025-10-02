@@ -1,5 +1,5 @@
 // License configuration and management
-import { wrapQuery } from '../utils/database.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 class LicenseManager {
   constructor(db) {
@@ -200,6 +200,34 @@ class LicenseManager {
     }
   }
 
+  // Get board task counts for detailed breakdown
+  async getBoardTaskCounts() {
+    try {
+      const boards = wrapQuery(
+        this.db.prepare(`
+          SELECT 
+            b.id,
+            b.title,
+            COUNT(t.id) as taskCount
+          FROM boards b
+          LEFT JOIN tasks t ON b.id = t.boardId
+          GROUP BY b.id, b.title
+          ORDER BY taskCount DESC, b.title ASC
+        `),
+        'SELECT'
+      ).all();
+      
+      return boards.map(board => ({
+        id: board.id,
+        title: board.title,
+        taskCount: board.taskCount
+      }));
+    } catch (error) {
+      console.error('Error getting board task counts:', error);
+      return [];
+    }
+  }
+
   // Get license information for admin display
   async getLicenseInfo() {
     if (!this.enabled) {
@@ -231,7 +259,8 @@ class LicenseManager {
           users: (await this.getUserCount()) >= limits.USER_LIMIT,
           boards: (await this.getBoardCount()) >= limits.BOARD_LIMIT,
           storage: (await this.getStorageUsage()) >= limits.STORAGE_LIMIT
-        }
+        },
+        boardTaskCounts: await this.getBoardTaskCounts()
       };
     } catch (error) {
       console.error('Error getting license info:', error);

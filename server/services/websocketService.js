@@ -180,7 +180,8 @@ class WebSocketService {
 
     // Activity updates
     redisService.subscribe('activity-updated', (data) => {
-      this.io?.to(`board-${data.boardId}`).emit('activity-updated', data);
+      // Broadcast to all connected clients since activity feed is global
+      this.io?.emit('activity-updated', data);
     });
 
     // Admin user management events

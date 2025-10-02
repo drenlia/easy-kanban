@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { checkBoardLimit } from '../middleware/licenseCheck.js';
 
 const router = express.Router();
 
@@ -138,7 +139,7 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
 });
 
 // Create board
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, checkBoardLimit, (req, res) => {
   const { id, title } = req.body;
   try {
     const { db } = req.app.locals;

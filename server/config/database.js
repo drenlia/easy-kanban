@@ -76,7 +76,7 @@ function createLetterAvatar(letter, userId, role = 'user') {
 // Database path configuration
 const getDbPath = () => {
   // In Docker, use the data volume path; otherwise use local path
-  return process.env.NODE_ENV === 'development' && process.env.DOCKER_ENV 
+  return process.env.DOCKER_ENV === 'true'
     ? '/app/server/data/kanban.db'
     : join(dirname(__dirname), 'kanban.db');
 };

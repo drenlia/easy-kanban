@@ -491,12 +491,10 @@ class NotificationService {
         }
       }
       
-      console.log(`📧 [NOTIFICATION] Processing task notification: ${action} for task ${taskId} by user ${userId} at ${new Date().toISOString()}`);
       
       // Get task participants
       const participants = this.getTaskParticipants(taskId);
       if (!participants.task) {
-        console.warn(`⚠️ [NOTIFICATION] No task found for taskId ${taskId}`);
         return;
       }
 

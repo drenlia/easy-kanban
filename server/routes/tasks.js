@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
 
 const router = express.Router();
@@ -221,7 +222,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 });
 
 // Create task
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
   const task = req.body;
   const userId = req.user?.id || 'system'; // Fallback for now
   
@@ -258,13 +259,11 @@ router.post('/', authenticateToken, async (req, res) => {
     );
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-created to Redis for board:', task.boardId);
     await redisService.publish('task-created', {
       boardId: task.boardId,
       task: task,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-created published to Redis');
     
     res.json(task);
   } catch (error) {
@@ -274,7 +273,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Create task at top
-router.post('/add-at-top', authenticateToken, async (req, res) => {
+router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) => {
   const task = req.body;
   const userId = req.user?.id || 'system';
   
@@ -316,13 +315,11 @@ router.post('/add-at-top', authenticateToken, async (req, res) => {
     task.ticket = ticket;
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-created to Redis for board:', task.boardId);
     await redisService.publish('task-created', {
       boardId: task.boardId,
       task: task,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-created published to Redis');
     
     res.json(task);
   } catch (error) {
@@ -439,6 +436,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    // Get board title for activity logging
+    const board = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
+    const boardTitle = board ? board.title : 'Unknown Board';
+    
     // Get task attachments before deleting the task
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE taskId = ?');
     const attachments = wrapQuery(attachmentsStmt, 'SELECT').all(id);
@@ -479,7 +480,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     remainingTasks.forEach((remainingTask, index) => {
       if (remainingTask.position !== index) {
         wrapQuery(updatePositionStmt, 'UPDATE').run(index, remainingTask.id);
-        console.log(`🔄 Renumbered task ${remainingTask.id} to position ${index}`);
       }
     });
     
@@ -488,7 +488,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       userId,
       TASK_ACTIONS.DELETE,
       id,
-      `deleted task "${task.title}"`,
+      `deleted task "${task.title}" from board "${boardTitle}"`,
       {
         columnId: task.columnId,
         boardId: task.boardId
@@ -569,7 +569,6 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-updated to Redis for board:', currentTask.boardId);
     await redisService.publish('task-updated', {
       boardId: currentTask.boardId,
       task: {
@@ -578,7 +577,6 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       },
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-updated published to Redis');
 
     res.json({ message: 'Task reordered successfully' });
   } catch (error) {
@@ -721,7 +719,6 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
-    console.log('📤 Publishing task-updated to Redis for original board:', originalBoardId);
     await redisService.publish('task-updated', {
       boardId: originalBoardId,
       task: {
@@ -730,9 +727,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       },
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-updated published to Redis for original board');
     
-    console.log('📤 Publishing task-updated to Redis for target board:', targetBoardId);
     await redisService.publish('task-updated', {
       boardId: targetBoardId,
       task: {
@@ -741,7 +736,6 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       },
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-updated published to Redis for target board');
     
     res.json({ 
       success: true, 
@@ -798,14 +792,12 @@ router.post('/:taskId/watchers/:memberId', async (req, res) => {
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-watcher-added to Redis for board:', task.boardId);
     await redisService.publish('task-watcher-added', {
       boardId: task.boardId,
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-watcher-added published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -831,14 +823,12 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
     `), 'DELETE').run(taskId, memberId);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-watcher-removed to Redis for board:', task.boardId);
     await redisService.publish('task-watcher-removed', {
       boardId: task.boardId,
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-watcher-removed published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -865,14 +855,12 @@ router.post('/:taskId/collaborators/:memberId', async (req, res) => {
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-collaborator-added to Redis for board:', task.boardId);
     await redisService.publish('task-collaborator-added', {
       boardId: task.boardId,
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-collaborator-added published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -898,14 +886,12 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
     `), 'DELETE').run(taskId, memberId);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing task-collaborator-removed to Redis for board:', task.boardId);
     await redisService.publish('task-collaborator-removed', {
       boardId: task.boardId,
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Task-collaborator-removed published to Redis');
     
     res.json({ success: true });
   } catch (error) {
@@ -1027,7 +1013,6 @@ router.post('/:taskId/relationships', async (req, res) => {
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     if (sourceTask?.boardId) {
-      console.log('📤 Publishing task-relationship-created to Redis for source board:', sourceTask.boardId);
       await redisService.publish('task-relationship-created', {
         boardId: sourceTask.boardId,
         taskId: taskId,
@@ -1038,7 +1023,6 @@ router.post('/:taskId/relationships', async (req, res) => {
     }
     
     if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
-      console.log('📤 Publishing task-relationship-created to Redis for target board:', targetTask.boardId);
       await redisService.publish('task-relationship-created', {
         boardId: targetTask.boardId,
         taskId: taskId,
@@ -1095,7 +1079,6 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     if (sourceTask?.boardId) {
-      console.log('📤 Publishing task-relationship-deleted to Redis for source board:', sourceTask.boardId);
       await redisService.publish('task-relationship-deleted', {
         boardId: sourceTask.boardId,
         taskId: taskId,
@@ -1106,7 +1089,6 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
     }
     
     if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
-      console.log('📤 Publishing task-relationship-deleted to Redis for target board:', targetTask.boardId);
       await redisService.publish('task-relationship-deleted', {
         boardId: targetTask.boardId,
         taskId: taskId,

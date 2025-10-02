@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
+import { getLicenseManager } from '../config/license.js';
 
 const router = express.Router();
 
@@ -387,6 +388,19 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
   } catch (error) {
     console.error('🔍 [DEBUG] OAuth debug error:', error);
     res.status(500).json({ error: 'Failed to get OAuth debug info' });
+  }
+});
+
+// License info endpoint (Admin only)
+router.get('/license-info', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const licenseManager = getLicenseManager(req.app.locals.db);
+    const licenseInfo = await licenseManager.getLicenseInfo();
+    
+    res.json(licenseInfo);
+  } catch (error) {
+    console.error('Error fetching license info:', error);
+    res.status(500).json({ error: 'Failed to fetch license info' });
   }
 });
 

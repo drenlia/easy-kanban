@@ -1,6 +1,7 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { checkUserLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
 
 const router = express.Router();
@@ -57,7 +58,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // Create member
-router.post('/', async (req, res) => {
+router.post('/', checkUserLimit, async (req, res) => {
   const { id, name, color } = req.body;
   try {
     const { db } = req.app.locals;

@@ -33,6 +33,7 @@ import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
+import { toast, ToastContainer } from './utils/toast';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -242,10 +243,15 @@ export default function App() {
       // Send position updates to server for tasks that changed positions
       if (tasksToUpdate.length > 0) {
         try {
-          await Promise.all(tasksToUpdate.map(({ taskId, position, columnId }) => 
-            updateTask({ id: taskId, position, columnId })
-          ));
-          console.log('✅ Updated positions for', tasksToUpdate.length, 'tasks after deletion');
+          await Promise.all(tasksToUpdate.map(({ taskId, position, columnId }) => {
+            // Find the complete task data from the updated columns
+            const task = updatedColumns[columnId]?.tasks.find(t => t.id === taskId);
+            if (task) {
+              return updateTask({ ...task, position, columnId });
+            }
+            return Promise.resolve();
+          }));
+          // Positions updated successfully
         } catch (error) {
           console.error('❌ Failed to update task positions after deletion:', error);
         }
@@ -898,6 +904,37 @@ export default function App() {
             };
           }
           return updatedFilteredColumns;
+        });
+        
+        // CRITICAL FIX: Also update boards state so tab counter pills update
+        setBoards(prevBoards => {
+          return prevBoards.map(board => {
+            if (board.id === data.boardId) {
+              const updatedBoard = { ...board };
+              const updatedColumns = { ...updatedBoard.columns };
+              const targetColumnId = data.task.columnId;
+              
+              if (updatedColumns[targetColumnId]) {
+                // Add new task at front and renumber all tasks sequentially
+                const existingTasks = updatedColumns[targetColumnId].tasks;
+                const allTasks = [data.task, ...existingTasks];
+                const updatedTasks = allTasks.map((task, index) => ({
+                  ...task,
+                  position: index
+                }));
+                
+                updatedColumns[targetColumnId] = {
+                  ...updatedColumns[targetColumnId],
+                  tasks: updatedTasks
+                };
+                
+                updatedBoard.columns = updatedColumns;
+              }
+              
+              return updatedBoard;
+            }
+            return board;
+          });
         });
       }
     };
@@ -2436,9 +2473,41 @@ export default function App() {
         setBoardCreationPause(false);
       }, BOARD_CREATION_PAUSE_DURATION);
       
-    } catch (error) {
-      // console.error('Failed to add board:', error);
+    } catch (error: any) {
+      console.error('Failed to add board:', error);
       setBoardCreationPause(false); // Resume polling even on error
+      
+      // Check if it's a license limit error
+      if (error?.response?.status === 403 && error?.response?.data?.error === 'License limit exceeded') {
+        const limitType = error.response.data.limit;
+        const details = error.response.data.details;
+        
+        let title = '';
+        let message = '';
+        switch (limitType) {
+          case 'BOARD_LIMIT':
+            title = 'Board Limit Reached';
+            message = `You've reached the maximum number of boards. ${details}`;
+            break;
+          case 'USER_LIMIT':
+            title = 'User Limit Reached';
+            message = `You've reached the maximum number of users. ${details}`;
+            break;
+          case 'TASK_LIMIT':
+            title = 'Task Limit Reached';
+            message = `You've reached the maximum number of tasks for this board. ${details}`;
+            break;
+          case 'STORAGE_LIMIT':
+            title = 'Storage Limit Reached';
+            message = `You've reached the maximum storage limit. ${details}`;
+            break;
+          default:
+            title = 'License Limit Exceeded';
+            message = details;
+        }
+        
+        toast.error(title, message, 5000);
+      }
     }
   };
 
@@ -2582,10 +2651,43 @@ export default function App() {
         setTaskCreationPause(false);
       }, TASK_CREATION_PAUSE_DURATION);
       
-    } catch (error) {
-      // console.error('Failed to create task at top:', error);
+    } catch (error: any) {
+      console.error('Failed to create task at top:', error);
       setTaskCreationPause(false);
-      await refreshBoardData();
+      
+      // Check if it's a license limit error
+      if (error?.response?.status === 403 && error?.response?.data?.error === 'License limit exceeded') {
+        const limitType = error.response.data.limit;
+        const details = error.response.data.details;
+        
+        let title = '';
+        let message = '';
+        switch (limitType) {
+          case 'BOARD_LIMIT':
+            title = 'Board Limit Reached';
+            message = `You've reached the maximum number of boards. ${details}`;
+            break;
+          case 'USER_LIMIT':
+            title = 'User Limit Reached';
+            message = `You've reached the maximum number of users. ${details}`;
+            break;
+          case 'TASK_LIMIT':
+            title = 'Task Limit Reached';
+            message = `You've reached the maximum number of tasks for this board. ${details}`;
+            break;
+          case 'STORAGE_LIMIT':
+            title = 'Storage Limit Reached';
+            message = `You've reached the maximum storage limit. ${details}`;
+            break;
+          default:
+            title = 'License Limit Exceeded';
+            message = details;
+        }
+        
+        toast.error(title, message, 5000);
+      } else {
+        await refreshBoardData();
+      }
     }
   };
 
@@ -4001,6 +4103,7 @@ export default function App() {
       <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       
+      
       {/* New Enhanced Drag & Drop System */}
       <SimpleDragDropManager
         currentBoardId={selectedBoard || ''}
@@ -4268,6 +4371,9 @@ export default function App() {
         onCancelLinking={handleCancelLinking}
       />
       </div>
+      
+      {/* Toast Notifications */}
+      <ToastContainer />
     </ThemeProvider>
   );
 }

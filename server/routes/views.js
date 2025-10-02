@@ -87,7 +87,6 @@ router.get('/', authenticateToken, (req, res) => {
 router.get('/shared', authenticateToken, (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('🔍 [GET /api/views/shared] Current user ID:', userId);
     
     const stmt = db.prepare(`
       SELECT v.*, 
@@ -105,7 +104,6 @@ router.get('/shared', authenticateToken, (req, res) => {
     `);
     
     const views = stmt.all(userId);
-    console.log('📊 [GET /api/views/shared] Found shared views:', views.length);
     
     const formattedViews = views.map(view => {
       const formatted = formatViewForResponse(view);
@@ -113,7 +111,6 @@ router.get('/shared', authenticateToken, (req, res) => {
       return formatted;
     });
     
-    console.log('✅ [GET /api/views/shared] Sending response with', formattedViews.length, 'views');
     res.json(formattedViews);
   } catch (error) {
     console.error('❌ [GET /api/views/shared] Error fetching shared views:', error);
@@ -301,7 +298,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const originalShared = Boolean(existingView.shared);
     const newShared = formattedView.shared;
     
-    console.log('🔍 [FILTER UPDATE] Original shared:', originalShared, 'New shared:', newShared, 'Changed:', originalShared !== newShared);
     
     if (originalShared !== newShared || newShared) {
       console.log('📤 Publishing filter-updated to Redis for filter:', formattedView.filterName, 'shared:', newShared);

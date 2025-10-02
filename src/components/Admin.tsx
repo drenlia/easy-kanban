@@ -9,6 +9,7 @@ import AdminPrioritiesTab from './admin/AdminPrioritiesTab';
 import AdminUsersTab from './admin/AdminUsersTab';
 import AdminAppSettingsTab from './admin/AdminAppSettingsTab';
 import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
+import AdminLicensingTab from './admin/AdminLicensingTab';
 import websocketClient from '../services/websocketClient';
 
 interface AdminProps {
@@ -1027,7 +1028,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         {/* Tabs */}
         <div className="sticky top-16 z-40 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 mb-6 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
           <nav className="-mb-px flex space-x-8">
-            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings'].map((tab) => (
+            {['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'licensing'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => handleTabChange(tab)}
@@ -1045,6 +1046,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'priorities' && 'Priorities'}
                 {tab === 'app-settings' && 'App Settings'}
                 {tab === 'project-settings' && 'Project Settings'}
+                {tab === 'licensing' && 'Licensing'}
               </button>
             ))}
           </nav>
@@ -1178,6 +1180,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onAutoSave={handleAutoSaveSetting}
               successMessage={getTabMessage('project-settings', 'success')}
               error={getTabMessage('project-settings', 'error')}
+            />
+          )}
+
+          {/* Licensing Tab */}
+          {activeTab === 'licensing' && (
+            <AdminLicensingTab
+              currentUser={currentUser}
             />
           )}
         </div>

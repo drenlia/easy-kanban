@@ -1,5 +1,6 @@
 import { isValidAction } from '../constants/activityActions.js';
 import { getNotificationService } from './notificationService.js';
+import redisService from './redisService.js';
 
 /**
  * Activity Logger Service
@@ -112,7 +113,12 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     if (action === 'create_task') {
       enhancedDetails = `created task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
     } else if (action === 'delete_task') {
-      enhancedDetails = `deleted task "${taskTitle}"${taskRef} from board "${boardTitle}"`;
+      // For delete_task, if taskTitle is "Unknown Task", use the provided details
+      if (taskTitle === 'Unknown Task' && details.includes('deleted task')) {
+        enhancedDetails = details; // Use the provided details as-is
+      } else {
+        enhancedDetails = `deleted task "${taskTitle}"${taskRef} from board "${boardTitle}"`;
+      }
     } else if (action === 'move_task') {
       // Board move already includes task name, add task reference if available
       enhancedDetails = `${details}${taskRef} in board "${boardTitle}"`;
@@ -137,16 +143,6 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Debug logging
-    console.log('📝 Attempting to log activity with values:', {
-      userId,
-      roleId,
-      action,
-      taskId,
-      columnId: columnId || additionalData.columnId || null,
-      boardId: boardId || additionalData.boardId || null,
-      tagId: additionalData.tagId || null,
-      details: enhancedDetails
-    });
 
     // Insert activity into database
     const stmt = db.prepare(`
@@ -167,7 +163,36 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       enhancedDetails
     );
 
-    console.log(`📝 Activity logged: User ${userId} performed ${action} on task ${taskId} - ${enhancedDetails}`);
+    // Publish activity update to Redis for real-time updates
+    try {
+      if (redisService) {
+        // Get the latest activities for the activity feed
+        const latestActivities = db.prepare(`
+          SELECT 
+            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+            datetime(a.created_at) || 'Z' as created_at,
+            a.updated_at,
+            m.name as member_name,
+            r.name as role_name,
+            b.title as board_title,
+            c.title as column_title
+          FROM activity a
+          LEFT JOIN members m ON a.userId = m.user_id
+          LEFT JOIN roles r ON a.roleId = r.id
+          LEFT JOIN boards b ON a.boardId = b.id
+          LEFT JOIN columns c ON a.columnId = c.id
+          ORDER BY a.created_at DESC
+          LIMIT 20
+        `).all();
+
+        await redisService.publish('activity-updated', {
+          activities: latestActivities,
+          timestamp: new Date().toISOString()
+        });
+      }
+    } catch (redisError) {
+      console.warn('Failed to publish activity update to Redis:', redisError.message);
+    }
     
     // Send notification email if service is available
     try {
@@ -257,7 +282,6 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       details
     );
 
-    console.log(`📝 Activity logged: User ${userId} performed ${action} - ${details}`);
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
