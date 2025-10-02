@@ -24,6 +24,10 @@ services:
       - BOARD_LIMIT=-1
       - STORAGE_LIMIT=10737418240
       - SUPPORT_TYPE=pro
+      # Instance configuration for admin portal access
+      - INSTANCE_NAME=pro-instance
+      - INSTANCE_TOKEN=kanban-pro-token-67890
+      - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
     volumes:
       - .:/app
       - /app/node_modules

@@ -12,7 +12,7 @@ export const authenticateAdminPortal = (req, res, next) => {
     });
   }
 
-  // Get the instance token from environment
+  // Get the instance token from environment variable
   const instanceToken = process.env.INSTANCE_TOKEN;
   
   if (!instanceToken) {
@@ -36,6 +36,7 @@ export const authenticateAdminPortal = (req, res, next) => {
   req.adminPortal = {
     authenticated: true,
     instanceToken: instanceToken,
+    instanceName: process.env.INSTANCE_NAME || 'unknown',
     timestamp: new Date().toISOString()
   };
 

@@ -15,11 +15,7 @@ export default defineConfig({
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     ws: false, // Disable WebSocket completely
     allowedHosts: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['localhost', '127.0.0.1'],
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    },
+    // CORS headers removed - let Express handle all CORS
     proxy: {
       '/api': {
         target: 'http://0.0.0.0:3222',
@@ -29,10 +25,10 @@ export default defineConfig({
             console.log('proxy error', err);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            // Request logging disabled for performance
+            console.log('🔄 Proxying request:', req.method, req.url);
           });
           proxy.on('proxyRes', (proxyRes, req, _res) => {
-            // Response logging disabled for performance
+            console.log('📥 Proxy response:', req.method, req.url, proxyRes.statusCode);
           });
         },
       },

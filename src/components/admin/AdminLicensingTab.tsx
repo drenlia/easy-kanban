@@ -444,8 +444,12 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">License System</span>
-              <span className="px-2 py-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 rounded-full text-xs font-semibold">
-                Active
+              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                licenseInfo.enabled 
+                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+              }`}>
+                {licenseInfo.enabled ? 'Managed' : 'Self-Managed'}
               </span>
             </div>
             <div className="flex items-center justify-between">

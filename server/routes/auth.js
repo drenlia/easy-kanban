@@ -391,6 +391,25 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
   }
 });
 
+// Check if current user is instance owner
+router.get('/is-owner', authenticateToken, (req, res) => {
+  try {
+    const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
+    const ownerEmail = ownerSetting ? ownerSetting.value : null;
+    
+    const isOwner = ownerEmail === req.user.email;
+    
+    res.json({
+      isOwner: isOwner,
+      ownerEmail: ownerEmail,
+      currentUser: req.user.email
+    });
+  } catch (error) {
+    console.error('Error checking owner status:', error);
+    res.status(500).json({ error: 'Failed to check owner status' });
+  }
+});
+
 // License info endpoint (Admin only)
 router.get('/license-info', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {

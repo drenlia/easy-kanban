@@ -74,62 +74,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// OPTIONS requests are now handled by nginx - disable Express OPTIONS handler to avoid duplicate headers
-// app.options('*', (req, res) => {
-//   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
-//   const origin = req.headers.origin;
-//   
-//   if (origin) {
-//     const originHostname = new URL(origin).hostname;
-//     const isAllowed = allowedOrigins.some(allowedHost => {
-//       const allowedHostname = allowedHost.includes('://') 
-//         ? new URL(allowedHost).hostname 
-//         : allowedHost;
-//       return originHostname === allowedHostname;
-//     });
-//     
-//     if (isAllowed) {
-//       res.header('Access-Control-Allow-Origin', origin);
-//       res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-//       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-//       res.header('Access-Control-Allow-Credentials', 'true');
-//     }
-//   }
-//   
-//   res.status(200).end();
-// });
-
-// CORS is now handled by nginx - disable Express CORS to avoid duplicate headers
-// app.use(cors({
-//   origin: (origin, callback) => {
-//     const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
-//     
-//     // If no origin (e.g., mobile apps, Postman), allow it
-//     if (!origin) {
-//       return callback(null, true);
-//     }
-//     
-//     // Check if the origin's hostname matches any allowed hostname
-//     const originHostname = new URL(origin).hostname;
-//     const isAllowed = allowedOrigins.some(allowedHost => {
-//       // Handle both hostnames and full URLs
-//       const allowedHostname = allowedHost.includes('://') 
-//         ? new URL(allowedHost).hostname 
-//         : allowedHost;
-//       return originHostname === allowedHostname;
-//     });
-//     
-//     if (isAllowed) {
-//       callback(null, origin); // Return the exact origin for proper CORS headers
-//     } else {
-//       callback(new Error('Not allowed by CORS'));
-//     }
-//   },
-//   credentials: true,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization'],
-//   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
-// }));
+// Enable CORS and JSON parsing
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || true,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 

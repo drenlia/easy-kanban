@@ -8,6 +8,7 @@ import { authenticateAdminPortal, adminPortalRateLimit } from '../middleware/adm
 import { initializeDatabase } from '../config/database.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationService } from '../services/notificationService.js';
+import { getLicenseManager } from '../config/license.js';
 
 // Initialize database
 const db = initializeDatabase();
@@ -16,6 +17,17 @@ const router = express.Router();
 
 // Apply rate limiting to all admin portal routes
 router.use(adminPortalRateLimit);
+
+// OPTIONS requests are now handled by nginx - disable Express OPTIONS handler to avoid duplicate headers
+// router.options('*', (req, res) => {
+//   console.log('🔍 OPTIONS request received for:', req.path);
+//   console.log('🔍 Origin:', req.headers.origin);
+//   res.header('Access-Control-Allow-Origin', req.headers.origin);
+//   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+//   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+//   res.header('Access-Control-Allow-Credentials', 'true');
+//   res.status(200).end();
+// });
 
 // ================================
 // INSTANCE INFORMATION
@@ -46,9 +58,76 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
   }
 });
 
+
 // ================================
-// SETTINGS MANAGEMENT
+// INSTANCE OWNER MANAGEMENT
 // ================================
+
+// Get instance owner information
+router.get('/owner-info', authenticateAdminPortal, (req, res) => {
+  try {
+    const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
+    const ownerEmail = ownerSetting ? ownerSetting.value : null;
+    
+    res.json({
+      success: true,
+      data: {
+        owner: ownerEmail,
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching owner info:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch owner information' 
+    });
+  }
+});
+
+// Set instance owner (admin portal only)
+router.put('/owner', authenticateAdminPortal, (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Owner email is required' 
+      });
+    }
+    
+    // Validate that the user exists
+    const user = wrapQuery(db.prepare('SELECT id, email FROM users WHERE email = ?'), 'SELECT').get(email);
+    if (!user) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'User with this email does not exist' 
+      });
+    }
+    
+    // Set owner in settings
+    wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'), 'INSERT')
+      .run('OWNER', email, new Date().toISOString());
+    
+    console.log(`✅ Admin portal set instance owner to: ${email}`);
+    
+    res.json({
+      success: true,
+      data: {
+        owner: email,
+        message: 'Instance owner set successfully',
+        timestamp: new Date().toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error setting instance owner:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to set instance owner' 
+    });
+  }
+});
 
 // Get all settings
 router.get('/settings', authenticateAdminPortal, (req, res) => {
@@ -376,6 +455,431 @@ router.get('/health', authenticateAdminPortal, (req, res) => {
       status: 'unhealthy',
       error: 'Health check failed',
       timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// ================================
+// PLAN MANAGEMENT
+// ================================
+
+// Get plan information and limits
+router.get('/plan', authenticateAdminPortal, async (req, res) => {
+  try {
+    // Get LicenseManager instance
+    const licenseManager = getLicenseManager(db);
+    
+    console.log('🔍 LicenseManager created, checking license info...');
+    
+    // Get actual license information with current usage
+    const licenseInfo = await licenseManager.getLicenseInfo();
+    console.log('🔍 License info:', JSON.stringify(licenseInfo, null, 2));
+    
+    if (!licenseInfo.enabled) {
+      return res.json({
+        success: true,
+        data: {
+          plan: 'unlimited',
+          message: 'Licensing disabled (self-hosted mode)',
+          features: []
+        }
+      });
+    }
+
+    if (!licenseInfo.limits) {
+      return res.json({
+        success: true,
+        data: {
+          plan: 'unlimited',
+          message: 'No limits configured',
+          features: []
+        }
+      });
+    }
+
+    // Get database values from license_settings table for comparison
+    const dbSettings = {};
+    try {
+      const licenseSettings = wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
+      licenseSettings.forEach(setting => {
+        if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.setting_key)) {
+          dbSettings[setting.setting_key] = setting.setting_value;
+        }
+      });
+    } catch (error) {
+      console.warn('License settings table not found or accessible:', error.message);
+    }
+
+    // Format storage size for display
+    const formatBytes = (bytes) => {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    };
+
+    // Combine actual in-memory values with database overrides
+    const planInfo = {
+      plan: licenseInfo.limits.SUPPORT_TYPE || 'basic',
+      usage: licenseInfo.usage,
+      limitsReached: licenseInfo.limitsReached,
+      features: [
+        {
+          key: 'USER_LIMIT',
+          inMemory: licenseInfo.limits.USER_LIMIT,
+          database: dbSettings.USER_LIMIT || null,
+          currentUsage: licenseInfo.usage.users,
+          limitReached: licenseInfo.limitsReached.users
+        },
+        {
+          key: 'TASK_LIMIT',
+          inMemory: licenseInfo.limits.TASK_LIMIT,
+          database: dbSettings.TASK_LIMIT || null,
+          currentUsage: licenseInfo.usage.totalTasks,
+          limitReached: false // Task limit is per board, not global
+        },
+        {
+          key: 'BOARD_LIMIT',
+          inMemory: licenseInfo.limits.BOARD_LIMIT,
+          database: dbSettings.BOARD_LIMIT || null,
+          currentUsage: licenseInfo.usage.boards,
+          limitReached: licenseInfo.limitsReached.boards
+        },
+        {
+          key: 'STORAGE_LIMIT',
+          inMemory: licenseInfo.limits.STORAGE_LIMIT,
+          database: dbSettings.STORAGE_LIMIT || null,
+          currentUsage: licenseInfo.usage.storage,
+          currentUsageFormatted: formatBytes(licenseInfo.usage.storage),
+          limitReached: licenseInfo.limitsReached.storage
+        },
+        {
+          key: 'SUPPORT_TYPE',
+          inMemory: licenseInfo.limits.SUPPORT_TYPE,
+          database: dbSettings.SUPPORT_TYPE || null
+        }
+      ],
+      boardTaskCounts: licenseInfo.boardTaskCounts
+    };
+
+    res.json({
+      success: true,
+      data: planInfo
+    });
+  } catch (error) {
+    console.error('Error fetching plan info:', error);
+    
+    // Fallback to environment variables if LicenseManager fails
+    console.log('🔄 Falling back to environment variables...');
+    const fallbackLimits = {
+      USER_LIMIT: parseInt(process.env.USER_LIMIT) || 5,
+      TASK_LIMIT: parseInt(process.env.TASK_LIMIT) || 100,
+      BOARD_LIMIT: parseInt(process.env.BOARD_LIMIT) || 10,
+      STORAGE_LIMIT: parseInt(process.env.STORAGE_LIMIT) || 1073741824,
+      SUPPORT_TYPE: process.env.SUPPORT_TYPE || 'basic'
+    };
+
+    const fallbackInfo = {
+      plan: fallbackLimits.SUPPORT_TYPE,
+      features: [
+        {
+          key: 'USER_LIMIT',
+          inMemory: fallbackLimits.USER_LIMIT,
+          database: null,
+          currentUsage: 'N/A',
+          limitReached: false
+        },
+        {
+          key: 'TASK_LIMIT',
+          inMemory: fallbackLimits.TASK_LIMIT,
+          database: null,
+          currentUsage: 'N/A',
+          limitReached: false
+        },
+        {
+          key: 'BOARD_LIMIT',
+          inMemory: fallbackLimits.BOARD_LIMIT,
+          database: null,
+          currentUsage: 'N/A',
+          limitReached: false
+        },
+        {
+          key: 'STORAGE_LIMIT',
+          inMemory: fallbackLimits.STORAGE_LIMIT,
+          database: null,
+          currentUsage: 'N/A',
+          currentUsageFormatted: 'N/A',
+          limitReached: false
+        },
+        {
+          key: 'SUPPORT_TYPE',
+          inMemory: fallbackLimits.SUPPORT_TYPE,
+          database: null
+        }
+      ]
+    };
+
+    res.json({
+      success: true,
+      data: fallbackInfo,
+      warning: 'Using fallback data - LicenseManager failed'
+    });
+  }
+});
+
+// Update plan setting
+router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
+  try {
+    const { key } = req.params;
+    const { value } = req.body;
+
+    // Validate key
+    const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
+    if (!allowedKeys.includes(key)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid plan setting key' 
+      });
+    }
+
+    // Validate value based on key type
+    if (key !== 'SUPPORT_TYPE' && value !== null) {
+      const numValue = parseInt(value);
+      if (isNaN(numValue) || numValue < 0) {
+        return res.status(400).json({ 
+          success: false,
+          error: 'Value must be a positive number or null' 
+        });
+      }
+    }
+
+    // Update or insert license setting
+    const existingSetting = wrapQuery(db.prepare('SELECT id FROM license_settings WHERE setting_key = ?'), 'SELECT').get(key);
+    
+    if (existingSetting) {
+      wrapQuery(db.prepare('UPDATE license_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?'), 'UPDATE')
+        .run(value, key);
+    } else {
+      wrapQuery(db.prepare('INSERT INTO license_settings (setting_key, setting_value) VALUES (?, ?)'), 'INSERT')
+        .run(key, value);
+    }
+
+    console.log(`✅ Admin portal updated plan setting: ${key} = ${value}`);
+
+    res.json({
+      success: true,
+      message: 'Plan setting updated successfully',
+      data: { key, value }
+    });
+  } catch (error) {
+    console.error('Error updating plan setting:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update plan setting' 
+    });
+  }
+});
+
+// Delete plan setting (remove database override)
+router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
+  try {
+    const { key } = req.params;
+
+    // Validate key
+    const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
+    if (!allowedKeys.includes(key)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid plan setting key' 
+      });
+    }
+
+    // Delete the license setting (this removes the database override)
+    const result = wrapQuery(db.prepare('DELETE FROM license_settings WHERE setting_key = ?'), 'DELETE')
+      .run(key);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Plan setting not found' 
+      });
+    }
+
+    console.log(`✅ Admin portal deleted plan setting override: ${key}`);
+
+    res.json({
+      success: true,
+      message: 'Plan setting override deleted successfully',
+      data: { key }
+    });
+  } catch (error) {
+    console.error('Error deleting plan setting:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to delete plan setting' 
+    });
+  }
+});
+
+// ================================
+// ENHANCED SETTINGS MANAGEMENT
+// ================================
+
+// Delete a setting
+router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
+  try {
+    const { key } = req.params;
+
+    const result = wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
+    
+    if (result.changes === 0) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'Setting not found' 
+      });
+    }
+
+    console.log(`✅ Admin portal deleted setting: ${key}`);
+
+    res.json({
+      success: true,
+      message: 'Setting deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting setting:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to delete setting' 
+    });
+  }
+});
+
+// Add a new setting
+router.post('/settings', authenticateAdminPortal, (req, res) => {
+  try {
+    const { key, value } = req.body;
+
+    if (!key || value === undefined) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Key and value are required' 
+      });
+    }
+
+    // Check if setting already exists
+    const existingSetting = wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get(key);
+    if (existingSetting) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Setting with this key already exists' 
+      });
+    }
+
+    // Insert new setting
+    wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
+      .run(key, value);
+
+    console.log(`✅ Admin portal created setting: ${key} = ${value}`);
+
+    res.json({
+      success: true,
+      message: 'Setting created successfully',
+      data: { key, value }
+    });
+  } catch (error) {
+    console.error('Error creating setting:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create setting' 
+    });
+  }
+});
+
+// ================================
+// USER MANAGEMENT ENHANCEMENTS
+// ================================
+
+// Update user
+router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { email, firstName, lastName, role, isActive } = req.body;
+    
+    // Validate required fields
+    if (!email || !firstName || !lastName || !role) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email, first name, last name, and role are required' 
+      });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid email address format' 
+      });
+    }
+    
+    // Check if user exists
+    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(userId);
+    if (!existingUser) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'User not found' 
+      });
+    }
+    
+    // Check if email is already taken by another user
+    const emailTaken = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
+    if (emailTaken) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email is already taken by another user' 
+      });
+    }
+    
+    // Update user
+    wrapQuery(db.prepare(`
+      UPDATE users 
+      SET email = ?, first_name = ?, last_name = ?, is_active = ?
+      WHERE id = ?
+    `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
+    
+    // Update role
+    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    if (roleId) {
+      // Remove existing roles
+      wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      // Add new role
+      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    }
+    
+    // Update member name
+    wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
+      .run(`${firstName} ${lastName}`, userId);
+    
+    console.log(`✅ Admin portal updated user: ${email} (${firstName} ${lastName})`);
+    
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: {
+        id: userId,
+        email,
+        firstName,
+        lastName,
+        role,
+        isActive: !!isActive
+      }
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update user' 
     });
   }
 });

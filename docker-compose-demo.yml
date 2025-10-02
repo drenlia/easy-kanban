@@ -17,6 +17,7 @@ services:
       # Allowed origins for CORS
       - ALLOWED_ORIGINS=true
       - DEMO_ENABLED=true
+      - LICENSE_ENABLED=false
     volumes:
       - .:/app
       - /app/node_modules

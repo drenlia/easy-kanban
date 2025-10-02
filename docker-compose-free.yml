@@ -19,6 +19,10 @@ services:
       - DEMO_ENABLED=false
       # License settings (FREE PLAN - no limits)
       - LICENSE_ENABLED=false
+      # Instance configuration for admin portal access (not used in free plan)
+      - INSTANCE_NAME=free-instance
+      - INSTANCE_TOKEN=kanban-free-token-00000
+      - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
     volumes:
       - .:/app
       - /app/node_modules
