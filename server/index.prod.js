@@ -8,13 +8,11 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import http from 'http';
-import os from 'os';
-import rateLimit from 'express-rate-limit';
 
 // Import our extracted modules
 import { initializeDatabase } from './config/database.js';
 import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_IN } from './middleware/auth.js';
-import { attachmentUpload, avatarUpload, createAttachmentUpload } from './config/multer.js';
+import { attachmentUpload, avatarUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
 
 // Import generateRandomPassword function
@@ -29,7 +27,6 @@ const generateRandomPassword = (length = 12) => {
 import { createDefaultAvatar } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initNotificationService, getNotificationService } from './services/notificationService.js';
-import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
@@ -40,14 +37,10 @@ import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
-import adminPortalRouter from './routes/adminPortal.js';
 
 // Import real-time services
 import redisService from './services/redisService.js';
 import websocketService from './services/websocketService.js';
-
-// Import storage utilities
-import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorageLimit, formatBytes } from './utils/storageUtils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -57,94 +50,39 @@ const db = initializeDatabase();
 // Initialize activity logger and notification service with database instance
 initActivityLogger(db);
 initNotificationService(db);
-initNotificationThrottler(db);
 
 const app = express();
 
 // Make database available to routes
 app.locals.db = db;
 
-// Security headers
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
-
 // Enable CORS and JSON parsing
-app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || true,
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// ================================
-// RATE LIMITING CONFIGURATION
-// ================================
+// Serve static files
+app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
+app.use('/avatars', express.static(path.join(__dirname, 'avatars')));
 
-// Login rate limiter: 5 attempts per 15 minutes
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 login attempts per window
-  message: {
-    error: 'Too many login attempts, please try again in 15 minutes'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful logins
-});
-
-// Password reset rate limiter: 3 attempts per hour
-const passwordResetLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 password reset attempts per hour
-  message: {
-    error: 'Too many password reset attempts, please try again in 1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Registration rate limiter: 3 attempts per hour
-const registrationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 registration attempts per hour
-  message: {
-    error: 'Too many registration attempts, please try again in 1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Account activation rate limiter: 10 attempts per hour
-const activationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 activation attempts per hour
-  message: {
-    error: 'Too many activation attempts, please try again in 1 hour'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Static file serving removed for security - files now served through authenticated endpoints
+// PRODUCTION: Serve static frontend files from dist directory
+app.use(express.static(path.join(__dirname, '../dist')));
 
 // ================================
 // DEBUG ENDPOINTS
 // ================================
 
+app.post('/api/debug/log', (req, res) => {
+  const { message, data } = req.body;
+  console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data, null, 2) : '');
+  res.status(200).json({ success: true });
+});
 
 // ================================
 // AUTHENTICATION ENDPOINTS
 // ================================
 
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   
   if (!email || !password) {
@@ -163,7 +101,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
     if (!isValidPassword) {
-      console.log('❌ Login failed - invalid password for:', email);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
@@ -211,7 +148,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
 });
 
 // Account activation endpoint
-app.post('/api/auth/activate-account', activationLimiter, async (req, res) => {
+app.post('/api/auth/activate-account', async (req, res) => {
   const { token, email, newPassword } = req.body;
   
   if (!token || !email || !newPassword) {
@@ -287,7 +224,7 @@ app.post('/api/auth/activate-account', activationLimiter, async (req, res) => {
   }
 });
 
-app.post('/api/auth/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
+app.post('/api/auth/register', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role } = req.body;
   
   if (!email || !password || !firstName || !lastName || !role) {
@@ -439,9 +376,6 @@ app.use('/api/views', viewsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
 
-// Admin Portal API routes (external access using INSTANCE_TOKEN)
-app.use('/api/admin-portal', adminPortalRouter);
-
 // ================================
 // ADDITIONAL ENDPOINTS
 // ================================
@@ -491,11 +425,6 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
 
       // Commit transaction
       db.prepare('COMMIT').run();
-      
-      // Update storage usage if attachments were added
-      if (comment.attachments?.length > 0) {
-        updateStorageUsage(db);
-      }
       
       // Log comment creation activity
       await logCommentActivity(
@@ -655,7 +584,7 @@ app.delete('/api/comments/:id', authenticateToken, async (req, res) => {
 });
 
 // New endpoint to fetch comment attachments
-app.get('/api/comments/:commentId/attachments', authenticateToken, (req, res) => {
+app.get('/api/comments/:commentId/attachments', (req, res) => {
   try {
     const attachments = db.prepare(`
       SELECT 
@@ -676,38 +605,18 @@ app.get('/api/comments/:commentId/attachments', authenticateToken, (req, res) =>
 });
 
 // File upload endpoints
-app.post('/api/upload', authenticateToken, async (req, res) => {
-  try {
-    // Create multer instance with admin settings
-    const attachmentUploadWithValidation = await createAttachmentUpload(db);
-    
-    // Use the validated multer instance
-    attachmentUploadWithValidation.single('file')(req, res, (err) => {
-      if (err) {
-        console.error('File upload validation error:', err.message);
-        return res.status(400).json({ error: err.message });
-      }
-      
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
-
-      // Generate authenticated URL with token
-      const token = req.headers.authorization?.replace('Bearer ', '');
-      const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
-      
-      res.json({
-        id: crypto.randomUUID(),
-        name: req.file.originalname,
-        url: authenticatedUrl,
-        type: req.file.mimetype,
-        size: req.file.size
-      });
-    });
-  } catch (error) {
-    console.error('File upload error:', error);
-    res.status(500).json({ error: 'File upload failed' });
+app.post('/api/upload', attachmentUpload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No file uploaded' });
   }
+
+  res.json({
+    id: crypto.randomUUID(),
+    name: req.file.originalname,
+    url: `/attachments/${req.file.filename}`,
+    type: req.file.mimetype,
+    size: req.file.size
+  });
 });
 
 // Avatar upload endpoints
@@ -735,13 +644,9 @@ app.post('/api/users/avatar', authenticateToken, avatarUpload.single('avatar'), 
       console.log('✅ User-profile-updated published to Redis');
     }
     
-    // Generate authenticated URL with token
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    const authenticatedUrl = token ? `/api/files/avatars/${req.file.filename}?token=${encodeURIComponent(token)}` : avatarPath;
-    
     res.json({
       message: 'Avatar uploaded successfully',
-      avatarUrl: authenticatedUrl
+      avatarUrl: avatarPath
     });
   } catch (error) {
     console.error('Error uploading avatar:', error);
@@ -1917,174 +1822,6 @@ app.get('/api/settings', (req, res) => {
   }
 });
 
-// Storage information endpoint
-app.get('/api/storage/info', authenticateToken, (req, res) => {
-  try {
-    const usage = getStorageUsage(db);
-    const limit = getStorageLimit(db);
-    const remaining = limit - usage;
-    const usagePercent = limit > 0 ? Math.round((usage / limit) * 100) : 0;
-    
-    res.json({
-      usage: usage,
-      limit: limit,
-      remaining: remaining,
-      usagePercent: usagePercent,
-      usageFormatted: formatBytes(usage),
-      limitFormatted: formatBytes(limit),
-      remainingFormatted: formatBytes(remaining)
-    });
-  } catch (error) {
-    console.error('Error getting storage info:', error);
-    res.status(500).json({ error: 'Failed to get storage information' });
-  }
-});
-
-// Helper function to read container memory info
-const getContainerMemoryInfo = () => {
-  try {
-    // Try different cgroup paths for Docker and Kubernetes
-    const cgroupPaths = [
-      '/sys/fs/cgroup',           // Docker (cgroup v2)
-      '/sys/fs/cgroup/memory',   // Docker (cgroup v1)
-      '/sys/fs/cgroup/kubepods', // Kubernetes
-      '/sys/fs/cgroup/system.slice', // Systemd containers
-    ];
-    
-    const memoryUsageFiles = [
-      'memory.current',           // cgroup v2
-      'memory.usage_in_bytes',   // cgroup v1
-    ];
-    
-    const memoryLimitFiles = [
-      'memory.max',               // cgroup v2
-      'memory.limit_in_bytes',   // cgroup v1
-    ];
-    
-    let memoryLimit = os.totalmem(); // Fallback to host memory
-    let memoryUsage = 0;
-    let foundContainerInfo = false;
-    
-    // Try to find container memory info
-    for (const cgroupPath of cgroupPaths) {
-      if (!fs.existsSync(cgroupPath)) continue;
-      
-      // Try to read memory usage
-      for (const usageFile of memoryUsageFiles) {
-        const usagePath = `${cgroupPath}/${usageFile}`;
-        if (fs.existsSync(usagePath)) {
-          try {
-            const usageData = fs.readFileSync(usagePath, 'utf8').trim();
-            memoryUsage = parseInt(usageData);
-            if (memoryUsage > 0) {
-              foundContainerInfo = true;
-              break;
-            }
-          } catch (usageError) {
-            console.log(`Error reading ${usagePath}:`, usageError.message);
-          }
-        }
-      }
-      
-      // Try to read memory limit
-      for (const limitFile of memoryLimitFiles) {
-        const limitPath = `${cgroupPath}/${limitFile}`;
-        if (fs.existsSync(limitPath)) {
-          try {
-            const limitData = fs.readFileSync(limitPath, 'utf8').trim();
-            if (limitData !== 'max' && limitData !== '') {
-              const limitBytes = parseInt(limitData);
-              if (limitBytes > 0 && limitBytes < os.totalmem()) {
-                memoryLimit = limitBytes;
-                break;
-              }
-            }
-          } catch (limitError) {
-            console.log(`Error reading ${limitPath}:`, limitError.message);
-          }
-        }
-      }
-      
-      if (foundContainerInfo) break;
-    }
-    
-    // If no container memory usage found, fallback to host calculation
-    if (!foundContainerInfo) {
-      const freeMemory = os.freemem();
-      memoryUsage = os.totalmem() - freeMemory;
-    }
-    
-    // Ensure we have valid values
-    if (memoryUsage < 0) memoryUsage = 0;
-    if (memoryLimit <= 0) memoryLimit = os.totalmem();
-    
-    return {
-      total: memoryLimit,
-      used: memoryUsage,
-      free: memoryLimit - memoryUsage,
-      percent: Math.round((memoryUsage / memoryLimit) * 100)
-    };
-  } catch (error) {
-    console.error('Error reading container memory info:', error);
-    // Fallback to host memory
-    const totalMemory = os.totalmem();
-    const freeMemory = os.freemem();
-    const usedMemory = totalMemory - freeMemory;
-    return {
-      total: totalMemory,
-      used: usedMemory,
-      free: freeMemory,
-      percent: Math.round((usedMemory / totalMemory) * 100)
-    };
-  }
-};
-
-// System information endpoint (admin only)
-app.get('/api/admin/system-info', authenticateToken, requireRole(['admin']), (req, res) => {
-  try {
-    // Memory usage (container-aware)
-    const memoryInfo = getContainerMemoryInfo();
-    
-    // CPU usage (simplified - just load average)
-    const loadAvg = os.loadavg();
-    const cpuCores = os.cpus().length;
-    const cpuPercent = Math.round((loadAvg[0] / cpuCores) * 100);
-    
-    // Disk usage (storage info)
-    const storageUsage = getStorageUsage(db);
-    const storageLimit = getStorageLimit(db);
-    const diskPercent = storageLimit > 0 ? Math.round((storageUsage / storageLimit) * 100) : 0;
-    
-    res.json({
-      memory: {
-        used: memoryInfo.used,
-        total: memoryInfo.total,
-        free: memoryInfo.free,
-        percent: memoryInfo.percent,
-        usedFormatted: formatBytes(memoryInfo.used),
-        totalFormatted: formatBytes(memoryInfo.total),
-        freeFormatted: formatBytes(memoryInfo.free)
-      },
-      cpu: {
-        percent: cpuPercent,
-        loadAverage: loadAvg[0],
-        cores: cpuCores
-      },
-      disk: {
-        used: storageUsage,
-        total: storageLimit,
-        percent: diskPercent,
-        usedFormatted: formatBytes(storageUsage),
-        totalFormatted: formatBytes(storageLimit)
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    console.error('Error getting system info:', error);
-    res.status(500).json({ error: 'Failed to get system information' });
-  }
-});
-
 app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
@@ -2124,7 +1861,6 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing settings-updated to Redis');
-    console.log('📤 Broadcasting value:', { key, value });
     await redisService.publish('settings-updated', {
       key: key,
       value: value,
@@ -2642,11 +2378,6 @@ app.post('/api/tasks/:taskId/attachments', authenticateToken, async (req, res) =
       // Commit transaction
       db.prepare('COMMIT').run();
       
-      // Update storage usage after adding attachments
-      if (insertedAttachments.length > 0) {
-        updateStorageUsage(db);
-      }
-      
       // Get the task's board ID for Redis publishing
       const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
       
@@ -2709,9 +2440,6 @@ app.delete('/api/attachments/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Attachment record not found' });
     }
     
-    // Update storage usage after deleting attachment
-    updateStorageUsage(db);
-    
     // Get the task's board ID for Redis publishing
     const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
     
@@ -2734,84 +2462,23 @@ app.delete('/api/attachments/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Direct file access removed for security - files now served through token-based endpoints
-
-// Token-based file access endpoints (for frontend img tags)
-app.get('/api/files/attachments/:filename', (req, res) => {
+// Serve attachment files
+app.get('/attachments/:filename', (req, res) => {
   const { filename } = req.params;
-  const token = req.query.token;
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
-  }
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    // Token is valid, serve the file
-    
     const filePath = path.join(__dirname, 'attachments', filename);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
     }
     
-    // Set appropriate headers for file serving
-    res.setHeader('Content-Type', getContentType(filename));
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
     res.sendFile(filePath);
   } catch (error) {
     console.error('Error serving attachment:', error);
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(500).json({ error: 'Failed to serve file' });
   }
 });
-
-app.get('/api/files/avatars/:filename', (req, res) => {
-  const { filename } = req.params;
-  const token = req.query.token;
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    // Token is valid, serve the file
-    
-    const filePath = path.join(__dirname, 'avatars', filename);
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-    
-    // Set appropriate headers for file serving
-    res.setHeader('Content-Type', getContentType(filename));
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
-    res.sendFile(filePath);
-  } catch (error) {
-    console.error('Error serving avatar:', error);
-    res.status(401).json({ error: 'Invalid token' });
-  }
-});
-
-// Helper function to determine content type
-function getContentType(filename) {
-  const ext = path.extname(filename).toLowerCase();
-  const contentTypes = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.webp': 'image/webp',
-    '.svg': 'image/svg+xml',
-    '.pdf': 'application/pdf',
-    '.txt': 'text/plain',
-    '.doc': 'application/msword',
-    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    '.xls': 'application/vnd.ms-excel',
-    '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  };
-  return contentTypes[ext] || 'application/octet-stream';
-}
 
 // ================================
 // DEBUG ENDPOINTS
@@ -2896,36 +2563,6 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
   
-  // Initialize storage usage tracking
-  initializeStorageUsage(db);
-  
   // Initialize real-time services
   await initializeServices();
-});
-
-// Graceful shutdown handler
-process.on('SIGINT', async () => {
-  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
-  
-  // Flush all pending notifications
-  const throttler = getNotificationThrottler();
-  if (throttler) {
-    await throttler.flushAllNotifications();
-  }
-  
-  console.log('✅ Graceful shutdown complete');
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
-  
-  // Flush all pending notifications
-  const throttler = getNotificationThrottler();
-  if (throttler) {
-    await throttler.flushAllNotifications();
-  }
-  
-  console.log('✅ Graceful shutdown complete');
-  process.exit(0);
 });
