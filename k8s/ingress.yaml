@@ -24,8 +24,8 @@ spec:
             name: easy-kanban-service
             port:
               number: 80
-  # Uncomment and modify for production with TLS
-  # tls:
-  # - hosts:
-  #   - easy-kanban.local
-  #   secretName: easy-kanban-tls
+  # TLS configuration for production domain
+  tls:
+  - hosts:
+    - easy-kanban.local
+    secretName: easy-kanban-tls

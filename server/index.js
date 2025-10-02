@@ -37,6 +37,7 @@ import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
+import adminPortalRouter from './routes/adminPortal.js';
 
 // Import real-time services
 import redisService from './services/redisService.js';
@@ -372,6 +373,9 @@ app.use('/api/tasks', authenticateToken, tasksRouter);
 app.use('/api/views', viewsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
+
+// Admin Portal API routes (external access using INSTANCE_TOKEN)
+app.use('/api/admin-portal', adminPortalRouter);
 
 // ================================
 // ADDITIONAL ENDPOINTS
