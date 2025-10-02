@@ -12,6 +12,7 @@ data:
   VITE_API_URL: "http://localhost:3222"
   REDIS_URL: "redis://redis:6379"
   DEMO_ENABLED: "false"
+  INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
   # Add any other environment variables your app needs
   # JWT_SECRET: "your-jwt-secret-here"
   # EMAIL_HOST: "smtp.gmail.com"
