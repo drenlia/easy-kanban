@@ -12,9 +12,25 @@ data:
   VITE_API_URL: "http://localhost:3222"
   REDIS_URL: "redis://redis:6379"
   DEMO_ENABLED: "false"
+  
+  # Instance configuration for admin portal access
+  INSTANCE_NAME: "INSTANCE_NAME_PLACEHOLDER"
   INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
-  # Add any other environment variables your app needs
-  # JWT_SECRET: "your-jwt-secret-here"
+  ADMIN_SERVICE_URL: "https://admin.ezkan.cloud"
+  
+  # Security configuration
+  JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,INSTANCE_NAME_PLACEHOLDER.ezkan.cloud,admin.ezkan.cloud"
+  
+  # License settings (will be set based on plan)
+  LICENSE_ENABLED: "true"
+  USER_LIMIT: "USER_LIMIT_PLACEHOLDER"
+  TASK_LIMIT: "TASK_LIMIT_PLACEHOLDER"
+  BOARD_LIMIT: "BOARD_LIMIT_PLACEHOLDER"
+  STORAGE_LIMIT: "STORAGE_LIMIT_PLACEHOLDER"
+  SUPPORT_TYPE: "SUPPORT_TYPE_PLACEHOLDER"
+  
+  # Email configuration (optional - can be set later)
   # EMAIL_HOST: "smtp.gmail.com"
   # EMAIL_PORT: "587"
   # EMAIL_USER: "your-email@gmail.com"

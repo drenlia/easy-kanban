@@ -6,27 +6,30 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token>"
+    echo "Usage: $0 <instance_name> <instance_token> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
     echo "  instance_token - Token for admin portal database access"
+    echo "  plan          - License plan: 'basic' or 'pro'"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345"
+    echo "  $0 my-company kanban-token-12345 basic"
+    echo "  $0 enterprise kanban-token-67890 pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
     exit 1
 }
 
 # Check parameters
-if [ $# -ne 2 ]; then
+if [ $# -ne 3 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
 
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
+PLAN="$3"
 NAMESPACE="easy-kanban-${INSTANCE_NAME}"
 DOMAIN="ezkan.cloud"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
@@ -38,10 +41,39 @@ if [[ ! "$INSTANCE_NAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
     exit 1
 fi
 
+# Validate plan
+if [[ "$PLAN" != "basic" && "$PLAN" != "pro" ]]; then
+    echo "❌ Error: Plan must be 'basic' or 'pro'"
+    exit 1
+fi
+
+# Set license configuration based on plan
+if [[ "$PLAN" == "basic" ]]; then
+    USER_LIMIT="5"
+    TASK_LIMIT="100"
+    BOARD_LIMIT="10"
+    STORAGE_LIMIT="1073741824"  # 1GB
+    SUPPORT_TYPE="basic"
+else
+    USER_LIMIT="50"
+    TASK_LIMIT="-1"  # unlimited
+    BOARD_LIMIT="-1" # unlimited
+    STORAGE_LIMIT="10737418240" # 10GB
+    SUPPORT_TYPE="pro"
+fi
+
+# Generate random JWT secret
+JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
+
 echo "🚀 Deploying Easy Kanban instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
 echo "🔑 Instance Token: ${INSTANCE_TOKEN}"
+echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
+echo "👥 User Limit: ${USER_LIMIT}"
+echo "📝 Task Limit: ${TASK_LIMIT}"
+echo "📊 Board Limit: ${BOARD_LIMIT}"
+echo "💾 Storage Limit: ${STORAGE_LIMIT} bytes"
 
 # Check if kubectl is available
 if ! command -v kubectl &> /dev/null; then
@@ -71,9 +103,16 @@ generate_manifests() {
     # Generate Redis deployment
     sed "s/easy-kanban/${NAMESPACE}/g" k8s/redis-deployment.yaml > "${TEMP_DIR}/redis-deployment.yaml"
     
-    # Generate ConfigMap with instance token
+    # Generate ConfigMap with instance token and plan-specific values
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
         -e "s/INSTANCE_TOKEN_PLACEHOLDER/${INSTANCE_TOKEN}/g" \
+        -e "s/JWT_SECRET_PLACEHOLDER/${JWT_SECRET}/g" \
+        -e "s/USER_LIMIT_PLACEHOLDER/${USER_LIMIT}/g" \
+        -e "s/TASK_LIMIT_PLACEHOLDER/${TASK_LIMIT}/g" \
+        -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
+        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
+        -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
         k8s/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
     # Generate app deployment
