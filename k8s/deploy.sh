@@ -27,6 +27,7 @@ if [ $# -ne 3 ]; then
     usage
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
 PLAN="$3"
@@ -98,10 +99,10 @@ generate_manifests() {
     echo "🔧 Generating instance-specific manifests..."
     
     # Generate namespace
-    sed "s/easy-kanban/${NAMESPACE}/g" k8s/namespace.yaml > "${TEMP_DIR}/namespace.yaml"
+    sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/namespace.yaml > "${TEMP_DIR}/namespace.yaml"
     
     # Generate Redis deployment
-    sed "s/easy-kanban/${NAMESPACE}/g" k8s/redis-deployment.yaml > "${TEMP_DIR}/redis-deployment.yaml"
+    sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/redis-deployment.yaml > "${TEMP_DIR}/redis-deployment.yaml"
     
     # Generate ConfigMap with instance token and plan-specific values
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
@@ -113,18 +114,21 @@ generate_manifests() {
         -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
         -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
         -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
-        k8s/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
+        ${SCRIPT_DIR}/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
     # Generate app deployment
-    sed "s/easy-kanban/${NAMESPACE}/g" k8s/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban-${INSTANCE_NAME}/g" \
+        -e "s/IMAGE_NAME_PLACEHOLDER/easy-kanban:prod/g" \
+        ${SCRIPT_DIR}/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
     
     # Generate services
-    sed "s/easy-kanban/${NAMESPACE}/g" k8s/service.yaml > "${TEMP_DIR}/service.yaml"
+    sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/service.yaml > "${TEMP_DIR}/service.yaml"
     
     # Generate ingress with dynamic hostname
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/easy-kanban.local/${FULL_HOSTNAME}/g" \
-        k8s/ingress.yaml > "${TEMP_DIR}/ingress.yaml"
+        ${SCRIPT_DIR}/ingress.yaml > "${TEMP_DIR}/ingress.yaml"
 }
 
 # Generate manifests
@@ -152,7 +156,7 @@ kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
 
 # Wait for the app to be ready
 echo "⏳ Waiting for Easy Kanban to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/easy-kanban -n "${NAMESPACE}"
+kubectl wait --for=condition=available --timeout=300s deployment/easy-kanban-${INSTANCE_NAME} -n "${NAMESPACE}"
 
 # Apply services
 echo "🌐 Creating services..."
@@ -213,7 +217,7 @@ echo ""
 echo "🔧 Management Commands:"
 echo "   View logs: kubectl logs -f deployment/easy-kanban -n ${NAMESPACE}"
 echo "   Delete instance: kubectl delete namespace ${NAMESPACE}"
-echo "   Scale replicas: kubectl scale deployment easy-kanban --replicas=3 -n ${NAMESPACE}"
+echo "   Scale replicas: kubectl scale deployment easy-kanban --replicas=1 -n ${NAMESPACE}"
 
 # Clean up temporary files
 echo ""

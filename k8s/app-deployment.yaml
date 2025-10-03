@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: easy-kanban
+  name: DEPLOYMENT_NAME_PLACEHOLDER
   namespace: easy-kanban
   labels:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 2
+  replicas: 1  # Single replica required due to SQLite3 database
   selector:
     matchLabels:
       app: easy-kanban
@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: easy-kanban
-        image: easy-kanban:prod
+        image: IMAGE_NAME_PLACEHOLDER
         imagePullPolicy: IfNotPresent  # Use local image if available
         ports:
         - containerPort: 3222

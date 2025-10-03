@@ -271,7 +271,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
 // Create a new user
 router.post('/users', authenticateAdminPortal, async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role, sendInvitation = true, isActive = true } = req.body;
+    const { email, password, firstName, lastName, role, sendInvitation = true, isActive = false } = req.body;
     
     // Validate required fields
     if (!email || !password || !firstName || !lastName || !role) {
