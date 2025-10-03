@@ -271,7 +271,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
 // Create a new user
 router.post('/users', authenticateAdminPortal, async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role, sendInvitation = true } = req.body;
+    const { email, password, firstName, lastName, role, sendInvitation = true, isActive = true } = req.body;
     
     // Validate required fields
     if (!email || !password || !firstName || !lastName || !role) {
@@ -307,7 +307,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, is_active) 
       VALUES (?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, 1); // Active by default
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, isActive ? 1 : 0);
     
     // Assign role
     const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
@@ -332,7 +332,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
         firstName,
         lastName,
         role,
-        isActive: true
+        isActive: !!isActive
       }
     });
   } catch (error) {
@@ -951,6 +951,77 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     res.status(500).json({ 
       success: false,
       error: 'Failed to update user' 
+    });
+  }
+});
+
+// Send invitation email to user
+router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
+  try {
+    const { email, adminName } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Email is required' 
+      });
+    }
+    
+    // Find user by email
+    const user = wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(email);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        error: 'User not found' 
+      });
+    }
+    
+    // Check if user is already active
+    if (user.is_active) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'User is already active' 
+      });
+    }
+    
+    // Generate invitation token
+    const inviteToken = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+    
+    // Store invitation token
+    wrapQuery(db.prepare(`
+      INSERT OR REPLACE INTO user_invitations (user_id, token, expires_at, created_at) 
+      VALUES (?, ?, ?, ?)
+    `), 'INSERT').run(user.id, inviteToken, expiresAt.toISOString(), new Date().toISOString());
+    
+    // Get site name from settings
+    const siteNameSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
+    const siteName = siteNameSetting?.value || 'Easy Kanban';
+    
+    // Generate invitation URL
+    const baseUrl = process.env.BASE_URL || `https://${process.env.DEFAULT_DOMAIN_SUFFIX || 'ezkan.cloud'}`;
+    const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
+    
+    // Send invitation email using the existing notification service
+    const notificationService = (await import('../services/notificationService.js')).default;
+    await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+    
+    console.log(`✅ Invitation sent to user: ${email}`);
+    
+    res.json({
+      success: true,
+      message: 'Invitation sent successfully',
+      data: {
+        email: user.email,
+        inviteUrl: inviteUrl,
+        expiresAt: expiresAt.toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('Error sending invitation:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to send invitation' 
     });
   }
 });
