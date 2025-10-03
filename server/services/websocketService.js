@@ -316,6 +316,11 @@ class WebSocketService {
             redisService.subscribe('task-tag-removed', (data) => {
               this.io?.to(`board-${data.boardId}`).emit('task-tag-removed', data);
             });
+
+            // Instance status updates - broadcast to all connected clients
+            redisService.subscribe('instance-status-updated', (data) => {
+              this.io?.emit('instance-status-updated', data);
+            });
   }
 
   getConnectedClients() {

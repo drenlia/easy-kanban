@@ -219,7 +219,7 @@ export default function App() {
     };
 
     return (
-      <div className={`border-l-4 p-4 mb-4 ${getStatusColor(instanceStatus.status)}`}>
+      <div className={`fixed top-0 left-0 right-0 z-50 border-l-4 p-4 ${getStatusColor(instanceStatus.status)}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <div className="flex-shrink-0 mr-3">
@@ -1709,6 +1709,32 @@ export default function App() {
       }
     };
 
+    const getStatusMessage = (status: string) => {
+      switch (status) {
+        case 'active':
+          return 'This instance is running normally.';
+        case 'suspended':
+          return 'This instance has been temporarily suspended. Please contact support for assistance.';
+        case 'terminated':
+          return 'This instance has been terminated. Please contact support for assistance.';
+        case 'failed':
+          return 'This instance has failed. Please contact support for assistance.';
+        case 'deploying':
+          return 'This instance is currently being deployed. Please try again in a few minutes.';
+        default:
+          return 'This instance is currently unavailable. Please contact support.';
+      }
+    };
+
+    const handleInstanceStatusUpdated = (data: any) => {
+      console.log('📨 Instance status updated via WebSocket:', data);
+      setInstanceStatus({
+        status: data.status,
+        message: getStatusMessage(data.status),
+        isDismissed: false
+      });
+    };
+
     // Register event listeners
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskUpdated(handleTaskUpdated);
@@ -1745,6 +1771,7 @@ export default function App() {
     websocketClient.onSettingsUpdated(handleSettingsUpdated);
     websocketClient.onTaskTagAdded(handleTaskTagAdded);
     websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
+    websocketClient.onInstanceStatusUpdated(handleInstanceStatusUpdated);
 
     return () => {
       // Clean up event listeners
@@ -1783,6 +1810,7 @@ export default function App() {
       websocketClient.offSettingsUpdated(handleSettingsUpdated);
       websocketClient.offTaskTagAdded(handleTaskTagAdded);
       websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
+      websocketClient.offInstanceStatusUpdated(handleInstanceStatusUpdated);
       websocketClient.offWebSocketReady(handleWebSocketReady);
     };
   }, [isAuthenticated]);
@@ -4311,7 +4339,8 @@ export default function App() {
         onInviteUser={handleInviteUser}
       />
 
-      <MainLayout
+      <div className={instanceStatus.status !== 'active' && !instanceStatus.isDismissed ? 'pt-20' : ''}>
+        <MainLayout
         currentPage={currentPage}
               currentUser={currentUser} 
         selectedTask={selectedTask}
@@ -4456,7 +4485,8 @@ export default function App() {
                                     
                                     // Auto-synced relationships
                                     boardRelationships={boardRelationships}
-      />
+        />
+      </div>
 
       <InstanceStatusBanner />
 

@@ -8,6 +8,7 @@ import { authenticateAdminPortal, adminPortalRateLimit } from '../middleware/adm
 import { initializeDatabase } from '../config/database.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationService } from '../services/notificationService.js';
+import redisService from '../services/redisService.js';
 import { getLicenseManager } from '../config/license.js';
 
 // Initialize database
@@ -826,6 +827,12 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
     }
 
     console.log(`✅ Admin portal updated instance status to: ${status}`);
+
+    // Publish instance status update to Redis for real-time updates
+    redisService.publish('instance-status-updated', {
+      status,
+      timestamp: new Date().toISOString()
+    });
 
     res.json({
       success: true,

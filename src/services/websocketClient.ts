@@ -385,6 +385,15 @@ class WebSocketClient {
     this.socket?.off('user-activity', callback);
   }
 
+  // Instance status events
+  onInstanceStatusUpdated(callback: (data: any) => void) {
+    this.addEventListener('instance-status-updated', callback);
+  }
+
+  offInstanceStatusUpdated(callback?: (data: any) => void) {
+    this.socket?.off('instance-status-updated', callback);
+  }
+
   offWebSocketReady(callback?: () => void) {
     if (callback) {
       const index = this.readyCallbacks.indexOf(callback);
