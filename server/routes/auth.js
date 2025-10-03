@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 const router = express.Router();
 
@@ -388,6 +389,42 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
   } catch (error) {
     console.error('🔍 [DEBUG] OAuth debug error:', error);
     res.status(500).json({ error: 'Failed to get OAuth debug info' });
+  }
+});
+
+// Check instance status for logged-in users
+router.get('/instance-status', authenticateToken, (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const status = statusSetting ? statusSetting.value : 'active';
+    
+    const getStatusMessage = (status) => {
+      switch (status) {
+        case 'active':
+          return 'This instance is running normally.';
+        case 'suspended':
+          return 'This instance has been temporarily suspended. Please contact support for assistance.';
+        case 'terminated':
+          return 'This instance has been terminated. Please contact support for assistance.';
+        case 'failed':
+          return 'This instance failed to deploy properly. Please contact support for assistance.';
+        case 'deploying':
+          return 'This instance is currently being deployed. Please try again in a few minutes.';
+        default:
+          return 'This instance is currently unavailable. Please contact support.';
+      }
+    };
+    
+    res.json({
+      status: status,
+      isActive: status === 'active',
+      message: getStatusMessage(status),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error checking instance status:', error);
+    res.status(500).json({ error: 'Failed to check instance status' });
   }
 });
 

@@ -705,6 +705,17 @@ export const getTaskFlowChart = async (taskId: string): Promise<{
   return response.data;
 };
 
+// Instance Status
+export const getInstanceStatus = async (): Promise<{
+  status: string;
+  isActive: boolean;
+  message: string;
+  timestamp: string;
+}> => {
+  const { data } = await api.get('/auth/instance-status');
+  return data;
+};
+
 // User Status
 export const getUserStatus = async (): Promise<{
   isActive: boolean;

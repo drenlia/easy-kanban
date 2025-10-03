@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}} - Easy Kanban</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .maintenance-container {
+            background: white;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .status-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+        
+        .status-suspended { color: #ffc107; }
+        .status-terminated { color: #dc3545; }
+        .status-failed { color: #dc3545; }
+        .status-deploying { color: #17a2b8; }
+        .status-unknown { color: #6c757d; }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.8rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+        }
+        
+        .badge-suspended {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .badge-terminated {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge-failed {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .badge-deploying {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .badge-unknown {
+            background-color: #e2e3e5;
+            color: #383d41;
+        }
+        
+        p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 30px;
+        }
+        
+        .contact-info {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        
+        .contact-info h3 {
+            margin-top: 0;
+            color: #333;
+            font-size: 1.1rem;
+        }
+        
+        .contact-info p {
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .logo {
+            margin-bottom: 30px;
+        }
+        
+        .logo h2 {
+            color: #667eea;
+            margin: 0;
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="maintenance-container">
+        <div class="logo">
+            <h2>Easy Kanban</h2>
+        </div>
+        
+        <div class="status-icon {{status}}">
+            {{#if (eq status 'suspended')}}
+                ⚠️
+            {{else if (eq status 'terminated')}}
+                🚫
+            {{else if (eq status 'failed')}}
+                ❌
+            {{else if (eq status 'deploying')}}
+                ⏳
+            {{else}}
+                ❓
+            {{/if}}
+        </div>
+        
+        <h1>Instance Unavailable</h1>
+        
+        <div class="status-badge badge-{{status}}">
+            {{status}}
+        </div>
+        
+        <p>{{message}}</p>
+        
+        <div class="contact-info">
+            <h3>Need Help?</h3>
+            <p>If you believe this is an error, please contact our support team.</p>
+            <p><strong>Email:</strong> support@ezkan.cloud</p>
+        </div>
+    </div>
+</body>
+</html>

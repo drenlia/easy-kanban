@@ -16,6 +16,7 @@ import { initializeDatabase } from './config/database.js';
 import { authenticateToken, requireRole, generateToken, JWT_SECRET, JWT_EXPIRES_IN } from './middleware/auth.js';
 import { attachmentUpload, avatarUpload, createAttachmentUpload } from './config/multer.js';
 import { wrapQuery, getQueryLogs, clearQueryLogs } from './utils/queryLogger.js';
+import { checkInstanceStatus, initializeInstanceStatus } from './middleware/instanceStatus.js';
 
 // Import generateRandomPassword function
 const generateRandomPassword = (length = 12) => {
@@ -53,6 +54,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Initialize database using extracted module
 const db = initializeDatabase();
+
+// Initialize instance status setting
+initializeInstanceStatus(db);
 
 // Initialize activity logger and notification service with database instance
 initActivityLogger(db);
@@ -132,6 +136,9 @@ app.use((req, res, next) => {
 // }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
+// Add instance status middleware
+app.use(checkInstanceStatus(db));
 
 // ================================
 // RATE LIMITING CONFIGURATION

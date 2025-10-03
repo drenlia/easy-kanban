@@ -797,6 +797,70 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
 });
 
 // ================================
+// INSTANCE STATUS MANAGEMENT
+// ================================
+
+// Update instance status in settings
+router.put('/instance-status', authenticateAdminPortal, (req, res) => {
+  try {
+    const { status } = req.body;
+
+    // Validate status
+    const validStatuses = ['deploying', 'active', 'suspended', 'terminated', 'failed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Invalid status. Must be deploying, active, suspended, terminated, or failed' 
+      });
+    }
+
+    // Update or insert INSTANCE_STATUS setting
+    const existingSetting = wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    
+    if (existingSetting) {
+      wrapQuery(db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'), 'UPDATE')
+        .run(status, 'INSTANCE_STATUS');
+    } else {
+      wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
+        .run('INSTANCE_STATUS', status);
+    }
+
+    console.log(`✅ Admin portal updated instance status to: ${status}`);
+
+    res.json({
+      success: true,
+      message: 'Instance status updated successfully',
+      data: { status }
+    });
+  } catch (error) {
+    console.error('Error updating instance status:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update instance status' 
+    });
+  }
+});
+
+// Get current instance status
+router.get('/instance-status', authenticateAdminPortal, (req, res) => {
+  try {
+    const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const status = statusSetting ? statusSetting.value : 'active';
+
+    res.json({
+      success: true,
+      data: { status }
+    });
+  } catch (error) {
+    console.error('Error fetching instance status:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch instance status' 
+    });
+  }
+});
+
+// ================================
 // USER MANAGEMENT ENHANCEMENTS
 // ================================
 

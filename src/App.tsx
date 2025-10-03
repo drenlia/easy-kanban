@@ -116,9 +116,136 @@ export default function App() {
   const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
   const [clearActivityId, setClearActivityId] = useState<number>(0);
   
+  // Utility function to check instance status on API failures
+  const checkInstanceStatusOnError = async (error: any) => {
+    if (error?.response?.status === 503 && error?.response?.data?.code === 'INSTANCE_SUSPENDED') {
+      // Update instance status state
+      setInstanceStatus({
+        status: error.response.data.status,
+        message: error.response.data.message,
+        isDismissed: false
+      });
+      return true; // Indicates this was an instance status error
+    }
+    
+    // For any other API error, check if instance is still active
+    if (error?.response?.status >= 500) {
+      try {
+        const response = await api.get('/auth/instance-status');
+        if (!response.data.isActive) {
+          setInstanceStatus({
+            status: response.data.status,
+            message: response.data.message,
+            isDismissed: false
+          });
+        }
+      } catch (statusError) {
+        // If we can't check status, assume it's suspended
+        setInstanceStatus({
+          status: 'suspended',
+          message: 'Unable to determine instance status',
+          isDismissed: false
+        });
+      }
+    }
+    
+    return false; // Not an instance status error
+  };
+
   // User Status for permission refresh
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const userStatusRef = useRef<UserStatus | null>(null);
+  
+  // Instance Status Banner State
+  const [instanceStatus, setInstanceStatus] = useState<{
+    status: string;
+    message: string;
+    isDismissed: boolean;
+  }>({
+    status: 'active',
+    message: '',
+    isDismissed: false
+  });
+  
+  // Instance Status Banner Component
+  const InstanceStatusBanner = () => {
+    if (instanceStatus.status === 'active' || instanceStatus.isDismissed) {
+      return null;
+    }
+
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case 'suspended':
+          return 'bg-yellow-100 border-yellow-500 text-yellow-700';
+        case 'terminated':
+          return 'bg-red-100 border-red-500 text-red-700';
+        case 'failed':
+          return 'bg-red-100 border-red-500 text-red-700';
+        case 'deploying':
+          return 'bg-blue-100 border-blue-500 text-blue-700';
+        default:
+          return 'bg-gray-100 border-gray-500 text-gray-700';
+      }
+    };
+
+    const getStatusIcon = (status: string) => {
+      switch (status) {
+        case 'suspended':
+          return (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            </svg>
+          );
+        case 'terminated':
+        case 'failed':
+          return (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+            </svg>
+          );
+        case 'deploying':
+          return (
+            <svg className="h-5 w-5 animate-spin" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+            </svg>
+          );
+        default:
+          return (
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+          );
+      }
+    };
+
+    return (
+      <div className={`border-l-4 p-4 mb-4 ${getStatusColor(instanceStatus.status)}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <div className="flex-shrink-0 mr-3">
+              {getStatusIcon(instanceStatus.status)}
+            </div>
+            <div>
+              <p className="text-sm font-medium">
+                <strong>Instance Unavailable</strong>
+              </p>
+              <p className="text-sm mt-1">
+                {instanceStatus.message}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setInstanceStatus(prev => ({ ...prev, isDismissed: true }))}
+            className="flex-shrink-0 ml-4 text-gray-400 hover:text-gray-600"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
   
   // Drag states for BoardTabs integration
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
@@ -808,7 +935,9 @@ export default function App() {
 
       try {
         const startTime = performance.now();
-        const newUserStatus = await getUserStatus();
+        const [newUserStatus] = await Promise.all([
+          getUserStatus()
+        ]);
         const apiTime = performance.now() - startTime;
         
         // Reduced logging to avoid performance violations
@@ -818,6 +947,7 @@ export default function App() {
         
         const updateStartTime = performance.now();
         handleUserStatusUpdate(newUserStatus);
+        
         const updateTime = performance.now() - updateStartTime;
         
         if (process.env.NODE_ENV === 'development' && updateTime > 50) {
@@ -844,7 +974,29 @@ export default function App() {
     };
   }, [isAuthenticated, isSavingPreferences]);
 
-  // Initialize WebSocket connection and real-time updates
+
+  // Check instance status on page load
+  useEffect(() => {
+    const checkInitialInstanceStatus = async () => {
+      try {
+        const response = await api.get('/auth/instance-status');
+        if (!response.data.isActive) {
+          setInstanceStatus({
+            status: response.data.status,
+            message: response.data.message,
+            isDismissed: false
+          });
+        }
+      } catch (error) {
+        // If we can't check status, assume it's active
+        console.warn('Failed to check initial instance status:', error);
+      }
+    };
+
+    if (isAuthenticated) {
+      checkInitialInstanceStatus();
+    }
+  }, [isAuthenticated]);
   useEffect(() => {
     if (!isAuthenticated || !localStorage.getItem('authToken')) {
       return;
@@ -2507,6 +2659,8 @@ export default function App() {
         }
         
         toast.error(title, message, 5000);
+      } else if (await checkInstanceStatusOnError(error)) {
+        // Instance status error handled by utility function
       }
     }
   };
@@ -2685,6 +2839,8 @@ export default function App() {
         }
         
         toast.error(title, message, 5000);
+      } else if (await checkInstanceStatusOnError(error)) {
+        // Instance status error handled by utility function
       } else {
         await refreshBoardData();
       }
@@ -2740,6 +2896,12 @@ export default function App() {
       });
     } catch (error) {
       console.error('❌ [App] Failed to update task:', error);
+      
+      // Check if it's an instance unavailable error
+      if (await checkInstanceStatusOnError(error)) {
+        return; // Don't rollback if instance is suspended
+      }
+      
       // Rollback on error
       setColumns(previousColumns);
     }
@@ -2797,6 +2959,11 @@ export default function App() {
     } catch (error) {
       console.error('Failed to copy task:', error);
       setTaskCreationPause(false);
+      
+      // Check if it's an instance unavailable error
+      if (await checkInstanceStatusOnError(error)) {
+        // Instance status error handled by utility function
+      }
     }
   };
 
@@ -4290,6 +4457,8 @@ export default function App() {
                                     // Auto-synced relationships
                                     boardRelationships={boardRelationships}
       />
+
+      <InstanceStatusBanner />
 
       <ModalManager
         selectedTask={selectedTask}
