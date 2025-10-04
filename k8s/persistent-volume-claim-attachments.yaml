@@ -11,4 +11,4 @@ spec:
   resources:
     requests:
       storage: STORAGE_LIMIT_PLACEHOLDER
-  storageClassName: local-storage
+  storageClassName: STORAGE_CLASS_PLACEHOLDER

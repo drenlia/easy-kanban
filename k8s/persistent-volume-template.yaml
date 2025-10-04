@@ -8,6 +8,6 @@ spec:
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain
-  storageClassName: local-storage
+  storageClassName: easy-kanban-storage
   hostPath:
     path: /data/easy-kanban-pv/easy-kanban-INSTANCE_NAME_PLACEHOLDER-data

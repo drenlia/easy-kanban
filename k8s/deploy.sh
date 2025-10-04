@@ -132,12 +132,12 @@ generate_manifests() {
     
     # Create storage directories
     echo "📁 Creating storage directories for ${INSTANCE_NAME}..."
-    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
-    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
+    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
+    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
+    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
+    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
+    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
     
     # Generate persistent volumes
     sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
@@ -152,13 +152,16 @@ generate_manifests() {
     
     # Generate persistent volume claims
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim.yaml > "${TEMP_DIR}/persistent-volume-claim.yaml"
     
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
+        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim-attachments.yaml > "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
     
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim-avatars.yaml > "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
 }
 
@@ -197,6 +200,12 @@ kubectl apply -f "${TEMP_DIR}/persistent-volume-claim.yaml"
 kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
 kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
 
+# Fix ownership before deploying the application
+echo "🔧 Setting correct ownership for storage directories..."
+sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
+sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
+sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
+
 # Apply the main application
 echo "🎯 Deploying Easy Kanban application..."
 kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
@@ -221,12 +230,12 @@ echo "🔍 Extracting deployment information..."
 
 # Get the external IP from the ingress
 EXTERNAL_IP=""
-INGRESS_IP=$(kubectl get ingress easy-kanban-ingress -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+INGRESS_IP=$(kubectl get ingress easy-kanban-${INSTANCE_NAME}-ingress -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 if [ -n "$INGRESS_IP" ]; then
     EXTERNAL_IP="$INGRESS_IP"
 else
     # Fallback to NodePort service
-    NODEPORT=$(kubectl get service easy-kanban-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="backend")].nodePort}' 2>/dev/null || echo "")
+    NODEPORT=$(kubectl get service easy-kanban-${INSTANCE_NAME}-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="backend")].nodePort}' 2>/dev/null || echo "")
     if [ -n "$NODEPORT" ]; then
         # Get node IP
         NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
@@ -267,9 +276,9 @@ if [ -n "$NODEPORT" ]; then
 fi
 echo ""
 echo "🔧 Management Commands:"
-echo "   View logs: kubectl logs -f deployment/easy-kanban -n ${NAMESPACE}"
+echo "   View logs: kubectl logs -f deployment/easy-kanban-${INSTANCE_NAME} -n ${NAMESPACE}"
 echo "   Delete instance: kubectl delete namespace ${NAMESPACE}"
-echo "   Scale replicas: kubectl scale deployment easy-kanban --replicas=1 -n ${NAMESPACE}"
+echo "   Scale replicas: kubectl scale deployment easy-kanban-${INSTANCE_NAME} --replicas=1 -n ${NAMESPACE}"
 
 # Clean up temporary files
 echo ""
