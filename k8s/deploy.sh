@@ -119,7 +119,7 @@ generate_manifests() {
     # Generate app deployment
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban-${INSTANCE_NAME}/g" \
-        -e "s/IMAGE_NAME_PLACEHOLDER/easy-kanban:prod/g" \
+        -e "s/IMAGE_NAME_PLACEHOLDER/easy-kanban:latest/g" \
         ${SCRIPT_DIR}/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
     
     # Generate services

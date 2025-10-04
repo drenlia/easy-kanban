@@ -998,13 +998,23 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const siteNameSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
     const siteName = siteNameSetting?.value || 'Easy Kanban';
     
-    // Generate invitation URL
-    const baseUrl = process.env.BASE_URL || `https://${process.env.DEFAULT_DOMAIN_SUFFIX || 'ezkan.cloud'}`;
+    // Generate invitation URL using instance-specific hostname
+    const instanceName = process.env.INSTANCE_NAME;
+    const baseUrl = process.env.BASE_URL || `https://${instanceName}.ezkan.cloud`;
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
     
-    // Send invitation email using the existing notification service
-    const notificationService = (await import('../services/notificationService.js')).default;
-    await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+    // Send invitation email using a fresh notification service instance
+    // This ensures it reads the latest email settings from the database
+    try {
+      const { NotificationService } = await import('../services/notificationService.js');
+      const notificationService = new NotificationService(db);
+      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+    } catch (importError) {
+      console.error('Error importing NotificationService:', importError);
+      // Fallback to the singleton instance
+      const notificationService = getNotificationService();
+      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+    }
     
     console.log(`✅ Invitation sent to user: ${email}`);
     

@@ -20,7 +20,7 @@ data:
   
   # Security configuration
   JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
-  ALLOWED_ORIGINS: "localhost,127.0.0.1,INSTANCE_NAME_PLACEHOLDER.ezkan.cloud,admin.ezkan.cloud"
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,INSTANCE_NAME_PLACEHOLDER.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
   
   # License settings (will be set based on plan)
   LICENSE_ENABLED: "true"
