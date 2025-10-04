@@ -3,6 +3,7 @@ import api from '../../api';
 
 interface Settings {
   MAIL_ENABLED?: string;
+  MAIL_MANAGED?: string;
   SMTP_HOST?: string;
   SMTP_PORT?: string;
   SMTP_USERNAME?: string;
@@ -75,6 +76,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
 
   // Check if running in demo mode
   const isDemoMode = process.env.DEMO_ENABLED === 'true';
+  
+  // Check if email is managed
+  const isManagedEmail = editingSettings.MAIL_MANAGED === 'true';
 
   return (
     <>
@@ -99,6 +103,45 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                     to prevent sending emails from demo environments. This restriction will be automatically 
                     lifted when demo mode is disabled.
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Managed Email Status */}
+          {editingSettings.MAIL_MANAGED === 'true' && (
+            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg">
+              <div className="flex items-start">
+                <svg className="h-5 w-5 text-blue-400 dark:text-blue-500 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">Managed Email Service</h3>
+                  <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                    Your email service is currently managed by Easy Kanban. This means emails are sent using our infrastructure 
+                    with the sender address <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">noreply@ezkan.cloud</code>.
+                  </p>
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Are you sure you want to switch to custom SMTP settings? This will clear the current managed settings and require you to configure your own SMTP server. You will need to test the configuration before it can be enabled.')) {
+                          // Clear managed SMTP settings in UI only (not saved to DB yet)
+                          handleInputChange('MAIL_MANAGED', 'false');
+                          handleInputChange('SMTP_HOST', '');
+                          handleInputChange('SMTP_PORT', '');
+                          handleInputChange('SMTP_USERNAME', '');
+                          handleInputChange('SMTP_PASSWORD', '');
+                          handleInputChange('SMTP_FROM_EMAIL', '');
+                          handleInputChange('SMTP_FROM_NAME', '');
+                          handleInputChange('MAIL_ENABLED', 'false');
+                        }
+                      }}
+                      className="text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
+                    >
+                      Switch to Custom SMTP
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -191,7 +234,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       handleInputChange('SMTP_HOST', 'smtp.gmail.com');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="smtp.gmail.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -214,7 +262,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       handleInputChange('SMTP_PORT', '587');
                     }
                   }}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="587"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -231,7 +284,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="text"
                   value={editingSettings.SMTP_USERNAME || ''}
                   onChange={(e) => handleInputChange('SMTP_USERNAME', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="admin@example.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -248,7 +306,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="password"
                   value={editingSettings.SMTP_PASSWORD || ''}
                   onChange={(e) => handleInputChange('SMTP_PASSWORD', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="Enter your SMTP password"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -268,7 +331,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="email"
                   value={editingSettings.SMTP_FROM_EMAIL || ''}
                   onChange={(e) => handleInputChange('SMTP_FROM_EMAIL', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="admin@example.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -285,7 +353,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="text"
                   value={editingSettings.SMTP_FROM_NAME || ''}
                   onChange={(e) => handleInputChange('SMTP_FROM_NAME', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                   placeholder="Kanban Admin"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -301,7 +374,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 <select
                   value={editingSettings.SMTP_SECURE || 'tls'}
                   onChange={(e) => handleInputChange('SMTP_SECURE', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  disabled={isManagedEmail}
+                  className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-gray-100 ${
+                    isManagedEmail 
+                      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
+                      : 'bg-white dark:bg-gray-700'
+                  }`}
                 >
                   <option value="tls">TLS (Recommended)</option>
                   <option value="ssl">SSL</option>
@@ -397,14 +475,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               Cancel
             </button>
             <button
-              onClick={isDemoMode ? undefined : onTestEmail}
-              disabled={isTestingEmail || isDemoMode || !canTestEmail()}
+              onClick={isDemoMode || isManagedEmail ? undefined : onTestEmail}
+              disabled={isTestingEmail || isDemoMode || isManagedEmail || !canTestEmail()}
               className={`px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                isTestingEmail || isDemoMode || !canTestEmail()
+                isTestingEmail || isDemoMode || isManagedEmail || !canTestEmail()
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
               }`}
-              title={isDemoMode ? 'Email testing is disabled in demo mode' : !canTestEmail() ? 'Fill in all required fields to test email' : undefined}
+              title={isDemoMode ? 'Email testing is disabled in demo mode' : isManagedEmail ? 'Email testing is not needed for managed email service' : !canTestEmail() ? 'Fill in all required fields to test email' : undefined}
             >
               {isTestingEmail ? (
                 <>
@@ -416,6 +494,8 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </>
               ) : isDemoMode ? (
                 'Test Email (Disabled in Demo)'
+              ) : isManagedEmail ? (
+                'Test Email (Not Needed - Managed)'
               ) : (
                 'Test Email'
               )}

@@ -459,6 +459,7 @@ const initializeDefaultData = (db) => {
       ['MAIL_USER', ''],
       ['MAIL_PASS', ''],
       ['MAIL_FROM', ''],
+      ['MAIL_MANAGED', 'false'], // Default to false, will be set to true for licensed instances
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
       ['GOOGLE_SSO_DEBUG', 'false'],
@@ -517,6 +518,34 @@ const initializeDefaultData = (db) => {
     defaultSettings.forEach(([key, value]) => {
       settingsStmt.run(key, value);
     });
+
+    // Set MAIL_MANAGED=true for licensed instances (basic/pro plans)
+    if (process.env.LICENSE_ENABLED === 'true') {
+      const supportType = process.env.SUPPORT_TYPE || 'basic';
+      if (supportType === 'basic' || supportType === 'pro') {
+        db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+          .run('MAIL_MANAGED', 'true');
+        console.log('✅ Set MAIL_MANAGED=true for licensed instance');
+        
+        // Configure managed SMTP settings
+        const managedSmtpSettings = [
+          ['SMTP_HOST', 'smtp.ezkan.cloud'],
+          ['SMTP_PORT', '587'],
+          ['SMTP_USERNAME', 'noreply@ezkan.cloud'],
+          ['SMTP_PASSWORD', process.env.MANAGED_SMTP_PASSWORD || 'managed-password'],
+          ['SMTP_FROM_EMAIL', 'noreply@ezkan.cloud'],
+          ['SMTP_FROM_NAME', 'Easy Kanban'],
+          ['SMTP_SECURE', 'tls'],
+          ['MAIL_ENABLED', 'true']
+        ];
+        
+        const managedSmtpStmt = db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)');
+        managedSmtpSettings.forEach(([key, value]) => {
+          managedSmtpStmt.run(key, value);
+        });
+        console.log('✅ Configured managed SMTP settings');
+      }
+    }
 
     // Create admin member
     const adminMemberId = crypto.randomUUID();
@@ -614,23 +643,26 @@ const initializeDefaultData = (db) => {
       columnStmt.run(col.id, boardId, col.title, col.position, col.is_finished ? 1 : 0, col.is_archived ? 1 : 0);
     });
 
-    // Create a sample task
+    // Create sample tasks
     const demoUserRecord = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@kanban.local');
     const demoMember = demoUserRecord ? db.prepare('SELECT id FROM members WHERE user_id = ?').get(demoUserRecord.id) : null;
     if (demoMember) {
-      const taskId = crypto.randomUUID();
       const now = new Date().toISOString();
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Always create the welcome task
+      const welcomeTaskId = crypto.randomUUID();
       db.prepare(`
         INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        taskId,
+        welcomeTaskId,
         'Welcome to Easy Kanban!',
         'This is a sample task to get you started. You can edit, move, or delete this task.',
         'TASK-00001',
         demoMember.id,
         demoMember.id,
-        new Date().toISOString().split('T')[0],
+        today,
         1,
         'medium',
         defaultColumns[0].id,
@@ -639,6 +671,155 @@ const initializeDefaultData = (db) => {
         now,
         now
       );
+
+      // Create additional demo tasks if DEMO_ENABLED=true
+      if (process.env.DEMO_ENABLED === 'true') {
+        const demoTasks = [
+          // To Do Column (3 tasks)
+          {
+            title: 'Set up project documentation',
+            description: 'Create comprehensive project documentation including README, API docs, and user guides.',
+            priority: 'high',
+            effort: 3,
+            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 7 days from now
+          },
+          {
+            title: 'Design user interface mockups',
+            description: 'Create wireframes and mockups for the new dashboard interface.',
+            priority: 'medium',
+            effort: 2,
+            dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 5 days from now
+          },
+          {
+            title: 'Research third-party integrations',
+            description: 'Investigate available APIs and services for payment processing and analytics.',
+            priority: 'low',
+            effort: 1,
+            dueDate: null
+          },
+          // In Progress Column (3 tasks)
+          {
+            title: 'Implement user authentication',
+            description: 'Build secure login system with JWT tokens and password hashing.',
+            priority: 'urgent',
+            effort: 5,
+            dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 3 days from now
+          },
+          {
+            title: 'Create database schema',
+            description: 'Design and implement the database structure with proper relationships and indexes.',
+            priority: 'high',
+            effort: 4,
+            dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 2 days from now
+          },
+          {
+            title: 'Set up CI/CD pipeline',
+            description: 'Configure automated testing and deployment workflows using GitHub Actions.',
+            priority: 'medium',
+            effort: 3,
+            dueDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 4 days from now
+          },
+          // Testing Column (3 tasks)
+          {
+            title: 'Write unit tests for API endpoints',
+            description: 'Create comprehensive test coverage for all REST API endpoints.',
+            priority: 'high',
+            effort: 2,
+            dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 1 day from now
+          },
+          {
+            title: 'Perform security audit',
+            description: 'Review code for security vulnerabilities and implement necessary fixes.',
+            priority: 'urgent',
+            effort: 3,
+            dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 2 days from now
+          },
+          {
+            title: 'Test cross-browser compatibility',
+            description: 'Ensure the application works correctly across different browsers and devices.',
+            priority: 'medium',
+            effort: 2,
+            dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 3 days from now
+          },
+          // Completed Column (3 tasks)
+          {
+            title: 'Project planning and requirements gathering',
+            description: 'Conducted stakeholder interviews and documented all project requirements.',
+            priority: 'medium',
+            effort: 2,
+            dueDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 5 days ago
+          },
+          {
+            title: 'Set up development environment',
+            description: 'Configured local development setup with all necessary tools and dependencies.',
+            priority: 'low',
+            effort: 1,
+            dueDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 3 days ago
+          },
+          {
+            title: 'Create initial project structure',
+            description: 'Set up the basic project architecture and folder structure.',
+            priority: 'medium',
+            effort: 1,
+            dueDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 2 days ago
+          },
+          // Archive Column (3 tasks)
+          {
+            title: 'Legacy feature removal',
+            description: 'Removed deprecated features that are no longer needed in the current version.',
+            priority: 'low',
+            effort: 1,
+            dueDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 10 days ago
+          },
+          {
+            title: 'Old documentation cleanup',
+            description: 'Archived outdated documentation and updated references to current versions.',
+            priority: 'low',
+            effort: 1,
+            dueDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 7 days ago
+          },
+          {
+            title: 'Deprecated API endpoint removal',
+            description: 'Removed old API endpoints that have been replaced by newer versions.',
+            priority: 'medium',
+            effort: 2,
+            dueDate: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 14 days ago
+          }
+        ];
+
+        // Insert demo tasks
+        const taskStmt = db.prepare(`
+          INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        demoTasks.forEach((task, index) => {
+          const taskId = crypto.randomUUID();
+          const ticketNumber = String(index + 2).padStart(5, '0'); // TASK-00002, TASK-00003, etc.
+          const columnIndex = Math.floor(index / 3); // 0-4 for each column
+          const positionInColumn = index % 3; // 0-2 within each column
+          
+          taskStmt.run(
+            taskId,
+            task.title,
+            task.description,
+            `TASK-${ticketNumber}`,
+            demoMember.id,
+            demoMember.id,
+            today,
+            task.dueDate,
+            task.effort,
+            task.priority,
+            defaultColumns[columnIndex].id,
+            boardId,
+            positionInColumn + 1, // +1 because welcome task is at position 0
+            now,
+            now
+          );
+        });
+
+        console.log('✅ Created 15 additional demo tasks for enhanced demo experience');
+      }
     }
   }
 
