@@ -53,13 +53,13 @@ if [[ "$PLAN" == "basic" ]]; then
     USER_LIMIT="5"
     TASK_LIMIT="100"
     BOARD_LIMIT="10"
-    STORAGE_LIMIT="1073741824"  # 1GB
+    STORAGE_LIMIT="1Gi"  # 1GB
     SUPPORT_TYPE="basic"
 else
     USER_LIMIT="50"
     TASK_LIMIT="-1"  # unlimited
     BOARD_LIMIT="-1" # unlimited
-    STORAGE_LIMIT="10737418240" # 10GB
+    STORAGE_LIMIT="10Gi" # 10GB
     SUPPORT_TYPE="pro"
 fi
 
@@ -129,6 +129,37 @@ generate_manifests() {
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/easy-kanban.local/${FULL_HOSTNAME}/g" \
         ${SCRIPT_DIR}/ingress.yaml > "${TEMP_DIR}/ingress.yaml"
+    
+    # Create storage directories
+    echo "📁 Creating storage directories for ${INSTANCE_NAME}..."
+    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
+    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
+    sudo mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
+    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
+    sudo chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+    
+    # Generate persistent volumes
+    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
+        ${SCRIPT_DIR}/persistent-volume-template.yaml > "${TEMP_DIR}/persistent-volume.yaml"
+    
+    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
+        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
+        ${SCRIPT_DIR}/persistent-volume-attachments-template.yaml > "${TEMP_DIR}/persistent-volume-attachments.yaml"
+    
+    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
+        ${SCRIPT_DIR}/persistent-volume-avatars-template.yaml > "${TEMP_DIR}/persistent-volume-avatars.yaml"
+    
+    # Generate persistent volume claims
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        ${SCRIPT_DIR}/persistent-volume-claim.yaml > "${TEMP_DIR}/persistent-volume-claim.yaml"
+    
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
+        ${SCRIPT_DIR}/persistent-volume-claim-attachments.yaml > "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
+    
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        ${SCRIPT_DIR}/persistent-volume-claim-avatars.yaml > "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
 }
 
 # Generate manifests
@@ -149,6 +180,22 @@ kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAM
 # Apply ConfigMap
 echo "⚙️  Creating ConfigMap..."
 kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+
+# Create storage class
+echo "📁 Creating storage class..."
+kubectl apply -f "${SCRIPT_DIR}/storage-class.yaml"
+
+# Create persistent volumes
+echo "💾 Creating persistent volumes..."
+kubectl apply -f "${TEMP_DIR}/persistent-volume.yaml"
+kubectl apply -f "${TEMP_DIR}/persistent-volume-attachments.yaml"
+kubectl apply -f "${TEMP_DIR}/persistent-volume-avatars.yaml"
+
+# Create persistent volume claims
+echo "🔗 Creating persistent volume claims..."
+kubectl apply -f "${TEMP_DIR}/persistent-volume-claim.yaml"
+kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
+kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
 
 # Apply the main application
 echo "🎯 Deploying Easy Kanban application..."
@@ -208,6 +255,11 @@ echo "   Hostname: ${FULL_HOSTNAME}"
 echo "   External Access: ${EXTERNAL_IP}"
 echo "   Instance Token: ${INSTANCE_TOKEN}"
 echo ""
+echo "💾 Storage Paths:"
+echo "   Database: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
+echo "   Attachments: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
+echo "   Avatars: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+echo ""
 echo "🌐 Access URLs:"
 echo "   - Primary: https://${FULL_HOSTNAME}"
 if [ -n "$NODEPORT" ]; then
@@ -232,3 +284,6 @@ echo "NAMESPACE=${NAMESPACE}"
 echo "HOSTNAME=${FULL_HOSTNAME}"
 echo "EXTERNAL_IP=${EXTERNAL_IP}"
 echo "INSTANCE_TOKEN=${INSTANCE_TOKEN}"
+echo "STORAGE_DATA_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
+echo "STORAGE_ATTACHMENTS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
+echo "STORAGE_AVATARS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"

@@ -56,6 +56,9 @@ if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
     HOSTNAME_RESULT=$(echo "$DEPLOY_RESULT" | grep "HOSTNAME=" | cut -d'=' -f2)
     EXTERNAL_IP_RESULT=$(echo "$DEPLOY_RESULT" | grep "EXTERNAL_IP=" | cut -d'=' -f2)
     INSTANCE_TOKEN_RESULT=$(echo "$DEPLOY_RESULT" | grep "INSTANCE_TOKEN=" | cut -d'=' -f2)
+    STORAGE_DATA_PATH=$(echo "$DEPLOY_RESULT" | grep "STORAGE_DATA_PATH=" | cut -d'=' -f2)
+    STORAGE_ATTACHMENTS_PATH=$(echo "$DEPLOY_RESULT" | grep "STORAGE_ATTACHMENTS_PATH=" | cut -d'=' -f2)
+    STORAGE_AVATARS_PATH=$(echo "$DEPLOY_RESULT" | grep "STORAGE_AVATARS_PATH=" | cut -d'=' -f2)
     
     # Output JSON result
     echo ""
@@ -72,6 +75,11 @@ if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
   "instance_token": "${INSTANCE_TOKEN_RESULT}",
   "plan": "${PLAN}",
   "access_url": "https://${HOSTNAME_RESULT}",
+  "storage_paths": {
+    "database": "${STORAGE_DATA_PATH}",
+    "attachments": "${STORAGE_ATTACHMENTS_PATH}",
+    "avatars": "${STORAGE_AVATARS_PATH}"
+  },
   "management_commands": {
     "view_logs": "kubectl logs -f deployment/easy-kanban -n ${NAMESPACE_RESULT}",
     "delete_instance": "kubectl delete namespace ${NAMESPACE_RESULT}",

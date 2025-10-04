@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: easy-kanban-attachments-pvc
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: STORAGE_LIMIT_PLACEHOLDER
+  storageClassName: local-storage

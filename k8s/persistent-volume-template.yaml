@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: easy-kanban-INSTANCE_NAME_PLACEHOLDER-data-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  hostPath:
+    path: /data/easy-kanban-pv/easy-kanban-INSTANCE_NAME_PLACEHOLDER-data

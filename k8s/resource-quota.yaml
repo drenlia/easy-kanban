@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: easy-kanban-quota
+  namespace: easy-kanban
+spec:
+  hard:
+    requests.storage: "10Gi"  # Total storage requests per namespace
+    persistentvolumeclaims: "3"  # Max 3 PVCs per namespace
+    pods: "5"  # Max 5 pods per namespace
+    requests.cpu: "2"  # Max 2 CPU cores
+    requests.memory: "4Gi"  # Max 4GB RAM
+    limits.cpu: "4"  # Max 4 CPU cores
+    limits.memory: "8Gi"  # Max 8GB RAM

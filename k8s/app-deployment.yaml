@@ -59,11 +59,14 @@ spec:
           mountPath: /app/server/avatars
       volumes:
       - name: app-data
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: easy-kanban-data-pvc
       - name: app-attachments
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: easy-kanban-attachments-pvc
       - name: app-avatars
-        emptyDir: {}
+        persistentVolumeClaim:
+          claimName: easy-kanban-avatars-pvc
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
