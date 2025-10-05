@@ -2145,9 +2145,19 @@ app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   try {
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
+    
+    // Check if email is managed
+    const mailManaged = settings.find(s => s.key === 'MAIL_MANAGED')?.value === 'true';
+    
     settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
+      // Hide sensitive SMTP fields when email is managed
+      if (mailManaged && ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'].includes(setting.key)) {
+        settingsObj[setting.key] = '';
+      } else {
+        settingsObj[setting.key] = setting.value;
+      }
     });
+    
     res.json(settingsObj);
   } catch (error) {
     console.error('Error fetching admin settings:', error);
@@ -2912,7 +2922,7 @@ app.get('/health', (req, res) => {
 // Serve the React app for all non-API routes
 app.get('*', (req, res) => {
   // Skip API routes
-  if (req.path.startsWith('/api/') || req.path.startsWith('/attachments/') || req.path.startsWith('/avatars/') || req.path === '/health') {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/attachments/') || req.path.startsWith('/avatars/')) {
     return res.status(404).json({ error: 'Not Found' });
   }
   

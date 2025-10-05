@@ -1826,9 +1826,19 @@ app.get('/api/admin/settings', authenticateToken, requireRole(['admin']), (req, 
   try {
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
+    
+    // Check if email is managed
+    const mailManaged = settings.find(s => s.key === 'MAIL_MANAGED')?.value === 'true';
+    
     settings.forEach(setting => {
-      settingsObj[setting.key] = setting.value;
+      // Hide sensitive SMTP fields when email is managed
+      if (mailManaged && ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'].includes(setting.key)) {
+        settingsObj[setting.key] = '';
+      } else {
+        settingsObj[setting.key] = setting.value;
+      }
     });
+    
     res.json(settingsObj);
   } catch (error) {
     console.error('Error fetching admin settings:', error);

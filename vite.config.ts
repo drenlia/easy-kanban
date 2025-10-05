@@ -21,6 +21,10 @@ export default defineConfig({
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,
       },
+      '/health': {
+        target: 'http://0.0.0.0:3222',
+        changeOrigin: true,
+      },
       '/attachments': {
         target: 'http://0.0.0.0:3222',
         changeOrigin: true,

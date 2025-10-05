@@ -228,19 +228,23 @@ echo "✅ Deployment completed successfully!"
 echo ""
 echo "🔍 Extracting deployment information..."
 
-# Get the external IP from the ingress
+# Get the external IP and NodePort information
 EXTERNAL_IP=""
+NODEPORT=""
 INGRESS_IP=$(kubectl get ingress easy-kanban-${INSTANCE_NAME}-ingress -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
-if [ -n "$INGRESS_IP" ]; then
-    EXTERNAL_IP="$INGRESS_IP"
-else
-    # Fallback to NodePort service
-    NODEPORT=$(kubectl get service easy-kanban-${INSTANCE_NAME}-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="backend")].nodePort}' 2>/dev/null || echo "")
-    if [ -n "$NODEPORT" ]; then
-        # Get node IP
-        NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || echo "localhost")
-        EXTERNAL_IP="$NODE_IP:$NODEPORT"
+
+# Always get NodePort information for admin portal (frontend port for web access)
+NODEPORT=$(kubectl get service easy-kanban-${INSTANCE_NAME}-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="frontend")].nodePort}' 2>/dev/null || echo "")
+if [ -n "$NODEPORT" ]; then
+    # Get node IP for NodePort access
+    NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null)
+    if [ -z "$NODE_IP" ]; then
+        NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null)
     fi
+    if [ -z "$NODE_IP" ]; then
+        NODE_IP="localhost"
+    fi
+    EXTERNAL_IP="$NODE_IP:$NODEPORT"
 fi
 
 # Show status
@@ -292,6 +296,7 @@ echo "INSTANCE_NAME=${INSTANCE_NAME}"
 echo "NAMESPACE=${NAMESPACE}"
 echo "HOSTNAME=${FULL_HOSTNAME}"
 echo "EXTERNAL_IP=${EXTERNAL_IP}"
+echo "NODEPORT=${NODEPORT}"
 echo "INSTANCE_TOKEN=${INSTANCE_TOKEN}"
 echo "STORAGE_DATA_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
 echo "STORAGE_ATTACHMENTS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"

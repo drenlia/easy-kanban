@@ -55,6 +55,7 @@ if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
     NAMESPACE_RESULT=$(echo "$DEPLOY_RESULT" | grep "NAMESPACE=" | cut -d'=' -f2)
     HOSTNAME_RESULT=$(echo "$DEPLOY_RESULT" | grep "HOSTNAME=" | cut -d'=' -f2)
     EXTERNAL_IP_RESULT=$(echo "$DEPLOY_RESULT" | grep "EXTERNAL_IP=" | cut -d'=' -f2)
+    NODEPORT_RESULT=$(echo "$DEPLOY_RESULT" | grep "NODEPORT=" | cut -d'=' -f2)
     INSTANCE_TOKEN_RESULT=$(echo "$DEPLOY_RESULT" | grep "INSTANCE_TOKEN=" | cut -d'=' -f2)
     STORAGE_DATA_PATH=$(echo "$DEPLOY_RESULT" | grep "STORAGE_DATA_PATH=" | cut -d'=' -f2)
     STORAGE_ATTACHMENTS_PATH=$(echo "$DEPLOY_RESULT" | grep "STORAGE_ATTACHMENTS_PATH=" | cut -d'=' -f2)
@@ -72,6 +73,7 @@ if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
   "namespace": "${NAMESPACE_RESULT}",
   "hostname": "${HOSTNAME_RESULT}",
   "external_ip": "${EXTERNAL_IP_RESULT}",
+  "nodeport": "${NODEPORT_RESULT}",
   "instance_token": "${INSTANCE_TOKEN_RESULT}",
   "plan": "${PLAN}",
   "access_url": "https://${HOSTNAME_RESULT}",
