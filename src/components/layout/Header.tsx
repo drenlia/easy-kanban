@@ -224,7 +224,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700">
+    <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
       <div className="w-4/5 mx-auto px-6 py-2.5 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <a 
@@ -323,6 +323,7 @@ const Header: React.FC<HeaderProps> = ({
                     className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
                     onClick={onProfileClick}
                     title="Profile Settings"
+                    data-tour-id="profile-menu"
                   >
                     {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
                       <img
@@ -403,7 +404,8 @@ const Header: React.FC<HeaderProps> = ({
                       currentPage === 'admin'
                         ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                         : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
+                    }`}
+                    data-tour-id="admin-tab"
                   >
                     Admin
                   </button>
@@ -444,6 +446,7 @@ const Header: React.FC<HeaderProps> = ({
             onClick={onHelpClick}
             className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
             title="Help (F1)"
+            data-tour-id="help-button"
           >
             <HelpCircle size={20} />
           </button>
@@ -461,7 +464,7 @@ const Header: React.FC<HeaderProps> = ({
       
       {/* System Usage Panel - Vertical Compact for Admins (Always Visible) */}
       {systemInfo && currentUser?.roles?.includes('admin') && (
-        <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10">
+        <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10" data-tour-id="system-usage-panel">
           <div className="flex flex-col space-y-0.5 text-[10px]">
             {/* RAM */}
             <div className="flex items-center space-x-1.5">

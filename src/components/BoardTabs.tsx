@@ -482,6 +482,7 @@ export default function BoardTabs({
             onClick={onAddBoard}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
             title="Add Board (Admin only)"
+            data-tour-id="add-board-button"
           >
             <Plus size={18} />
           </button>
@@ -584,7 +585,7 @@ export default function BoardTabs({
       
       <div className="flex items-center justify-between">
         {/* Board Tabs */}
-        <div className="flex items-center space-x-2 flex-1 min-w-0">
+        <div className="flex items-center space-x-2 flex-1 min-w-0" data-tour-id="board-tabs">
           {/* Left scroll button */}
           {canScrollLeft && (
             <button
@@ -800,6 +801,7 @@ export default function BoardTabs({
             onClick={onAddBoard}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
             title="Add New Board (Admin only)"
+            data-tour-id="add-board-button"
           >
             <Plus size={18} />
           </button>

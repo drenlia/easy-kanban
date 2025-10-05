@@ -20,7 +20,7 @@ export default function Tools({
   onToggleSearch
 }: ToolsProps) {
   return (
-    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-[150px]">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700 w-[150px]" data-tour-id="view-modes">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">Tools</h2>
       </div>
@@ -45,6 +45,7 @@ export default function Tools({
             viewMode === 'gantt' ? 'Switch to kanban view' :
             'Switch to kanban view'
           }
+          data-tour-id="view-mode-toggle"
         >
           {viewMode === 'kanban' ? <List size={16} /> :
            viewMode === 'list' ? <Calendar size={16} /> :
@@ -61,6 +62,7 @@ export default function Tools({
               : 'bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
           }`}
           title={isSearchActive ? 'Hide search filters' : 'Show search filters'}
+          data-tour-id="search-filter"
         >
           <Search size={16} />
         </button>

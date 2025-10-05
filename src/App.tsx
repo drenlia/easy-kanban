@@ -15,6 +15,7 @@ import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { TourProvider } from './contexts/TourContext';
 
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
@@ -4294,8 +4295,9 @@ export default function App() {
   }
 
   return (
-    <ThemeProvider>
-      <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
+    <TourProvider currentUser={currentUser}>
+      <ThemeProvider>
+        <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
       
       
@@ -4573,6 +4575,7 @@ export default function App() {
       
       {/* Toast Notifications */}
       <ToastContainer />
-    </ThemeProvider>
+      </ThemeProvider>
+    </TourProvider>
   );
 }

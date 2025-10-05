@@ -584,6 +584,7 @@ export default function KanbanColumn({
                     ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
                     : 'text-gray-400 cursor-not-allowed'
                 }`}
+                data-tour-id="add-task-button"
               >
                 <Plus size={18} />
               </button>

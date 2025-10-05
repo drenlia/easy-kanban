@@ -667,6 +667,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 scrollbarWidth: 'thin',
                 scrollbarColor: '#CBD5E1 #F1F5F9'
               }}
+              data-tour-id="kanban-columns"
             >
                              {/* DndContext handled at App level for global cross-board functionality */}
             {/* Admin view with column drag and drop */}

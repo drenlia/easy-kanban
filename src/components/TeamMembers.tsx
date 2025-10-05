@@ -122,7 +122,7 @@ export default function TeamMembers({
   const isAdmin = true; // This will be passed as a prop later if needed
 
   return (
-    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700">
+    <div className="p-3 bg-white dark:bg-gray-800 shadow-sm rounded-lg mb-4 border border-gray-100 dark:border-gray-700" data-tour-id="team-members">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
