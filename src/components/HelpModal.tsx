@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings } from 'lucide-react';
+import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play } from 'lucide-react';
+import { useTour } from '../contexts/TourContext';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -11,6 +12,15 @@ type TabType = 'overview' | 'kanban' | 'list' | 'gantt';
 export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const { startTour } = useTour();
+
+  const handleStartTour = () => {
+    console.log('Start Tutorial button clicked!');
+    onClose(); // Close the modal first
+    setTimeout(() => {
+      startTour(); // Use context function
+    }, 100);
+  };
 
   // Handle click outside to close modal
   useEffect(() => {
@@ -384,12 +394,21 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
             <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">Easy Kanban Help</h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Press F1 anytime to open this help</p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-          >
-            <X size={24} className="text-gray-500 dark:text-gray-400" />
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleStartTour}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors font-medium"
+            >
+              <Play size={16} />
+              Start Tutorial
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+            >
+              <X size={24} className="text-gray-500 dark:text-gray-400" />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}
