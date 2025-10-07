@@ -647,10 +647,10 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
     // Validate value based on key type
     if (key !== 'SUPPORT_TYPE' && value !== null) {
       const numValue = parseInt(value);
-      if (isNaN(numValue) || numValue < 0) {
+      if (isNaN(numValue) || numValue < -1) {
         return res.status(400).json({ 
           success: false,
-          error: 'Value must be a positive number or null' 
+          error: 'Value must be a positive number, -1 for unlimited, or null' 
         });
       }
     }
