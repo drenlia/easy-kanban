@@ -4246,19 +4246,21 @@ export default function App() {
     
     return (
       <ThemeProvider>
-        <TaskPage 
-          currentUser={currentUser}
-          siteSettings={siteSettings}
-          members={members}
-          isPolling={isPolling}
-          lastPollTime={lastPollTime}
-          onLogout={handleLogout}
-          onPageChange={handlePageChange}
-          onRefresh={handleRefreshData}
-          onInviteUser={handleInviteUser}
-          // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
-          // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
-        />
+        <TourProvider currentUser={currentUser}>
+          <TaskPage 
+            currentUser={currentUser}
+            siteSettings={siteSettings}
+            members={members}
+            isPolling={isPolling}
+            lastPollTime={lastPollTime}
+            onLogout={handleLogout}
+            onPageChange={handlePageChange}
+            onRefresh={handleRefreshData}
+            onInviteUser={handleInviteUser}
+            // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+            // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
+          />
+        </TourProvider>
       </ThemeProvider>
     );
   }
