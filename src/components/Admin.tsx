@@ -540,9 +540,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const updatedTags = await getTags();
       setTags(updatedTags);
       setShowDeleteTagConfirm(null);
-      setSuccessMessage('Tag and all associations deleted successfully');
+      setTabMessage('tags', 'success', 'Tag and all associations deleted successfully');
+      setTimeout(() => setTabMessage('tags', 'success', null), 5000);
     } catch (error: any) {
-      setError(error.response?.data?.error || 'Failed to delete tag');
+      setTabMessage('tags', 'error', error.response?.data?.error || 'Failed to delete tag');
     }
   };
 
@@ -554,28 +555,32 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await createTag(tagData);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setSuccessMessage('Tag created successfully');
+    setTabMessage('tags', 'success', 'Tag created successfully');
+    setTimeout(() => setTabMessage('tags', 'success', null), 5000);
   };
 
   const handleUpdateTag = async (tagId: number, updates: { tag: string; description: string; color: string }) => {
     await updateTag(tagId, updates);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setSuccessMessage('Tag updated successfully');
+    setTabMessage('tags', 'success', 'Tag updated successfully');
+    setTimeout(() => setTabMessage('tags', 'success', null), 5000);
   };
 
   const handleAddPriority = async (priorityData: { priority: string; color: string }) => {
     await createPriority(priorityData);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setSuccessMessage('Priority created successfully');
+    setTabMessage('priorities', 'success', 'Priority created successfully');
+    setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
   };
 
   const handleUpdatePriority = async (priorityId: string, updates: { priority: string; color: string }) => {
     await updatePriority(Number(priorityId), updates);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setSuccessMessage('Priority updated successfully');
+    setTabMessage('priorities', 'success', 'Priority updated successfully');
+    setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
   };
 
   const handleDeletePriority = async (priorityId: string) => {
@@ -598,7 +603,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const updatedPriorities = await getPriorities();
       setPriorities(updatedPriorities);
       setShowDeletePriorityConfirm(null);
-      setSuccessMessage('Priority deleted successfully');
+      setTabMessage('priorities', 'success', 'Priority deleted successfully');
+      setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
     } catch (error: any) {
       console.error('Failed to delete priority:', error);
       
@@ -611,7 +617,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         errorMessage = error.message;
       }
       
-      setError(errorMessage);
+      setTabMessage('priorities', 'error', errorMessage);
     }
   };
 
