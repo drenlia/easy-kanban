@@ -179,8 +179,17 @@ const SortablePriorityRow = ({
           <button
             ref={deleteButtonRef}
             onClick={handleDeleteClick}
-            className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
-            title="Delete priority"
+            disabled={!!priority.isDefault || !!priority.initial}
+            className={`p-1.5 rounded transition-colors ${
+              priority.isDefault || priority.initial
+                ? 'text-gray-400 cursor-not-allowed opacity-50'
+                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+            }`}
+            title={
+              priority.isDefault || priority.initial
+                ? 'Cannot delete the default priority'
+                : 'Delete priority'
+            }
             data-priority-id={priority.id}
           >
             <Trash2 size={16} />
@@ -197,18 +206,19 @@ const SortablePriorityRow = ({
             left: `${deleteButtonPosition.left}px`
           }}
         >
-          <div className="text-sm text-gray-700 mb-2">
+          <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
             {(() => {
               if (priorityUsageCounts[priority.id] > 0) {
                 return (
                   <>
                     <div className="font-medium mb-1">Delete priority?</div>
-                    <div className="text-xs text-gray-700">
-                      <span className="text-red-600 font-medium">
+                    <div className="text-xs text-gray-700 dark:text-gray-400">
+                      <span className="text-blue-600 dark:text-blue-400 font-medium">
                         {priorityUsageCounts[priority.id]} task{priorityUsageCounts[priority.id] !== 1 ? 's' : ''}
                       </span>{' '}
-                      will lose this priority:{' '}
+                      using{' '}
                       <span className="font-medium">{priority.priority}</span>
+                      {' '}will be reassigned to the default priority.
                     </div>
                   </>
                 );
@@ -216,8 +226,8 @@ const SortablePriorityRow = ({
                 return (
                   <>
                     <div className="font-medium mb-1">Delete priority?</div>
-                    <div className="text-xs text-gray-600">
-                      No tasks will be affected for{' '}
+                    <div className="text-xs text-gray-600 dark:text-gray-400">
+                      No tasks are using{' '}
                       <span className="font-medium">{priority.priority}</span>
                     </div>
                   </>

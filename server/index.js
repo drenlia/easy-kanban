@@ -1892,30 +1892,50 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
       return res.status(404).json({ error: 'Priority not found' });
     }
     
-    // Check if priority is being used and get the specific task tickets
-    const tasksUsingPriority = wrapQuery(db.prepare(`
-      SELECT ticket, title 
-      FROM tasks 
-      WHERE priority = (SELECT priority FROM priorities WHERE id = ?)
-      ORDER BY ticket
-    `), 'SELECT').all(priorityId);
-    
-    if (tasksUsingPriority.length > 0) {
-      const taskTickets = tasksUsingPriority.map(task => task.ticket).join(', ');
+    // Check if this is the default priority
+    if (priorityToDelete.initial === 1) {
       return res.status(400).json({ 
-        error: `Cannot delete priority: the following tasks are using it: ${taskTickets}`,
-        taskTickets: tasksUsingPriority.map(task => task.ticket),
-        taskCount: tasksUsingPriority.length
+        error: 'Cannot delete the default priority. Please set another priority as default first.'
       });
     }
     
-    const result = wrapQuery(db.prepare('DELETE FROM priorities WHERE id = ?'), 'DELETE').run(priorityId);
+    // Get the default priority to reassign tasks
+    const defaultPriority = wrapQuery(db.prepare('SELECT * FROM priorities WHERE initial = 1'), 'SELECT').get();
     
-    if (result.changes === 0) {
-      return res.status(404).json({ error: 'Priority not found' });
+    if (!defaultPriority) {
+      return res.status(400).json({ 
+        error: 'Cannot delete priority: no default priority is set. Please set a default priority first.'
+      });
     }
     
-    // Publish to Redis for real-time updates
+    // Check if priority is being used
+    const tasksUsingPriority = wrapQuery(db.prepare(`
+      SELECT id, ticket, title, boardId
+      FROM tasks 
+      WHERE priority = ?
+      ORDER BY ticket
+    `), 'SELECT').all(priorityToDelete.priority);
+    
+    // Use transaction to ensure atomicity
+    db.transaction(() => {
+      // If priority is in use, reassign all tasks to the default priority
+      if (tasksUsingPriority.length > 0) {
+        console.log(`📋 Reassigning ${tasksUsingPriority.length} tasks from "${priorityToDelete.priority}" to default priority "${defaultPriority.priority}"`);
+        
+        wrapQuery(db.prepare(`
+          UPDATE tasks 
+          SET priority = ? 
+          WHERE priority = ?
+        `), 'UPDATE').run(defaultPriority.priority, priorityToDelete.priority);
+        
+        console.log(`✅ Reassigned ${tasksUsingPriority.length} tasks to default priority`);
+      }
+      
+      // Now delete the priority
+      wrapQuery(db.prepare('DELETE FROM priorities WHERE id = ?'), 'DELETE').run(priorityId);
+    })();
+    
+    // Publish priority deletion to Redis for real-time updates
     console.log('📤 Publishing priority-deleted to Redis');
     await redisService.publish('priority-deleted', {
       priorityId: priorityId,
@@ -1924,7 +1944,40 @@ app.delete('/api/admin/priorities/:priorityId', authenticateToken, requireRole([
     });
     console.log('✅ Priority-deleted published to Redis');
     
-    res.json({ message: 'Priority deleted successfully' });
+    // If tasks were reassigned, publish task updates for each affected board
+    if (tasksUsingPriority.length > 0) {
+      // Group tasks by board for efficient updates
+      const tasksByBoard = tasksUsingPriority.reduce((acc, task) => {
+        if (!acc[task.boardId]) acc[task.boardId] = [];
+        acc[task.boardId].push(task);
+        return acc;
+      }, {});
+      
+      // Publish updates for each board
+      for (const [boardId, tasks] of Object.entries(tasksByBoard)) {
+        console.log(`📤 Publishing ${tasks.length} task updates for board ${boardId}`);
+        
+        for (const task of tasks) {
+          // Fetch updated task data
+          const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          
+          if (updatedTask) {
+            await redisService.publish('task-updated', {
+              boardId: boardId,
+              task: updatedTask,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      console.log(`✅ Published task updates for ${tasksUsingPriority.length} reassigned tasks`);
+    }
+    
+    res.json({ 
+      message: 'Priority deleted successfully',
+      reassignedTasks: tasksUsingPriority.length
+    });
   } catch (error) {
     console.error('Error deleting priority:', error);
     res.status(500).json({ error: 'Failed to delete priority' });

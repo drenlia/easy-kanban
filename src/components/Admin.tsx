@@ -599,11 +599,19 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const confirmDeletePriority = async (priorityId: string) => {
     try {
-      await deletePriority(Number(priorityId));
+      const response = await deletePriority(Number(priorityId));
       const updatedPriorities = await getPriorities();
       setPriorities(updatedPriorities);
       setShowDeletePriorityConfirm(null);
-      setTabMessage('priorities', 'success', 'Priority deleted successfully');
+      
+      // Show success message with reassignment info if applicable
+      const reassignedCount = response?.data?.reassignedTasks || 0;
+      let successMessage = 'Priority deleted successfully';
+      if (reassignedCount > 0) {
+        successMessage += ` (${reassignedCount} task${reassignedCount !== 1 ? 's' : ''} reassigned to default priority)`;
+      }
+      
+      setTabMessage('priorities', 'success', successMessage);
       setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
     } catch (error: any) {
       console.error('Failed to delete priority:', error);
