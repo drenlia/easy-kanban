@@ -935,6 +935,38 @@ app.delete('/api/users/account', authenticateToken, (req, res) => {
     // Execute the transaction
     transaction();
     
+    // Publish to Redis for real-time updates to admins viewing user list
+    console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);
+    
+    // Publish member-deleted for task/member updates
+    redisService.publish('member-deleted', {
+      userId: userId,
+      memberId: null, // User deleted themselves, member record is already gone
+      userName: `${user.first_name} ${user.last_name}`,
+      userEmail: user.email,
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish member-deleted event:', err);
+      // Don't fail the deletion if Redis publish fails
+    });
+    
+    // Publish user-deleted for admin UI updates
+    redisService.publish('user-deleted', {
+      userId: userId,
+      user: {
+        id: userId,
+        email: user.email,
+        first_name: user.first_name,
+        last_name: user.last_name
+      },
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish user-deleted event:', err);
+      // Don't fail the deletion if Redis publish fails
+    });
+    
+    console.log('✅ Member-deleted and user-deleted published to Redis');
+    
     res.json({ 
       message: 'Account deleted successfully',
       deletedUser: {
