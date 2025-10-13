@@ -547,7 +547,7 @@ export default function TextEditor({
     editorProps: {
       attributes: {
         class: `text-editor-prosemirror prose prose-sm max-w-none focus:outline-none ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${editorClassName}`,
-        style: `min-height: ${compact ? '60px' : minHeight}`,
+        style: `min-height: ${compact ? '60px' : minHeight}; word-break: break-word; overflow-wrap: break-word;`,
         placeholder: placeholder
       },
       handleClick: (view, pos, event) => {
@@ -1303,7 +1303,19 @@ export default function TextEditor({
               .map((attachment, index) => (
               <div key={attachment.id} className="flex items-center gap-2 text-sm">
                 <Paperclip size={14} className="text-gray-500" />
-                <span className="text-gray-700">{attachment.name}</span>
+                {attachment.url && !attachment.isNew ? (
+                  <a
+                    href={attachment.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {attachment.name}
+                  </a>
+                ) : (
+                  <span className="text-gray-700">{attachment.name}</span>
+                )}
                 {attachment.isNew ? (
                   <span className="text-xs text-blue-600 bg-blue-100 px-1 rounded">New</span>
                 ) : (

@@ -165,7 +165,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
               Highlight Overdue Tasks
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-                When enabled, overdue tasks will be highlighted with a light red background in the Kanban view.
+                When enabled, overdue tasks will be highlighted with a "LATE" badge.
               </p>
             </div>
             <div className="flex items-center">
@@ -249,7 +249,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           Cancel
         </button>
         <button
-          onClick={onSave}
+          onClick={() => onSave()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
           Save Settings

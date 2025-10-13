@@ -194,22 +194,21 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       console.warn('Failed to publish activity update to Redis:', redisError.message);
     }
     
-    // Send notification email if service is available
-    try {
-      const notificationService = getNotificationService();
-      if (notificationService) {
-        await notificationService.sendTaskNotification({
-          userId,
-          action,
-          taskId,
-          details: enhancedDetails,
-          oldValue: additionalData.oldValue,
-          newValue: additionalData.newValue
-        });
-      }
-    } catch (notificationError) {
-      console.error('❌ Error sending notification:', notificationError);
-      // Don't throw - notification errors should never break the main functionality
+    // Send notification email in the background (fire-and-forget)
+    // This improves UX by not blocking the API response while emails are being sent
+    const notificationService = getNotificationService();
+    if (notificationService) {
+      notificationService.sendTaskNotification({
+        userId,
+        action,
+        taskId,
+        details: enhancedDetails,
+        oldValue: additionalData.oldValue,
+        newValue: additionalData.newValue
+      }).catch(notificationError => {
+        console.error('❌ Error sending notification:', notificationError);
+        // Errors are logged but don't affect the main flow
+      });
     }
     
   } catch (error) {
@@ -567,20 +566,20 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
 
     console.log('Comment activity logged successfully');
     
-    // Send notification email for comment activities if service is available
-    try {
-      const notificationService = getNotificationService();
-      if (notificationService) {
-        await notificationService.sendCommentNotification({
-          userId,
-          action,
-          taskId,
-          commentContent: additionalData.commentContent
-        });
-      }
-    } catch (notificationError) {
-      console.error('❌ Error sending comment notification:', notificationError);
-      // Don't throw - notification errors should never break the main functionality
+    // Send notification email for comment activities in the background (fire-and-forget)
+    // This improves UX by not blocking the API response while emails are being sent
+    const notificationService = getNotificationService();
+    if (notificationService) {
+      // Use setImmediate or Promise without await to run in background
+      notificationService.sendCommentNotification({
+        userId,
+        action,
+        taskId,
+        commentContent: additionalData.commentContent
+      }).catch(notificationError => {
+        console.error('❌ Error sending comment notification:', notificationError);
+        // Errors are logged but don't affect the main flow
+      });
     }
     
   } catch (error) {

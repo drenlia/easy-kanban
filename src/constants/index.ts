@@ -3,7 +3,8 @@ export const DEFAULT_COLUMNS = [
   { id: 'todo', title: 'To Do' },
   { id: 'progress', title: 'In Progress' },
   { id: 'testing', title: 'Testing' },
-  { id: 'completed', title: 'Completed' }
+  { id: 'completed', title: 'Completed' },
+  { id: 'archive', title: 'Archive' }
 ];
 
 // Page and navigation constants

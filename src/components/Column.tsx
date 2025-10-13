@@ -51,6 +51,7 @@ interface KanbanColumnProps {
   onTaskEnterMiniMode?: () => void;
   onTaskExitMiniMode?: () => void;
   boards?: any[]; // To get project identifier from board
+  columns?: { [key: string]: { id: string; title: string; is_archived?: boolean; is_finished?: boolean } };
   
   // Task linking props
   isLinkingMode?: boolean;
@@ -103,6 +104,7 @@ export default function KanbanColumn({
   onTaskEnterMiniMode,
   onTaskExitMiniMode,
   boards,
+  columns,
   
   // Task linking props
   isLinkingMode,
@@ -195,6 +197,38 @@ export default function KanbanColumn({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showMenu]);
+
+  // Auto-save and close when clicking outside the edit form
+  React.useEffect(() => {
+    const handleClickOutside = async (event: MouseEvent) => {
+      if (isEditing && columnHeaderRef.current) {
+        const target = event.target as HTMLElement;
+        // Check if click is outside the column header (edit form)
+        if (!columnHeaderRef.current.contains(target)) {
+          // Save the changes
+          if (title.trim() && !isSubmitting) {
+            setIsSubmitting(true);
+            await onEditColumn(column.id, title.trim(), isFinished, isArchived);
+            setIsEditing(false);
+            setIsSubmitting(false);
+          }
+        }
+      }
+    };
+
+    // Add event listener when editing
+    if (isEditing) {
+      // Small delay to prevent immediate trigger from the click that started editing
+      setTimeout(() => {
+        document.addEventListener('mousedown', handleClickOutside);
+      }, 100);
+    }
+
+    // Cleanup event listener
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isEditing, title, isFinished, isArchived, isSubmitting, column.id, onEditColumn]);
 
   // Handle text selection when editing starts via click
   React.useEffect(() => {
@@ -353,6 +387,7 @@ export default function KanbanColumn({
             onTagAdd={onTagAdd ? onTagAdd(task.id) : undefined}
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
             boards={boards}
+            columns={columns}
             
             // Task linking props
             isLinkingMode={isLinkingMode}

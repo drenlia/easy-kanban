@@ -237,10 +237,34 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   // Auto-synced relationships
   boardRelationships = [],
 }: KanbanPageProps) => {
-  // Column filtering logic
+  // Column filtering logic - memoized to prevent unnecessary re-renders
+  const visibleColumnsForCurrentBoard = useMemo(() => {
+    if (!selectedBoard) return [];
+    // If there's saved visibility preference, use it
+    if (boardColumnVisibility[selectedBoard]) {
+      return boardColumnVisibility[selectedBoard];
+    }
+    // Otherwise, default to all columns EXCEPT archived ones
+    return Object.keys(columns).filter(columnId => {
+      const column = columns[columnId];
+      // Hide archived columns by default (is_archived can be boolean true or number 1)
+      return !(column.is_archived === true || column.is_archived === 1);
+    });
+  }, [selectedBoard, columns, boardColumnVisibility]);
+
   const getVisibleColumns = (boardId: string | null) => {
+    if (boardId === selectedBoard) {
+      return visibleColumnsForCurrentBoard;
+    }
+    // For other boards (shouldn't happen in normal flow)
     if (!boardId) return [];
-    return boardColumnVisibility[boardId] || Object.keys(columns);
+    if (boardColumnVisibility[boardId]) {
+      return boardColumnVisibility[boardId];
+    }
+    return Object.keys(columns).filter(columnId => {
+      const column = columns[columnId];
+      return !(column.is_archived === true || column.is_archived === 1);
+    });
   };
 
   const handleColumnVisibilityChange = (boardId: string, visibleColumns: string[]) => {
@@ -249,17 +273,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
 
   // Get filtered columns based on visibility (respecting user's column filter choices)
   const getFilteredColumnsForDisplay = useMemo(() => {
-    const visibleColumnIds = getVisibleColumns(selectedBoard);
     const filtered: Columns = {};
     
-    visibleColumnIds.forEach(columnId => {
+    visibleColumnsForCurrentBoard.forEach(columnId => {
       if (columns[columnId]) {
         filtered[columnId] = columns[columnId];
       }
     });
     
     return filtered;
-  }, [selectedBoard, columns, boardColumnVisibility]);
+  }, [visibleColumnsForCurrentBoard, columns]);
 
   // Get fully filtered columns (search filters + column visibility)
   const getFullyFilteredColumns = useMemo(() => {
@@ -533,7 +556,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           sharedFilterViews={sharedFilterViews}
           onFilterViewChange={onFilterViewChange}
           columns={columns}
-          visibleColumns={getVisibleColumns(selectedBoard)}
+          visibleColumns={visibleColumnsForCurrentBoard}
           onColumnsChange={(visibleColumns) => selectedBoard && handleColumnVisibilityChange(selectedBoard, visibleColumns)}
           selectedBoard={selectedBoard}
         />
@@ -723,6 +746,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
                       boards={boards}
+                      columns={columns}
                       
                       // Task linking props
                       isLinkingMode={isLinkingMode}
@@ -783,6 +807,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onTagAdd={onTagAdd}
                       onTagRemove={onTagRemove}
                       boards={boards}
+                      columns={columns}
                       
                       // Task linking props
                       isLinkingMode={isLinkingMode}

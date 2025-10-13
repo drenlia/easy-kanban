@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Clock, MessageCircle, Calendar, Paperclip, Link } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Pencil } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
@@ -62,6 +62,7 @@ interface TaskCardProps {
   onTagAdd?: (tagId: string) => void;
   onTagRemove?: (tagId: string) => void;
   boards?: any[]; // To get project identifier from board
+  columns?: { [key: string]: { id: string; title: string; is_archived?: boolean; is_finished?: boolean } };
   
   // Task linking props
   isLinkingMode?: boolean;
@@ -100,6 +101,7 @@ const TaskCard = React.memo(function TaskCard({
   columnIsFinished = false,
   columnIsArchived = false,
   boards,
+  columns,
   
   // Task linking props
   isLinkingMode,
@@ -120,6 +122,8 @@ const TaskCard = React.memo(function TaskCard({
   const [showTagRemovalMenu, setShowTagRemovalMenu] = useState(false);
   const [selectedTagForRemoval, setSelectedTagForRemoval] = useState<Tag | null>(null);
   const [tagRemovalPosition, setTagRemovalPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
+  const [isHoveringTitle, setIsHoveringTitle] = useState(false);
+  const [isHoveringDescription, setIsHoveringDescription] = useState(false);
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -158,24 +162,44 @@ const TaskCard = React.memo(function TaskCard({
 
   // Fix blob URLs in task description - using EXACT same logic as comments
   const fixImageUrls = (htmlContent: string, attachments: any[]) => {
+    if (!htmlContent) return htmlContent;
+    
     let fixedContent = htmlContent;
+    
+    // First, try to replace blob URLs with their corresponding attachments
     attachments.forEach(attachment => {
-      if (attachment.name.startsWith('img-')) {
+      if (attachment.name && attachment.name.startsWith('img-')) {
         // Replace blob URLs with authenticated server URLs
         const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
         const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
         fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
       }
     });
+    
+    // Fallback: Remove ANY remaining blob URLs that couldn't be matched to attachments
+    // This prevents ERR_FILE_NOT_FOUND errors for stale blob URLs
+    if (fixedContent.includes('blob:')) {
+      console.warn('⚠️ TaskCard: Found unmatched blob URLs in description, removing them', {
+        taskId: task.id,
+        hasBlobUrl: fixedContent.includes('blob:')
+      });
+      // Replace remaining blob URLs in img tags
+      fixedContent = fixedContent.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+      // Also replace any blob URLs in other contexts (like background-image in style attributes)
+      fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
+    }
+    
     return fixedContent;
   };
 
   const getFixedDescription = () => {
     if (!task.description) return task.description;
     
-    // If attachments are still loading and we have images, show original content for now
-    if (!attachmentsLoaded && task.description.includes('img-')) {
-      return task.description;
+    // ALWAYS fix blob URLs, even while attachments are loading
+    // If attachments are still loading and we have images, remove blob URLs immediately
+    if (!attachmentsLoaded && task.description.includes('blob:')) {
+      console.warn('⚠️ TaskCard: Attachments still loading but blob URLs found, removing them');
+      return task.description.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/g, '<!-- Loading image... -->');
     }
     
     // Use the exact same function as comments
@@ -204,6 +228,7 @@ const TaskCard = React.memo(function TaskCard({
   const commentContainerRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
   const tagRemovalMenuRef = useRef<HTMLDivElement>(null);
+  const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
   const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu;
@@ -387,8 +412,8 @@ const TaskCard = React.memo(function TaskCard({
   };
 
   const [clickPosition, setClickPosition] = useState<number | null>(null);
-  const [clickPositionDescription, setClickPositionDescription] = useState<{x: number, y: number} | null>(null);
-  const descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [_clickPositionDescription, setClickPositionDescription] = useState<{x: number, y: number} | null>(null);
+  const _descriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleTitleClick = (e: React.MouseEvent<HTMLElement>) => {
     // Calculate cursor position based on click location
@@ -458,106 +483,6 @@ const TaskCard = React.memo(function TaskCard({
     setIsEditingDescription(true);
     // Use fixed description with proper image URLs for editing
     setEditedDescription(getFixedDescription() || '');
-  };
-
-  const handleDescriptionInputFocus = (e: React.FocusEvent<HTMLTextAreaElement>) => {
-    if (clickPositionDescription !== null) {
-      const textarea = e.target;
-      const { x: clickX, y: clickY } = clickPositionDescription;
-      
-      // Create a temporary div to measure text layout (better for multi-line)
-      const tempDiv = document.createElement('div');
-      const computedStyle = window.getComputedStyle(textarea);
-      tempDiv.style.font = computedStyle.font;
-      tempDiv.style.fontSize = computedStyle.fontSize;
-      tempDiv.style.fontFamily = computedStyle.fontFamily;
-      tempDiv.style.lineHeight = computedStyle.lineHeight;
-      tempDiv.style.padding = computedStyle.padding;
-      tempDiv.style.border = computedStyle.border;
-      tempDiv.style.width = computedStyle.width;
-      tempDiv.style.visibility = 'hidden';
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.whiteSpace = 'pre-wrap';
-      tempDiv.style.wordWrap = 'break-word';
-      document.body.appendChild(tempDiv);
-      
-      const description = task.description || '';
-      
-      // Always use the full text for cursor positioning when editing
-      // The click coordinates are based on the display, but we want to edit the full text
-      const displayedText = description;
-      
-      // Create a div that matches the textarea's wrapping behavior to find visual lines
-      const tempDiv2 = document.createElement('div');
-      tempDiv2.style.font = computedStyle.font;
-      tempDiv2.style.fontSize = computedStyle.fontSize;
-      tempDiv2.style.fontFamily = computedStyle.fontFamily;
-      tempDiv2.style.width = computedStyle.width;
-      tempDiv2.style.whiteSpace = 'pre-wrap';
-      tempDiv2.style.wordWrap = 'break-word';
-      tempDiv2.style.visibility = 'hidden';
-      tempDiv2.style.position = 'absolute';
-      tempDiv2.style.lineHeight = computedStyle.lineHeight;
-      tempDiv2.style.padding = computedStyle.padding;
-      document.body.appendChild(tempDiv2);
-      
-      // Find the character position by testing each character and seeing where it wraps
-      let cursorPosition = 0;
-      let bestDistance = Infinity;
-      
-      // Test each character position to find the closest one to the click
-      for (let i = 0; i <= displayedText.length; i++) {
-        tempDiv2.textContent = displayedText.substring(0, i);
-        
-        // Get the position of the last character
-        if (i > 0) {
-          const range = document.createRange();
-          const textNode = tempDiv2.firstChild;
-          if (textNode) {
-            // Set range to the last character
-            const charIndex = Math.min(i - 1, textNode.textContent?.length || 0);
-            range.setStart(textNode, charIndex);
-            range.setEnd(textNode, Math.min(i, textNode.textContent?.length || 0));
-            
-            const rect = range.getBoundingClientRect();
-            const divRect = tempDiv2.getBoundingClientRect();
-            
-            // Calculate position relative to the div
-            const charX = rect.left - divRect.left;
-            const charY = rect.top - divRect.top;
-            
-            // Calculate distance from click point
-            const distance = Math.sqrt(Math.pow(clickX - charX, 2) + Math.pow(clickY - charY, 2));
-            
-            if (distance < bestDistance) {
-              bestDistance = distance;
-              cursorPosition = i;
-            }
-          }
-        }
-      }
-      
-      document.body.removeChild(tempDiv2);
-      
-      document.body.removeChild(tempDiv);
-      
-      // Set cursor position after a brief delay to ensure it works
-      setTimeout(() => {
-        const textareaElement = descriptionTextareaRef.current;
-        if (textareaElement) {
-          // Make sure cursor position is within bounds
-          const maxPosition = textareaElement.value.length;
-          const safeCursorPosition = Math.min(cursorPosition, maxPosition);
-          
-          
-          textareaElement.setSelectionRange(safeCursorPosition, safeCursorPosition);
-          textareaElement.focus(); // Ensure focus is maintained
-        }
-      }, 10); // Slightly longer delay
-      
-      // Clear the click position
-      setClickPositionDescription(null);
-    }
   };
 
   const handleTitleSave = () => {
@@ -655,26 +580,16 @@ const TaskCard = React.memo(function TaskCard({
     }
   };
 
-  const handleDescriptionSave = () => {
+  const _handleDescriptionSave = () => {
     if (editedDescription !== task.description) {
       onEdit({ ...task, description: editedDescription });
     }
     setIsEditingDescription(false);
   };
 
-  const handleDescriptionCancel = () => {
+  const _handleDescriptionCancel = () => {
     setEditedDescription(task.description);
     setIsEditingDescription(false);
-  };
-
-  const handleDescriptionKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleDescriptionSave();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleDescriptionCancel();
-    }
   };
 
   const handlePriorityChange = (priority: Priority) => {
@@ -734,7 +649,7 @@ const TaskCard = React.memo(function TaskCard({
       
       // Calculate vertical position
       const spaceAbove = commentRect.top;
-      const spaceBelow = window.innerHeight - commentRect.bottom;
+      const _spaceBelow = window.innerHeight - commentRect.bottom;
       const preferAbove = spaceAbove >= tooltipHeight;
       
       // Calculate horizontal position - center tooltip on the comment icon
@@ -799,6 +714,34 @@ const TaskCard = React.memo(function TaskCard({
     }
   }, [showTagRemovalMenu]);
 
+  // Handle click outside for title and description editing
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      
+      // Check if clicked outside the card
+      if (cardElement && !cardElement.contains(target)) {
+        // Save title if editing
+        if (isEditingTitle) {
+          handleTitleSave();
+        }
+        
+        // Save description if editing
+        if (isEditingDescription) {
+          if (editedDescription !== task.description) {
+            onEdit({ ...task, description: editedDescription });
+          }
+          setIsEditingDescription(false);
+        }
+      }
+    };
+
+    if (isEditingTitle || isEditingDescription) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isEditingTitle, isEditingDescription, editedDescription, task, cardElement, handleTitleSave, onEdit]);
+
   // Tag removal handlers
   const handleConfirmTagRemoval = () => {
     if (selectedTagForRemoval && onTagRemove) {
@@ -823,24 +766,19 @@ const TaskCard = React.memo(function TaskCard({
       comment.createdAt
     );
 
-  // Get the card's background color to match the task identifier
-  const getCardBackgroundColor = () => {
-    if (isSelected) return 'bg-gray-100 dark:bg-gray-700';
-    if (member.id === SYSTEM_MEMBER_ID) return 'bg-yellow-50 dark:bg-yellow-900';
-    // Overdue highlighting is now handled by the LATE banner overlay
-    return 'bg-white dark:bg-gray-800';
-  };
-
   return (
     <>
       <div
-        ref={setNodeRef}
+        ref={(node) => {
+          setNodeRef(node);
+          setCardElement(node);
+        }}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
         className={`task-card sortable-item ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
           'bg-white dark:bg-gray-800'
-        } p-4 rounded-lg shadow-sm cursor-default relative transition-all duration-200 ${
+        } p-4 rounded-lg shadow-sm relative transition-all duration-200 ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         } ${
           isLinkingMode && linkingSourceTask?.id !== task.id 
@@ -865,6 +803,14 @@ const TaskCard = React.memo(function TaskCard({
           })() : ''
         }`}
         {...attributes}
+        onMouseEnter={() => {
+          setIsHoveringTitle(true);
+          setIsHoveringDescription(true);
+        }}
+        onMouseLeave={() => {
+          setIsHoveringTitle(false);
+          setIsHoveringDescription(false);
+        }}
         onMouseUp={isLinkingMode ? (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -924,6 +870,8 @@ const TaskCard = React.memo(function TaskCard({
           attributes={attributes}
           availableTags={availableTags}
           onTagAdd={onTagAdd}
+          columnIsFinished={columnIsFinished}
+          columns={columns}
           
           // Task linking props
           isLinkingMode={isLinkingMode}
@@ -972,13 +920,28 @@ const TaskCard = React.memo(function TaskCard({
               autoFocus
             />
           ) : (
-            <h3 
-              className="font-medium text-gray-800 dark:text-gray-100 cursor-text hover:bg-gray-50 dark:hover:bg-gray-700 px-1 py-0.5 rounded text-sm pr-12"
-              onClick={handleTitleClick}
-              title="Click to edit"
+            <div 
+              className={`relative ${isDragDisabled || isAnyEditingActive ? '' : 'cursor-grab active:cursor-grabbing'}`}
+              {...listeners}
             >
-              {task.title}
-            </h3>
+              {isHoveringTitle && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleTitleClick(e as any);
+                  }}
+                  className="absolute -left-[10px] top-1/2 -translate-y-1/2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
+                  title="Edit title"
+                >
+                  <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
+                </button>
+              )}
+              <h3 
+                className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm pr-12"
+              >
+                {task.title}
+              </h3>
+            </div>
           )}
         </div>
 
@@ -1029,20 +992,36 @@ const TaskCard = React.memo(function TaskCard({
               </div>
             ) : (
               <div
-                className={`task-card-description text-sm text-gray-600 dark:text-gray-300 -mt-2 mb-3 cursor-text hover:bg-gray-50 dark:hover:bg-gray-700 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
-                  taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
-                }`}
-                onClick={handleDescriptionClick}
-                title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : "Click to edit description"}
-                dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(getFixedDescription() || '')
-                }}
-                style={{
-                  // Ensure images fit nicely in task cards
-                  '--tw-prose-body': '1rem',
-                  '--tw-prose-headings': '1rem',
-                } as React.CSSProperties}
-              />
+                className={`relative -mt-2 mb-3 ${isDragDisabled || isAnyEditingActive ? '' : 'cursor-grab active:cursor-grabbing'}`}
+                {...listeners}
+              >
+                {isHoveringDescription && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDescriptionClick(e as any);
+                    }}
+                    className="absolute -left-[10px] top-2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
+                    title="Edit description"
+                  >
+                    <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
+                  </button>
+                )}
+                <div
+                  className={`task-card-description text-sm text-gray-600 dark:text-gray-300 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
+                    taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
+                  }`}
+                  title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : ""}
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(getFixedDescription() || '')
+                  }}
+                  style={{
+                    // Ensure images fit nicely in task cards
+                    '--tw-prose-body': '1rem',
+                    '--tw-prose-headings': '1rem',
+                  } as React.CSSProperties}
+                />
+              </div>
             )}
           </>
         )}
@@ -1210,7 +1189,7 @@ const TaskCard = React.memo(function TaskCard({
             </div>
 
             {/* Comments - squeezed close to effort */}
-            {validComments.length > 0 && (
+            {validComments && validComments.length > 0 && (
               <div 
                 ref={commentContainerRef}
                 className="relative"
@@ -1237,7 +1216,7 @@ const TaskCard = React.memo(function TaskCard({
           {/* Right side - attachments and priority */}
           <div className="flex items-center gap-2">
             {/* Attachments indicator */}
-            {task.attachmentCount && task.attachmentCount > 0 && (
+            {task.attachmentCount > 0 && (
               <div className="flex items-center gap-0.5 text-gray-500" title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}>
                 <Paperclip size={12} />
                 <span className="text-xs">{task.attachmentCount}</span>
@@ -1395,6 +1374,14 @@ const TaskCard = React.memo(function TaskCard({
                             const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
                             return authenticatedUrl || `/uploads/${filename}`;
                           });
+                          
+                          // Fallback: Remove ANY remaining blob URLs that couldn't be matched
+                          if (fixedContent.includes('blob:')) {
+                            // Replace remaining blob URLs in img tags
+                            fixedContent = fixedContent.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+                            // Also replace any blob URLs in other contexts
+                            fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
+                          }
                           
                           // Create a temporary div to parse the HTML
                           const tempDiv = document.createElement('div');

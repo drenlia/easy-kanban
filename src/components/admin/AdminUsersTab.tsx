@@ -661,7 +661,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   onClick={handleAddUser}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  Invitehe User
+                  Invite User
                 </button>
                 <button
                   onClick={handleCancelAddUser}

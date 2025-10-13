@@ -1014,9 +1014,41 @@ export default function App() {
 
     // Set up event handlers
     const handleTaskCreated = (data: any) => {
-      // Only update if the task is for the current board
-      if (data.boardId === selectedBoardRef.current && data.task) {
-        
+      if (!data.task || !data.boardId) return;
+      
+      // Always update boards state for task count updates (for all boards)
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            const targetColumnId = data.task.columnId;
+            
+            if (updatedColumns[targetColumnId]) {
+              // Add new task at front and renumber all tasks sequentially
+              const existingTasks = updatedColumns[targetColumnId].tasks;
+              const allTasks = [data.task, ...existingTasks];
+              const updatedTasks = allTasks.map((task, index) => ({
+                ...task,
+                position: index
+              }));
+              
+              updatedColumns[targetColumnId] = {
+                ...updatedColumns[targetColumnId],
+                tasks: updatedTasks
+              };
+              
+              updatedBoard.columns = updatedColumns;
+            }
+            
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns/filteredColumns if the task is for the currently selected board
+      if (data.boardId === selectedBoardRef.current) {
         // Optimized: Add the specific task instead of full refresh
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
@@ -1057,37 +1089,6 @@ export default function App() {
             };
           }
           return updatedFilteredColumns;
-        });
-        
-        // CRITICAL FIX: Also update boards state so tab counter pills update
-        setBoards(prevBoards => {
-          return prevBoards.map(board => {
-            if (board.id === data.boardId) {
-              const updatedBoard = { ...board };
-              const updatedColumns = { ...updatedBoard.columns };
-              const targetColumnId = data.task.columnId;
-              
-              if (updatedColumns[targetColumnId]) {
-                // Add new task at front and renumber all tasks sequentially
-                const existingTasks = updatedColumns[targetColumnId].tasks;
-                const allTasks = [data.task, ...existingTasks];
-                const updatedTasks = allTasks.map((task, index) => ({
-                  ...task,
-                  position: index
-                }));
-                
-                updatedColumns[targetColumnId] = {
-                  ...updatedColumns[targetColumnId],
-                  tasks: updatedTasks
-                };
-                
-                updatedBoard.columns = updatedColumns;
-              }
-              
-              return updatedBoard;
-            }
-            return board;
-          });
         });
       }
     };
@@ -1310,8 +1311,47 @@ export default function App() {
     };
 
     const handleTaskDeleted = (data: any) => {
-      // Only update if the task is for the current board
-      if (data.boardId === selectedBoardRef.current && data.taskId) {
+      if (!data.taskId || !data.boardId) return;
+      
+      // Always update boards state for task count updates (for all boards)
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            
+            // Find and remove the task from the appropriate column
+            Object.keys(updatedColumns).forEach(columnId => {
+              const column = updatedColumns[columnId];
+              const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+              if (taskIndex !== -1) {
+                // Remove the deleted task
+                const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
+                
+                // Renumber remaining tasks sequentially from 0
+                const renumberedTasks = remainingTasks
+                  .sort((a, b) => (a.position || 0) - (b.position || 0))
+                  .map((task, index) => ({
+                    ...task,
+                    position: index
+                  }));
+                
+                updatedColumns[columnId] = {
+                  ...column,
+                  tasks: renumberedTasks
+                };
+              }
+            });
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns/filteredColumns if the task is for the currently selected board
+      if (data.boardId === selectedBoardRef.current) {
         // Optimized: Remove the specific task and renumber remaining tasks
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
@@ -1401,38 +1441,127 @@ export default function App() {
     };
 
     const handleColumnUpdated = (data: any) => {
-      // Only refresh if the column is for the current board
+      if (!data.column || !data.boardId) return;
+      
+      // Update boards state for all boards
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            
+            // Update the column while preserving its tasks
+            if (updatedColumns[data.column.id]) {
+              updatedColumns[data.column.id] = {
+                ...updatedColumns[data.column.id],
+                ...data.column
+              };
+            }
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns if it's for the currently selected board
       if (data.boardId === selectedBoardRef.current) {
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // But allow updates from other users
-        if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
-          return;
-        }
-        refreshBoardData();
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          
+          // Update the column while preserving its tasks
+          if (updatedColumns[data.column.id]) {
+            updatedColumns[data.column.id] = {
+              ...updatedColumns[data.column.id],
+              ...data.column
+            };
+          }
+          
+          return updatedColumns;
+        });
       }
     };
 
     const handleColumnDeleted = (data: any) => {
-      // Only refresh if the column is for the current board
+      if (!data.columnId || !data.boardId) return;
+      
+      // Update boards state for all boards
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            
+            // Remove the deleted column
+            delete updatedColumns[data.columnId];
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns if it's for the currently selected board
       if (data.boardId === selectedBoardRef.current) {
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // But allow updates from other users
-        if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
-          return;
-        }
-        refreshBoardData();
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          
+          // Remove the deleted column
+          delete updatedColumns[data.columnId];
+          
+          return updatedColumns;
+        });
       }
     };
 
     const handleColumnReordered = (data: any) => {
-      // Only refresh if the column is for the current board
+      if (!data.boardId || !data.columns) return;
+      
+      // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
+      // But allow updates from other users
+      if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
+        return;
+      }
+      
+      // Update boards state for all boards
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns: Columns = {};
+            
+            // Rebuild columns object with updated positions, preserving tasks
+            data.columns.forEach((col: any) => {
+              updatedColumns[col.id] = {
+                ...col,
+                tasks: updatedBoard.columns[col.id]?.tasks || []
+              };
+            });
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns if it's for the currently selected board
       if (data.boardId === selectedBoardRef.current) {
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // But allow updates from other users
-        if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
-          return;
-        }
-        refreshBoardData();
+        setColumns(prevColumns => {
+          const updatedColumns: Columns = {};
+          
+          // Rebuild columns object with updated positions, preserving tasks
+          data.columns.forEach((col: any) => {
+            updatedColumns[col.id] = {
+              ...col,
+              tasks: prevColumns[col.id]?.tasks || []
+            };
+          });
+          
+          return updatedColumns;
+        });
       }
     };
 
@@ -1499,14 +1628,41 @@ export default function App() {
     };
 
     const handleColumnCreated = (data: any) => {
-      // Only refresh if the column is for the current board
+      if (!data.column || !data.boardId) return;
+      
+      // Update boards state for all boards
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            
+            // Add the new column
+            updatedColumns[data.column.id] = {
+              ...data.column,
+              tasks: []
+            };
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns if it's for the currently selected board
       if (data.boardId === selectedBoardRef.current) {
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // But allow updates from other users
-        if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
-          return;
-        }
-        refreshBoardData();
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+          
+          // Add the new column with empty tasks array
+          updatedColumns[data.column.id] = {
+            ...data.column,
+            tasks: []
+          };
+          
+          return updatedColumns;
+        });
       }
     };
 
@@ -1736,6 +1892,108 @@ export default function App() {
       });
     };
 
+    // Comment event handlers
+    const handleCommentCreated = (data: any) => {
+      if (!data.comment || !data.boardId || !data.taskId) return;
+      
+      // Find the task in the current board and add the comment
+      setColumns(prevColumns => {
+        const updatedColumns = { ...prevColumns };
+        
+        // Find the task across all columns
+        Object.keys(updatedColumns).forEach(columnId => {
+          const column = updatedColumns[columnId];
+          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+          
+          if (taskIndex !== -1) {
+            const updatedTasks = [...column.tasks];
+            const task = { ...updatedTasks[taskIndex] };
+            
+            // Add the new comment if it doesn't already exist
+            const comments = task.comments || [];
+            if (!comments.find(c => c.id === data.comment.id)) {
+              task.comments = [...comments, data.comment];
+              updatedTasks[taskIndex] = task;
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: updatedTasks
+              };
+            }
+          }
+        });
+        
+        return updatedColumns;
+      });
+    };
+
+    const handleCommentUpdated = (data: any) => {
+      if (!data.comment || !data.boardId || !data.taskId) return;
+      
+      // Find the task and update the comment
+      setColumns(prevColumns => {
+        const updatedColumns = { ...prevColumns };
+        
+        Object.keys(updatedColumns).forEach(columnId => {
+          const column = updatedColumns[columnId];
+          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+          
+          if (taskIndex !== -1) {
+            const updatedTasks = [...column.tasks];
+            const task = { ...updatedTasks[taskIndex] };
+            
+            // Update the comment
+            const comments = task.comments || [];
+            const commentIndex = comments.findIndex(c => c.id === data.comment.id);
+            
+            if (commentIndex !== -1) {
+              task.comments = [
+                ...comments.slice(0, commentIndex),
+                data.comment,
+                ...comments.slice(commentIndex + 1)
+              ];
+              updatedTasks[taskIndex] = task;
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: updatedTasks
+              };
+            }
+          }
+        });
+        
+        return updatedColumns;
+      });
+    };
+
+    const handleCommentDeleted = (data: any) => {
+      if (!data.commentId || !data.boardId || !data.taskId) return;
+      
+      // Find the task and remove the comment
+      setColumns(prevColumns => {
+        const updatedColumns = { ...prevColumns };
+        
+        Object.keys(updatedColumns).forEach(columnId => {
+          const column = updatedColumns[columnId];
+          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+          
+          if (taskIndex !== -1) {
+            const updatedTasks = [...column.tasks];
+            const task = { ...updatedTasks[taskIndex] };
+            
+            // Remove the comment
+            const comments = task.comments || [];
+            task.comments = comments.filter(c => c.id !== data.commentId);
+            updatedTasks[taskIndex] = task;
+            updatedColumns[columnId] = {
+              ...column,
+              tasks: updatedTasks
+            };
+          }
+        });
+        
+        return updatedColumns;
+      });
+    };
+
     // Register event listeners
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskUpdated(handleTaskUpdated);
@@ -1773,6 +2031,9 @@ export default function App() {
     websocketClient.onTaskTagAdded(handleTaskTagAdded);
     websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
     websocketClient.onInstanceStatusUpdated(handleInstanceStatusUpdated);
+    websocketClient.onCommentCreated(handleCommentCreated);
+    websocketClient.onCommentUpdated(handleCommentUpdated);
+    websocketClient.onCommentDeleted(handleCommentDeleted);
 
     return () => {
       // Clean up event listeners
@@ -1812,6 +2073,9 @@ export default function App() {
       websocketClient.offTaskTagAdded(handleTaskTagAdded);
       websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
       websocketClient.offInstanceStatusUpdated(handleInstanceStatusUpdated);
+      websocketClient.offCommentCreated(handleCommentCreated);
+      websocketClient.offCommentUpdated(handleCommentUpdated);
+      websocketClient.offCommentDeleted(handleCommentDeleted);
       websocketClient.offWebSocketReady(handleWebSocketReady);
     };
   }, [isAuthenticated]);
@@ -3706,8 +3970,11 @@ export default function App() {
       });
       setColumns(newColumnsObj);
       
-      // Update database
-      await reorderColumns(active.id as string, newIndex, selectedBoard);
+      // Update database - pass the new position from the reordered array
+      const movedColumn = updatedColumns.find(col => col.id === active.id);
+      if (movedColumn) {
+        await reorderColumns(active.id as string, movedColumn.position, selectedBoard);
+      }
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to reorder columns:', error);

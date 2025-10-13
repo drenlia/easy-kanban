@@ -2173,10 +2173,25 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
       return res.status(400).json({ error: 'Setting key is required' });
     }
     
-    const result = db.prepare(`
-      INSERT OR REPLACE INTO settings (key, value, updated_at) 
-      VALUES (?, ?, CURRENT_TIMESTAMP)
-    `).run(key, value);
+    // Convert value to string for SQLite (SQLite only accepts strings, numbers, bigints, buffers, and null)
+    // Booleans, undefined, and objects need to be converted
+    let safeValue = value;
+    if (typeof value === 'boolean') {
+      safeValue = String(value); // Convert true/false to "true"/"false"
+    } else if (value === undefined) {
+      safeValue = '';
+    } else if (typeof value === 'object' && value !== null) {
+      // This shouldn't happen with proper client code, but handle it gracefully
+      safeValue = JSON.stringify(value);
+    }
+    
+    const result = wrapQuery(
+      db.prepare(`
+        INSERT OR REPLACE INTO settings (key, value, updated_at) 
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `),
+      'INSERT'
+    ).run(key, safeValue);
     
     // If this is a Google OAuth setting, reload the OAuth configuration
     if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
@@ -2200,8 +2215,9 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {
-    console.error('Update setting error:', error);
-    res.status(500).json({ error: 'Failed to update setting' });
+    console.error('❌ Error updating settings:', error);
+    console.error('❌ Error details:', { key: req.body.key, value: req.body.value, error: error.message, stack: error.stack });
+    res.status(500).json({ error: 'Failed to update setting', details: error.message });
   }
 });
 

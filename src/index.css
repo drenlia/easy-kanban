@@ -119,7 +119,23 @@
   padding-left: 0.25rem !important;
 }
 
-/* TaskCard Description Styles - Handle images properly in task cards */
+/* TaskCard Title - Handle text wrapping */
+.task-card h3 {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+/* TaskCard Description Styles - Handle text wrapping and images */
+.task-card-description {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
+.task-card-description * {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
 .task-card-description img {
   max-width: 100% !important;
   height: auto !important;
@@ -145,4 +161,13 @@
   object-fit: cover !important;
   border-radius: 4px !important;
   margin: 0.25rem 0 !important;
+}
+
+/* TaskDetails word-wrap handling for long unbroken text */
+[data-task-details] .ProseMirror,
+[data-task-details] .prose,
+[data-task-details] p,
+[data-task-details] div {
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
 }

@@ -3,6 +3,28 @@ import { getTaskWatchers, getTaskCollaborators } from '../api';
 import { parseLocalDate } from './dateUtils';
 
 /**
+ * Strip HTML tags from a string for text search
+ */
+const stripHtmlTags = (html: string): string => {
+  if (!html) return '';
+  
+  // IMPORTANT: Remove blob URLs BEFORE setting innerHTML to prevent ERR_FILE_NOT_FOUND errors
+  // The browser tries to fetch blob URLs as soon as they appear in the DOM
+  let cleanedHtml = html;
+  if (cleanedHtml.includes('blob:')) {
+    // Remove img tags with blob URLs
+    cleanedHtml = cleanedHtml.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '');
+    // Remove any remaining blob URLs from other contexts
+    cleanedHtml = cleanedHtml.replace(/blob:[^\s"')]+/gi, '');
+  }
+  
+  // Remove HTML tags and decode HTML entities
+  const tmp = document.createElement('div');
+  tmp.innerHTML = cleanedHtml;
+  return tmp.textContent || tmp.innerText || '';
+};
+
+/**
  * Filter tasks based on search criteria
  */
 export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearchActive: boolean, members?: TeamMember[], boards?: any[]): Task[] => {
@@ -13,12 +35,15 @@ export const filterTasks = (tasks: Task[], searchFilters: SearchFilters, isSearc
     if (searchFilters.text) {
       const searchText = searchFilters.text.toLowerCase();
       const titleMatch = task.title.toLowerCase().includes(searchText);
-      const descriptionMatch = task.description.toLowerCase().includes(searchText);
+      // Strip HTML tags from description before searching
+      const descriptionText = stripHtmlTags(task.description);
+      const descriptionMatch = descriptionText.toLowerCase().includes(searchText);
       
-      // Search in comments
-      const commentsMatch = task.comments?.some(comment => 
-        comment.text?.toLowerCase().includes(searchText)
-      ) || false;
+      // Search in comments (strip HTML from comment text)
+      const commentsMatch = task.comments?.some(comment => {
+        const commentText = stripHtmlTags(comment.text || '');
+        return commentText.toLowerCase().includes(searchText);
+      }) || false;
       
       // Search in requester name
       let requesterMatch = false;
@@ -158,12 +183,15 @@ export const filterTasksAsync = async (tasks: Task[], searchFilters: SearchFilte
     if (searchFilters.text && includeTask) {
       const searchText = searchFilters.text.toLowerCase();
       const titleMatch = task.title.toLowerCase().includes(searchText);
-      const descriptionMatch = task.description.toLowerCase().includes(searchText);
+      // Strip HTML tags from description before searching
+      const descriptionText = stripHtmlTags(task.description);
+      const descriptionMatch = descriptionText.toLowerCase().includes(searchText);
       
-      // Search in comments
-      const commentsMatch = task.comments?.some(comment => 
-        comment.text?.toLowerCase().includes(searchText)
-      ) || false;
+      // Search in comments (strip HTML from comment text)
+      const commentsMatch = task.comments?.some(comment => {
+        const commentText = stripHtmlTags(comment.text || '');
+        return commentText.toLowerCase().includes(searchText);
+      }) || false;
       
       // Search in requester name
       let requesterMatch = false;

@@ -41,6 +41,9 @@ router.post('/', authenticateToken, async (req, res) => {
       finishedName.toLowerCase() === title.toLowerCase()
     );
     
+    // Check if this column should be marked as archived (auto-detect "Archive" column)
+    const isArchived = title.toLowerCase() === 'archive';
+    
     let finalPosition;
     if (position !== undefined) {
       // Use provided position (for inserting between columns)
@@ -51,19 +54,19 @@ router.post('/', authenticateToken, async (req, res) => {
       finalPosition = maxPos + 1;
     }
     
-    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, 0);
+    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, isArchived ? 1 : 0);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing column-created to Redis for board:', boardId);
     await redisService.publish('column-created', {
       boardId: boardId,
-      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: false },
+      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
     console.log('✅ Column-created published to Redis');
     
-    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: false });
+    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });
   } catch (error) {
     console.error('Error creating column:', error);
     res.status(500).json({ error: 'Failed to create column' });
@@ -206,12 +209,19 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
     })();
 
-    // Publish to Redis for real-time updates
+    // Fetch all updated columns for this board to send in WebSocket event
+    const updatedColumns = wrapQuery(
+      db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 
+      'SELECT'
+    ).all(boardId);
+
+    // Publish to Redis for real-time updates - include all columns
     console.log('📤 Publishing column-reordered to Redis for board:', boardId);
     await redisService.publish('column-reordered', {
       boardId: boardId,
       columnId: columnId,
       newPosition: newPosition,
+      columns: updatedColumns, // Send all updated columns
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });
