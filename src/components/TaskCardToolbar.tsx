@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, Edit2, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link } from 'lucide-react';
+import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
-import { setDndGloballyDisabled } from '../utils/globalDndState';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 // System user member ID constant
@@ -29,6 +28,8 @@ interface TaskCardToolbarProps {
   attributes?: any; // DnD kit attributes
   availableTags?: Tag[];
   onTagAdd?: (tagId: string) => void;
+  columnIsFinished?: boolean;
+  columns?: { [key: string]: { id: string; title: string; is_archived?: boolean; is_finished?: boolean } };
   
   // Task linking props
   isLinkingMode?: boolean;
@@ -51,16 +52,18 @@ export default function TaskCardToolbar({
   onEdit,
   onSelect,
   onRemove,
-  onShowQuickEdit,
+  onShowQuickEdit: _onShowQuickEdit,
   onAddComment,
   onMemberChange,
   onToggleMemberSelect,
-  setDropdownPosition,
-  dropdownPosition,
+  setDropdownPosition: _setDropdownPosition,
+  dropdownPosition: _dropdownPosition,
   listeners,
   attributes,
   availableTags = [],
   onTagAdd,
+  columnIsFinished = false,
+  columns,
   
   // Task linking props
   isLinkingMode,
@@ -68,14 +71,14 @@ export default function TaskCardToolbar({
   onStartLinking,
   
   // Hover highlighting props
-  hoveredLinkTask,
+  hoveredLinkTask: _hoveredLinkTask,
   onLinkToolHover,
   onLinkToolHoverEnd
 }: TaskCardToolbarProps) {
-  const priorityButtonRef = useRef<HTMLButtonElement>(null);
+  const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
-  const quickTagButtonRef = useRef<HTMLDivElement>(null);
+  const quickTagButtonRef = useRef<HTMLButtonElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleCopy = () => {
@@ -120,7 +123,7 @@ export default function TaskCardToolbar({
       }
     };
 
-    const handleGlobalMouseUp = (e: MouseEvent) => {
+    const handleGlobalMouseUp = (_e: MouseEvent) => {
       if (isDragPrepared) {
         // Released without dragging - cancel linking
         setIsDragPrepared(false);
@@ -226,11 +229,6 @@ export default function TaskCardToolbar({
     return { left: 0, top: 0, height: 192 };
   };
 
-  const handleQuickEdit = () => {
-    onShowQuickEdit();
-    setDndGloballyDisabled(true);
-  };
-
   // Close quick tag dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -267,41 +265,39 @@ export default function TaskCardToolbar({
         <GripVertical size={12} className="text-gray-400" />
       </div>
 
-      {/* Add Comment Button - 10px spacing after drag handle */}
-      {onAddComment && (
-        <div
-          className="absolute top-1 left-8 p-1 z-[6] rounded hover:bg-gray-200 opacity-60 hover:opacity-100 cursor-pointer transition-all duration-200"
-          title="Add comment"
-          onClick={(e) => {
-            e.stopPropagation();
-            onAddComment();
-          }}
-        >
-          <MessageSquarePlus size={12} className="text-gray-400" />
-        </div>
-      )}
-
-      {/* Quick Tag Button - Right next to comment button */}
-      {onTagAdd && availableTagsForAssignment.length > 0 && (
-        <div
-          ref={quickTagButtonRef}
-          className="absolute top-1 left-12 p-1 z-[6] rounded hover:bg-gray-200 opacity-60 hover:opacity-100 cursor-pointer transition-all duration-200"
-          title="Add tag"
-          onClick={handleQuickTagClick}
-        >
-          <div className="relative">
-            <TagIcon size={12} className="text-gray-400" />
-            <Plus size={6} className="text-gray-400 absolute -top-1 -right-1" />
-          </div>
-        </div>
-      )}
-
-
-      {/* Overlay Toolbar - Positioned at top edge */}
-      <div className="absolute top-0 left-0 right-0 px-2 py-1 transition-opacity duration-200 z-[5]">
-        {/* Centered Action Buttons - Absolutely centered */}
-        <div className="flex justify-center">
-          <div className="flex gap-0.5">
+      {/* Unified Toolbar - All action buttons left-justified after drag handle */}
+      <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]">
+        <div className="flex gap-0">
+            {/* Add Comment Button */}
+            {onAddComment && (
+              <button
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Add comment"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddComment();
+                }}
+              >
+                <MessageSquarePlus size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+              </button>
+            )}
+            
+            {/* Add Tag Button */}
+            {onTagAdd && availableTagsForAssignment.length > 0 && (
+              <button
+                ref={quickTagButtonRef}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Add tag"
+                onClick={handleQuickTagClick}
+              >
+                <div className="relative">
+                  <TagIcon size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
+                  <Plus size={7} className="text-gray-400 absolute -top-1 -right-1" />
+                </div>
+              </button>
+            )}
+            
+            {/* Copy Task Button */}
             <button
               onClick={handleCopy}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -309,13 +305,8 @@ export default function TaskCardToolbar({
             >
               <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
             </button>
-            <button
-              onClick={handleQuickEdit}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Quick Edit"
-            >
-              <Edit2 size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-            </button>
+            
+            {/* View Details Button */}
             <button
               onClick={() => onSelect(task)}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -323,7 +314,8 @@ export default function TaskCardToolbar({
             >
               <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
             </button>
-            {/* Link Button */}
+            
+            {/* Link Task Button */}
             {onStartLinking && (
               <button
                 onMouseDown={handleLinkMouseDown}
@@ -339,7 +331,33 @@ export default function TaskCardToolbar({
                 <Link size={14} />
               </button>
             )}
-            {/* Delete Button - Right side of link icon */}
+            
+            {/* Archive Task Button - Only show in Done (finished) columns */}
+            {columnIsFinished && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Find the archive column (is_archived can be boolean true or number 1 from database)
+                  const archiveColumn = columns && Object.values(columns).find(col => 
+                    col.is_archived === true || (col.is_archived as any) === 1
+                  );
+                  
+                  if (archiveColumn) {
+                    // Move task to archive column
+                    onEdit({ ...task, columnId: archiveColumn.id });
+                  } else {
+                    // No archive column found - alert user
+                    alert('No archive column found. Please create a column with "is_archived" enabled.');
+                  }
+                }}
+                className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
+                title="Archive Task"
+              >
+                <Archive size={14} className="text-yellow-600" />
+              </button>
+            )}
+            
+            {/* Delete Task Button */}
             <button
               onClick={(e) => onRemove(task.id, e)}
               className="p-1 hover:bg-red-100 rounded-full transition-colors"
@@ -347,11 +365,11 @@ export default function TaskCardToolbar({
             >
               <Trash2 size={14} className="text-red-500" />
             </button>
-          </div>
         </div>
+      </div>
 
-        {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
-        <div className="absolute right-12 flex gap-1 z-30" style={{ top: '7px' }}>
+      {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
+      <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>
           {task.watchers && task.watchers.length > 0 && (
             <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
               <Eye size={12} className="text-blue-500" />
@@ -364,7 +382,6 @@ export default function TaskCardToolbar({
               <span className="text-[10px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
             </div>
           )}
-        </div>
       </div>
 
       {/* Avatar Overlay - Top Right */}

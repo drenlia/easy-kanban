@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { TaskHandle } from './TaskHandle';
 import { MoveHandle } from './MoveHandle';
 import { GanttDragItem, DRAG_TYPES } from './types';
+import { TaskBarTooltip } from './TaskBarTooltip';
 
 interface GanttTask {
   id: string;
@@ -140,20 +141,21 @@ export const OptimizedTaskBar = ({
   if (!gridPosition) return null;
 
   return (
-    <div
-      className={`absolute ${isDragging ? 'opacity-50 z-30' : 'z-20'} 
-        ${taskViewMode === 'compact' ? 'h-8' : 
-          taskViewMode === 'shrink' ? 'h-8' : 
-          'h-12'} 
-        top-1 transition-opacity duration-200`}
-      style={{
-        left: offsetLeft,
-        width: offsetWidth,
-        backgroundColor: priorityColor,
-      }}
-    >
-      {/* Task bar with gradient and hover effects */}
-      <div className="relative h-full w-full rounded-md shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group">
+    <TaskBarTooltip task={task} formatDate={formatDate}>
+      <div
+        className={`absolute ${isDragging ? 'opacity-50 z-30' : 'z-20'} 
+          ${taskViewMode === 'compact' ? 'h-8' : 
+            taskViewMode === 'shrink' ? 'h-8' : 
+            'h-12'} 
+          top-1 transition-opacity duration-200`}
+        style={{
+          left: offsetLeft,
+          width: offsetWidth,
+          backgroundColor: priorityColor,
+        }}
+      >
+        {/* Task bar with gradient and hover effects */}
+        <div className="relative h-full w-full rounded-md shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group">
         {/* Background with gradient */}
         <div 
           className="absolute inset-0 rounded-md opacity-90 group-hover:opacity-100"
@@ -173,14 +175,11 @@ export const OptimizedTaskBar = ({
             taskColor={{ backgroundColor: priorityColor, color: 'white' }}
           />
           
-          {/* Task content */}
+          {/* Task content - Empty (no text on bars) */}
           <div 
             className="flex-1 text-center truncate mx-1 min-w-0"
             onClick={handleClick}
-            title={`${task.ticket}: ${task.title} (${formatDate(task.startDate!)} - ${formatDate(task.endDate!)})`}
           >
-            {/* Always show full title on task bars, regardless of left column view mode */}
-            {`${task.ticket}: ${task.title}`}
           </div>
           
           {/* End resize handle */}
@@ -255,6 +254,7 @@ export const OptimizedTaskBar = ({
         )}
       </div>
     </div>
+    </TaskBarTooltip>
   );
 };
 

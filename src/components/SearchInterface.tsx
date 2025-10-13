@@ -246,11 +246,8 @@ export default function SearchInterface({
     });
     onFilterViewChange?.(null); // Reset to "None"
     
-    // Also clear column filters
-    if (columns && onColumnsChange) {
-      const allColumnIds = Object.keys(columns);
-      onColumnsChange(allColumnIds);
-    }
+    // DON'T clear column filters - preserve user's column visibility preferences
+    // This is better UX as users expect column selections to persist
   };
 
   // Handle saving current filters as a new view
@@ -407,13 +404,28 @@ export default function SearchInterface({
             const hasSearchFilters = filters.text || filters.dateFrom || filters.dateTo || filters.dueDateFrom || filters.dueDateTo || filters.selectedPriorities.length > 0 || filters.selectedTags.length > 0 || filters.projectId || filters.taskId;
             
             // Check if any non-archived columns are hidden (archived columns are hidden by default)
-            const hasColumnFilters = columns && visibleColumns && (() => {
+            const hasColumnFilters = columns && visibleColumns && visibleColumns.length > 0 && (() => {
               const allColumns = Object.values(columns);
-              const nonArchivedColumns = allColumns.filter(col => !col.is_archived);
+              
+              // Safety check: if columns object is empty or not yet loaded, don't show filter indicator
+              if (allColumns.length === 0) {
+                return false;
+              }
+              
+              // Filter non-archived columns (is_archived can be boolean true or number 1)
+              const nonArchivedColumns = allColumns.filter(col => !(col.is_archived === true || col.is_archived === 1));
               const visibleNonArchivedColumns = visibleColumns.filter(colId => {
                 const col = columns[colId];
-                return col && !col.is_archived;
+                // Check if column exists and is not archived
+                return col && !(col.is_archived === true || col.is_archived === 1);
               });
+              
+              // Safety check: if we can't find any visible columns in the columns object,
+              // it means the data isn't synchronized yet - don't show the filter indicator
+              if (visibleNonArchivedColumns.length === 0 && visibleColumns.length > 0) {
+                return false;
+              }
+              
               return visibleNonArchivedColumns.length < nonArchivedColumns.length;
             })();
             

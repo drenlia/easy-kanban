@@ -5,6 +5,7 @@ import { TaskHandle } from './TaskHandle';
 import { MoveHandle } from './MoveHandle';
 import { DRAG_TYPES, GanttDragItem } from './types';
 import TaskDependencyArrows from './TaskDependencyArrows';
+import { TaskBarTooltip } from './TaskBarTooltip';
 
 // Format date helper for local dates
 const formatLocalDate = (date: Date): string => {
@@ -215,26 +216,29 @@ const TaskBar = ({
 
 
   return (
-    <div
-      className={`absolute h-6 rounded ${
-        isDragging ? 'opacity-50' : 
-        isSelected ? 'opacity-100 ring-2 ring-green-400 shadow-lg' :
-        'opacity-80 hover:opacity-100'
-      } ${
-        highlightedTaskId === task.id ? 'ring-2 ring-yellow-400 dark:ring-yellow-600 shadow-lg' : ''
-      } transition-all flex items-center group cursor-pointer`}
-      style={{
-        left: `${displayStartIndex * 40}px`,
-        width: `${(displayEndIndex - displayStartIndex + 1) * 40}px`,
-        top: '50%',
-        transform: 'translateY(-50%)',
-        backgroundColor: getPriorityColor(task.priority),
-        zIndex: isDragging ? 40 : (isSelected ? 20 : 10),
-        pointerEvents: isDragging ? 'none' : 'auto'
-      }}
-      onClick={handleClick}
-      title={task.title}
+    <TaskBarTooltip 
+      task={task} 
+      formatDate={(date) => date instanceof Date ? formatLocalDate(date) : date}
     >
+      <div
+        className={`absolute h-6 rounded ${
+          isDragging ? 'opacity-50' : 
+          isSelected ? 'opacity-100 ring-2 ring-green-400 shadow-lg' :
+          'opacity-80 hover:opacity-100'
+        } ${
+          highlightedTaskId === task.id ? 'ring-2 ring-yellow-400 dark:ring-yellow-600 shadow-lg' : ''
+        } transition-all flex items-center group cursor-pointer`}
+        style={{
+          left: `${displayStartIndex * 40}px`,
+          width: `${(displayEndIndex - displayStartIndex + 1) * 40}px`,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          backgroundColor: getPriorityColor(task.priority),
+          zIndex: isDragging ? 40 : (isSelected ? 20 : 10),
+          pointerEvents: isDragging ? 'none' : 'auto'
+        }}
+        onClick={handleClick}
+      >
       {/* Resize handles */}
       {taskViewMode !== 'shrink' && (
         <>
@@ -273,11 +277,8 @@ const TaskBar = ({
         />
       </div>
 
-      {/* Task content */}
+      {/* Task content - Empty (no text on bars) */}
       <div className="flex-1 min-w-0 px-2">
-        <span className="text-white text-xs truncate select-none">
-          {task.title}
-        </span>
       </div>
 
       {/* Multi-select checkbox */}
@@ -374,6 +375,7 @@ const TaskBar = ({
         </div>
       )}
     </div>
+    </TaskBarTooltip>
   );
 };
 

@@ -1119,29 +1119,58 @@ export default function TaskPage({
                           }}
                         />
                       ) : (
-                        <div 
-                          className="text-sm text-gray-700 prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ 
-                            __html: DOMPurify.sanitize(
-                              (() => {
-                                // Fix blob URLs in comment text by replacing them with server URLs (matching TaskDetails)
-                                const attachments = commentAttachments[comment.id] || [];
-                                let fixedContent = comment.text;
-                                
-                                attachments.forEach(attachment => {
-                                  if (attachment.name.startsWith('img-')) {
-                                    // Replace blob URLs with authenticated server URLs
-                                    const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
-                                    const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
-                                    fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
-                                  }
-                                });
-                                
-                                return fixedContent;
-                              })()
-                            ) 
-                          }}
-                        />
+                        <>
+                          <div 
+                            className="text-sm text-gray-700 prose prose-sm max-w-none"
+                            dangerouslySetInnerHTML={{ 
+                              __html: DOMPurify.sanitize(
+                                (() => {
+                                  // Fix blob URLs in comment text by replacing them with server URLs (matching TaskDetails)
+                                  const attachments = commentAttachments[comment.id] || [];
+                                  let fixedContent = comment.text;
+                                  
+                                  attachments.forEach(attachment => {
+                                    if (attachment.name.startsWith('img-')) {
+                                      // Replace blob URLs with authenticated server URLs
+                                      const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+                                      const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
+                                      fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
+                                    }
+                                  });
+                                  
+                                  return fixedContent;
+                                })()
+                              ) 
+                            }}
+                          />
+                          {/* Display non-image attachments as clickable links (matching TaskDetails) */}
+                          {(() => {
+                            const attachments = commentAttachments[comment.id] || [];
+                            const nonImageAttachments = attachments.filter(att => !att.name.startsWith('img-'));
+                            if (nonImageAttachments.length === 0) return null;
+                            
+                            return (
+                              <div className="mt-3 space-y-1">
+                                {nonImageAttachments.map(attachment => (
+                                  <div
+                                    key={attachment.id}
+                                    className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400"
+                                  >
+                                    <Paperclip size={14} />
+                                    <a
+                                      href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
+                                    >
+                                      {attachment.name}
+                                    </a>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </>
                       )}
                     </div>
                   );

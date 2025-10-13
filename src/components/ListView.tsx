@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Edit2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
@@ -11,6 +11,7 @@ import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import ExportMenu from './ExportMenu';
+import TextEditor from './TextEditor';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -1041,16 +1042,6 @@ export default function ListView({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            onEditTask(task);
-                          }}
-                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600"
-                          title="Quick Edit"
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
                             onRemoveTask(task.id, e);
                           }}
                           className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
@@ -1097,16 +1088,42 @@ export default function ListView({
                           )}
                           {task.description && taskViewMode !== 'compact' && (
                             editingCell?.taskId === task.id && editingCell?.field === 'description' ? (
-                              <textarea
-                                ref={editInputRef as any}
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={saveEdit}
-                                onKeyDown={handleKeyDown}
-                                className="text-sm text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full resize-none"
-                                rows={2}
-                                onClick={(e) => e.stopPropagation()}
-                              />
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <TextEditor
+                                  onSubmit={async (content) => {
+                                    setEditValue(content);
+                                    const task = allTasks.find(t => t.id === editingCell.taskId);
+                                    if (task) {
+                                      await onEditTask({ ...task, description: content });
+                                    }
+                                    setEditingCell(null);
+                                  }}
+                                  onCancel={cancelEditing}
+                                  onChange={(content) => setEditValue(content)}
+                                  initialContent={editValue}
+                                  placeholder="Enter task description..."
+                                  compact={true}
+                                  showSubmitButtons={false}
+                                  resizable={false}
+                                  toolbarOptions={{
+                                    bold: true,
+                                    italic: true,
+                                    underline: false,
+                                    link: true,
+                                    lists: true,
+                                    alignment: false,
+                                    attachments: false
+                                  }}
+                                  allowImagePaste={false}
+                                  allowImageDelete={false}
+                                  allowImageResize={true}
+                                  imageDisplayMode="compact"
+                                  className="w-full"
+                                />
+                                <div className="text-xs text-gray-500 mt-1">
+                                  <span>Press Enter to save (or add list items), Shift+Enter for new line, Escape to cancel, or click outside to save</span>
+                                </div>
+                              </div>
                             ) : (
                               <div 
                                 className={`text-sm text-gray-500 cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 prose prose-sm max-w-none ${

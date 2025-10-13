@@ -1014,9 +1014,41 @@ export default function App() {
 
     // Set up event handlers
     const handleTaskCreated = (data: any) => {
-      // Only update if the task is for the current board
-      if (data.boardId === selectedBoardRef.current && data.task) {
-        
+      if (!data.task || !data.boardId) return;
+      
+      // Always update boards state for task count updates (for all boards)
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            const targetColumnId = data.task.columnId;
+            
+            if (updatedColumns[targetColumnId]) {
+              // Add new task at front and renumber all tasks sequentially
+              const existingTasks = updatedColumns[targetColumnId].tasks;
+              const allTasks = [data.task, ...existingTasks];
+              const updatedTasks = allTasks.map((task, index) => ({
+                ...task,
+                position: index
+              }));
+              
+              updatedColumns[targetColumnId] = {
+                ...updatedColumns[targetColumnId],
+                tasks: updatedTasks
+              };
+              
+              updatedBoard.columns = updatedColumns;
+            }
+            
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns/filteredColumns if the task is for the currently selected board
+      if (data.boardId === selectedBoardRef.current) {
         // Optimized: Add the specific task instead of full refresh
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
@@ -1057,37 +1089,6 @@ export default function App() {
             };
           }
           return updatedFilteredColumns;
-        });
-        
-        // CRITICAL FIX: Also update boards state so tab counter pills update
-        setBoards(prevBoards => {
-          return prevBoards.map(board => {
-            if (board.id === data.boardId) {
-              const updatedBoard = { ...board };
-              const updatedColumns = { ...updatedBoard.columns };
-              const targetColumnId = data.task.columnId;
-              
-              if (updatedColumns[targetColumnId]) {
-                // Add new task at front and renumber all tasks sequentially
-                const existingTasks = updatedColumns[targetColumnId].tasks;
-                const allTasks = [data.task, ...existingTasks];
-                const updatedTasks = allTasks.map((task, index) => ({
-                  ...task,
-                  position: index
-                }));
-                
-                updatedColumns[targetColumnId] = {
-                  ...updatedColumns[targetColumnId],
-                  tasks: updatedTasks
-                };
-                
-                updatedBoard.columns = updatedColumns;
-              }
-              
-              return updatedBoard;
-            }
-            return board;
-          });
         });
       }
     };
@@ -1310,8 +1311,47 @@ export default function App() {
     };
 
     const handleTaskDeleted = (data: any) => {
-      // Only update if the task is for the current board
-      if (data.boardId === selectedBoardRef.current && data.taskId) {
+      if (!data.taskId || !data.boardId) return;
+      
+      // Always update boards state for task count updates (for all boards)
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+            
+            // Find and remove the task from the appropriate column
+            Object.keys(updatedColumns).forEach(columnId => {
+              const column = updatedColumns[columnId];
+              const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+              if (taskIndex !== -1) {
+                // Remove the deleted task
+                const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
+                
+                // Renumber remaining tasks sequentially from 0
+                const renumberedTasks = remainingTasks
+                  .sort((a, b) => (a.position || 0) - (b.position || 0))
+                  .map((task, index) => ({
+                    ...task,
+                    position: index
+                  }));
+                
+                updatedColumns[columnId] = {
+                  ...column,
+                  tasks: renumberedTasks
+                };
+              }
+            });
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+      
+      // Only update columns/filteredColumns if the task is for the currently selected board
+      if (data.boardId === selectedBoardRef.current) {
         // Optimized: Remove the specific task and renumber remaining tasks
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
