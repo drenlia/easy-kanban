@@ -297,7 +297,7 @@ const TaskBar = ({
       {/* Relationship indicators */}
       {isRelationshipMode && (
         <>
-          {/* Start link icon for relationship mode - positioned on left */}
+          {/* Start link icon for relationship mode - positioned on left with high z-index */}
           <button
             onClick={(e) => {
               e.preventDefault();
@@ -314,7 +314,7 @@ const TaskBar = ({
                 onRelationshipClick(task.id);
               }
             }}
-            className={`p-1 ml-1 mr-2 rounded transition-colors ${
+            className={`relative z-40 p-1 ml-1 mr-2 rounded transition-colors ${
               selectedParentTask === task.id 
                 ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
                 : 'hover:bg-white hover:bg-opacity-20'

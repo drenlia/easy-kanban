@@ -7,9 +7,20 @@ import { parseLocalDate } from './dateUtils';
  */
 const stripHtmlTags = (html: string): string => {
   if (!html) return '';
+  
+  // IMPORTANT: Remove blob URLs BEFORE setting innerHTML to prevent ERR_FILE_NOT_FOUND errors
+  // The browser tries to fetch blob URLs as soon as they appear in the DOM
+  let cleanedHtml = html;
+  if (cleanedHtml.includes('blob:')) {
+    // Remove img tags with blob URLs
+    cleanedHtml = cleanedHtml.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '');
+    // Remove any remaining blob URLs from other contexts
+    cleanedHtml = cleanedHtml.replace(/blob:[^\s"')]+/gi, '');
+  }
+  
   // Remove HTML tags and decode HTML entities
   const tmp = document.createElement('div');
-  tmp.innerHTML = html;
+  tmp.innerHTML = cleanedHtml;
   return tmp.textContent || tmp.innerText || '';
 };
 

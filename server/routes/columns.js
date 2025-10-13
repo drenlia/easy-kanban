@@ -209,12 +209,19 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
     })();
 
-    // Publish to Redis for real-time updates
+    // Fetch all updated columns for this board to send in WebSocket event
+    const updatedColumns = wrapQuery(
+      db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 
+      'SELECT'
+    ).all(boardId);
+
+    // Publish to Redis for real-time updates - include all columns
     console.log('📤 Publishing column-reordered to Redis for board:', boardId);
     await redisService.publish('column-reordered', {
       boardId: boardId,
       columnId: columnId,
       newPosition: newPosition,
+      columns: updatedColumns, // Send all updated columns
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     });

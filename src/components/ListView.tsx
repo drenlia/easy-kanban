@@ -1145,6 +1145,15 @@ export default function ListView({
                                         const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
                                         return authenticatedUrl || `/uploads/${filename}`;
                                       });
+                                      
+                                      // Fallback: Remove ANY remaining blob URLs that couldn't be matched
+                                      if (fixedDescription.includes('blob:')) {
+                                        // Replace remaining blob URLs in img tags
+                                        fixedDescription = fixedDescription.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+                                        // Also replace any blob URLs in other contexts
+                                        fixedDescription = fixedDescription.replace(/blob:[^\s"')]+/gi, '');
+                                      }
+                                      
                                       return fixedDescription;
                                     })()
                                   )
@@ -1436,6 +1445,14 @@ export default function ListView({
                           const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
                           return authenticatedUrl || `/uploads/${filename}`;
                         });
+                        
+                        // Fallback: Remove ANY remaining blob URLs that couldn't be matched
+                        if (fixedContent.includes('blob:')) {
+                          // Replace remaining blob URLs in img tags
+                          fixedContent = fixedContent.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+                          // Also replace any blob URLs in other contexts
+                          fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
+                        }
                         
                         const tempDiv = document.createElement('div');
                         tempDiv.innerHTML = fixedContent;

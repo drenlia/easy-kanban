@@ -162,24 +162,44 @@ const TaskCard = React.memo(function TaskCard({
 
   // Fix blob URLs in task description - using EXACT same logic as comments
   const fixImageUrls = (htmlContent: string, attachments: any[]) => {
+    if (!htmlContent) return htmlContent;
+    
     let fixedContent = htmlContent;
+    
+    // First, try to replace blob URLs with their corresponding attachments
     attachments.forEach(attachment => {
-      if (attachment.name.startsWith('img-')) {
+      if (attachment.name && attachment.name.startsWith('img-')) {
         // Replace blob URLs with authenticated server URLs
         const blobPattern = new RegExp(`blob:[^"]*#${attachment.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
         const authenticatedUrl = getAuthenticatedAttachmentUrl(attachment.url);
         fixedContent = fixedContent.replace(blobPattern, authenticatedUrl || attachment.url);
       }
     });
+    
+    // Fallback: Remove ANY remaining blob URLs that couldn't be matched to attachments
+    // This prevents ERR_FILE_NOT_FOUND errors for stale blob URLs
+    if (fixedContent.includes('blob:')) {
+      console.warn('⚠️ TaskCard: Found unmatched blob URLs in description, removing them', {
+        taskId: task.id,
+        hasBlobUrl: fixedContent.includes('blob:')
+      });
+      // Replace remaining blob URLs in img tags
+      fixedContent = fixedContent.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+      // Also replace any blob URLs in other contexts (like background-image in style attributes)
+      fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
+    }
+    
     return fixedContent;
   };
 
   const getFixedDescription = () => {
     if (!task.description) return task.description;
     
-    // If attachments are still loading and we have images, show original content for now
-    if (!attachmentsLoaded && task.description.includes('img-')) {
-      return task.description;
+    // ALWAYS fix blob URLs, even while attachments are loading
+    // If attachments are still loading and we have images, remove blob URLs immediately
+    if (!attachmentsLoaded && task.description.includes('blob:')) {
+      console.warn('⚠️ TaskCard: Attachments still loading but blob URLs found, removing them');
+      return task.description.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/g, '<!-- Loading image... -->');
     }
     
     // Use the exact same function as comments
@@ -1169,7 +1189,7 @@ const TaskCard = React.memo(function TaskCard({
             </div>
 
             {/* Comments - squeezed close to effort */}
-            {validComments.length > 0 && (
+            {validComments && validComments.length > 0 && (
               <div 
                 ref={commentContainerRef}
                 className="relative"
@@ -1196,7 +1216,7 @@ const TaskCard = React.memo(function TaskCard({
           {/* Right side - attachments and priority */}
           <div className="flex items-center gap-2">
             {/* Attachments indicator */}
-            {task.attachmentCount && task.attachmentCount > 0 && (
+            {task.attachmentCount > 0 && (
               <div className="flex items-center gap-0.5 text-gray-500" title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}>
                 <Paperclip size={12} />
                 <span className="text-xs">{task.attachmentCount}</span>
@@ -1354,6 +1374,14 @@ const TaskCard = React.memo(function TaskCard({
                             const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
                             return authenticatedUrl || `/uploads/${filename}`;
                           });
+                          
+                          // Fallback: Remove ANY remaining blob URLs that couldn't be matched
+                          if (fixedContent.includes('blob:')) {
+                            // Replace remaining blob URLs in img tags
+                            fixedContent = fixedContent.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+                            // Also replace any blob URLs in other contexts
+                            fixedContent = fixedContent.replace(/blob:[^\s"')]+/gi, '');
+                          }
                           
                           // Create a temporary div to parse the HTML
                           const tempDiv = document.createElement('div');
