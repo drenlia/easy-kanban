@@ -1,6 +1,46 @@
 import * as XLSX from 'xlsx';
 import { Task, Board, TeamMember, Tag, Columns } from '../types';
 
+/**
+ * Strip HTML tags from text while preserving line breaks
+ * Converts <p> tags to CRLF for better readability in exports
+ */
+function stripHtmlPreservingLineBreaks(html: string): string {
+  if (!html) return '';
+  
+  // Convert <p> opening tags to CRLF
+  let text = html.replace(/<p[^>]*>/gi, '\r\n');
+  
+  // Convert </p> closing tags to CRLF
+  text = text.replace(/<\/p>/gi, '\r\n');
+  
+  // Convert <br> tags to CRLF
+  text = text.replace(/<br\s*\/?>/gi, '\r\n');
+  
+  // Convert <div> tags to line breaks
+  text = text.replace(/<div[^>]*>/gi, '\r\n');
+  text = text.replace(/<\/div>/gi, '');
+  
+  // Remove all other HTML tags
+  text = text.replace(/<[^>]*>/g, '');
+  
+  // Decode common HTML entities
+  text = text.replace(/&nbsp;/g, ' ');
+  text = text.replace(/&lt;/g, '<');
+  text = text.replace(/&gt;/g, '>');
+  text = text.replace(/&amp;/g, '&');
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  
+  // Clean up multiple consecutive line breaks (more than 2)
+  text = text.replace(/(\r\n){3,}/g, '\r\n\r\n');
+  
+  // Trim leading/trailing whitespace
+  text = text.trim();
+  
+  return text;
+}
+
 export interface ExportData {
   ticket?: string;
   title: string;
@@ -47,9 +87,9 @@ export function transformTaskForExport(
     ? task.tags.map(tag => tag.tag).join(', ')
     : '';
 
-  // Get comments as text, separated by newlines
+  // Get comments as text, separated by newlines, with HTML stripped
   const comments = task.comments?.length 
-    ? task.comments.map(comment => comment.text).join('\n')
+    ? task.comments.map(comment => stripHtmlPreservingLineBreaks(comment.text)).join('\n\n')
     : '';
 
   // Get column name (status) from columnId
@@ -60,7 +100,7 @@ export function transformTaskForExport(
   return {
     ticket: task.ticket || '',
     title: task.title,
-    description: task.description || '',
+    description: stripHtmlPreservingLineBreaks(task.description || ''),
     assignee,
     priority: task.priorityName || task.priority,
     status,
