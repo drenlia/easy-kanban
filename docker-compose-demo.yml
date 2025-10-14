@@ -15,7 +15,7 @@ services:
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
       # Allowed origins for CORS
-      - ALLOWED_ORIGINS=true
+      - ALLOWED_ORIGINS=kanban.demo.drenlia.com
       - DEMO_ENABLED=true
       - LICENSE_ENABLED=false
     volumes:
