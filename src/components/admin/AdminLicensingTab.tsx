@@ -176,6 +176,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
   }
 
   if (!licenseInfo.enabled) {
+    const isDemoMode = process.env.DEMO_ENABLED === 'true';
     return (
       <div className="p-6">
         <div className="mb-6">
@@ -185,9 +186,14 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
           <div className="flex items-center">
             <CheckCircle className="h-6 w-6 text-blue-500 mr-3" />
             <div>
-              <h3 className="text-lg font-semibold text-blue-800 dark:text-blue-200">Self-Hosted Mode</h3>
+              <h3 className="text-lg font-semibold text-blue-800 dark:text-blue-200">
+                {isDemoMode ? 'Demo Mode' : 'Self-Hosted Mode'}
+              </h3>
               <p className="text-blue-700 dark:text-blue-300 mt-1">
-                License system is disabled. This instance is running in self-hosted mode with no restrictions.
+                {isDemoMode 
+                  ? 'License system is disabled for demo purposes. This instance resets hourly and is for evaluation only.'
+                  : 'License system is disabled. This instance is running in self-hosted mode with no restrictions.'
+                }
               </p>
             </div>
           </div>

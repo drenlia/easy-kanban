@@ -231,9 +231,12 @@ class LicenseManager {
   // Get license information for admin display
   async getLicenseInfo() {
     if (!this.enabled) {
+      const isDemoMode = process.env.DEMO_ENABLED === 'true';
       return {
         enabled: false,
-        message: 'Licensing is disabled (self-hosted mode)'
+        message: isDemoMode 
+          ? 'Licensing is disabled (demo mode - resets hourly)'
+          : 'Licensing is disabled (self-hosted mode)'
       };
     }
 

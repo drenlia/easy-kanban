@@ -477,11 +477,14 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
     console.log('🔍 License info:', JSON.stringify(licenseInfo, null, 2));
     
     if (!licenseInfo.enabled) {
+      const isDemoMode = process.env.DEMO_ENABLED === 'true';
       return res.json({
         success: true,
         data: {
           plan: 'unlimited',
-          message: 'Licensing disabled (self-hosted mode)',
+          message: isDemoMode 
+            ? 'Licensing disabled (demo mode - resets hourly)'
+            : 'Licensing disabled (self-hosted mode)',
           features: []
         }
       });
