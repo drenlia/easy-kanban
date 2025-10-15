@@ -12,3 +12,7 @@ spec:
     requests:
       storage: 1Gi
   storageClassName: STORAGE_CLASS_PLACEHOLDER
+  selector:
+    matchLabels:
+      instance: INSTANCE_NAME_PLACEHOLDER
+      volume-type: avatars

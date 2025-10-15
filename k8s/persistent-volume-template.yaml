@@ -2,9 +2,12 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: easy-kanban-INSTANCE_NAME_PLACEHOLDER-data-pv
+  labels:
+    instance: INSTANCE_NAME_PLACEHOLDER
+    volume-type: data
 spec:
   capacity:
-    storage: 1Gi
+    storage: 3Gi
   accessModes:
     - ReadWriteOnce
   persistentVolumeReclaimPolicy: Retain

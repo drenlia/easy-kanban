@@ -2,6 +2,9 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: easy-kanban-INSTANCE_NAME_PLACEHOLDER-avatars-pv
+  labels:
+    instance: INSTANCE_NAME_PLACEHOLDER
+    volume-type: avatars
 spec:
   capacity:
     storage: 1Gi

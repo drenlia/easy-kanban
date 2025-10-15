@@ -152,15 +152,18 @@ generate_manifests() {
     
     # Generate persistent volume claims
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
         -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim.yaml > "${TEMP_DIR}/persistent-volume-claim.yaml"
     
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
         -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
         -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim-attachments.yaml > "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
     
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
         -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
         ${SCRIPT_DIR}/persistent-volume-claim-avatars.yaml > "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
 }
