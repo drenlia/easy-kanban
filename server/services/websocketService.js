@@ -15,7 +15,12 @@ class WebSocketService {
         origin: process.env.ALLOWED_ORIGINS?.split(',') || true,
         methods: ["GET", "POST"],
         credentials: true
-      }
+      },
+      pingTimeout: 60000, // 60 seconds - how long to wait for pong before closing
+      pingInterval: 25000, // 25 seconds - how often to ping
+      upgradeTimeout: 30000, // 30 seconds - time to wait for upgrade
+      transports: ['polling', 'websocket'], // Try polling first for better compatibility
+      allowEIO3: true // Allow Engine.IO v3 clients
     });
     
     
@@ -24,12 +29,13 @@ class WebSocketService {
       const token = socket.handshake.auth.token;
       
       if (!token) {
+        console.log('❌ WebSocket auth failed: No token provided');
         return next(new Error('Authentication required'));
       }
       
-      
       jwt.verify(token, JWT_SECRET, (err, decoded) => {
         if (err) {
+          console.log('❌ WebSocket auth failed:', err.message);
           return next(new Error('Invalid token'));
         }
         
@@ -39,6 +45,7 @@ class WebSocketService {
         socket.userRole = decoded.role;
         socket.userRoles = decoded.roles;
         
+        console.log('✅ WebSocket authenticated:', decoded.email);
         next();
       });
     });
@@ -46,6 +53,8 @@ class WebSocketService {
 
     // Handle connections
     this.io.on('connection', (socket) => {
+      console.log(`🔌 Client connected: ${socket.id} (${socket.userEmail})`);
+      
       this.connectedClients.set(socket.id, { 
         socketId: socket.id, 
         userId: socket.userId,
@@ -96,8 +105,13 @@ class WebSocketService {
         }
       });
 
-      socket.on('disconnect', () => {
+      socket.on('disconnect', (reason) => {
+        console.log(`🔴 Client disconnected: ${socket.id} (${socket.userEmail}) - Reason: ${reason}`);
         this.connectedClients.delete(socket.id);
+      });
+
+      socket.on('error', (error) => {
+        console.error(`❌ Socket error for ${socket.id}:`, error.message);
       });
     });
 

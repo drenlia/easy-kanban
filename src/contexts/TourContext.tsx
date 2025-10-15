@@ -31,14 +31,11 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
   const { userSteps, adminSteps } = getTourSteps();
 
   const startTour = useCallback(() => {
-    console.log('TourContext: startTour called, setting isRunning to true');
     setIsHelpModalOpen(false); // Close help modal first
     setIsRunning(true);
-    console.log('TourContext: isRunning set to true');
   }, []);
 
   const stopTour = useCallback(() => {
-    console.log('Stopping tour');
     setIsRunning(false);
   }, []);
 
@@ -50,11 +47,8 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
   const isAdmin = currentUser?.roles?.includes('admin') || currentUser?.role === 'admin';
   const steps = isAdmin ? adminSteps : userSteps;
 
-  console.log('TourProvider: isRunning =', isRunning, 'isAdmin =', isAdmin, 'steps =', steps.length);
-
   const handleJoyrideCallback = useCallback((data: CallBackProps) => {
-    console.log('Joyride callback:', data);
-    const { status, action, index, type, step } = data;
+    const { status } = data;
     
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
       stopTour();

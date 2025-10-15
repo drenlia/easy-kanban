@@ -61,6 +61,24 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Request logging middleware for debugging
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const ip = req.ip || req.connection.remoteAddress;
+  const userAgent = req.get('user-agent') || 'Unknown';
+  
+  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${ip} - User-Agent: ${userAgent}`);
+  
+  // Log response status when the request completes
+  const originalSend = res.send;
+  res.send = function(data) {
+    console.log(`[${timestamp}] ${req.method} ${req.path} - Status: ${res.statusCode}`);
+    originalSend.call(this, data);
+  };
+  
+  next();
+});
+
 // Serve static files
 app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
 app.use('/avatars', express.static(path.join(__dirname, 'avatars')));

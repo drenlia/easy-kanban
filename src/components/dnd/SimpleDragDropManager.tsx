@@ -19,6 +19,7 @@ interface SimpleDragDropManagerProps {
   currentBoardId: string;
   columns: { [key: string]: Column };
   boards: Board[];
+  isOnline?: boolean; // Network status - disable dragging when offline
   onTaskMove: (taskId: string, targetColumnId: string, position: number) => Promise<void>;
   onTaskMoveToDifferentBoard: (taskId: string, targetBoardId: string) => Promise<void>;
   onColumnReorder: (columnId: string, newPosition: number) => Promise<void>;
@@ -122,6 +123,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
   currentBoardId,
   columns,
   boards,
+  isOnline = true,
   onTaskMove,
   onTaskMoveToDifferentBoard,
   onColumnReorder,
@@ -150,6 +152,12 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
 
 
   const handleDragStart = (event: DragStartEvent) => {
+    // Block dragging when offline
+    if (!isOnline) {
+      console.log('🚫 Drag blocked - network offline');
+      return;
+    }
+    
     const activeData = event.active.data?.current;
     
     // Detect tab container bounds dynamically
@@ -428,6 +436,16 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    // Block drag completion when offline
+    if (!isOnline) {
+      console.log('🚫 Drag end blocked - network offline');
+      onDraggedTaskChange?.(null);
+      onDraggedColumnChange?.(null);
+      onBoardTabHover?.(false);
+      onDragPreviewChange?.(null);
+      return;
+    }
+    
     const { active, over } = event;
 
     console.log('🎯 SimpleDragDropManager handleDragEnd:', {

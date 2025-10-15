@@ -78,6 +78,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Request logging middleware for debugging
+app.use((req, res, next) => {
+  const timestamp = new Date().toISOString();
+  const ip = req.ip || req.connection.remoteAddress;
+  const userAgent = req.get('user-agent') || 'Unknown';
+  
+  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${ip} - User-Agent: ${userAgent}`);
+  
+  // Log response status when the request completes
+  const originalSend = res.send;
+  res.send = function(data) {
+    console.log(`[${timestamp}] ${req.method} ${req.path} - Status: ${res.statusCode}`);
+    originalSend.call(this, data);
+  };
+  
+  next();
+});
+
 // OPTIONS requests are now handled by nginx - disable Express OPTIONS handler to avoid duplicate headers
 // app.options('*', (req, res) => {
 //   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];

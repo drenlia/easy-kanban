@@ -91,10 +91,30 @@ class WebSocketClient {
         this.joinBoard(this.pendingBoardJoin);
         this.pendingBoardJoin = null;
       }
+      
+      // Trigger custom connect callbacks
+      const connectCallbacks = this.eventCallbacks.get('connect') || [];
+      connectCallbacks.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('Error in connect callback:', error);
+        }
+      });
     });
 
     this.socket.on('disconnect', (reason) => {
       this.isConnected = false;
+      
+      // Trigger custom disconnect callbacks
+      const disconnectCallbacks = this.eventCallbacks.get('disconnect') || [];
+      disconnectCallbacks.forEach(callback => {
+        try {
+          callback();
+        } catch (error) {
+          console.error('Error in disconnect callback:', error);
+        }
+      });
     });
 
     this.socket.on('connect_error', (error) => {
@@ -615,6 +635,59 @@ class WebSocketClient {
 
   offTaskTagRemoved(callback?: (data: any) => void) {
     this.socket?.off('task-tag-removed', callback);
+  }
+
+  // Connection status methods
+  getIsConnected(): boolean {
+    return this.isConnected && this.socket?.connected === true;
+  }
+
+  // Subscribe to connect event
+  onConnect(callback: () => void) {
+    if (!this.eventCallbacks.has('connect')) {
+      this.eventCallbacks.set('connect', []);
+    }
+    this.eventCallbacks.get('connect')!.push(callback);
+    
+    if (this.socket) {
+      this.socket.on('connect', callback);
+    }
+  }
+
+  offConnect(callback: () => void) {
+    const callbacks = this.eventCallbacks.get('connect') || [];
+    const index = callbacks.indexOf(callback);
+    if (index > -1) {
+      callbacks.splice(index, 1);
+    }
+    
+    if (this.socket) {
+      this.socket.off('connect', callback);
+    }
+  }
+
+  // Subscribe to disconnect event
+  onDisconnect(callback: () => void) {
+    if (!this.eventCallbacks.has('disconnect')) {
+      this.eventCallbacks.set('disconnect', []);
+    }
+    this.eventCallbacks.get('disconnect')!.push(callback);
+    
+    if (this.socket) {
+      this.socket.on('disconnect', callback);
+    }
+  }
+
+  offDisconnect(callback: () => void) {
+    const callbacks = this.eventCallbacks.get('disconnect') || [];
+    const index = callbacks.indexOf(callback);
+    if (index > -1) {
+      callbacks.splice(index, 1);
+    }
+    
+    if (this.socket) {
+      this.socket.off('disconnect', callback);
+    }
   }
 }
 

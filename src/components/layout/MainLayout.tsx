@@ -24,6 +24,7 @@ interface MainLayoutProps {
   
   // Kanban props
   siteSettings: { [key: string]: string };
+  isOnline?: boolean; // Network status
   loading: {
     general: boolean;
     tasks: boolean;

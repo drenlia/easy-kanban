@@ -53,9 +53,12 @@ export const initializeSocket = (token: string): Promise<Socket> => {
 
     globalSocket = io(window.location.origin, {
       auth: { token },
-      transports: ['websocket', 'polling'],
-      timeout: 20000,
-      reconnection: false, // We'll handle reconnection manually
+      transports: ['polling', 'websocket'], // Try polling first for better reliability
+      timeout: 30000, // Increased timeout to 30 seconds
+      reconnection: true, // Enable automatic reconnection
+      reconnectionAttempts: 5, // Try up to 5 times
+      reconnectionDelay: 1000, // Wait 1 second between attempts
+      reconnectionDelayMax: 5000, // Max 5 seconds between attempts
       autoConnect: true
     });
 
@@ -84,6 +87,24 @@ export const initializeSocket = (token: string): Promise<Socket> => {
 
     globalSocket.on('disconnect', (reason) => {
       console.log('🔴 Global Socket.IO disconnected:', reason);
+      isConnecting = false;
+    });
+
+    globalSocket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 Global Socket.IO reconnected after', attemptNumber, 'attempts');
+      isConnecting = false;
+    });
+
+    globalSocket.on('reconnect_attempt', (attemptNumber) => {
+      console.log('🔄 Global Socket.IO reconnection attempt', attemptNumber);
+    });
+
+    globalSocket.on('reconnect_error', (error) => {
+      console.error('❌ Global Socket.IO reconnection error:', error.message);
+    });
+
+    globalSocket.on('reconnect_failed', () => {
+      console.error('❌ Global Socket.IO reconnection failed after all attempts');
       isConnecting = false;
     });
   });

@@ -31,6 +31,7 @@ import TaskCard from './components/TaskCard';
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
+import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
@@ -998,19 +999,100 @@ export default function App() {
       checkInitialInstanceStatus();
     }
   }, [isAuthenticated]);
+  // Track if we've had our first successful connection and if we were offline
+  const hasConnectedOnceRef = useRef(false);
+  const wasOfflineRef = useRef(false);
+  
+  // Track network online/offline state
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  // Store the latest refreshBoardData function in a ref so we always call the current version
+  const refreshBoardDataRef = useRef<(() => Promise<void>) | null>(null);
+  
   useEffect(() => {
     if (!isAuthenticated || !localStorage.getItem('authToken')) {
       return;
     }
 
-    // Connect to WebSocket only when we have a valid token
-    websocketClient.connect();
-
     // Listen for WebSocket ready event (simplified since we now use joinBoardWhenReady)
     const handleWebSocketReady = () => {
     };
 
+    // Handle reconnection - refresh data to get any changes that happened while offline
+    const handleReconnect = () => {
+      console.log('✅ Socket connected, hasConnectedOnce:', hasConnectedOnceRef.current, 'wasOffline:', wasOfflineRef.current);
+      
+      // Only refresh if this is a RECONNECTION (not the first connection)
+      if (hasConnectedOnceRef.current && wasOfflineRef.current) {
+        // Wait longer for network to stabilize (both WebSocket AND HTTP)
+        // Also add retry logic in case first attempt fails
+        const attemptRefresh = async (retryCount = 0) => {
+          try {
+            console.log('🔄 WebSocket reconnected after being offline - refreshing data to sync changes (attempt', retryCount + 1, ')');
+            console.log('📊 Current selectedBoard:', selectedBoardRef.current);
+            if (refreshBoardDataRef.current) {
+              await refreshBoardDataRef.current();
+              console.log('✅ Data refresh successful!');
+            } else {
+              throw new Error('refreshBoardData not yet initialized');
+            }
+            wasOfflineRef.current = false; // Reset flag only on success
+          } catch (err) {
+            console.error('❌ Failed to refresh on reconnect (attempt', retryCount + 1, '):', err);
+            // Retry up to 3 times with exponential backoff
+            if (retryCount < 3) {
+              const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+              console.log('⏳ Retrying in', delay / 1000, 'seconds...');
+              setTimeout(() => attemptRefresh(retryCount + 1), delay);
+            } else {
+              console.error('❌ All refresh attempts failed. Please refresh the page manually.');
+              wasOfflineRef.current = false; // Reset flag to avoid infinite retries
+            }
+          }
+        };
+        
+        // Wait 1.5 seconds for both WebSocket and HTTP to stabilize
+        setTimeout(() => attemptRefresh(), 1500);
+      } else if (hasConnectedOnceRef.current) {
+        console.log('🔌 Socket reconnected (but no offline period detected)');
+      } else {
+        // Mark that we've connected for the first time
+        console.log('🎉 First WebSocket connection established');
+        hasConnectedOnceRef.current = true;
+      }
+    };
+
+    // Handle disconnect - mark that we were offline
+    const handleDisconnect = () => {
+      console.log('🔴 WebSocket disconnected - will refresh data on reconnect');
+      wasOfflineRef.current = true;
+    };
+
+    // Browser online/offline event handlers
+    const handleBrowserOnline = () => {
+      console.log('🌐 Browser detected network is back online - forcing reconnect');
+      setIsOnline(true);
+      wasOfflineRef.current = true; // Mark as offline so we refresh on reconnect
+      websocketClient.connect(); // Force reconnection attempt
+    };
+
+    const handleBrowserOffline = () => {
+      console.log('🌐 Browser detected network went offline');
+      setIsOnline(false);
+      wasOfflineRef.current = true;
+    };
+
+    // Register handlers BEFORE connecting
     websocketClient.onWebSocketReady(handleWebSocketReady);
+    websocketClient.onConnect(handleReconnect);
+    websocketClient.onDisconnect(handleDisconnect);
+
+    // Listen to browser online/offline events
+    window.addEventListener('online', handleBrowserOnline);
+    window.addEventListener('offline', handleBrowserOffline);
+
+    // Connect to WebSocket only when we have a valid token
+    websocketClient.connect();
 
     // Set up event handlers
     const handleTaskCreated = (data: any) => {
@@ -2077,8 +2159,12 @@ export default function App() {
       websocketClient.offCommentUpdated(handleCommentUpdated);
       websocketClient.offCommentDeleted(handleCommentDeleted);
       websocketClient.offWebSocketReady(handleWebSocketReady);
+      websocketClient.offConnect(handleReconnect);
+      websocketClient.offDisconnect(handleDisconnect);
+      window.removeEventListener('online', handleBrowserOnline);
+      window.removeEventListener('offline', handleBrowserOffline);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated]); // Only run when authentication changes, not when boards change
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -2835,6 +2921,11 @@ export default function App() {
     }
   }, [selectedBoard]);
 
+  // Update the ref whenever refreshBoardData changes
+  useEffect(() => {
+    refreshBoardDataRef.current = refreshBoardData;
+  }, [refreshBoardData]);
+
   // Track when we've just updated from WebSocket to prevent polling from overriding
   const [justUpdatedFromWebSocket, setJustUpdatedFromWebSocket] = useState(false);
   
@@ -3187,7 +3278,7 @@ export default function App() {
         await updateTask(task);
         await fetchQueryLogs();
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ [App] Failed to update task:', error);
       
       // Check if it's an instance unavailable error
@@ -4575,6 +4666,7 @@ export default function App() {
         currentBoardId={selectedBoard || ''}
         columns={filteredColumns}
         boards={boards}
+        isOnline={isOnline}
         onTaskMove={handleMoveTaskToColumn}
         onTaskMoveToDifferentBoard={handleTaskDropOnBoard}
         onColumnReorder={async (columnId: string, newPosition: number) => {
@@ -4610,13 +4702,17 @@ export default function App() {
         onInviteUser={handleInviteUser}
       />
 
+      {/* Network Status Indicator */}
+      <NetworkStatusIndicator isOnline={isOnline} />
+
       <div className={instanceStatus.status !== 'active' && !instanceStatus.isDismissed ? 'pt-20' : ''}>
         <MainLayout
         currentPage={currentPage}
-              currentUser={currentUser} 
+        currentUser={currentUser} 
         selectedTask={selectedTask}
         adminRefreshKey={adminRefreshKey}
         siteSettings={siteSettings}
+        isOnline={isOnline}
               onUsersChanged={async () => {
                 try {
                   const loadedMembers = await getMembers(includeSystem);
