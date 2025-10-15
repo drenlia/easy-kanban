@@ -117,6 +117,51 @@ backup_database() {
     fi
 }
 
+# Function to backup attachments
+backup_attachments() {
+    local customer=$1
+    local namespace="easy-kanban-${customer}"
+    local pod_name=$(get_pod_name "$customer")
+    local backup_filename="kanban-${customer}-attachments-${TIMESTAMP}.tar.gz"
+    local backup_path="${BACKUP_DIR}/${backup_filename}"
+    local latest_filename="kanban-${customer}-attachments-latest.tar.gz"
+    local latest_path="${BACKUP_DIR}/${latest_filename}"
+    local attachments_path="/app/server/attachments"
+    
+    print_status "Backing up attachments from pod '${pod_name}' in namespace '${namespace}'..."
+    
+    # Create tar archive inside the pod and copy it out
+    if kubectl exec -n "${namespace}" "${pod_name}" -- tar czf /tmp/attachments-backup.tar.gz -C /app/server attachments 2>/dev/null; then
+        if kubectl cp "${namespace}/${pod_name}:/tmp/attachments-backup.tar.gz" "$backup_path" 2>/dev/null; then
+            # Clean up temp file in pod
+            kubectl exec -n "${namespace}" "${pod_name}" -- rm -f /tmp/attachments-backup.tar.gz 2>/dev/null || true
+            
+            print_success "Attachments backed up to: $backup_path"
+            
+            # Create/update latest backup symlink
+            if [ -L "$latest_path" ]; then
+                rm "$latest_path"
+            fi
+            ln -s "$(basename "$backup_path")" "$latest_path"
+            print_status "Latest attachments link updated: $latest_path"
+            
+            # Show backup info
+            local size=$(du -h "$backup_path" | cut -f1)
+            print_success "Attachments backup size: $size"
+            
+            return 0
+        else
+            # Clean up temp file in pod even if copy failed
+            kubectl exec -n "${namespace}" "${pod_name}" -- rm -f /tmp/attachments-backup.tar.gz 2>/dev/null || true
+            print_error "Failed to copy attachments backup from pod '${pod_name}'"
+            return 1
+        fi
+    else
+        print_error "Failed to create attachments archive in pod '${pod_name}'"
+        return 1
+    fi
+}
+
 # Function to backup all instances
 backup_all_instances() {
     print_status "Backing up all Easy Kanban instances..."
@@ -137,7 +182,17 @@ backup_all_instances() {
         print_status "Processing instance: ${customer}"
         echo ""
         
-        if backup_database "$customer"; then
+        local instance_success=true
+        
+        if ! backup_database "$customer"; then
+            instance_success=false
+        fi
+        
+        if ! backup_attachments "$customer"; then
+            instance_success=false
+        fi
+        
+        if [ "$instance_success" = true ]; then
             ((success_count++))
         else
             ((fail_count++))
@@ -156,21 +211,65 @@ list_backups() {
     if [ -d "$BACKUP_DIR" ]; then
         if [ -n "$customer" ]; then
             # List backups for specific customer
+            local has_db_backups=false
+            local has_attachment_backups=false
+            
             if ls "$BACKUP_DIR"/kanban-${customer}-backup-*.db 2>/dev/null | grep -q .; then
+                has_db_backups=true
+            fi
+            
+            if ls "$BACKUP_DIR"/kanban-${customer}-attachments-*.tar.gz 2>/dev/null | grep -q .; then
+                has_attachment_backups=true
+            fi
+            
+            if [ "$has_db_backups" = true ] || [ "$has_attachment_backups" = true ]; then
                 print_status "Backups for instance '${customer}':"
-                ls -lah "$BACKUP_DIR"/kanban-${customer}-backup-*.db 2>/dev/null | while read line; do
-                    echo "  $line"
-                done
+                
+                if [ "$has_db_backups" = true ]; then
+                    echo "  Database backups:"
+                    ls -lah "$BACKUP_DIR"/kanban-${customer}-backup-*.db 2>/dev/null | while read line; do
+                        echo "    $line"
+                    done
+                fi
+                
+                if [ "$has_attachment_backups" = true ]; then
+                    echo "  Attachment backups:"
+                    ls -lah "$BACKUP_DIR"/kanban-${customer}-attachments-*.tar.gz 2>/dev/null | while read line; do
+                        echo "    $line"
+                    done
+                fi
             else
                 print_warning "No backups found for instance '${customer}'"
             fi
         else
             # List all backups
+            local has_db_backups=false
+            local has_attachment_backups=false
+            
             if ls "$BACKUP_DIR"/kanban-*-backup-*.db 2>/dev/null | grep -q .; then
+                has_db_backups=true
+            fi
+            
+            if ls "$BACKUP_DIR"/kanban-*-attachments-*.tar.gz 2>/dev/null | grep -q .; then
+                has_attachment_backups=true
+            fi
+            
+            if [ "$has_db_backups" = true ] || [ "$has_attachment_backups" = true ]; then
                 print_status "All backups:"
-                ls -lah "$BACKUP_DIR"/kanban-*-backup-*.db 2>/dev/null | while read line; do
-                    echo "  $line"
-                done
+                
+                if [ "$has_db_backups" = true ]; then
+                    echo "  Database backups:"
+                    ls -lah "$BACKUP_DIR"/kanban-*-backup-*.db 2>/dev/null | while read line; do
+                        echo "    $line"
+                    done
+                fi
+                
+                if [ "$has_attachment_backups" = true ]; then
+                    echo "  Attachment backups:"
+                    ls -lah "$BACKUP_DIR"/kanban-*-attachments-*.tar.gz 2>/dev/null | while read line; do
+                        echo "    $line"
+                    done
+                fi
             else
                 print_warning "No backups found"
             fi
@@ -191,21 +290,33 @@ cleanup_old_backups() {
     
     if [ -n "$customer" ]; then
         # Cleanup for specific customer
-        local backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${customer}-backup-*.db 2>/dev/null | wc -l)
-        if [ "$backup_count" -gt 10 ]; then
-            print_status "Cleaning up old backups for '${customer}' (keeping last 10)..."
+        local db_backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${customer}-backup-*.db 2>/dev/null | wc -l)
+        local attachment_backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${customer}-attachments-*.tar.gz 2>/dev/null | wc -l)
+        
+        # Cleanup database backups
+        if [ "$db_backup_count" -gt 10 ]; then
+            print_status "Cleaning up old database backups for '${customer}' (keeping last 10)..."
             ls -1t "$BACKUP_DIR"/kanban-${customer}-backup-*.db | tail -n +11 | xargs rm -f
-            print_success "Old backups cleaned up for '${customer}'"
+        fi
+        
+        # Cleanup attachment backups
+        if [ "$attachment_backup_count" -gt 10 ]; then
+            print_status "Cleaning up old attachment backups for '${customer}' (keeping last 10)..."
+            ls -1t "$BACKUP_DIR"/kanban-${customer}-attachments-*.tar.gz | tail -n +11 | xargs rm -f
+        fi
+        
+        if [ "$db_backup_count" -le 10 ] && [ "$attachment_backup_count" -le 10 ]; then
+            print_status "No cleanup needed for '${customer}' (${db_backup_count} db backups, ${attachment_backup_count} attachment backups)"
         else
-            print_status "No cleanup needed for '${customer}' (${backup_count} backups)"
+            print_success "Old backups cleaned up for '${customer}'"
         fi
     else
         # Cleanup for all customers
         print_status "Cleaning up old backups for all instances (keeping last 10 per instance)..."
         
         # Get unique customer names from backup files
-        local customers=$(ls "$BACKUP_DIR"/kanban-*-backup-*.db 2>/dev/null | \
-            sed 's|.*/kanban-\([^-]*\)-backup-.*|\1|' | sort -u)
+        local customers=$(ls "$BACKUP_DIR"/kanban-*-backup-*.db "$BACKUP_DIR"/kanban-*-attachments-*.tar.gz 2>/dev/null | \
+            sed -e 's|.*/kanban-\([^-]*\)-backup-.*|\1|' -e 's|.*/kanban-\([^-]*\)-attachments-.*|\1|' | sort -u)
         
         if [ -z "$customers" ]; then
             print_warning "No backups found to cleanup"
@@ -213,10 +324,18 @@ cleanup_old_backups() {
         fi
         
         for cust in $customers; do
-            local backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${cust}-backup-*.db 2>/dev/null | wc -l)
-            if [ "$backup_count" -gt 10 ]; then
-                print_status "  Cleaning up old backups for '${cust}'..."
+            # Cleanup database backups
+            local db_backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${cust}-backup-*.db 2>/dev/null | wc -l)
+            if [ "$db_backup_count" -gt 10 ]; then
+                print_status "  Cleaning up old database backups for '${cust}'..."
                 ls -1t "$BACKUP_DIR"/kanban-${cust}-backup-*.db | tail -n +11 | xargs rm -f
+            fi
+            
+            # Cleanup attachment backups
+            local attachment_backup_count=$(ls -1 "$BACKUP_DIR"/kanban-${cust}-attachments-*.tar.gz 2>/dev/null | wc -l)
+            if [ "$attachment_backup_count" -gt 10 ]; then
+                print_status "  Cleaning up old attachment backups for '${cust}'..."
+                ls -1t "$BACKUP_DIR"/kanban-${cust}-attachments-*.tar.gz | tail -n +11 | xargs rm -f
             fi
         done
         
@@ -251,7 +370,9 @@ show_help() {
     echo "  $0 code7 --cleanup           # Only cleanup old backups for code7"
     echo "  $0 --cleanup                 # Cleanup old backups for all instances"
     echo ""
-    echo "Output format: backups/kanban-{customer}-backup-{TIMESTAMP}.db"
+    echo "Output formats:"
+    echo "  Database:    backups/kanban-{customer}-backup-{TIMESTAMP}.db"
+    echo "  Attachments: backups/kanban-{customer}-attachments-{TIMESTAMP}.tar.gz"
     echo ""
 }
 
@@ -351,7 +472,17 @@ main() {
         else
             check_namespace "$customer"
             
-            if backup_database "$customer"; then
+            local backup_success=true
+            
+            if ! backup_database "$customer"; then
+                backup_success=false
+            fi
+            
+            if ! backup_attachments "$customer"; then
+                backup_success=false
+            fi
+            
+            if [ "$backup_success" = true ]; then
                 if [ "$do_cleanup" = true ]; then
                     cleanup_old_backups "$customer"
                 fi
@@ -361,6 +492,7 @@ main() {
                 echo ""
                 list_backups "$customer"
             else
+                print_error "Backup failed!"
                 exit 1
             fi
         fi
