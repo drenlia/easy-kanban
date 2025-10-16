@@ -44,9 +44,11 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Only clear token for 401 (unauthorized) errors
+    // Only clear token for 401 (unauthorized) errors - true authentication failures
+    // 403 (forbidden) means insufficient permissions, not expired token - user should stay logged in
     // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
     if (error.response?.status === 401 && !isRedirecting) {
+      console.log(`🔑 Auth error 401 detected - token invalid or expired, redirecting to login`);
       handleInvalidToken();
     }
     return Promise.reject(error);
@@ -309,6 +311,7 @@ export const createUser = async (userData: {
   lastName: string;
   displayName?: string;
   role: string;
+  isActive?: boolean;
 }) => {
   const { data } = await api.post('/admin/users', {
     ...userData,

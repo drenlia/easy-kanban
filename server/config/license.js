@@ -58,13 +58,14 @@ class LicenseManager {
     return this.enabled;
   }
 
-  // Get user count
+  // Get user count (excluding system user)
   async getUserCount() {
     try {
+      const systemUserId = '00000000-0000-0000-0000-000000000000';
       const result = wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1'),
+        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND id != ?'),
         'SELECT'
-      ).get();
+      ).get(systemUserId);
       return result.count;
     } catch (error) {
       console.error('Error getting user count:', error);

@@ -121,10 +121,12 @@ class WebSocketClient {
       console.error('❌ WebSocket connection error:', error);
       this.isConnected = false;
       
-      // Handle authentication errors - but don't redirect immediately
-      // Let the API interceptor handle token validation
+      // Handle authentication errors - redirect to login for expired/invalid tokens
       if (error.message === 'Invalid token' || error.message === 'Authentication required') {
-        // Don't clear token here - let API calls determine if token is actually invalid
+        console.log('🔑 WebSocket auth error - token expired or invalid');
+        // Clear token and redirect to login
+        localStorage.removeItem('authToken');
+        window.location.replace(window.location.origin + '/#login');
         return;
       }
       

@@ -638,6 +638,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     try {
       await reorderPriorities(reorderedPriorities);
       setSuccessMessage('Priorities reordered successfully');
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
       // Revert on error
       const currentPriorities = await getPriorities();
@@ -786,26 +789,28 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleAddUser = async (userData: any) => {
     try {
-      // Check email server status first
-      const emailStatusResponse = await fetch('/api/admin/email-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+      // Only check email server status if sending an invite (isActive = false)
+      if (!userData.isActive) {
+        const emailStatusResponse = await fetch('/api/admin/email-status', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          }
+        });
+        
+        if (emailStatusResponse.ok) {
+          const emailStatus = await emailStatusResponse.json();
+          if (!emailStatus.available) {
+            throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before creating users.`);
+          }
+        } else {
+          console.warn('Could not check email status, proceeding with user creation');
         }
-      });
-      
-      if (emailStatusResponse.ok) {
-        const emailStatus = await emailStatusResponse.json();
-        if (!emailStatus.available) {
-          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before creating users.`);
-        }
-      } else {
-        console.warn('Could not check email status, proceeding with user creation');
       }
 
       const result = await createUser(userData);
       
-      // Check if email was actually sent
-      if (result.emailSent === false) {
+      // Check if email was actually sent (only relevant if isActive is false)
+      if (!userData.isActive && result.emailSent === false) {
         setError(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
       } else {
         setError(null);
@@ -1018,22 +1023,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                   The default admin account (admin@example.com) still exists. This is a security risk. 
                   Please create a new admin user first, then delete this default account.
                 </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error Display */}
-        {error && (
-          <div className="mb-6 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400 dark:text-red-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
               </div>
             </div>
           </div>

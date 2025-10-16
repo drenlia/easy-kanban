@@ -27,7 +27,7 @@ const generateRandomPassword = (length = 12) => {
   }
   return password;
 };
-import { createDefaultAvatar } from './utils/avatarGenerator.js';
+import { createDefaultAvatar, getRandomColor } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
 import { initNotificationService, getNotificationService } from './services/notificationService.js';
 import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
@@ -49,6 +49,9 @@ import websocketService from './services/websocketService.js';
 
 // Import storage utilities
 import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorageLimit, formatBytes } from './utils/storageUtils.js';
+
+// Import license manager
+import { getLicenseManager } from './config/license.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -369,6 +372,19 @@ app.post('/api/auth/register', registrationLimiter, authenticateToken, requireRo
   }
   
   try {
+    // Check user limit before creating new user
+    const licenseManager = getLicenseManager(db);
+    try {
+      await licenseManager.checkUserLimit();
+    } catch (limitError) {
+      console.warn('User limit check failed:', limitError.message);
+      return res.status(403).json({ 
+        error: 'User limit reached',
+        message: limitError.message,
+        details: 'Your current plan does not allow creating more users. Please upgrade your plan or contact support.'
+      });
+    }
+    
     // Check if user already exists
     const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
@@ -391,14 +407,14 @@ app.post('/api/auth/register', registrationLimiter, authenticateToken, requireRo
       wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
-    // Create member for the user
+    // Create member for the user with random color
     const memberId = crypto.randomUUID();
-    const memberColor = '#4ECDC4'; // Default color
+    const memberColor = getRandomColor(); // Random color from palette
     wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
     
-    // Generate default avatar
-    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId);
+    // Generate default avatar with matching background color
+    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor);
     if (avatarPath) {
       wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
@@ -1112,6 +1128,30 @@ app.put('/api/admin/users/:userId', authenticateToken, requireRole(['admin']), a
   }
 
   try {
+    // Get current user status to check if they're being activated
+    const currentUser = wrapQuery(db.prepare('SELECT is_active FROM users WHERE id = ?'), 'SELECT').get(userId);
+    if (!currentUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Check if user is being activated (changing from inactive to active)
+    const isBeingActivated = !currentUser.is_active && isActive;
+    
+    if (isBeingActivated) {
+      // Check user limit before allowing activation
+      const licenseManager = getLicenseManager(db);
+      try {
+        await licenseManager.checkUserLimit();
+      } catch (limitError) {
+        console.warn('User limit check failed during activation:', limitError.message);
+        return res.status(403).json({ 
+          error: 'User limit reached',
+          message: limitError.message,
+          details: 'Your current plan does not allow activating more users. Please upgrade your plan or contact support.'
+        });
+      }
+    }
+
     // Check if email already exists for another user
     const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
     if (existingUser) {
@@ -1205,9 +1245,39 @@ app.put('/api/admin/users/:userId/role', authenticateToken, requireRole(['admin'
   }
 });
 
+// Check if user can be created (for pre-validation)
+app.get('/api/admin/users/can-create', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const licenseManager = getLicenseManager(db);
+    
+    // Check if licensing is enabled
+    if (!licenseManager.isEnabled()) {
+      return res.json({ canCreate: true, reason: null });
+    }
+    
+    try {
+      await licenseManager.checkUserLimit();
+      res.json({ canCreate: true, reason: null });
+    } catch (limitError) {
+      const limits = await licenseManager.getLimits();
+      const userCount = await licenseManager.getUserCount();
+      res.json({ 
+        canCreate: false, 
+        reason: 'User limit reached',
+        message: `Your current plan allows ${limits.USER_LIMIT} active users. You currently have ${userCount}. Please upgrade your plan or contact support.`,
+        current: userCount,
+        limit: limits.USER_LIMIT
+      });
+    }
+  } catch (error) {
+    console.error('Error checking user limit:', error);
+    res.status(500).json({ error: 'Failed to check user limit' });
+  }
+});
+
 // Create new user
 app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (req, res) => {
-  const { email, password, firstName, lastName, role, displayName, baseUrl } = req.body;
+  const { email, password, firstName, lastName, role, displayName, baseUrl, isActive } = req.body;
   
   // Validate required fields with specific error messages
   if (!email) {
@@ -1233,6 +1303,19 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
   }
   
   try {
+    // Check user limit before creating new user
+    const licenseManager = getLicenseManager(db);
+    try {
+      await licenseManager.checkUserLimit();
+    } catch (limitError) {
+      console.warn('User limit check failed:', limitError.message);
+      return res.status(403).json({ 
+        error: 'User limit reached',
+        message: limitError.message,
+        details: 'Your current plan does not allow creating more users. Please upgrade your plan or contact support.'
+      });
+    }
+    
     // Check if email already exists
     const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
@@ -1245,11 +1328,12 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user (inactive by default for local accounts - they need to activate via email)
+    // Create user (active if specified, otherwise inactive and requires email verification)
+    const userIsActive = isActive ? 1 : 0;
     wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, auth_provider) 
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, 0, 'local');
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, userIsActive, 'local');
     
     // Assign role
     const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
@@ -1257,58 +1341,62 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
-    // Create team member automatically with custom display name if provided
+    // Create team member automatically with custom display name if provided and random color
     const memberId = crypto.randomUUID();
     const memberName = displayName || `${firstName} ${lastName}`;
-    const memberColor = '#4ECDC4'; // Default color
+    const memberColor = getRandomColor(); // Random color from palette
     wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, memberName, memberColor, userId);
     
-    // Generate default avatar SVG for new local users
-    const avatarPath = createDefaultAvatar(memberName, userId);
+    // Generate default avatar SVG for new local users with matching background color
+    const avatarPath = createDefaultAvatar(memberName, userId, memberColor);
     if (avatarPath) {
       // Update user with default avatar path
       wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
     
-    // Generate invitation token for email verification
-    const inviteToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
-    
-    // Store invitation token
-    wrapQuery(db.prepare(`
-      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
-      VALUES (?, ?, ?, ?, datetime('now'))
-    `), 'INSERT').run(
-      crypto.randomUUID(),
-      userId,
-      inviteToken,
-      tokenExpiry.toISOString()
-    );
-    
-    // Get admin user info for email
-    const adminUser = wrapQuery(
-      db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
-      'SELECT'
-    ).get(req.user.userId);
-    const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
-    
-    // Send invitation email
+    // Only generate invitation token and send email if user is not active
     let emailSent = false;
     let emailError = null;
-    try {
-      const notificationService = getNotificationService();
-      const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-      if (emailResult.success) {
-        emailSent = true;
-        console.log('✅ Invitation email sent for new user:', email);
-      } else {
-        emailError = emailResult.reason || 'Email service unavailable';
-        console.warn('⚠️ Failed to send invitation email:', emailError);
+    
+    if (!isActive) {
+      // Generate invitation token for email verification
+      const inviteToken = crypto.randomBytes(32).toString('hex');
+      const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
+      
+      // Store invitation token
+      wrapQuery(db.prepare(`
+        INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
+        VALUES (?, ?, ?, ?, datetime('now'))
+      `), 'INSERT').run(
+        crypto.randomUUID(),
+        userId,
+        inviteToken,
+        tokenExpiry.toISOString()
+      );
+      
+      // Get admin user info for email
+      const adminUser = wrapQuery(
+        db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
+        'SELECT'
+      ).get(req.user.userId);
+      const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
+      
+      // Send invitation email
+      try {
+        const notificationService = getNotificationService();
+        const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+        if (emailResult.success) {
+          emailSent = true;
+          console.log('✅ Invitation email sent for new user:', email);
+        } else {
+          emailError = emailResult.reason || 'Email service unavailable';
+          console.warn('⚠️ Failed to send invitation email:', emailError);
+        }
+      } catch (emailErr) {
+        console.warn('⚠️ Failed to send invitation email:', emailErr.message);
+        emailError = emailErr.message;
       }
-    } catch (emailError) {
-      console.warn('⚠️ Failed to send invitation email:', emailError.message);
-      emailError = emailError.message;
     }
     
     // Publish to Redis for real-time updates
@@ -1320,7 +1408,7 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
         firstName, 
         lastName, 
         role, 
-        isActive: false,
+        isActive: isActive || false,
         displayName: memberName,
         memberColor: memberColor,
         authProvider: 'local',
@@ -1330,9 +1418,11 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
       timestamp: new Date().toISOString()
     });
     
-    // Prepare response message based on email status
+    // Prepare response message based on creation mode
     let message = 'User created successfully.';
-    if (emailSent) {
+    if (isActive) {
+      message += ' User is active and can log in immediately.';
+    } else if (emailSent) {
       message += ' An invitation email has been sent.';
     } else {
       message += ` Note: Invitation email could not be sent (${emailError || 'Email service unavailable'}). The user will need to be manually activated or you can resend the invitation once email is configured.`;
@@ -1340,7 +1430,7 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
 
     res.json({ 
       message,
-      user: { id: userId, email, firstName, lastName, role, isActive: false },
+      user: { id: userId, email, firstName, lastName, role, isActive: isActive || false },
       emailSent,
       emailError: emailError || null
     });

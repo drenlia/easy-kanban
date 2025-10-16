@@ -133,6 +133,26 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [showDeleteConfirm, onCancelDeleteUser]);
+
+  // Auto-dismiss error messages after 5 seconds
+  useEffect(() => {
+    if (localError) {
+      const timer = setTimeout(() => {
+        setLocalError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [localError]);
+
+  // Auto-dismiss success messages after 3 seconds
+  useEffect(() => {
+    if (localSuccessMessage) {
+      const timer = setTimeout(() => {
+        setLocalSuccessMessage(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [localSuccessMessage]);
   
   const [editingUserData, setEditingUserData] = useState({
     id: '',
@@ -154,7 +174,8 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     firstName: '',
     lastName: '',
     displayName: '',
-    role: 'user'
+    role: 'user',
+    isActive: false
   });
 
   const handleColorChange = (userId: string, currentColor: string, event: React.MouseEvent) => {
@@ -243,7 +264,8 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         firstName: '',
         lastName: '',
         displayName: '',
-        role: 'user'
+        role: 'user',
+        isActive: false
       });
       setLocalSuccessMessage('User created successfully');
     } catch (err: any) {
@@ -361,6 +383,38 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     }
   };
 
+  const handleAddUserClick = async () => {
+    // Check if user can be created before opening the modal
+    try {
+      const response = await fetch('/api/admin/users/can-create', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+
+      if (!response.ok) {
+        setLocalError('Failed to check user limit. Please try again.');
+        return;
+      }
+
+      const result = await response.json();
+
+      if (!result.canCreate) {
+        setLocalError(result.message || 'User limit reached. Cannot create more users.');
+        setLocalSuccessMessage(null);
+        return;
+      }
+
+      // Limit check passed, open the modal
+      setShowAddUserForm(true);
+      setLocalError(null);
+      setLocalSuccessMessage(null);
+    } catch (error) {
+      console.error('Error checking user limit:', error);
+      setLocalError('Failed to check user limit. Please try again.');
+    }
+  };
+
   return (
     <>
       <div className="p-6">
@@ -374,11 +428,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               </p>
             </div>
             <button
-              onClick={() => {
-                setShowAddUserForm(true);
-                setLocalError(null);
-                setLocalSuccessMessage(null);
-              }}
+              onClick={handleAddUserClick}
               className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-2"
             >
               <UserIcon size={16} />
@@ -655,13 +705,25 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     <option value="admin">Admin</option>
                   </select>
                 </div>
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="isActive"
+                    checked={newUser.isActive}
+                    onChange={(e) => setNewUser(prev => ({ ...prev, isActive: e.target.checked }))}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
+                    Active (create user locally without sending invite)
+                  </label>
+                </div>
               </div>
               <div className="flex space-x-3 mt-6">
                 <button
                   onClick={handleAddUser}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  Invite User
+                  {newUser.isActive ? 'Save' : 'Invite User'}
                 </button>
                 <button
                   onClick={handleCancelAddUser}
