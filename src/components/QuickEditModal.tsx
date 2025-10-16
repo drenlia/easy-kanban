@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, ChevronDown, Check } from 'lucide-react';
+import { X, ChevronDown, Check, Plus } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
 import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment } from '../api';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmm } from '../utils/dateUtils';
@@ -7,6 +7,7 @@ import TextEditor from './TextEditor';
 import websocketClient from '../services/websocketClient';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { useFileUpload } from '../hooks/useFileUpload';
+import AddTagModal from './AddTagModal';
 
 interface QuickEditModalProps {
   task: Task;
@@ -21,6 +22,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
@@ -247,6 +249,18 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
       }
     } catch (error) {
       console.error('Failed to toggle tag:', error);
+    }
+  };
+
+  const handleTagCreated = async (newTag: Tag) => {
+    // Add the new tag to available tags list
+    setAvailableTags(prev => [...prev, newTag].sort((a, b) => a.tag.localeCompare(b.tag)));
+    // Automatically add it to the current task
+    try {
+      await addTagToTask(task.id, newTag.id);
+      setTaskTags(prev => [...prev, newTag]);
+    } catch (error) {
+      console.error('Failed to add new tag to task:', error);
     }
   };
 
@@ -710,11 +724,23 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
               </button>
               
               {showTagsDropdown && (
-                <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-[400px] overflow-y-auto ${
                   tagsDropdownPosition === 'above' 
                     ? 'bottom-full mb-1' 
                     : 'top-full mt-1'
                 }`}>
+                  {/* Add Tag Button */}
+                  <div 
+                    onClick={() => {
+                      setShowAddTagModal(true);
+                      setShowTagsDropdown(false);
+                    }}
+                    className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center gap-2 text-sm border-b border-gray-200 dark:border-gray-700 text-blue-600 dark:text-blue-400 font-medium sticky top-0 bg-white dark:bg-gray-800"
+                  >
+                    <Plus size={14} />
+                    <span>Add New Tag</span>
+                  </div>
+                  
                   {isLoadingTags ? (
                     <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
                   ) : availableTags.length === 0 ? (
@@ -724,7 +750,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                       <div
                         key={tag.id}
                         onClick={() => toggleTag(tag)}
-                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
+                        className="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 text-sm"
                       >
                         <div className="w-4 h-4 flex items-center justify-center">
                           {taskTags.some(t => t.id === tag.id) && (
@@ -823,6 +849,14 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           </button>
         </div>
       </form>
+      
+      {/* Add Tag Modal */}
+      {showAddTagModal && (
+        <AddTagModal
+          onClose={() => setShowAddTagModal(false)}
+          onTagCreated={handleTagCreated}
+        />
+      )}
     </div>
   );
 }

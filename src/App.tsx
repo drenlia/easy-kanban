@@ -43,7 +43,7 @@ import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
-import { loadUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
 import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
@@ -1152,8 +1152,14 @@ export default function App() {
           return updatedColumns;
         });
         
-        // CRITICAL FIX: Also update filteredColumns immediately to ensure the task is draggable
+        // CRITICAL FIX: Also update filteredColumns immediately, but only if task matches filters
         setFilteredColumns(prevFilteredColumns => {
+          // Check if task should be included based on current filters (use ref to avoid stale closure)
+          if (!shouldIncludeTaskRef.current(data.task)) {
+            // Task doesn't match filters, don't add it to filteredColumns
+            return prevFilteredColumns;
+          }
+          
           const updatedFilteredColumns = { ...prevFilteredColumns };
           const targetColumnId = data.task.columnId;
           if (updatedFilteredColumns[targetColumnId]) {
@@ -1262,13 +1268,16 @@ export default function App() {
           return updatedColumns;
         });
         
-        // Also update filteredColumns to maintain consistency
+        // Also update filteredColumns to maintain consistency, but respect filters
         setFilteredColumns(prevFilteredColumns => {
           const updatedFilteredColumns = { ...prevFilteredColumns };
           const taskId = data.task.id;
           const newColumnId = data.task.columnId;
           
-          // Find which column currently contains this task
+          // Check if updated task should be visible based on filters (use ref to avoid stale closure)
+          const taskShouldBeVisible = shouldIncludeTaskRef.current(data.task);
+          
+          // Find which column currently contains this task in filteredColumns
           let currentColumnId = null;
           Object.keys(updatedFilteredColumns).forEach(columnId => {
             const column = updatedFilteredColumns[columnId];
@@ -1278,46 +1287,55 @@ export default function App() {
             }
           });
           
-          if (currentColumnId === newColumnId) {
-            // Same column - update task in place (for reordering)
-            const column = updatedFilteredColumns[newColumnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+          // Remove from current column in filteredColumns if it exists
+          if (currentColumnId) {
+            const currentColumn = updatedFilteredColumns[currentColumnId];
+            const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
             if (taskIndex !== -1) {
-              updatedFilteredColumns[newColumnId] = {
-                ...column,
+              updatedFilteredColumns[currentColumnId] = {
+                ...currentColumn,
                 tasks: [
-                  ...column.tasks.slice(0, taskIndex),
-                  data.task,
-                  ...column.tasks.slice(taskIndex + 1)
+                  ...currentColumn.tasks.slice(0, taskIndex),
+                  ...currentColumn.tasks.slice(taskIndex + 1)
                 ]
               };
             }
-          } else {
-            // Different column - remove from old column and add to new column
-            
-            // Remove from current column
-            if (currentColumnId) {
-              const currentColumn = updatedFilteredColumns[currentColumnId];
-              const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
+          }
+          
+          // Only add task if it should be visible based on filters
+          if (taskShouldBeVisible) {
+            if (currentColumnId === newColumnId && currentColumnId !== null) {
+              // Same column - insert at the same position or at end
+              const column = updatedFilteredColumns[newColumnId];
+              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
               if (taskIndex !== -1) {
-                updatedFilteredColumns[currentColumnId] = {
-                  ...currentColumn,
+                // Task was already removed above, add it back at the same position
+                updatedFilteredColumns[newColumnId] = {
+                  ...column,
                   tasks: [
-                    ...currentColumn.tasks.slice(0, taskIndex),
-                    ...currentColumn.tasks.slice(taskIndex + 1)
+                    ...column.tasks.slice(0, taskIndex),
+                    data.task,
+                    ...column.tasks.slice(taskIndex)
                   ]
+                };
+              } else {
+                // Task not found, add at end
+                updatedFilteredColumns[newColumnId] = {
+                  ...column,
+                  tasks: [...column.tasks, data.task]
+                };
+              }
+            } else {
+              // Different column or new task - add to new column
+              if (updatedFilteredColumns[newColumnId]) {
+                updatedFilteredColumns[newColumnId] = {
+                  ...updatedFilteredColumns[newColumnId],
+                  tasks: [...updatedFilteredColumns[newColumnId].tasks, data.task]
                 };
               }
             }
-            
-            // Add to new column
-            if (updatedFilteredColumns[newColumnId]) {
-              updatedFilteredColumns[newColumnId] = {
-                ...updatedFilteredColumns[newColumnId],
-                tasks: [...updatedFilteredColumns[newColumnId].tasks, data.task]
-              };
-            }
           }
+          // If task shouldn't be visible, it's already been removed above, so nothing more to do
           
           return updatedFilteredColumns;
         });
@@ -2555,35 +2573,40 @@ export default function App() {
   // Load user-specific preferences when authenticated
   useEffect(() => {
     if (isAuthenticated && currentUser?.id) {
-      const userSpecificPrefs = loadUserPreferences(currentUser.id);
-      
-      // Update all preference-based state with user-specific values
-      setSelectedMembers(userSpecificPrefs.selectedMembers);
-      setIncludeAssignees(userSpecificPrefs.includeAssignees);
-      setIncludeWatchers(userSpecificPrefs.includeWatchers);
-      setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
-      setIncludeRequesters(userSpecificPrefs.includeRequesters);
-      // console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
-      setIncludeSystem(userSpecificPrefs.includeSystem);
-      setTaskViewMode(userSpecificPrefs.taskViewMode);
-      setViewMode(userSpecificPrefs.viewMode);
-      viewModeRef.current = userSpecificPrefs.viewMode;
-      setIsSearchActive(userSpecificPrefs.isSearchActive);
-      setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
-      setSearchFilters(userSpecificPrefs.searchFilters);
-      
-      // Load saved filter view if one is remembered
-      if (userSpecificPrefs.currentFilterViewId) {
-        loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
-      }
-      
-      // Set initial selected board with preference fallback
-      if (!selectedBoard) {
-        const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
-        if (initialBoard) {
-          setSelectedBoard(initialBoard);
+      const loadPreferences = async () => {
+        // Load from both cookie and database (database takes precedence for stored values)
+        const userSpecificPrefs = await loadUserPreferencesAsync(currentUser.id);
+        
+        // Update all preference-based state with user-specific values
+        setSelectedMembers(userSpecificPrefs.selectedMembers);
+        setIncludeAssignees(userSpecificPrefs.includeAssignees);
+        setIncludeWatchers(userSpecificPrefs.includeWatchers);
+        setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
+        setIncludeRequesters(userSpecificPrefs.includeRequesters);
+        // console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
+        setIncludeSystem(userSpecificPrefs.includeSystem);
+        setTaskViewMode(userSpecificPrefs.taskViewMode);
+        setViewMode(userSpecificPrefs.viewMode);
+        viewModeRef.current = userSpecificPrefs.viewMode;
+        setIsSearchActive(userSpecificPrefs.isSearchActive);
+        setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
+        setSearchFilters(userSpecificPrefs.searchFilters);
+        
+        // Load saved filter view if one is remembered
+        if (userSpecificPrefs.currentFilterViewId) {
+          loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
         }
-      }
+        
+        // Set initial selected board with preference fallback
+        if (!selectedBoard) {
+          const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
+          if (initialBoard) {
+            setSelectedBoard(initialBoard);
+          }
+        }
+      };
+      
+      loadPreferences();
     }
   }, [isAuthenticated, currentUser?.id, selectedBoard]);
 
@@ -4277,6 +4300,64 @@ export default function App() {
     // Let the data polling system handle the members refresh naturally
     // This prevents the jarring immediate reload and flash
   };
+
+  // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
+  const shouldIncludeTask = useCallback((task: Task): boolean => {
+    // If no filters active, include all tasks
+    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    if (!isFiltering) return true;
+
+    // Apply search filters (text, dates, priorities, tags, etc.)
+    if (isSearchActive) {
+      const effectiveFilters = {
+        ...searchFilters,
+        selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
+      };
+      
+      // Create filters without member filtering if we have checkboxes enabled
+      const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
+        ...effectiveFilters,
+        selectedMembers: [] // Skip member filtering in search, we'll handle it separately
+      } : effectiveFilters;
+      
+      // Use the filterTasks utility with a single task
+      const filtered = filterTasks([task], searchOnlyFilters, isSearchActive, members, boards);
+      if (filtered.length === 0) return false; // Task didn't pass search filters
+    }
+
+    // Apply member filtering (synchronous checks only: assignees and requesters)
+    // Note: Watchers/collaborators are async and will be handled by the useEffect
+    if (selectedMembers.length > 0) {
+      let includeTask = false;
+      
+      // Check assignees
+      if (includeAssignees && selectedMembers.includes(task.memberId || '')) {
+        includeTask = true;
+      }
+      
+      // Check requesters
+      if (!includeTask && includeRequesters && task.requesterId && selectedMembers.includes(task.requesterId)) {
+        includeTask = true;
+      }
+      
+      // If we're checking watchers or collaborators, optimistically include the task
+      // The useEffect will filter it out later if needed (avoids async in WebSocket handlers)
+      if (!includeTask && (includeWatchers || includeCollaborators)) {
+        // Optimistically include - the async useEffect will handle the final filtering
+        return true;
+      }
+      
+      return includeTask;
+    }
+
+    return true;
+  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards]);
+
+  // Store shouldIncludeTask in a ref to avoid stale closures in WebSocket handlers
+  const shouldIncludeTaskRef = useRef(shouldIncludeTask);
+  useEffect(() => {
+    shouldIncludeTaskRef.current = shouldIncludeTask;
+  }, [shouldIncludeTask]);
 
   // Enhanced async filtering effect with watchers/collaborators/requesters support
   useEffect(() => {

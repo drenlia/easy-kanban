@@ -605,7 +605,38 @@ export const updateActivityFeedPreference = async <K extends keyof UserPreferenc
       [key]: value
     }
   };
-  await saveUserPreferences(updatedPrefs, userId);
+  
+  // Update cookie immediately (synchronous, fast)
+  const cookieName = getUserCookieName(userId);
+  const prefsJson = JSON.stringify(updatedPrefs);
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  
+  // Map activity feed keys to database setting keys
+  const dbKeyMap: Record<string, string> = {
+    'isMinimized': 'activityFeedMinimized',
+    'position': 'activityFeedPosition',
+    'width': 'activityFeedWidth',
+    'height': 'activityFeedHeight',
+    'lastSeenActivityId': 'lastSeenActivityId',
+    'clearActivityId': 'clearActivityId',
+    'filterText': 'activityFilterText'
+  };
+  
+  const dbKey = dbKeyMap[key];
+  if (!dbKey) {
+    console.error(`Unknown activity feed preference key: ${String(key)}`);
+    return;
+  }
+  
+  // Save ONLY this specific setting to database (single API call instead of 30+)
+  let dbValue: any = value;
+  if (key === 'position') {
+    dbValue = JSON.stringify(value);
+  }
+  
+  await updateUserSetting(dbKey, dbValue);
 };
 
 // Get effective task delete confirmation setting (user preference with system fallback)

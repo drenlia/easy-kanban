@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
@@ -12,6 +12,7 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
+import AddTagModal from './AddTagModal';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -121,6 +122,10 @@ export default function ListView({
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentContainerRefs = useRef<{[taskId: string]: HTMLDivElement | null}>({});
+  
+  // Add Tag Modal state
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
+  const [tagModalTaskId, setTagModalTaskId] = useState<string | null>(null);
 
   // Horizontal scroll navigation state
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -160,6 +165,30 @@ export default function ListView({
       }, 1000);
     }, 2000);
   }, []);
+
+  // Handler for when a new tag is created
+  const handleTagCreated = async (newTag: Tag) => {
+    // Add the tag to the task that was being edited
+    if (tagModalTaskId) {
+      try {
+        await addTagToTask(tagModalTaskId, newTag.id);
+        
+        // Find the task and update it with the new tag
+        const task = allTasks.find(t => t.id === tagModalTaskId);
+        if (task) {
+          const updatedTask = { 
+            ...task, 
+            tags: [...(task.tags || []), newTag]
+          };
+          await onEditTask(updatedTask);
+        }
+      } catch (error) {
+        console.error('Failed to add new tag to task:', error);
+      }
+    }
+    
+    setTagModalTaskId(null);
+  };
 
   // Check scroll state for table
   const checkTableScrollState = () => {
@@ -708,8 +737,8 @@ export default function ListView({
         const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
         const membersToShow = Math.min(maxMembers, maxVisibleMembers);
         
-        // Set height based on actual members to show, with a minimum of 2 members and maximum of 8
-        const visibleMembers = Math.max(2, Math.min(8, membersToShow));
+        // Set height based on actual members to show, with a minimum of 2 members and maximum of 12
+        const visibleMembers = Math.max(2, Math.min(12, membersToShow));
         dropdownHeight = visibleMembers * memberItemHeight + 8; // +8 for padding
         break;
       case 'priority':
@@ -831,14 +860,14 @@ export default function ListView({
       clearTimeout(commentTooltipShowTimeoutRef.current);
     }
     
-    // Wait 1 second before showing tooltip
+    // Wait 0.5 seconds before showing tooltip
     commentTooltipShowTimeoutRef.current = setTimeout(() => {
       // Calculate best position for tooltip
       const position = calculateTooltipPosition(taskId);
       setTooltipPosition(position);
       setShowCommentTooltip(taskId);
       commentTooltipShowTimeoutRef.current = null;
-    }, 1000);
+    }, 500);
   };
 
   const handleCommentTooltipHide = () => {
@@ -1712,8 +1741,22 @@ export default function ListView({
             top: `${tagsDropdownCoords.top}px`,
           }}
         >
-          <div className="py-1 max-h-48 overflow-y-auto">
-            <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
+          <div className="py-1 max-h-[400px] overflow-y-auto">
+            {/* Add Tag Button */}
+            <div 
+              onClick={() => {
+                setTagModalTaskId(showDropdown.taskId);
+                setShowAddTagModal(true);
+                setShowDropdown(null);
+                setTagsDropdownCoords(null);
+              }}
+              className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center gap-2 text-sm border-b border-gray-200 text-blue-600 dark:text-blue-400 font-medium sticky top-0 bg-white dark:bg-gray-800"
+            >
+              <Plus size={14} />
+              <span>Add New Tag</span>
+            </div>
+            
+            <div className="px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-gray-700">
               Click to toggle tags
             </div>
             {availableTags?.map(tag => {
@@ -1726,21 +1769,32 @@ export default function ListView({
                     try {
                       if (!task) return;
                       
+                      // Create updated task with modified tags
+                      let updatedTask;
+                      
                       if (isSelected) {
                         // Remove tag using proper API
                         await removeTagFromTask(task.id, tag.id);
+                        // Update local task object
+                        updatedTask = { 
+                          ...task, 
+                          tags: task.tags?.filter(t => t.id !== tag.id) || []
+                        };
                       } else {
                         // Add tag using proper API
                         await addTagToTask(task.id, tag.id);
+                        // Update local task object
+                        updatedTask = { 
+                          ...task, 
+                          tags: [...(task.tags || []), tag]
+                        };
                       }
                       
                       // Close dropdown
                       setShowDropdown(null);
                       setTagsDropdownCoords(null);
                       
-                      // Create updated task for parent to refresh
-                      const updatedTask = { ...task };
-                      // Trigger parent refresh by calling onEditTask with current task
+                      // Trigger parent refresh with updated task
                       await onEditTask(updatedTask);
                     } catch (error) {
                       console.error('Failed to toggle tag:', error);
@@ -1821,6 +1875,19 @@ export default function ListView({
             ))}
           </div>
         </div>,
+        document.body
+      )}
+
+      
+      {/* Add Tag Modal */}
+      {showAddTagModal && createPortal(
+        <AddTagModal
+          onClose={() => {
+            setShowAddTagModal(false);
+            setTagModalTaskId(null);
+          }}
+          onTagCreated={handleTagCreated}
+        />,
         document.body
       )}
     </div>

@@ -652,7 +652,7 @@ export default function SearchInterface({
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[180px] max-h-60 overflow-y-auto">
+                  <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-50 min-w-[180px] max-h-[400px] overflow-y-auto">
                     {availableTags.map(tag => (
                       <div
                         key={tag.id}

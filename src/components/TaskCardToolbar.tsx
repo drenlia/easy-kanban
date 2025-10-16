@@ -4,6 +4,7 @@ import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import AddTagModal from './AddTagModal';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -77,6 +78,7 @@ export default function TaskCardToolbar({
 }: TaskCardToolbarProps) {
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const quickTagButtonRef = useRef<HTMLButtonElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
@@ -186,6 +188,13 @@ export default function TaskCardToolbar({
     setShowQuickTagDropdown(false); // Close immediately after selection
   };
 
+  const handleTagCreated = (newTag: Tag) => {
+    // Automatically add the newly created tag to the current task
+    if (onTagAdd) {
+      onTagAdd(newTag.id.toString());
+    }
+  };
+
   // Calculate member dropdown position for portal rendering
   const getMemberDropdownPosition = () => {
     if (memberButtonRef.current) {
@@ -203,9 +212,9 @@ export default function TaskCardToolbar({
       const maxVisibleMembers = Math.floor(maxAvailableSpace / memberItemHeight);
       const membersToShow = Math.min(maxMembers, maxVisibleMembers);
       
-      // Set height based on actual members to show, with a minimum of 2 members and maximum of 8
-      const visibleMembers = Math.max(2, Math.min(8, membersToShow));
-      const dropdownHeight = visibleMembers * memberItemHeight + 16; // +16 for padding
+      // Set height based on actual members to show, with a minimum of 2 members and maximum of 12
+      const visibleMembers = Math.max(2, Math.min(12, membersToShow));
+      const dropdownHeight = visibleMembers * memberItemHeight + 40; // +40 for "Assign to:" header
       
       // Position below the button, aligned to right edge
       let left = rect.right - dropdownWidth;
@@ -416,13 +425,30 @@ export default function TaskCardToolbar({
       {/* Portal-rendered quick tag dropdown */}
       {showQuickTagDropdown && createPortal(
         <div 
-          className="fixed w-[200px] bg-white border border-gray-200 rounded-md shadow-lg z-[9999] max-h-[200px] overflow-y-auto"
+          className="fixed w-[200px] bg-white border border-gray-200 rounded-md shadow-lg z-[9999] max-h-[400px] overflow-y-auto"
           style={{
             left: `${tagDropdownPosition.left}px`,
             top: `${tagDropdownPosition.top}px`
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Add Tag Button */}
+          <div 
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              setShowAddTagModal(true);
+              setShowQuickTagDropdown(false);
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+            }}
+            className="flex items-center gap-2 p-2 hover:bg-blue-50 cursor-pointer border-b border-gray-200 text-blue-600 font-medium sticky top-0 bg-white"
+          >
+            <Plus size={14} />
+            <span className="text-sm">Add New Tag</span>
+          </div>
+          
           {availableTagsForAssignment.length === 0 ? (
             <div className="p-3 text-sm text-gray-500">
               No more tags available
@@ -468,8 +494,7 @@ export default function TaskCardToolbar({
             style={{
               left: `${position.left}px`,
               top: `${position.top}px`,
-              maxHeight: `${position.height}px`,
-              minHeight: '200px'
+              maxHeight: `${position.height}px`
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -512,6 +537,15 @@ export default function TaskCardToolbar({
           document.body
         );
       })()}
+      
+      {/* Add Tag Modal */}
+      {showAddTagModal && createPortal(
+        <AddTagModal
+          onClose={() => setShowAddTagModal(false)}
+          onTagCreated={handleTagCreated}
+        />,
+        document.body
+      )}
     </>
   );
 }

@@ -388,8 +388,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     // Fetch immediately
     fetchSystemInfo();
 
-    // Set up 5-second interval
-    const interval = setInterval(fetchSystemInfo, 5000);
+    // Set up 10-second interval
+    const interval = setInterval(fetchSystemInfo, 10000);
 
     return () => clearInterval(interval);
   }, [currentUser?.roles]);

@@ -1667,6 +1667,39 @@ app.delete('/api/admin/users/:userId/avatar', authenticateToken, requireRole(['a
 });
 
 
+// User tags endpoints (allow any authenticated user to create tags)
+app.post('/api/tags', authenticateToken, async (req, res) => {
+  const { tag, description, color } = req.body;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    const result = wrapQuery(db.prepare(`
+      INSERT INTO tags (tag, description, color) 
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    
+    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-created to Redis (user-created)');
+    await redisService.publish('tag-created', {
+      tag: newTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-created published to Redis');
+    
+    res.json(newTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error creating tag:', error);
+    res.status(500).json({ error: 'Failed to create tag' });
+  }
+});
 
 // Admin tags endpoints
 app.get('/api/admin/tags', authenticateToken, requireRole(['admin']), (req, res) => {

@@ -211,6 +211,7 @@ const GanttViewV2 = ({
     isLoading: isScrollLoading,
     lastSavedScrollDate,
     saveCurrentScrollPosition,
+    flushPendingSave,
     getSavedScrollPosition,
     calculateCenterDate,
     calculateScrollPosition
@@ -953,6 +954,14 @@ const GanttViewV2 = ({
       setIsInitializing(true);
     }
   }, [boardId]);
+
+  // Flush pending scroll position saves on board change or unmount
+  useEffect(() => {
+    return () => {
+      // On unmount or board change, flush any pending save
+      flushPendingSave();
+    };
+  }, [boardId, flushPendingSave]);
 
   // Board initialization with scroll position restoration
   useEffect(() => {

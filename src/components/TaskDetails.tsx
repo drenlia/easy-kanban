@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
-import { X, Paperclip, ChevronDown, Check, Edit2 } from 'lucide-react';
+import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
 import { createComment, uploadFile, updateTask, deleteComment, updateComment, fetchCommentAttachments, getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, addWatcherToTask, removeWatcherFromTask, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment, getTaskRelationships, getAvailableTasksForRelationship, addTaskRelationship, removeTaskRelationship } from '../api';
@@ -11,6 +11,7 @@ import { loadUserPreferences, updateUserPreference } from '../utils/userPreferen
 import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import AddTagModal from './AddTagModal';
 
 interface TaskDetailsProps {
   task: Task;
@@ -72,6 +73,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
+  const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const tagsDropdownRef = useRef<HTMLDivElement>(null);
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
@@ -621,6 +623,24 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       }
     } catch (error) {
       console.error('Failed to toggle tag:', error);
+    }
+  };
+
+  const handleTagCreated = async (newTag: Tag) => {
+    // Add the new tag to available tags list
+    setAvailableTags(prev => [...prev, newTag].sort((a, b) => a.tag.localeCompare(b.tag)));
+    // Automatically add it to the current task
+    try {
+      await addTagToTask(task.id, newTag.id);
+      const newTaskTags = [...taskTags, newTag];
+      setTaskTags(newTaskTags);
+      
+      // Update parent task with new tags
+      const updatedTask = { ...editedTask, tags: newTaskTags, attachmentCount: taskAttachments.length };
+      setEditedTask(updatedTask);
+      onUpdate(updatedTask);
+    } catch (error) {
+      console.error('Failed to add new tag to task:', error);
     }
   };
 
@@ -1650,11 +1670,23 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 </button>
                 
                 {showTagsDropdown && (
-                  <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-60 overflow-y-auto ${
+                  <div className={`absolute left-0 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-10 w-full max-h-[400px] overflow-y-auto ${
                     tagsDropdownPosition === 'above' 
                       ? 'bottom-full mb-1' 
                       : 'top-full mt-1'
                   }`}>
+                    {/* Add Tag Button */}
+                    <div 
+                      onClick={() => {
+                        setShowAddTagModal(true);
+                        setShowTagsDropdown(false);
+                      }}
+                      className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center gap-2 text-sm border-b border-gray-200 dark:border-gray-700 text-blue-600 dark:text-blue-400 font-medium sticky top-0 bg-white dark:bg-gray-800"
+                    >
+                      <Plus size={14} />
+                      <span>Add New Tag</span>
+                    </div>
+                    
                     {isLoadingTags ? (
                       <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
                     ) : availableTags.length === 0 ? (
@@ -1664,7 +1696,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         <div
                           key={tag.id}
                           onClick={() => toggleTag(tag)}
-                          className="px-3 py-2 hover:bg-gray-50 cursor-pointer flex items-center gap-2 text-sm"
+                          className="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer flex items-center gap-2 text-sm"
                         >
                           <div className="w-4 h-4 flex items-center justify-center">
                             {taskTags.some(t => t.id === tag.id) && (
@@ -2031,6 +2063,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           </div>
         </div>
       </div>
+      
+      {/* Add Tag Modal */}
+      {showAddTagModal && (
+        <AddTagModal
+          onClose={() => setShowAddTagModal(false)}
+          onTagCreated={handleTagCreated}
+        />
+      )}
     </div>
   );
 }

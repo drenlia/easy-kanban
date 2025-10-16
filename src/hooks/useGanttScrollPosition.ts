@@ -1,6 +1,14 @@
 import { useCallback, useRef, useState } from 'react';
-import { loadUserPreferencesAsync, saveUserPreferences } from '../utils/userPreferences';
-import { getUserSettings } from '../api';
+import { loadUserPreferencesAsync } from '../utils/userPreferences';
+import { getUserSettings, updateUserSetting } from '../api';
+
+// Cookie expiry days (matches userPreferences.ts)
+const COOKIE_EXPIRY_DAYS = 365;
+
+// Helper to get cookie name (matches userPreferences.ts)
+const getUserCookieName = (userId: string | null = null): string => {
+  return userId ? `easy-kanban-user-prefs-${userId}` : 'easy-kanban-user-prefs';
+};
 
 interface ScrollPosition {
   date: string;
@@ -149,6 +157,12 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
   
   // Debounce timer for scroll saves
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Store the latest scroll data for flushing on unmount
+  const pendingSaveDataRef = useRef<{
+    boardId: string;
+    date: string;
+  } | null>(null);
 
   /**
    * UNIFIED SCROLL POSITION SAVER
@@ -182,10 +196,17 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     if (currentLeftmostDate === lastSavedScrollDateRef.current[currentBoardId]) {
       return;
     }
+    
+    // Store pending data for potential flush on unmount
+    pendingSaveDataRef.current = {
+      boardId: currentBoardId,
+      date: currentLeftmostDate
+    };
 
-    // Clear existing timeout if not immediate
-    if (!options?.immediate && saveTimeoutRef.current) {
+    // ALWAYS clear existing timeout to prevent stale saves
+    if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
     }
 
     const performSave = async () => {
@@ -206,25 +227,26 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
           }
         };
         
-        
-        await saveUserPreferences({
+        // Update cookie first (synchronous, fast)
+        const cookieName = getUserCookieName(currentUser.id);
+        const updatedPreferences = {
           ...latestPreferences,
           ganttScrollPositions: newScrollPositions
-        }, currentUser.id);
+        };
+        const prefsJson = JSON.stringify(updatedPreferences);
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+        document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
         
-        
-        // Verify what was actually saved to cookie
-        const cookieName = `easy-kanban-user-prefs-${currentUser.id}`;
-        const savedCookie = document.cookie.split(';').find(cookie => 
-          cookie.trim().startsWith(`${cookieName}=`)
-        );
-        if (savedCookie) {
-          const cookieData = JSON.parse(decodeURIComponent(savedCookie.split('=')[1]));
-        }
+        // Save ONLY the ganttScrollPositions to database (single API call instead of 30+)
+        await updateUserSetting('ganttScrollPositions', JSON.stringify(newScrollPositions));
         
         // Update tracking to prevent loops
         lastSavedScrollDateRef.current[currentBoardId] = currentLeftmostDate;
         setLastSavedScrollDate(currentLeftmostDate);
+        
+        // Clear pending data after successful save
+        pendingSaveDataRef.current = null;
         
       } catch (error) {
         console.error(`Failed to save scroll position for board ${currentBoardId}:`, error);
@@ -234,10 +256,63 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     if (options?.immediate) {
       performSave();
     } else {
-      // Debounce scroll saves to prevent excessive database calls
+      // Debounce scroll saves to prevent excessive database calls (300ms)
       saveTimeoutRef.current = setTimeout(performSave, 300);
     }
   }, [boardId, currentUser]);
+  
+  /**
+   * Flush any pending scroll position save immediately
+   * This should be called on board change or component unmount
+   */
+  const flushPendingSave = useCallback(async () => {
+    // Clear any pending timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    
+    // If we have pending data, save it immediately
+    if (pendingSaveDataRef.current && currentUser?.id) {
+      const { boardId: targetBoardId, date } = pendingSaveDataRef.current;
+      
+      try {
+        const latestPreferences = await loadUserPreferencesAsync(currentUser.id);
+        const sessionId = Date.now().toString();
+        
+        const newScrollPositions: GanttScrollPositions = {
+          ...latestPreferences.ganttScrollPositions,
+          [targetBoardId]: {
+            date: date,
+            sessionId: sessionId
+          }
+        };
+        
+        // Update cookie first (synchronous, fast)
+        const cookieName = getUserCookieName(currentUser.id);
+        const updatedPreferences = {
+          ...latestPreferences,
+          ganttScrollPositions: newScrollPositions
+        };
+        const prefsJson = JSON.stringify(updatedPreferences);
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+        document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+        
+        // Save ONLY the ganttScrollPositions to database (single API call instead of 30+)
+        await updateUserSetting('ganttScrollPositions', JSON.stringify(newScrollPositions));
+        
+        // Update tracking
+        lastSavedScrollDateRef.current[targetBoardId] = date;
+        setLastSavedScrollDate(date);
+        
+        // Clear pending data
+        pendingSaveDataRef.current = null;
+      } catch (error) {
+        console.error(`Failed to flush pending scroll position for board ${targetBoardId}:`, error);
+      }
+    }
+  }, [currentUser]);
 
   /**
    * Load saved scroll position for a specific board
@@ -327,6 +402,7 @@ export const useGanttScrollPosition = ({ boardId, currentUser }: UseGanttScrollP
     isLoading,
     lastSavedScrollDate,
     saveCurrentScrollPosition,
+    flushPendingSave,
     getSavedScrollPosition,
     calculateCenterDate,
     generateDateRange,

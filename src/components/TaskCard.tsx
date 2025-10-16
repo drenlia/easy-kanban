@@ -609,14 +609,14 @@ const TaskCard = React.memo(function TaskCard({
       clearTimeout(commentTooltipShowTimeoutRef.current);
     }
     
-    // Wait 1 second before showing tooltip
+    // Wait 0.5 seconds before showing tooltip
     commentTooltipShowTimeoutRef.current = setTimeout(() => {
       // Calculate best position for tooltip
       const position = calculateTooltipPosition();
       setTooltipPosition(position);
       setShowCommentTooltip(true);
       commentTooltipShowTimeoutRef.current = null;
-    }, 1000);
+    }, 500);
   };
 
   const handleCommentTooltipHide = () => {
