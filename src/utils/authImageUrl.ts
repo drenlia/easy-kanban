@@ -11,11 +11,6 @@
 export function getAuthenticatedAvatarUrl(avatarUrl: string | undefined | null): string | undefined {
   if (!avatarUrl) return undefined;
   
-  // If it's already a token-based URL, return as-is
-  if (avatarUrl.startsWith('/api/files/avatars/')) {
-    return avatarUrl;
-  }
-  
   // If it's a Google avatar URL (external), return as-is
   if (avatarUrl.startsWith('http://') || avatarUrl.startsWith('https://')) {
     return avatarUrl;
@@ -26,6 +21,13 @@ export function getAuthenticatedAvatarUrl(avatarUrl: string | undefined | null):
   if (!token) {
     // Return undefined to let the component handle the fallback (initials)
     return undefined;
+  }
+  
+  // If it's already a token-based URL, strip the old token and add a fresh one
+  if (avatarUrl.startsWith('/api/files/avatars/')) {
+    // Remove any existing token parameter
+    const baseUrl = avatarUrl.split('?')[0];
+    return `${baseUrl}?token=${encodeURIComponent(token)}`;
   }
   
   // Convert local avatar URL to token-based URL
@@ -46,11 +48,6 @@ export function getAuthenticatedAvatarUrl(avatarUrl: string | undefined | null):
 export function getAuthenticatedAttachmentUrl(attachmentUrl: string | undefined | null): string | undefined {
   if (!attachmentUrl) return undefined;
   
-  // If it's already a token-based URL, return as-is
-  if (attachmentUrl.startsWith('/api/files/attachments/')) {
-    return attachmentUrl;
-  }
-  
   // If it's an external URL, return as-is
   if (attachmentUrl.startsWith('http://') || attachmentUrl.startsWith('https://')) {
     return attachmentUrl;
@@ -61,6 +58,13 @@ export function getAuthenticatedAttachmentUrl(attachmentUrl: string | undefined 
   if (!token) {
     // Return undefined to let the component handle the fallback
     return undefined;
+  }
+  
+  // If it's already a token-based URL, strip the old token and add a fresh one
+  if (attachmentUrl.startsWith('/api/files/attachments/')) {
+    // Remove any existing token parameter
+    const baseUrl = attachmentUrl.split('?')[0];
+    return `${baseUrl}?token=${encodeURIComponent(token)}`;
   }
   
   // Convert local attachment URL to token-based URL

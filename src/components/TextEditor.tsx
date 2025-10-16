@@ -8,6 +8,14 @@ import BulletList from '@tiptap/extension-bullet-list';
 import OrderedList from '@tiptap/extension-ordered-list';
 import ListItem from '@tiptap/extension-list-item';
 import Image from '@tiptap/extension-image';
+import Heading from '@tiptap/extension-heading';
+import Strike from '@tiptap/extension-strike';
+import Code from '@tiptap/extension-code';
+import CodeBlock from '@tiptap/extension-code-block';
+import Table from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableHeader from '@tiptap/extension-table-header';
+import TableCell from '@tiptap/extension-table-cell';
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { 
   Bold, 
@@ -21,13 +29,21 @@ import {
   X,
   AlignLeft,
   AlignCenter,
-  AlignRight
+  AlignRight,
+  Strikethrough,
+  Table as TableIcon,
+  ChevronDown
 } from 'lucide-react';
 
 interface ToolbarOptions {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
+  heading?: boolean;
+  code?: boolean;
+  codeBlock?: boolean;
+  table?: boolean;
   link?: boolean;
   lists?: boolean;
   alignment?: boolean;
@@ -51,6 +67,7 @@ interface TextEditorProps {
   submitButtonText?: string;
   cancelButtonText?: string;
   toolbarOptions?: ToolbarOptions;
+  variant?: 'full' | 'inline'; // 'full' = TaskDetails/TaskPage, 'inline' = TaskCard/ListView
   className?: string;
   editorClassName?: string;
   resizable?: boolean;
@@ -76,6 +93,43 @@ const defaultToolbarOptions: ToolbarOptions = {
   bold: true,
   italic: true,
   underline: true,
+  strikethrough: false,
+  heading: false,
+  code: false,
+  codeBlock: false,
+  table: false,
+  link: true,
+  lists: true,
+  alignment: false,
+  attachments: false,
+};
+
+// Full variant toolbar (TaskDetails/TaskPage)
+const fullToolbarOptions: ToolbarOptions = {
+  bold: true,
+  italic: true,
+  underline: true,
+  strikethrough: true,
+  heading: true,
+  code: true,
+  codeBlock: true,
+  table: true,
+  link: true,
+  lists: true,
+  alignment: false,
+  attachments: false,
+};
+
+// Inline variant toolbar (TaskCard/ListView)
+const inlineToolbarOptions: ToolbarOptions = {
+  bold: true,
+  italic: true,
+  underline: false,
+  strikethrough: true,
+  heading: true,
+  code: false,
+  codeBlock: false,
+  table: false,
   link: true,
   lists: true,
   alignment: false,
@@ -99,6 +153,7 @@ export default function TextEditor({
   submitButtonText = 'Submit',
   cancelButtonText = 'Cancel',
   toolbarOptions = defaultToolbarOptions,
+  variant = 'full',
   className = '',
   editorClassName = '',
   resizable = true,
@@ -118,6 +173,8 @@ export default function TextEditor({
   const [hasSelectedText, setHasSelectedText] = useState(false);
   const [isEditingExistingLink, setIsEditingExistingLink] = useState(false);
   const [openInNewWindow, setOpenInNewWindow] = useState(true);
+  const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
+  const [showTableDropdown, setShowTableDropdown] = useState(false);
   // Handle both new files and existing attachments
   const [newAttachments, setNewAttachments] = useState<File[]>([]);
   const [displayedAttachments, setDisplayedAttachments] = useState<Array<{
@@ -131,6 +188,8 @@ export default function TextEditor({
   }>>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const editorRef = React.useRef<HTMLDivElement>(null);
+  const headingDropdownRef = React.useRef<HTMLDivElement>(null);
+  const tableDropdownRef = React.useRef<HTMLDivElement>(null);
 
   // Track previous existingAttachments to prevent infinite updates
   const prevExistingAttachmentsRef = React.useRef<string>('');
@@ -161,18 +220,27 @@ export default function TextEditor({
     }
   }, [existingAttachments]);
 
-  // Merge default toolbar options with provided ones, with compact overrides
-  const compactToolbarOptions = compact ? {
-    bold: true,
-    italic: true,
-    underline: false,
-    link: true,
-    lists: true,
-    alignment: false,
-    attachments: false
-  } : defaultToolbarOptions;
+  // Determine base toolbar options based on variant and compact mode
+  const baseToolbarOptions = compact
+    ? { // Compact mode (existing behavior)
+        bold: true,
+        italic: true,
+        underline: false,
+        strikethrough: false,
+        heading: false,
+        code: false,
+        codeBlock: false,
+        table: false,
+        link: true,
+        lists: true,
+        alignment: false,
+        attachments: false
+      }
+    : variant === 'full'
+      ? fullToolbarOptions // Full variant (TaskDetails/TaskPage)
+      : inlineToolbarOptions; // Inline variant (TaskCard/ListView)
   
-  const finalToolbarOptions = { ...compactToolbarOptions, ...toolbarOptions };
+  const finalToolbarOptions = { ...baseToolbarOptions, ...toolbarOptions };
 
   // Compact styling
   const buttonClass = compact ? 'p-1' : 'p-2';
@@ -218,6 +286,12 @@ export default function TextEditor({
         bulletList: false,
         orderedList: false,
         listItem: false,
+        // Disable heading from StarterKit since we'll add it explicitly
+        heading: false,
+        // Disable strike and code from StarterKit since we'll add them explicitly
+        strike: false,
+        code: false,
+        codeBlock: false,
       }),
       // Add explicit list extensions with proper configuration
       BulletList.configure({
@@ -240,6 +314,18 @@ export default function TextEditor({
         },
       }),
       Underline,
+      Strike,
+      Code,
+      CodeBlock,
+      Heading.configure({
+        levels: [1, 2, 3, 4, 5, 6],
+      }),
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Link.configure({
         openOnClick: false, // We'll handle clicks manually
         HTMLAttributes: {
@@ -879,6 +965,34 @@ export default function TextEditor({
     };
   }, [compact, onSubmit, editor]);
 
+  // Handle outside clicks for heading dropdown
+  React.useEffect(() => {
+    if (!showHeadingDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (headingDropdownRef.current && !headingDropdownRef.current.contains(event.target as Node)) {
+        setShowHeadingDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showHeadingDropdown]);
+
+  // Handle outside clicks for table dropdown
+  React.useEffect(() => {
+    if (!showTableDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tableDropdownRef.current && !tableDropdownRef.current.contains(event.target as Node)) {
+        setShowTableDropdown(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showTableDropdown]);
+
   const handleLinkSubmit = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1019,6 +1133,30 @@ export default function TextEditor({
           .text-editor-prosemirror p:last-child {
             margin-bottom: 0;
           }
+          .text-editor-prosemirror h1 {
+            font-size: 2em;
+            font-weight: bold;
+            margin: 0.75rem 0;
+            line-height: 1.2;
+          }
+          .text-editor-prosemirror h2 {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin: 0.67rem 0;
+            line-height: 1.3;
+          }
+          .text-editor-prosemirror h3 {
+            font-size: 1.25em;
+            font-weight: 600;
+            margin: 0.5rem 0;
+            line-height: 1.4;
+          }
+          .text-editor-prosemirror h4 {
+            font-size: 1.1em;
+            font-weight: 500;
+            margin: 0.5rem 0;
+            line-height: 1.4;
+          }
           .text-editor-prosemirror ul, .text-editor-prosemirror ol {
             padding-left: 1.5rem;
           }
@@ -1041,6 +1179,69 @@ export default function TextEditor({
           .text-editor-prosemirror u {
             text-decoration: underline;
           }
+          .text-editor-prosemirror s {
+            text-decoration: line-through;
+          }
+          .text-editor-prosemirror code {
+            background-color: #f3f4f6;
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.875em;
+          }
+          .dark .text-editor-prosemirror code {
+            background-color: #374151;
+          }
+          .text-editor-prosemirror pre {
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            overflow-x: auto;
+          }
+          .dark .text-editor-prosemirror pre {
+            background-color: #1f2937;
+            border-color: #4b5563;
+          }
+          .text-editor-prosemirror pre code {
+            background-color: transparent;
+            padding: 0;
+            border-radius: 0;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.875rem;
+          }
+          .text-editor-prosemirror table {
+            border-collapse: collapse;
+            margin: 0.5rem 0;
+            width: 100%;
+            overflow: hidden;
+          }
+          .text-editor-prosemirror td,
+          .text-editor-prosemirror th {
+            border: 1px solid #d1d5db;
+            padding: 0.5rem;
+            position: relative;
+            vertical-align: top;
+          }
+          .dark .text-editor-prosemirror td,
+          .dark .text-editor-prosemirror th {
+            border-color: #4b5563;
+          }
+          .text-editor-prosemirror th {
+            background-color: #f3f4f6;
+            font-weight: 600;
+            text-align: left;
+          }
+          .dark .text-editor-prosemirror th {
+            background-color: #374151;
+          }
+          .text-editor-prosemirror .selectedCell {
+            background-color: #dbeafe;
+          }
+          .dark .text-editor-prosemirror .selectedCell {
+            background-color: #1e3a8a;
+          }
         `
       }} />
       <div 
@@ -1050,6 +1251,94 @@ export default function TextEditor({
       {/* Toolbar */}
       {showToolbar && (
         <div className={`flex flex-wrap gap-1 ${compact ? 'p-1' : 'p-2'} border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700`}>
+          {/* Headers */}
+          {finalToolbarOptions.heading && (
+            <div className="relative" ref={headingDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
+                className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-1 px-2`}
+                title="Heading"
+              >
+                <span className="text-xs font-semibold min-w-[24px]">
+                  {editor.isActive('heading', { level: 1}) ? 'H1' :
+                   editor.isActive('heading', { level: 2}) ? 'H2' :
+                   editor.isActive('heading', { level: 3}) ? 'H3' :
+                   editor.isActive('heading', { level: 4}) ? 'H4' :
+                   editor.isActive('code') ? 'Pre' : 'P'}
+                </span>
+                <ChevronDown size={12} />
+              </button>
+              
+              {showHeadingDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-50 py-1 min-w-[120px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().setParagraph().run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm"
+                  >
+                    Normal
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleHeading({ level: 1 }).run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 font-bold text-lg"
+                  >
+                    Heading 1
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleHeading({ level: 2 }).run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 font-bold text-base"
+                  >
+                    Heading 2
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleHeading({ level: 3 }).run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 font-semibold text-sm"
+                  >
+                    Heading 3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleHeading({ level: 4 }).run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium text-sm"
+                  >
+                    Heading 4
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleCode().run();
+                      setShowHeadingDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 font-mono text-xs"
+                  >
+                    Preformatted
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Bold */}
           {finalToolbarOptions.bold && (
             <button
               type="button"
@@ -1089,6 +1378,61 @@ export default function TextEditor({
             </button>
           )}
           
+          {/* Strikethrough */}
+          {finalToolbarOptions.strikethrough && (
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('strike') ? 'bg-gray-200 dark:bg-gray-600' : ''
+              }`}
+              title="Strikethrough"
+            >
+              <Strikethrough size={iconSize} />
+            </button>
+          )}
+          
+          {/* Lists */}
+          {finalToolbarOptions.lists && (
+            <>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleBulletList().run()}
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive('bulletList') ? 'bg-gray-200 dark:bg-gray-600' : ''
+                }`}
+                title="Bullet List"
+              >
+                <List size={16} />
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                  editor.isActive('orderedList') ? 'bg-gray-200 dark:bg-gray-600' : ''
+                }`}
+                title="Numbered List"
+              >
+                <ListOrdered size={16} />
+              </button>
+            </>
+          )}
+          
+          {/* Code Block */}
+          {finalToolbarOptions.codeBlock && (
+            <button
+              type="button"
+              onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+              className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
+                editor.isActive('codeBlock') ? 'bg-gray-200 dark:bg-gray-600' : ''
+              }`}
+              title="Code Block"
+            >
+              <span className="text-xs font-mono font-bold">&lt;&gt;</span>
+            </button>
+          )}
+          
+          {/* Link */}
           {finalToolbarOptions.link && (
             <button
               type="button"
@@ -1190,29 +1534,162 @@ export default function TextEditor({
             <div className="w-px h-6 bg-gray-300 mx-1 self-center" />
           )}
           
-          {finalToolbarOptions.lists && (
-            <>
+          {/* Attachments */}
+          {finalToolbarOptions.attachments && showAttachments && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
+              title="Add Attachment"
+            >
+              <Paperclip size={16} />
+            </button>
+          )}
+          
+          {/* Table Operations */}
+          {finalToolbarOptions.table && (
+            <div className="relative" ref={tableDropdownRef}>
               <button
                 type="button"
-                onClick={() => editor.chain().focus().toggleBulletList().run()}
-                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
-                  editor.isActive('bulletList') ? 'bg-gray-200 dark:bg-gray-600' : ''
+                onClick={() => setShowTableDropdown(!showTableDropdown)}
+                className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-1 ${
+                  editor.isActive('table') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Bullet List"
+                title="Table"
               >
-                <List size={16} />
+                <TableIcon size={iconSize} />
+                <ChevronDown size={12} />
               </button>
-              <button
-                type="button"
-                onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
-                  editor.isActive('orderedList') ? 'bg-gray-200 dark:bg-gray-600' : ''
-                }`}
-                title="Numbered List"
-              >
-                <ListOrdered size={16} />
-              </button>
-            </>
+              
+              {showTableDropdown && (
+                <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-50 py-1 min-w-[180px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+                      setShowTableDropdown(false);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm font-semibold"
+                  >
+                    Insert Table (3×3)
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().toggleHeaderRow().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().toggleHeaderRow()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Toggle Header Row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().mergeCells().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().mergeCells()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Merge Selected Cells
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().splitCell().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().splitCell()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Split Merged Cell
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().addColumnBefore().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().addColumnBefore()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add Column Before
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().addColumnAfter().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().addColumnAfter()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add Column After
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().deleteColumn().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().deleteColumn()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete Column
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().addRowBefore().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().addRowBefore()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add Row Before
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().addRowAfter().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().addRowAfter()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Add Row After
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().deleteRow().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().deleteRow()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete Row
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-700 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      editor.chain().focus().deleteTable().run();
+                      setShowTableDropdown(false);
+                    }}
+                    disabled={!editor.can().deleteTable()}
+                    className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-red-600 dark:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete Table
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           
           {finalToolbarOptions.alignment && (
@@ -1252,26 +1729,13 @@ export default function TextEditor({
               </button>
             </>
           )}
-          
-          {finalToolbarOptions.attachments && showAttachments && (
-            <>
-              <div className="w-px h-6 bg-gray-300 mx-1 self-center" />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
-                title="Add Attachment"
-              >
-                <Paperclip size={16} />
-              </button>
-            </>
-          )}
         </div>
       )}
 
       {/* Editor Content */}
       <div 
         className={resizable ? "resize-y overflow-auto" : ""}
+        style={{ cursor: 'text' }}
         onClick={(e) => {
           if (compact && editor && !editor.isFocused) {
             editor.commands.focus('end');
@@ -1305,7 +1769,7 @@ export default function TextEditor({
                 <Paperclip size={14} className="text-gray-500" />
                 {attachment.url && !attachment.isNew ? (
                   <a
-                    href={attachment.url}
+                    href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"

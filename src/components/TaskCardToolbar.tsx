@@ -41,6 +41,11 @@ interface TaskCardToolbarProps {
   hoveredLinkTask?: Task | null;
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
+  
+  // Show/hide toolbar based on hover or editing state
+  isHoveringCard?: boolean;
+  isEditingTitle?: boolean;
+  isEditingDescription?: boolean;
 }
 
 export default function TaskCardToolbar({
@@ -74,7 +79,12 @@ export default function TaskCardToolbar({
   // Hover highlighting props
   hoveredLinkTask: _hoveredLinkTask,
   onLinkToolHover,
-  onLinkToolHoverEnd
+  onLinkToolHoverEnd,
+  
+  // Show/hide toolbar props
+  isHoveringCard = false,
+  isEditingTitle = false,
+  isEditingDescription = false
 }: TaskCardToolbarProps) {
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
@@ -82,6 +92,9 @@ export default function TaskCardToolbar({
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const quickTagButtonRef = useRef<HTMLButtonElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
+  
+  // Determine if toolbar should be visible
+  const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription;
 
   const handleCopy = () => {
     onCopy(task);
@@ -261,23 +274,26 @@ export default function TaskCardToolbar({
   return (
     <>
       {/* Drag Handle - Top Left */}
-      <div
-        {...listeners}
-        {...attributes}
-        className={`absolute top-1 left-1 p-1 z-[6] rounded ${
-          !isDragDisabled 
-            ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
-            : 'cursor-not-allowed opacity-0'
-        } transition-all duration-200`}
-        title="Drag to move task"
-      >
-        <GripVertical size={12} className="text-gray-400" />
-      </div>
+      {shouldShowToolbar && (
+        <div
+          {...listeners}
+          {...attributes}
+          className={`absolute top-1 left-1 p-1 z-[6] rounded ${
+            !isDragDisabled 
+              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
+              : 'cursor-not-allowed opacity-0'
+          } transition-all duration-200`}
+          title="Drag to move task"
+        >
+          <GripVertical size={12} className="text-gray-400" />
+        </div>
+      )}
 
       {/* Unified Toolbar - All action buttons left-justified after drag handle */}
-      <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]">
-        <div className="flex gap-0">
-            {/* Add Comment Button */}
+      {shouldShowToolbar && (
+        <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]">
+          <div className="flex gap-0">
+              {/* Add Comment Button */}
             {onAddComment && (
               <button
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -376,6 +392,7 @@ export default function TaskCardToolbar({
             </button>
         </div>
       </div>
+      )}
 
       {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
       <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>

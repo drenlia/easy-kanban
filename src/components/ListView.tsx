@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
@@ -1515,6 +1515,9 @@ export default function ListView({
                             <span className="text-gray-400 text-xs">
                               {formatToYYYYMMDDHHmmss(comment.createdAt)}
                             </span>
+                            {comment.attachments && comment.attachments.length > 0 && (
+                              <Paperclip size={12} className="text-gray-400" title={`${comment.attachments.length} attachment(s)`} />
+                            )}
                           </div>
                           <div className="text-gray-300 text-xs leading-relaxed select-text">
                             <div dangerouslySetInnerHTML={renderCommentHTML(comment.text)} />

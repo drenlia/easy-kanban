@@ -93,6 +93,37 @@ router.get('/', authenticateToken, (req, res) => {
           collaborators: task.collaborators === '[null]' ? [] : JSON.parse(task.collaborators).filter(Boolean)
         }));
         
+        // Get all comment IDs from all tasks in this column
+        const allCommentIds = tasks.flatMap(task => 
+          task.comments.map(comment => comment.id)
+        ).filter(Boolean);
+        
+        // Fetch all attachments for all comments in one query (more efficient)
+        if (allCommentIds.length > 0) {
+          const placeholders = allCommentIds.map(() => '?').join(',');
+          const allAttachments = wrapQuery(db.prepare(`
+            SELECT commentId, id, name, url, type, size, created_at as createdAt
+            FROM attachments
+            WHERE commentId IN (${placeholders})
+          `), 'SELECT').all(...allCommentIds);
+          
+          // Group attachments by commentId
+          const attachmentsByCommentId = {};
+          allAttachments.forEach(att => {
+            if (!attachmentsByCommentId[att.commentId]) {
+              attachmentsByCommentId[att.commentId] = [];
+            }
+            attachmentsByCommentId[att.commentId].push(att);
+          });
+          
+          // Add attachments to each comment
+          tasks.forEach(task => {
+            task.comments.forEach(comment => {
+              comment.attachments = attachmentsByCommentId[comment.id] || [];
+            });
+          });
+        }
+        
         columnsObj[column.id] = {
           ...column,
           tasks: tasks

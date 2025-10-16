@@ -64,24 +64,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Request logging middleware for debugging
-app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  const ip = req.ip || req.connection.remoteAddress;
-  const userAgent = req.get('user-agent') || 'Unknown';
-  
-  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${ip} - User-Agent: ${userAgent}`);
-  
-  // Log response status when the request completes
-  const originalSend = res.send;
-  res.send = function(data) {
-    console.log(`[${timestamp}] ${req.method} ${req.path} - Status: ${res.statusCode}`);
-    originalSend.call(this, data);
-  };
-  
-  next();
-});
-
 // Serve static files
 app.use('/attachments', express.static(path.join(__dirname, 'attachments')));
 app.use('/avatars', express.static(path.join(__dirname, 'avatars')));
@@ -473,19 +455,24 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
       // Get the task's board ID for Redis publishing
       const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
       
+      // Fetch the complete comment with attachments from database
+      const createdComment = wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(comment.id);
+      const attachments = wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(comment.id);
+      createdComment.attachments = attachments;
+      
       // Publish to Redis for real-time updates
       if (task?.boardId) {
         console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
         await redisService.publish('comment-created', {
           boardId: task.boardId,
           taskId: comment.taskId,
-          comment: comment,
+          comment: createdComment,
           timestamp: new Date().toISOString()
         });
         console.log('✅ Comment-created published to Redis');
       }
       
-      res.json(comment);
+      res.json(createdComment);
     } catch (error) {
       // Rollback on error
       db.prepare('ROLLBACK').run();
@@ -531,8 +518,10 @@ app.put('/api/comments/:id', authenticateToken, async (req, res) => {
     // Get the task's board ID for Redis publishing
     const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(originalComment.taskId);
     
-    // Return updated comment
-    const updatedComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    // Return updated comment with attachments
+    const updatedComment = wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(id);
+    const attachments = wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
+    updatedComment.attachments = attachments;
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {

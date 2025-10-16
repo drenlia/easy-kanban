@@ -32,6 +32,8 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tiptap/extension-bold": "^2.9.1",
     "@tiptap/extension-bullet-list": "^2.9.1",
+    "@tiptap/extension-code": "2.26.3",
+    "@tiptap/extension-code-block": "2.26.3",
     "@tiptap/extension-document": "^2.9.1",
     "@tiptap/extension-heading": "^2.9.1",
     "@tiptap/extension-image": "^2.9.1",
@@ -41,6 +43,10 @@
     "@tiptap/extension-ordered-list": "^2.9.1",
     "@tiptap/extension-paragraph": "^2.9.1",
     "@tiptap/extension-strike": "^2.9.1",
+    "@tiptap/extension-table": "2.26.3",
+    "@tiptap/extension-table-cell": "2.26.3",
+    "@tiptap/extension-table-header": "2.26.3",
+    "@tiptap/extension-table-row": "2.26.3",
     "@tiptap/extension-text": "^2.9.1",
     "@tiptap/extension-text-align": "^2.9.1",
     "@tiptap/extension-underline": "^2.9.1",
@@ -51,6 +57,7 @@
     "axios": "^1.7.7",
     "bcrypt": "^5.1.1",
     "better-sqlite3": "^9.6.0",
+    "concurrently": "^8.2.2",
     "cors": "^2.8.5",
     "dompurify": "^3.2.6",
     "express": "^4.21.1",
@@ -68,8 +75,7 @@
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "xlsx": "0.18.5",
-    "zod": "^4.0.17",
-    "concurrently": "^8.2.2"
+    "zod": "^4.0.17"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

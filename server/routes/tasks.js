@@ -169,6 +169,16 @@ router.get('/:id', authenticateToken, (req, res) => {
     `), 'SELECT').all(task.id);
     console.log('📝 [TASK API] Found comments:', comments.length);
     
+    // Get attachments for each comment
+    for (const comment of comments) {
+      const attachments = wrapQuery(db.prepare(`
+        SELECT id, name, url, type, size, created_at as createdAt
+        FROM attachments
+        WHERE commentId = ?
+      `), 'SELECT').all(comment.id);
+      comment.attachments = attachments;
+    }
+    
     // Get watchers for the task
     const watchers = wrapQuery(db.prepare(`
       SELECT m.* 

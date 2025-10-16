@@ -124,6 +124,7 @@ const TaskCard = React.memo(function TaskCard({
   const [tagRemovalPosition, setTagRemovalPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
   const [isHoveringDescription, setIsHoveringDescription] = useState(false);
+  const [isHoveringCard, setIsHoveringCard] = useState(false);
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -139,11 +140,11 @@ const TaskCard = React.memo(function TaskCard({
   // Fetch task attachments when component mounts or task changes
   useEffect(() => {
     const fetchAttachments = async () => {
-      if (!task.description?.includes('img-')) {
+      // Always fetch attachments if there are any (not just for images in description)
+      if (task.attachmentCount === 0) {
         setAttachmentsLoaded(true);
-        return; // Only fetch if description has images
+        return;
       }
-      
       
       try {
         const attachments = await fetchTaskAttachments(task.id);
@@ -158,7 +159,7 @@ const TaskCard = React.memo(function TaskCard({
 
     setAttachmentsLoaded(false);
     fetchAttachments();
-  }, [task.id, task.description]);
+  }, [task.id, task.attachmentCount]);
 
   // Fix blob URLs in task description - using EXACT same logic as comments
   const fixImageUrls = (htmlContent: string, attachments: any[]) => {
@@ -222,16 +223,18 @@ const TaskCard = React.memo(function TaskCard({
   const [showAllTags, setShowAllTags] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
+  const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentContainerRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
   const tagRemovalMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentsDropdownRef = useRef<HTMLDivElement>(null);
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu;
+  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown;
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -714,6 +717,20 @@ const TaskCard = React.memo(function TaskCard({
     }
   }, [showTagRemovalMenu]);
 
+  // Close attachments dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (attachmentsDropdownRef.current && !attachmentsDropdownRef.current.contains(event.target as Node)) {
+        setShowAttachmentsDropdown(false);
+      }
+    };
+
+    if (showAttachmentsDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showAttachmentsDropdown]);
+
   // Handle click outside for title and description editing
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -804,10 +821,12 @@ const TaskCard = React.memo(function TaskCard({
         }`}
         {...attributes}
         onMouseEnter={() => {
+          setIsHoveringCard(true);
           setIsHoveringTitle(true);
           setIsHoveringDescription(true);
         }}
         onMouseLeave={() => {
+          setIsHoveringCard(false);
           setIsHoveringTitle(false);
           setIsHoveringDescription(false);
         }}
@@ -882,6 +901,11 @@ const TaskCard = React.memo(function TaskCard({
           hoveredLinkTask={hoveredLinkTask}
           onLinkToolHover={onLinkToolHover}
           onLinkToolHoverEnd={onLinkToolHoverEnd}
+          
+          // Show toolbar only on hover or when editing
+          isHoveringCard={isHoveringCard}
+          isEditingTitle={isEditingTitle}
+          isEditingDescription={isEditingDescription}
         />
 
         {/* Relationship Type Indicator - Only show when hovering over link tool */}
@@ -938,6 +962,11 @@ const TaskCard = React.memo(function TaskCard({
               )}
               <h3 
                 className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm pr-12"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  handleTitleClick(e as any);
+                }}
+                style={{ cursor: isDragDisabled || isAnyEditingActive ? 'default' : 'grab' }}
               >
                 {task.title}
               </h3>
@@ -949,7 +978,7 @@ const TaskCard = React.memo(function TaskCard({
         {taskViewMode !== 'compact' && (
           <>
             {isEditingDescription ? (
-              <div className="-mt-2 mb-3" onClick={(e) => e.stopPropagation()}>
+              <div className="-mt-2 mb-3" onClick={(e) => e.stopPropagation()} style={{ cursor: 'text' }}>
                 <TextEditor
                   onSubmit={async (content) => {
                     // Handle save
@@ -1012,6 +1041,10 @@ const TaskCard = React.memo(function TaskCard({
                     taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
                   }`}
                   title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : ""}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    handleDescriptionClick(e as any);
+                  }}
                   dangerouslySetInnerHTML={{
                     __html: DOMPurify.sanitize(getFixedDescription() || '')
                   }}
@@ -1019,6 +1052,7 @@ const TaskCard = React.memo(function TaskCard({
                     // Ensure images fit nicely in task cards
                     '--tw-prose-body': '1rem',
                     '--tw-prose-headings': '1rem',
+                    cursor: isDragDisabled || isAnyEditingActive ? 'default' : 'grab'
                   } as React.CSSProperties}
                 />
               </div>
@@ -1215,11 +1249,51 @@ const TaskCard = React.memo(function TaskCard({
 
           {/* Right side - attachments and priority */}
           <div className="flex items-center gap-2">
-            {/* Attachments indicator */}
+            {/* Attachments indicator - clickable */}
             {task.attachmentCount > 0 && (
-              <div className="flex items-center gap-0.5 text-gray-500" title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}>
-                <Paperclip size={12} />
-                <span className="text-xs">{task.attachmentCount}</span>
+              <div className="relative" ref={attachmentsDropdownRef}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAttachmentsDropdown(!showAttachmentsDropdown);
+                  }}
+                  className="flex items-center gap-0.5 text-gray-500 hover:text-blue-600 cursor-pointer transition-colors"
+                  title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}
+                >
+                  <Paperclip size={12} />
+                  <span className="text-xs">{task.attachmentCount}</span>
+                </button>
+
+                {/* Attachments Dropdown */}
+                {showAttachmentsDropdown && (
+                  <div className="absolute right-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 max-h-80 overflow-y-auto">
+                    <div className="p-2">
+                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
+                        Attachments ({task.attachmentCount})
+                      </div>
+                      {taskAttachments
+                        .filter(att => !att.name.startsWith('img-'))
+                        .map((attachment) => (
+                          <a
+                            key={attachment.id}
+                            href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                          >
+                            <Paperclip size={14} className="flex-shrink-0 text-gray-400" />
+                            <span className="truncate flex-1">{attachment.name}</span>
+                          </a>
+                        ))}
+                      {taskAttachments.filter(att => !att.name.startsWith('img-')).length === 0 && (
+                        <div className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400 italic">
+                          Loading attachments...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1427,6 +1501,9 @@ const TaskCard = React.memo(function TaskCard({
                               <span className="text-gray-400 text-xs">
                                 {formatDateTime(comment.createdAt)}
                               </span>
+                              {comment.attachments && comment.attachments.length > 0 && (
+                                <Paperclip size={12} className="text-gray-400" title={`${comment.attachments.length} attachment(s)`} />
+                              )}
                             </div>
                             <div className="text-gray-300 text-xs leading-relaxed select-text">
                               {renderCommentHTML(comment.text)}
