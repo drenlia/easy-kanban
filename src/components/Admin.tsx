@@ -166,6 +166,19 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         return; // Don't process further, let AdminAppSettingsTab handle the sub-tab
       }
       
+      // Check for sub-tab patterns like admin#licensing#overview or admin#licensing#subscription
+      if (fullHash.startsWith('#admin#licensing#')) {
+        if (activeTab !== 'licensing') {
+          setActiveTab('licensing');
+          // Clear global messages when switching tabs
+          setSuccessMessage(null);
+          setError(null);
+          // Clear tab-specific messages for the new tab
+          clearTabMessages('licensing');
+        }
+        return; // Don't process further, let AdminLicensingTab handle the sub-tab
+      }
+      
       if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
         // Clear global messages when switching tabs
@@ -190,6 +203,15 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         setError(null);
         // Clear tab-specific messages for the new tab
         clearTabMessages('app-settings');
+      }
+    } else if (fullHash.startsWith('#admin#licensing#')) {
+      if (activeTab !== 'licensing') {
+        setActiveTab('licensing');
+        // Clear global messages when switching tabs
+        setSuccessMessage(null);
+        setError(null);
+        // Clear tab-specific messages for the new tab
+        clearTabMessages('licensing');
       }
     } else if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);

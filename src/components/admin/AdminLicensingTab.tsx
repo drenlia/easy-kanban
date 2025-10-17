@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Users, ClipboardList, Layout, HardDrive, Shield } from 'lucide-react';
+import { AlertCircle, CheckCircle, Users, ClipboardList, Layout, HardDrive, Shield, CreditCard, X } from 'lucide-react';
 import api from '../../api';
 
 interface BoardTaskCount {
@@ -33,18 +33,89 @@ interface LicenseInfo {
   error?: string;
 }
 
+interface BillingRecord {
+  id: string;
+  date: string;
+  amount: number;
+  status: string;
+  invoiceUrl?: string;
+  [key: string]: any; // Allow any additional fields from admin portal
+}
+
 interface AdminLicensingTabProps {
   currentUser: any;
 }
 
 const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) => {
+  const [activeSubTab, setActiveSubTab] = useState<'overview' | 'subscription'>('overview');
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Subscription management state
+  const [isOwner, setIsOwner] = useState(false);
+  const [billingHistory, setBillingHistory] = useState<BillingRecord[]>([]);
+  const [loadingBilling, setLoadingBilling] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     fetchLicenseInfo();
+    checkOwnership();
   }, []);
+
+  useEffect(() => {
+    if (activeSubTab === 'subscription' && isOwner) {
+      fetchBillingHistory();
+    }
+  }, [activeSubTab, isOwner]);
+
+  // Initialize activeSubTab from URL hash
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#admin#licensing#subscription') {
+      setActiveSubTab('subscription');
+    } else if (hash === '#admin#licensing#overview') {
+      setActiveSubTab('overview');
+    }
+  }, []);
+
+  // Update URL hash when activeSubTab changes
+  const handleSubTabChange = (tab: 'overview' | 'subscription') => {
+    setActiveSubTab(tab);
+    const newHash = tab === 'subscription' 
+      ? '#admin#licensing#subscription' 
+      : '#admin#licensing#overview';
+    window.location.hash = newHash;
+  };
+
+  // Listen for hash changes (back/forward navigation)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash === '#admin#licensing#subscription') {
+        setActiveSubTab('subscription');
+      } else if (hash === '#admin#licensing#overview') {
+        setActiveSubTab('overview');
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const checkOwnership = async () => {
+    try {
+      const response = await api.get('/admin/owner');
+      setIsOwner(response.data.owner === currentUser?.email);
+    } catch (err) {
+      console.error('Failed to check ownership:', err);
+      setIsOwner(false);
+    }
+  };
 
   const fetchLicenseInfo = async () => {
     try {
@@ -55,6 +126,41 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchBillingHistory = async () => {
+    try {
+      setLoadingBilling(true);
+      setBillingError(null);
+      const response = await api.get('/admin/instance-portal/billing-history');
+      setBillingHistory(response.data.billingHistory || []);
+    } catch (err: any) {
+      setBillingError(err.response?.data?.error || err.message || 'Failed to fetch billing history');
+    } finally {
+      setLoadingBilling(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    try {
+      setCancelLoading(true);
+      setCancelError(null);
+      const response = await api.post('/admin/instance-portal/cancel-subscription');
+      
+      setCancelSuccess(
+        response.data.message || 
+        `Subscription cancelled successfully. Your instance will remain active until ${response.data.expiresAt || 'plan expiration'}.`
+      );
+      
+      setShowCancelModal(false);
+      
+      // Auto-dismiss success message after 10 seconds
+      setTimeout(() => setCancelSuccess(null), 10000);
+    } catch (err: any) {
+      setCancelError(err.response?.data?.error || err.message || 'Failed to cancel subscription');
+    } finally {
+      setCancelLoading(false);
     }
   };
 
@@ -97,72 +203,49 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
     return Math.min((current / limit) * 100, 100);
   };
 
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+  const renderOverviewContent = () => {
+    if (loading) {
+      return (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (error) {
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+    if (error) {
+      return (
         <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
             <p className="text-red-800 dark:text-red-200">Error loading license information: {error}</p>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (!licenseInfo) {
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+    if (!licenseInfo) {
+      return (
         <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <p className="text-gray-600 dark:text-gray-400">No license information available.</p>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  // Handle API errors
-  if (licenseInfo.error) {
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+    // Handle API errors
+    if (licenseInfo.error) {
+      return (
         <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
             <p className="text-red-800 dark:text-red-200">Error loading license information: {licenseInfo.error}</p>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  // Handle case where license info doesn't have the expected structure
-  if (!licenseInfo.usage || !licenseInfo.limits) {
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+    // Handle case where license info doesn't have the expected structure
+    if (!licenseInfo.usage || !licenseInfo.limits) {
+      return (
         <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
@@ -171,17 +254,12 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
             </p>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
-  if (!licenseInfo.enabled) {
-    const isDemoMode = process.env.DEMO_ENABLED === 'true';
-    return (
-      <div className="p-6">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
-        </div>
+    if (!licenseInfo.enabled) {
+      const isDemoMode = process.env.DEMO_ENABLED === 'true';
+      return (
         <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-6">
           <div className="flex items-center">
             <CheckCircle className="h-6 w-6 text-blue-500 mr-3" />
@@ -198,278 +276,500 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
             </div>
           </div>
         </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Plan Information */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
+              <Shield className="h-5 w-5 mr-2" />
+              Current Plan
+            </h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                {getSupportTypeIcon(licenseInfo.limits.SUPPORT_TYPE)}
+                <div>
+                  <h3 className="text-xl font-semibold capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE} Plan</h3>
+                  <p className="text-gray-600 dark:text-gray-400">
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'pro' && 'Full-featured plan with unlimited resources'}
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'basic' && 'Standard plan with moderate limits'}
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'free' && 'Free plan with basic features'}
+                  </p>
+                </div>
+              </div>
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getSupportTypeColor(licenseInfo.limits.SUPPORT_TYPE)}`}>
+                {licenseInfo.limits.SUPPORT_TYPE.toUpperCase()}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Usage Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Users */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="p-6">
+              <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
+                <Users className="h-4 w-4 mr-2" />
+                Users
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-gray-900 dark:text-white">{licenseInfo.usage.users}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    / {licenseInfo.limits.USER_LIMIT === -1 ? '∞' : licenseInfo.limits.USER_LIMIT}
+                  </span>
+                </div>
+                {licenseInfo.limits.USER_LIMIT !== -1 && (
+                  <>
+                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div
+                        className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
+                        style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT)}%)` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT).toFixed(1)}% used
+                      </span>
+                      {licenseInfo.limitsReached.users && (
+                        <span className="text-red-500 font-medium">Limit reached</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Boards */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="p-6">
+              <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
+                <Layout className="h-4 w-4 mr-2" />
+                Boards
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-gray-900 dark:text-white">{licenseInfo.usage.boards}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    / {licenseInfo.limits.BOARD_LIMIT === -1 ? '∞' : licenseInfo.limits.BOARD_LIMIT}
+                  </span>
+                </div>
+                {licenseInfo.limits.BOARD_LIMIT !== -1 && (
+                  <>
+                    <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div
+                        className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
+                        style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT)}%)` }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT).toFixed(1)}% used
+                      </span>
+                      {licenseInfo.limitsReached.boards && (
+                        <span className="text-red-500 font-medium">Limit reached</span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Storage */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="p-6">
+              <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
+                <HardDrive className="h-4 w-4 mr-2" />
+                Storage
+              </h3>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-2xl font-bold text-gray-900 dark:text-white">{formatBytes(licenseInfo.usage.storage)}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
+                    / {formatBytes(licenseInfo.limits.STORAGE_LIMIT)}
+                  </span>
+                </div>
+                <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
+                    style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT)}%)` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500 dark:text-gray-400">
+                    {calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT).toFixed(1)}% used
+                  </span>
+                  {licenseInfo.limitsReached.storage && (
+                    <span className="text-red-500 font-medium">Limit reached</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Task Limits */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
+              <ClipboardList className="h-5 w-5 mr-2" />
+              Task Limits per Board
+            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  {licenseInfo.limits.TASK_LIMIT === -1 ? 'Unlimited' : licenseInfo.limits.TASK_LIMIT} tasks per board
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400 mt-1">
+                  Maximum number of tasks allowed in each board
+                </p>
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {licenseInfo.limits.TASK_LIMIT === -1 ? '∞' : licenseInfo.limits.TASK_LIMIT}
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">per board</div>
+              </div>
+            </div>
+
+            {/* Board Task Count Breakdown - Only show if not unlimited and we have data */}
+            {licenseInfo.limits.TASK_LIMIT !== -1 && licenseInfo.boardTaskCounts && licenseInfo.boardTaskCounts.length > 0 && (
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Board Usage Breakdown
+                </h4>
+                <div className="space-y-3">
+                  {licenseInfo.boardTaskCounts.map((board) => {
+                    const usagePercentage = calculateUsagePercentage(board.taskCount, licenseInfo.limits.TASK_LIMIT);
+                    const isNearLimit = usagePercentage >= 80;
+                    const isAtLimit = usagePercentage >= 100;
+                    
+                    return (
+                      <div key={board.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                              {board.title}
+                            </span>
+                            <span className={`text-sm font-semibold ${
+                              isAtLimit ? 'text-red-600' : 
+                              isNearLimit ? 'text-yellow-600' : 
+                              'text-gray-600 dark:text-gray-300'
+                            }`}>
+                              {board.taskCount} / {licenseInfo.limits.TASK_LIMIT}
+                            </span>
+                          </div>
+                          <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-600">
+                            <div
+                              className={`h-full transition-all duration-300 ease-in-out ${
+                                isAtLimit ? 'bg-red-500' : 
+                                isNearLimit ? 'bg-yellow-500' : 
+                                'bg-blue-500'
+                              }`}
+                              style={{ width: `${Math.min(usagePercentage, 100)}%` }}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              {usagePercentage.toFixed(1)}% used
+                            </span>
+                            {isAtLimit && (
+                              <span className="text-xs text-red-600 font-medium">Limit reached</span>
+                            )}
+                            {isNearLimit && !isAtLimit && (
+                              <span className="text-xs text-yellow-600 font-medium">Near limit</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Show message for unlimited plans */}
+            {licenseInfo.limits.TASK_LIMIT === -1 && (
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="flex items-center text-gray-500 dark:text-gray-400">
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  <span className="text-sm">Unlimited tasks per board - no restrictions</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* License Status */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">License Status</h3>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">License System</span>
+                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                  licenseInfo.enabled 
+                    ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                    : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                }`}>
+                  {licenseInfo.enabled ? 'Managed' : 'Self-Managed'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plan Type</span>
+                <span className="text-sm capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Last Updated</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{new Date().toLocaleString()}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
-  }
+  };
+
+  const renderSubscriptionContent = () => {
+    if (!isOwner) {
+      return (
+        <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-6">
+          <div className="flex items-center">
+            <AlertCircle className="h-6 w-6 text-yellow-500 mr-3" />
+            <div>
+              <h3 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200">
+                Access Restricted
+              </h3>
+              <p className="text-yellow-700 dark:text-yellow-300 mt-1">
+                Only the instance owner can access subscription management.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        {/* Success Message */}
+        {cancelSuccess && (
+          <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-lg p-4">
+            <div className="flex items-center">
+              <CheckCircle className="h-5 w-5 text-green-400 mr-2" />
+              <p className="text-green-800 dark:text-green-200">{cancelSuccess}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Billing History */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-white">
+                <CreditCard className="h-5 w-5 mr-2" />
+                Billing History
+              </h3>
+              <button
+                onClick={fetchBillingHistory}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                disabled={loadingBilling}
+              >
+                {loadingBilling ? 'Loading...' : 'Refresh'}
+              </button>
+            </div>
+
+            {billingError && (
+              <div className="mb-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
+                  <p className="text-red-800 dark:text-red-200">{billingError}</p>
+                </div>
+              </div>
+            )}
+
+            {loadingBilling ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              </div>
+            ) : billingHistory.length === 0 ? (
+              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                No billing history available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                    <tr>
+                      {Object.keys(billingHistory[0] || {}).map((key) => (
+                        <th 
+                          key={key}
+                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
+                        >
+                          {key}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:border-gray-700">
+                    {billingHistory.map((record, index) => (
+                      <tr key={record.id || index}>
+                        {Object.entries(record).map(([key, value]) => (
+                          <td 
+                            key={key}
+                            className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100"
+                          >
+                            {typeof value === 'string' && value.startsWith('http') ? (
+                              <a 
+                                href={value} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
+                              >
+                                View
+                              </a>
+                            ) : (
+                              String(value)
+                            )}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Change Plan - Placeholder */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Change Plan</h3>
+            <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+              <p className="text-blue-700 dark:text-blue-300">
+                Plan changes will be available soon. Contact support for assistance.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Cancel Subscription */}
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-700 shadow-sm">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Cancel Subscription</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-4">
+              Cancel your subscription. Your instance will remain active until the end of your current billing period.
+            </p>
+            <button
+              onClick={() => setShowCancelModal(true)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Cancel Subscription
+            </button>
+          </div>
+        </div>
+
+        {/* Cancel Confirmation Modal */}
+        {showCancelModal && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                    Cancel Subscription?
+                  </h3>
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <p className="text-gray-600 dark:text-gray-400 mb-6">
+                  Are you sure you want to cancel your subscription? Your instance will remain active until the end of your current billing period.
+                </p>
+
+                {cancelError && (
+                  <div className="mb-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-3">
+                    <p className="text-sm text-red-800 dark:text-red-200">{cancelError}</p>
+                  </div>
+                )}
+
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => setShowCancelModal(false)}
+                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    disabled={cancelLoading}
+                  >
+                    Keep Subscription
+                  </button>
+                  <button
+                    onClick={handleCancelSubscription}
+                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
+                    disabled={cancelLoading}
+                  >
+                    {cancelLoading ? 'Cancelling...' : 'Yes, Cancel'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="p-6">
       <div className="mb-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
+          {activeSubTab === 'overview' && (
+            <button
+              onClick={fetchLicenseInfo}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Refresh
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Sub-tab Navigation */}
+      <div className="mb-6">
+        <nav className="flex space-x-8" aria-label="Tabs">
           <button
-            onClick={fetchLicenseInfo}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            onClick={() => handleSubTabChange('overview')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'overview'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
           >
-            Refresh
+            Overview
           </button>
-        </div>
+          <button
+            onClick={() => handleSubTabChange('subscription')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'subscription'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            Manage Subscription
+          </button>
+        </nav>
       </div>
 
-      <div className="space-y-6">
-
-      {/* Plan Information */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
-            <Shield className="h-5 w-5 mr-2" />
-            Current Plan
-          </h3>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              {getSupportTypeIcon(licenseInfo.limits.SUPPORT_TYPE)}
-              <div>
-                <h3 className="text-xl font-semibold capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE} Plan</h3>
-                <p className="text-gray-600 dark:text-gray-400">
-                  {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'pro' && 'Full-featured plan with unlimited resources'}
-                  {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'basic' && 'Standard plan with moderate limits'}
-                  {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'free' && 'Free plan with basic features'}
-                </p>
-              </div>
-            </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getSupportTypeColor(licenseInfo.limits.SUPPORT_TYPE)}`}>
-              {licenseInfo.limits.SUPPORT_TYPE.toUpperCase()}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Usage Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Users */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-6">
-            <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
-              <Users className="h-4 w-4 mr-2" />
-              Users
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">{licenseInfo.usage.users}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  / {licenseInfo.limits.USER_LIMIT === -1 ? '∞' : licenseInfo.limits.USER_LIMIT}
-                </span>
-              </div>
-              {licenseInfo.limits.USER_LIMIT !== -1 && (
-                <>
-                  <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                    <div
-                      className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
-                      style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT)}%)` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT).toFixed(1)}% used
-                    </span>
-                    {licenseInfo.limitsReached.users && (
-                      <span className="text-red-500 font-medium">Limit reached</span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Boards */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-6">
-            <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
-              <Layout className="h-4 w-4 mr-2" />
-              Boards
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">{licenseInfo.usage.boards}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  / {licenseInfo.limits.BOARD_LIMIT === -1 ? '∞' : licenseInfo.limits.BOARD_LIMIT}
-                </span>
-              </div>
-              {licenseInfo.limits.BOARD_LIMIT !== -1 && (
-                <>
-                  <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                    <div
-                      className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
-                      style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT)}%)` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT).toFixed(1)}% used
-                    </span>
-                    {licenseInfo.limitsReached.boards && (
-                      <span className="text-red-500 font-medium">Limit reached</span>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Storage */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-6">
-            <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
-              <HardDrive className="h-4 w-4 mr-2" />
-              Storage
-            </h3>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-2xl font-bold text-gray-900 dark:text-white">{formatBytes(licenseInfo.usage.storage)}</span>
-                <span className="text-sm text-gray-500 dark:text-gray-400">
-                  / {formatBytes(licenseInfo.limits.STORAGE_LIMIT)}
-                </span>
-              </div>
-              <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-                <div
-                  className="h-full w-full flex-1 bg-blue-600 transition-all duration-300 ease-in-out"
-                  style={{ transform: `translateX(-${100 - calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT)}%)` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 dark:text-gray-400">
-                  {calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT).toFixed(1)}% used
-                </span>
-                {licenseInfo.limitsReached.storage && (
-                  <span className="text-red-500 font-medium">Limit reached</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Task Limits */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
-            <ClipboardList className="h-5 w-5 mr-2" />
-            Task Limits per Board
-          </h3>
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                {licenseInfo.limits.TASK_LIMIT === -1 ? 'Unlimited' : licenseInfo.limits.TASK_LIMIT} tasks per board
-              </h3>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">
-                Maximum number of tasks allowed in each board
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-2xl font-bold text-gray-900 dark:text-white">
-                {licenseInfo.limits.TASK_LIMIT === -1 ? '∞' : licenseInfo.limits.TASK_LIMIT}
-              </div>
-              <div className="text-sm text-gray-500 dark:text-gray-400">per board</div>
-            </div>
-          </div>
-
-          {/* Board Task Count Breakdown - Only show if not unlimited and we have data */}
-          {licenseInfo.limits.TASK_LIMIT !== -1 && licenseInfo.boardTaskCounts && licenseInfo.boardTaskCounts.length > 0 && (
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                Board Usage Breakdown
-              </h4>
-              <div className="space-y-3">
-                {licenseInfo.boardTaskCounts.map((board) => {
-                  const usagePercentage = calculateUsagePercentage(board.taskCount, licenseInfo.limits.TASK_LIMIT);
-                  const isNearLimit = usagePercentage >= 80;
-                  const isAtLimit = usagePercentage >= 100;
-                  
-                  return (
-                    <div key={board.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {board.title}
-                          </span>
-                          <span className={`text-sm font-semibold ${
-                            isAtLimit ? 'text-red-600' : 
-                            isNearLimit ? 'text-yellow-600' : 
-                            'text-gray-600 dark:text-gray-300'
-                          }`}>
-                            {board.taskCount} / {licenseInfo.limits.TASK_LIMIT}
-                          </span>
-                        </div>
-                        <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-600">
-                          <div
-                            className={`h-full transition-all duration-300 ease-in-out ${
-                              isAtLimit ? 'bg-red-500' : 
-                              isNearLimit ? 'bg-yellow-500' : 
-                              'bg-blue-500'
-                            }`}
-                            style={{ width: `${Math.min(usagePercentage, 100)}%` }}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between mt-1">
-                          <span className="text-xs text-gray-500 dark:text-gray-400">
-                            {usagePercentage.toFixed(1)}% used
-                          </span>
-                          {isAtLimit && (
-                            <span className="text-xs text-red-600 font-medium">Limit reached</span>
-                          )}
-                          {isNearLimit && !isAtLimit && (
-                            <span className="text-xs text-yellow-600 font-medium">Near limit</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Show message for unlimited plans */}
-          {licenseInfo.limits.TASK_LIMIT === -1 && (
-            <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-              <div className="flex items-center text-gray-500 dark:text-gray-400">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                <span className="text-sm">Unlimited tasks per board - no restrictions</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* License Status */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-        <div className="p-6">
-          <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">License Status</h3>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">License System</span>
-              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                licenseInfo.enabled 
-                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                  : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-              }`}>
-                {licenseInfo.enabled ? 'Managed' : 'Self-Managed'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plan Type</span>
-              <span className="text-sm capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Last Updated</span>
-              <span className="text-sm text-gray-500 dark:text-gray-400">{new Date().toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>
+      {/* Conditional Content Based on Active Sub-tab */}
+      {activeSubTab === 'overview' ? renderOverviewContent() : renderSubscriptionContent()}
     </div>
   );
 };

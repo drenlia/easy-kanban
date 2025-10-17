@@ -273,21 +273,19 @@ export default function TaskCardToolbar({
 
   return (
     <>
-      {/* Drag Handle - Top Left */}
-      {shouldShowToolbar && (
-        <div
-          {...listeners}
-          {...attributes}
-          className={`absolute top-1 left-1 p-1 z-[6] rounded ${
-            !isDragDisabled 
-              ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
-              : 'cursor-not-allowed opacity-0'
-          } transition-all duration-200`}
-          title="Drag to move task"
-        >
-          <GripVertical size={12} className="text-gray-400" />
-        </div>
-      )}
+      {/* Drag Handle - Top Left - Always visible */}
+      <div
+        {...listeners}
+        {...attributes}
+        className={`absolute top-1 left-1 p-1 z-[6] rounded ${
+          !isDragDisabled 
+            ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
+            : 'cursor-not-allowed opacity-0'
+        } transition-all duration-200`}
+        title="Drag to move task"
+      >
+        <GripVertical size={12} className="text-gray-400" />
+      </div>
 
       {/* Unified Toolbar - All action buttons left-justified after drag handle */}
       {shouldShowToolbar && (

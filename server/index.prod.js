@@ -132,6 +132,14 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
     
+    // Determine the correct avatar URL based on auth provider
+    let avatarUrl = null;
+    if (user.auth_provider === 'google' && user.google_avatar_url) {
+      avatarUrl = user.google_avatar_url;
+    } else if (user.avatar_path) {
+      avatarUrl = user.avatar_path;
+    }
+    
     // Return user info and token
     res.json({
       user: {
@@ -139,7 +147,10 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         firstName: user.first_name,
         lastName: user.last_name,
-        roles: userRoles
+        roles: userRoles,
+        avatarUrl: avatarUrl,
+        authProvider: user.auth_provider || 'local',
+        googleAvatarUrl: user.google_avatar_url
       },
       token
     });
@@ -2013,6 +2024,151 @@ app.put('/api/admin/settings', authenticateToken, requireRole(['admin']), async 
   } catch (error) {
     console.error('Update setting error:', error);
     res.status(500).json({ error: 'Failed to update setting' });
+  }
+});
+
+// Get instance owner
+app.get('/api/admin/owner', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const ownerSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('OWNER');
+    res.json({ owner: ownerSetting?.value || null });
+  } catch (error) {
+    console.error('Error fetching owner:', error);
+    res.status(500).json({ error: 'Failed to fetch owner' });
+  }
+});
+
+// Get admin portal configuration
+app.get('/api/admin/portal-config', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const adminPortalUrl = db.prepare('SELECT value FROM settings WHERE key = ?').get('ADMIN_PORTAL_URL');
+    res.json({ adminPortalUrl: adminPortalUrl?.value || null });
+  } catch (error) {
+    console.error('Error fetching portal config:', error);
+    res.status(500).json({ error: 'Failed to fetch portal configuration' });
+  }
+});
+
+// Proxy billing history request to admin portal
+app.get('/api/admin/instance-portal/billing-history', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const ownerSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('OWNER');
+    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+      return res.status(403).json({ error: 'Only the instance owner can access billing history' });
+    }
+    
+    const adminPortalUrl = db.prepare('SELECT value FROM settings WHERE key = ?').get('ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !adminPortalUrl.value) {
+      return res.status(404).json({ error: 'Admin portal URL not configured' });
+    }
+    
+    const instanceId = db.prepare('SELECT value FROM settings WHERE key = ?').get('INSTANCE_ID');
+    
+    const axios = require('axios');
+    const response = await axios.get(
+      `${adminPortalUrl.value}/api/instance-portal/billing-history`,
+      {
+        params: { instanceId: instanceId?.value },
+        headers: {
+          'Authorization': `Bearer ${req.header('Authorization')?.replace('Bearer ', '')}`
+        },
+        timeout: 10000
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching billing history:', error);
+    if (error.response) {
+      return res.status(error.response.status).json({ 
+        error: error.response.data?.error || 'Failed to fetch billing history from admin portal' 
+      });
+    }
+    res.status(500).json({ error: 'Failed to fetch billing history' });
+  }
+});
+
+// Proxy change plan request to admin portal
+app.post('/api/admin/instance-portal/change-plan', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const ownerSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('OWNER');
+    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+      return res.status(403).json({ error: 'Only the instance owner can change the subscription plan' });
+    }
+    
+    const adminPortalUrl = db.prepare('SELECT value FROM settings WHERE key = ?').get('ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !adminPortalUrl.value) {
+      return res.status(404).json({ error: 'Admin portal URL not configured' });
+    }
+    
+    const instanceId = db.prepare('SELECT value FROM settings WHERE key = ?').get('INSTANCE_ID');
+    
+    const axios = require('axios');
+    const response = await axios.post(
+      `${adminPortalUrl.value}/api/instance-portal/subscription/change-plan`,
+      {
+        instanceId: instanceId?.value,
+        ...req.body
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${req.header('Authorization')?.replace('Bearer ', '')}`
+        },
+        timeout: 10000
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error changing plan:', error);
+    if (error.response) {
+      return res.status(error.response.status).json({ 
+        error: error.response.data?.error || 'Failed to change plan' 
+      });
+    }
+    res.status(500).json({ error: 'Failed to change plan' });
+  }
+});
+
+// Proxy cancel subscription request to admin portal
+app.post('/api/admin/instance-portal/cancel-subscription', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const ownerSetting = db.prepare('SELECT value FROM settings WHERE key = ?').get('OWNER');
+    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+      return res.status(403).json({ error: 'Only the instance owner can cancel the subscription' });
+    }
+    
+    const adminPortalUrl = db.prepare('SELECT value FROM settings WHERE key = ?').get('ADMIN_PORTAL_URL');
+    if (!adminPortalUrl || !adminPortalUrl.value) {
+      return res.status(404).json({ error: 'Admin portal URL not configured' });
+    }
+    
+    const instanceId = db.prepare('SELECT value FROM settings WHERE key = ?').get('INSTANCE_ID');
+    
+    const axios = require('axios');
+    const response = await axios.post(
+      `${adminPortalUrl.value}/api/instance-portal/subscription/cancel`,
+      {
+        instanceId: instanceId?.value,
+        ...req.body
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${req.header('Authorization')?.replace('Bearer ', '')}`
+        },
+        timeout: 10000
+      }
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error cancelling subscription:', error);
+    if (error.response) {
+      return res.status(error.response.status).json({ 
+        error: error.response.data?.error || 'Failed to cancel subscription' 
+      });
+    }
+    res.status(500).json({ error: 'Failed to cancel subscription' });
   }
 });
 
