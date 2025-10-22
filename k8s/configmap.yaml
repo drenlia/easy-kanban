@@ -30,6 +30,9 @@ data:
   STORAGE_LIMIT: "STORAGE_LIMIT_PLACEHOLDER"
   SUPPORT_TYPE: "SUPPORT_TYPE_PLACEHOLDER"
   
+  # Application version
+  APP_VERSION: "APP_VERSION_PLACEHOLDER"
+  
   # Email configuration (optional - can be set later)
   # EMAIL_HOST: "smtp.gmail.com"
   # EMAIL_PORT: "587"

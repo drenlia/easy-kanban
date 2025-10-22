@@ -6,23 +6,24 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan>"
+    echo "Usage: $0 <instance_name> <instance_token> <plan> <app_version>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
     echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
+    echo "  app_version   - Application version (e.g., 1.0.0)"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic"
-    echo "  $0 enterprise kanban-token-67890 pro"
+    echo "  $0 my-company kanban-token-12345 basic 1.0.0"
+    echo "  $0 enterprise kanban-token-67890 pro 1.2.3"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
     exit 1
 }
 
 # Check parameters
-if [ $# -ne 3 ]; then
+if [ $# -ne 4 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
@@ -31,6 +32,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
 PLAN="$3"
+APP_VERSION="$4"
 NAMESPACE="easy-kanban-${INSTANCE_NAME}"
 DOMAIN="ezkan.cloud"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
@@ -71,6 +73,7 @@ echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
 echo "🔑 Instance Token: ${INSTANCE_TOKEN}"
 echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
+echo "📦 App Version: ${APP_VERSION}"
 echo "👥 User Limit: ${USER_LIMIT}"
 echo "📝 Task Limit: ${TASK_LIMIT}"
 echo "📊 Board Limit: ${BOARD_LIMIT}"
@@ -114,6 +117,7 @@ generate_manifests() {
         -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
         -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
         -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
+        -e "s/APP_VERSION_PLACEHOLDER/${APP_VERSION}/g" \
         ${SCRIPT_DIR}/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
     # Generate app deployment

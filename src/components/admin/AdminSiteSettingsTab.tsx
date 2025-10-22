@@ -3,6 +3,7 @@ import React from 'react';
 interface Settings {
   SITE_NAME?: string;
   SITE_URL?: string;
+  WEBSITE_URL?: string;
   [key: string]: string | undefined;
 }
 
@@ -61,6 +62,22 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             placeholder="https://example.com"
           />
+        </div>
+        
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Website URL (Customer Portal)
+          </label>
+          <input
+            type="url"
+            value={editingSettings.WEBSITE_URL || ''}
+            onChange={(e) => handleInputChange('WEBSITE_URL', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+            placeholder="https://customer-portal.example.com"
+          />
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            URL to your customer portal for subscription management
+          </p>
         </div>
         
         {/* Success and Error Messages for Site Settings */}

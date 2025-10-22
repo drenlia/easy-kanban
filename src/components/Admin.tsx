@@ -37,6 +37,7 @@ interface User {
 interface Settings {
   SITE_NAME?: string;
   SITE_URL?: string;
+  WEBSITE_URL?: string;
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   GOOGLE_CALLBACK_URL?: string;
@@ -1213,6 +1214,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           {activeTab === 'licensing' && (
             <AdminLicensingTab
               currentUser={currentUser}
+              settings={settings}
             />
           )}
         </div>

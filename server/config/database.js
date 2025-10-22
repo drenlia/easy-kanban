@@ -451,6 +451,9 @@ const initializeDefaultData = (db) => {
 
     // Initialize default settings
     const defaultSettings = [
+      ['APP_VERSION', '0'],
+      ['ADMIN_PORTAL_URL', 'https://admin.ezkan.cloud'],
+      ['WEBSITE_URL', 'https://ezkan.cloud'],
       ['SITE_NAME', 'Easy Kanban'],
       ['SITE_URL', '/'],
       ['MAIL_ENABLED', 'false'],
@@ -518,6 +521,13 @@ const initializeDefaultData = (db) => {
     defaultSettings.forEach(([key, value]) => {
       settingsStmt.run(key, value);
     });
+
+    // Override APP_VERSION from environment variable if present (during initial setup)
+    if (process.env.APP_VERSION) {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+        .run('APP_VERSION', process.env.APP_VERSION);
+      console.log(`✅ Set APP_VERSION=${process.env.APP_VERSION} from environment variable`);
+    }
 
     // Set MAIL_MANAGED=true for licensed instances (basic/pro plans)
     if (process.env.LICENSE_ENABLED === 'true') {
@@ -899,6 +909,23 @@ const initializeDefaultData = (db) => {
     }
   } catch (error) {
     console.error('Error cleaning up orphaned members:', error);
+  }
+
+  // Update APP_VERSION from environment variable on every startup (if present and different)
+  if (process.env.APP_VERSION) {
+    const currentVersion = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION');
+    
+    if (!currentVersion) {
+      // APP_VERSION doesn't exist in settings, insert it
+      db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+        .run('APP_VERSION', process.env.APP_VERSION);
+      console.log(`✅ Initialized APP_VERSION=${process.env.APP_VERSION} from environment variable`);
+    } else if (currentVersion.value !== process.env.APP_VERSION) {
+      // APP_VERSION has changed, update it
+      db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
+        .run(process.env.APP_VERSION, 'APP_VERSION');
+      console.log(`✅ Updated APP_VERSION from ${currentVersion.value} to ${process.env.APP_VERSION}`);
+    }
   }
 };
 

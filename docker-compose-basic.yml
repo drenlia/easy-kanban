@@ -28,6 +28,8 @@ services:
       - INSTANCE_NAME=basic-instance
       - INSTANCE_TOKEN=kanban-basic-token-12345
       - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
+      # Application version (optional, will override database value if set)
+      - APP_VERSION=1.0.0
     volumes:
       - .:/app
       - /app/node_modules

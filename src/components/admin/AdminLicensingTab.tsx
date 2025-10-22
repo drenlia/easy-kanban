@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Users, ClipboardList, Layout, HardDrive, Shield, CreditCard, X } from 'lucide-react';
+import { AlertCircle, CheckCircle, Users, ClipboardList, Layout, HardDrive, Shield, ExternalLink } from 'lucide-react';
 import api from '../../api';
 
 interface BoardTaskCount {
@@ -33,20 +33,12 @@ interface LicenseInfo {
   error?: string;
 }
 
-interface BillingRecord {
-  id: string;
-  date: string;
-  amount: number;
-  status: string;
-  invoiceUrl?: string;
-  [key: string]: any; // Allow any additional fields from admin portal
-}
-
 interface AdminLicensingTabProps {
   currentUser: any;
+  settings: any;
 }
 
-const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) => {
+const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, settings }) => {
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'subscription'>('overview');
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -54,24 +46,11 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
   
   // Subscription management state
   const [isOwner, setIsOwner] = useState(false);
-  const [billingHistory, setBillingHistory] = useState<BillingRecord[]>([]);
-  const [loadingBilling, setLoadingBilling] = useState(false);
-  const [billingError, setBillingError] = useState<string | null>(null);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelLoading, setCancelLoading] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-  const [cancelSuccess, setCancelSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     fetchLicenseInfo();
     checkOwnership();
   }, []);
-
-  useEffect(() => {
-    if (activeSubTab === 'subscription' && isOwner) {
-      fetchBillingHistory();
-    }
-  }, [activeSubTab, isOwner]);
 
   // Initialize activeSubTab from URL hash
   useEffect(() => {
@@ -126,41 +105,6 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
       setError(err.message);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchBillingHistory = async () => {
-    try {
-      setLoadingBilling(true);
-      setBillingError(null);
-      const response = await api.get('/admin/instance-portal/billing-history');
-      setBillingHistory(response.data.billingHistory || []);
-    } catch (err: any) {
-      setBillingError(err.response?.data?.error || err.message || 'Failed to fetch billing history');
-    } finally {
-      setLoadingBilling(false);
-    }
-  };
-
-  const handleCancelSubscription = async () => {
-    try {
-      setCancelLoading(true);
-      setCancelError(null);
-      const response = await api.post('/admin/instance-portal/cancel-subscription');
-      
-      setCancelSuccess(
-        response.data.message || 
-        `Subscription cancelled successfully. Your instance will remain active until ${response.data.expiresAt || 'plan expiration'}.`
-      );
-      
-      setShowCancelModal(false);
-      
-      // Auto-dismiss success message after 10 seconds
-      setTimeout(() => setCancelSuccess(null), 10000);
-    } catch (err: any) {
-      setCancelError(err.response?.data?.error || err.message || 'Failed to cancel subscription');
-    } finally {
-      setCancelLoading(false);
     }
   };
 
@@ -526,6 +470,10 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
                 <span className="text-sm capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE}</span>
               </div>
               <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">App Version</span>
+                <span className="text-sm text-gray-900 dark:text-white">{settings?.APP_VERSION || '0'}</span>
+              </div>
+              <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Last Updated</span>
                 <span className="text-sm text-gray-500 dark:text-gray-400">{new Date().toLocaleString()}</span>
               </div>
@@ -555,173 +503,38 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser }) =>
       );
     }
 
+    const websiteUrl = settings?.WEBSITE_URL || '';
+    const hasWebsiteUrl = websiteUrl.trim() !== '';
+
     return (
       <div className="space-y-6">
-        {/* Success Message */}
-        {cancelSuccess && (
-          <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-lg p-4">
-            <div className="flex items-center">
-              <CheckCircle className="h-5 w-5 text-green-400 mr-2" />
-              <p className="text-green-800 dark:text-green-200">{cancelSuccess}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Billing History */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold flex items-center text-gray-900 dark:text-white">
-                <CreditCard className="h-5 w-5 mr-2" />
-                Billing History
-              </h3>
-              <button
-                onClick={fetchBillingHistory}
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                disabled={loadingBilling}
-              >
-                {loadingBilling ? 'Loading...' : 'Refresh'}
-              </button>
-            </div>
-
-            {billingError && (
-              <div className="mb-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
-                <div className="flex items-center">
-                  <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
-                  <p className="text-red-800 dark:text-red-200">{billingError}</p>
-                </div>
-              </div>
-            )}
-
-            {loadingBilling ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-              </div>
-            ) : billingHistory.length === 0 ? (
-              <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                No billing history available.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                    <tr>
-                      {Object.keys(billingHistory[0] || {}).map((key) => (
-                        <th 
-                          key={key}
-                          className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider"
-                        >
-                          {key}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:border-gray-700">
-                    {billingHistory.map((record, index) => (
-                      <tr key={record.id || index}>
-                        {Object.entries(record).map(([key, value]) => (
-                          <td 
-                            key={key}
-                            className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100"
-                          >
-                            {typeof value === 'string' && value.startsWith('http') ? (
-                              <a 
-                                href={value} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 dark:text-blue-400"
-                              >
-                                View
-                              </a>
-                            ) : (
-                              String(value)
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Change Plan - Placeholder */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Change Plan</h3>
-            <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-              <p className="text-blue-700 dark:text-blue-300">
-                Plan changes will be available soon. Contact support for assistance.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Cancel Subscription */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-red-200 dark:border-red-700 shadow-sm">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Cancel Subscription</h3>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              Cancel your subscription. Your instance will remain active until the end of your current billing period.
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Customer Portal</h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Manage your subscription, view billing history, change plans, and cancel your subscription through our customer portal.
             </p>
-            <button
-              onClick={() => setShowCancelModal(true)}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Cancel Subscription
-            </button>
-          </div>
-        </div>
-
-        {/* Cancel Confirmation Modal */}
-        {showCancelModal && (
-          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-            <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                    Cancel Subscription?
-                  </h3>
-                  <button
-                    onClick={() => setShowCancelModal(false)}
-                    className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-                  >
-                    <X className="h-6 w-6" />
-                  </button>
-                </div>
-
-                <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Are you sure you want to cancel your subscription? Your instance will remain active until the end of your current billing period.
-                </p>
-
-                {cancelError && (
-                  <div className="mb-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-3">
-                    <p className="text-sm text-red-800 dark:text-red-200">{cancelError}</p>
-                  </div>
-                )}
-
-                <div className="flex space-x-3">
-                  <button
-                    onClick={() => setShowCancelModal(false)}
-                    className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    disabled={cancelLoading}
-                  >
-                    Keep Subscription
-                  </button>
-                  <button
-                    onClick={handleCancelSubscription}
-                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50"
-                    disabled={cancelLoading}
-                  >
-                    {cancelLoading ? 'Cancelling...' : 'Yes, Cancel'}
-                  </button>
+            
+            {hasWebsiteUrl ? (
+              <button
+                onClick={() => window.open(websiteUrl, '_blank', 'noopener,noreferrer')}
+                className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Open Customer Portal
+                <ExternalLink className="ml-2 h-4 w-4" />
+              </button>
+            ) : (
+              <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
+                  <p className="text-yellow-800 dark:text-yellow-200">
+                    Website URL not configured. Please contact your system administrator to set the WEBSITE_URL in Site Settings.
+                  </p>
                 </div>
               </div>
-            </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     );
   };

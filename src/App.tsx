@@ -417,17 +417,14 @@ export default function App() {
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
   
-  // Computed: Check if we're in "All" mode (all members selected + all main checkboxes checked)
+  // Computed: Check if we're in "All" mode (no members selected + all main checkboxes checked)
   const isAllModeActive = useMemo(() => {
-    const allMemberIds = members.map(m => m.id);
-    const allMembersSelected = allMemberIds.length > 0 && 
-      allMemberIds.every(id => selectedMembers.includes(id)) &&
-      selectedMembers.length === allMemberIds.length;
+    const noMembersSelected = selectedMembers.length === 0;
     const allMainCheckboxesChecked = includeAssignees && includeWatchers && 
       includeCollaborators && includeRequesters;
     
-    return allMembersSelected && allMainCheckboxesChecked;
-  }, [members, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
+    return noMembersSelected && allMainCheckboxesChecked;
+  }, [selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const viewModeRef = useRef<ViewMode>(userPrefs.viewMode);
@@ -2876,17 +2873,6 @@ export default function App() {
     }
   }, [selectedBoard]);
 
-  // Set default member selection when both members and currentUser are available
-  useEffect(() => {
-    if (members.length > 0 && currentUser && selectedMembers.length === 0) {
-      // Default to ALL members for better first-time experience
-      const allMemberIds = members.map(m => m.id);
-      // console.log(`🎉 First-time user: Auto-selecting all ${allMemberIds.length} members`);
-      setSelectedMembers(allMemberIds);
-      updateCurrentUserPreference('selectedMembers', allMemberIds);
-    }
-  }, [members, currentUser, selectedMembers]);
-
   // Watch for copied task to trigger animation
   useEffect(() => {
     if (pendingCopyAnimation && columns[pendingCopyAnimation.columnId]) {
@@ -4182,25 +4168,11 @@ export default function App() {
     updateCurrentUserPreference('selectedMembers', newSelectedMembers);
   };
 
-  // Handle clearing all member selections and reverting to current user
+  // Handle clearing all member selections (show all members)
   const handleClearMemberSelections = () => {
-    if (currentUser) {
-      // Find current user's member record
-      const currentUserMember = members.find(m => m.user_id === currentUser.id);
-      if (currentUserMember) {
-        // Set selections to just the current user
-        setSelectedMembers([currentUserMember.id]);
-        updateCurrentUserPreference('selectedMembers', [currentUserMember.id]);
-      } else {
-        // Fallback: clear all selections
-        setSelectedMembers([]);
-        updateCurrentUserPreference('selectedMembers', []);
-      }
-    } else {
-      // No current user, just clear all
-      setSelectedMembers([]);
-      updateCurrentUserPreference('selectedMembers', []);
-    }
+    // Clear to empty array = show all members
+    setSelectedMembers([]);
+    updateCurrentUserPreference('selectedMembers', []);
   };
 
   // Handle selecting all members
@@ -4214,34 +4186,26 @@ export default function App() {
 
   const handleSelectAllMembers = () => {
     if (isAllModeActive) {
-      // Currently in "All" mode, switch to "None" mode
-      // None mode: only assignees checkbox + current user selected
-      const currentUserMemberId = currentUser?.id ? 
-        members.find(m => m.user_id === currentUser.id)?.id : null;
-      
-      setSelectedMembers(currentUserMemberId ? [currentUserMemberId] : []);
+      // Currently in "All Roles" mode, switch to "Assignees Only" mode
       setIncludeAssignees(true);
       setIncludeWatchers(false);
       setIncludeCollaborators(false);
       setIncludeRequesters(false);
       setIncludeSystem(false);
       
-      updateCurrentUserPreference('selectedMembers', currentUserMemberId ? [currentUserMemberId] : []);
       updateCurrentUserPreference('includeAssignees', true);
       updateCurrentUserPreference('includeWatchers', false);
       updateCurrentUserPreference('includeCollaborators', false);
       updateCurrentUserPreference('includeRequesters', false);
       updateCurrentUserPreference('includeSystem', false);
     } else {
-      // Currently in "None" mode, switch to "All" mode
-    const allMemberIds = members.map(m => m.id);
-    setSelectedMembers(allMemberIds);
-    setIncludeAssignees(true);
-    setIncludeWatchers(true);
-    setIncludeCollaborators(true);
-    setIncludeRequesters(true);
+      // Not in "All Roles" mode, switch to "All Roles" mode
+      setIncludeAssignees(true);
+      setIncludeWatchers(true);
+      setIncludeCollaborators(true);
+      setIncludeRequesters(true);
+      // Note: System checkbox is left unchanged (admin-only)
       
-      updateCurrentUserPreference('selectedMembers', allMemberIds);
       updateCurrentUserPreference('includeAssignees', true);
       updateCurrentUserPreference('includeWatchers', true);
       updateCurrentUserPreference('includeCollaborators', true);
@@ -4375,50 +4339,68 @@ export default function App() {
 
       // Create custom filtering function that includes watchers/collaborators/requesters
       const customFilterTasks = async (tasks: any[]) => {
-
-        
-        // If no members selected and no checkboxes enabled, return all tasks
-        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
-
+        // If no checkboxes enabled, return all tasks (no filtering)
+        if (!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
           return tasks;
         }
+        
+        // If no members selected, treat as "all members" (empty array = show all)
+        const showAllMembers = selectedMembers.length === 0;
         
         const filteredTasks = [];
         
         for (const task of tasks) {
           let includeTask = false;
-          // const taskMemberName = members.find(m => m.id === task.memberId)?.name || 'Unknown';
-          // const taskRequesterName = members.find(m => m.id === task.requesterId)?.name || 'Unknown';
           
-
-          
-          // Check if task is assigned to selected members (only if assignees checkbox is enabled)
-          if (selectedMembers.length > 0 && includeAssignees) {
-            const isAssigned = selectedMembers.includes(task.memberId);
-            if (isAssigned) {
-              includeTask = true;
-
+          // Check if task is assigned to selected members (or any member if showAllMembers)
+          if (includeAssignees) {
+            if (showAllMembers) {
+              // Show all tasks with assignees (any member)
+              if (task.memberId) {
+                includeTask = true;
+              }
+            } else {
+              // Show only tasks assigned to selected members
+              if (task.memberId && selectedMembers.includes(task.memberId)) {
+                includeTask = true;
+              }
             }
           }
           
           // Check watchers if checkbox is enabled
-          if (!includeTask && includeWatchers && selectedMembers.length > 0) {
+          if (!includeTask && includeWatchers) {
             try {
               const watchers = await getTaskWatchers(task.id);
-              if (watchers && watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
-                includeTask = true;
+              if (watchers && watchers.length > 0) {
+                if (showAllMembers) {
+                  // Show all tasks with watchers
+                  includeTask = true;
+                } else {
+                  // Show only tasks watched by selected members
+                  if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
+                    includeTask = true;
+                  }
+                }
               }
-        } catch (error) {
+            } catch (error) {
               // console.error('Error checking task watchers:', error);
             }
           }
           
           // Check collaborators if checkbox is enabled
-          if (!includeTask && includeCollaborators && selectedMembers.length > 0) {
+          if (!includeTask && includeCollaborators) {
             try {
               const collaborators = await getTaskCollaborators(task.id);
-              if (collaborators && collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
-                includeTask = true;
+              if (collaborators && collaborators.length > 0) {
+                if (showAllMembers) {
+                  // Show all tasks with collaborators
+                  includeTask = true;
+                } else {
+                  // Show only tasks with selected members as collaborators
+                  if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
+                    includeTask = true;
+                  }
+                }
               }
             } catch (error) {
               // console.error('Error checking task collaborators:', error);
@@ -4426,18 +4408,25 @@ export default function App() {
           }
           
           // Check requesters if checkbox is enabled
-          if (!includeTask && includeRequesters && selectedMembers.length > 0 && task.requesterId && selectedMembers.includes(task.requesterId)) {
-            includeTask = true;
-
+          if (!includeTask && includeRequesters) {
+            if (showAllMembers) {
+              // Show all tasks with requesters
+              if (task.requesterId) {
+                includeTask = true;
+              }
+            } else {
+              // Show only tasks requested by selected members
+              if (task.requesterId && selectedMembers.includes(task.requesterId)) {
+                includeTask = true;
+              }
+            }
           }
-          
           
           if (includeTask) {
             filteredTasks.push(task);
           }
         }
         
-
         return filteredTasks;
       };
 
@@ -4468,8 +4457,8 @@ export default function App() {
         }
         
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
-        // Only run member filtering if we have selected members AND at least one filter type is enabled
-        if (selectedMembers.length > 0 && (includeAssignees || includeWatchers || includeCollaborators || includeRequesters)) {
+        // Run member filtering if at least one filter type is enabled (works with 0 or more members selected)
+        if (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
           columnTasks = await customFilterTasks(columnTasks);
         }
         
@@ -4596,13 +4585,50 @@ export default function App() {
           return true;
         }
         
+        // If no members selected, treat as "all members" (empty array = show all)
+        const showAllMembers = selectedMembers.length === 0;
         const memberIds = new Set(selectedMembers);
         let hasMatchingMember = false;
         
-        if (includeAssignees && task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
-        if (includeRequesters && task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
-        if (includeWatchers && task.watchers && Array.isArray(task.watchers) && task.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
-        if (includeCollaborators && task.collaborators && Array.isArray(task.collaborators) && task.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+        if (includeAssignees) {
+          if (showAllMembers) {
+            // Show all tasks with assignees (any member)
+            if (task.memberId) hasMatchingMember = true;
+          } else {
+            // Show only tasks assigned to selected members
+            if (task.memberId && memberIds.has(task.memberId)) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeRequesters) {
+          if (showAllMembers) {
+            // Show all tasks with requesters
+            if (task.requesterId) hasMatchingMember = true;
+          } else {
+            // Show only tasks requested by selected members
+            if (task.requesterId && memberIds.has(task.requesterId)) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeWatchers && task.watchers && Array.isArray(task.watchers)) {
+          if (showAllMembers) {
+            // Show all tasks with watchers
+            if (task.watchers.length > 0) hasMatchingMember = true;
+          } else {
+            // Show only tasks watched by selected members
+            if (task.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
+          if (showAllMembers) {
+            // Show all tasks with collaborators
+            if (task.collaborators.length > 0) hasMatchingMember = true;
+          } else {
+            // Show only tasks with selected members as collaborators
+            if (task.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+          }
+        }
         
         return hasMatchingMember;
       });

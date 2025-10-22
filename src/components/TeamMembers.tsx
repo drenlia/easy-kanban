@@ -141,17 +141,28 @@ export default function TeamMembers({
             )}
           </h2>
           
-          {/* All/None Toggle Button */}
+          {/* Clear Members Button */}
+          {handleClearSelections && (
+            <button
+              onClick={handleClearSelections}
+              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 hover:border-red-400 dark:hover:border-red-500 rounded transition-colors"
+              title="Clear member selections (show all members)"
+            >
+              Clear
+            </button>
+          )}
+          
+          {/* All Roles Toggle Button */}
           {onSelectAll && (
             <button
               onClick={onSelectAll}
               className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 rounded transition-colors"
               title={isAllModeActive 
-                ? "Switch to None mode: only assignees + current user" 
-                : "Switch to All mode: select all members and checkboxes"
+                ? "Show only assignees" 
+                : "Show all roles (assignees, watchers, collaborators, requesters)"
               }
             >
-              {isAllModeActive ? 'None' : 'All'}
+              {isAllModeActive ? 'Assignees Only' : 'All Roles'}
             </button>
           )}
           
