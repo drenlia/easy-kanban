@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Clock, MessageCircle, Calendar, Paperclip, Pencil } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
@@ -50,7 +50,7 @@ interface TaskCardProps {
   onCopy: (task: Task) => void;
   onDragStart: (task: Task) => void;
   onDragEnd: () => void;
-  onSelect: (task: Task, options?: { scrollToComments?: boolean }) => void;
+  onSelect: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   isDragDisabled?: boolean;
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
@@ -224,13 +224,19 @@ const TaskCard = React.memo(function TaskCard({
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
+  const [attachmentsDropdownPosition, setAttachmentsDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
+  const [priorityDropdownPosition, setPriorityDropdownPosition] = useState<{top: number, left: number, direction: 'above' | 'below'}>({top: 0, left: 0, direction: 'below'});
   const priorityButtonRef = useRef<HTMLButtonElement>(null);
   const commentTooltipTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentTooltipShowTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const commentContainerRef = useRef<HTMLDivElement>(null);
+  const commentTooltipRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
   const tagRemovalMenuRef = useRef<HTMLDivElement>(null);
+  const attachmentsButtonRef = useRef<HTMLButtonElement>(null);
   const attachmentsDropdownRef = useRef<HTMLDivElement>(null);
+  const priorityDropdownRef = useRef<HTMLDivElement>(null);
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
@@ -358,6 +364,9 @@ const TaskCard = React.memo(function TaskCard({
       }
       if (commentTooltipShowTimeoutRef.current) {
         clearTimeout(commentTooltipShowTimeoutRef.current);
+      }
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
       }
     };
   }, []);
@@ -614,9 +623,7 @@ const TaskCard = React.memo(function TaskCard({
     
     // Wait 0.5 seconds before showing tooltip
     commentTooltipShowTimeoutRef.current = setTimeout(() => {
-      // Calculate best position for tooltip
-      const position = calculateTooltipPosition();
-      setTooltipPosition(position);
+      // Position will be calculated by useLayoutEffect
       setShowCommentTooltip(true);
       commentTooltipShowTimeoutRef.current = null;
     }, 500);
@@ -639,40 +646,102 @@ const TaskCard = React.memo(function TaskCard({
     if (priorityButtonRef.current) {
       const rect = priorityButtonRef.current.getBoundingClientRect();
       const spaceBelow = window.innerHeight - rect.bottom;
-      return spaceBelow < 150 ? 'above' : 'below';
+      const dropdownHeight = 150; // Approximate height for priority dropdown
+      
+      let top, left;
+      if (spaceBelow < dropdownHeight) {
+        // Show above
+        top = rect.top - dropdownHeight - 8;
+      } else {
+        // Show below
+        top = rect.bottom + 8;
+      }
+      
+      left = rect.left;
+      
+      return { top, left, direction: spaceBelow < dropdownHeight ? 'above' : 'below' };
     }
-    return 'below';
+    return { top: 0, left: 0, direction: 'below' as const };
+  };
+
+  const calculateAttachmentsDropdownPosition = () => {
+    if (attachmentsButtonRef.current) {
+      const rect = attachmentsButtonRef.current.getBoundingClientRect();
+      const dropdownWidth = 256; // w-64
+      const dropdownMaxHeight = 320; // max-h-80 = 20rem = 320px
+      
+      // Get actual dropdown height if it exists, otherwise use max
+      const actualDropdownHeight = attachmentsDropdownRef.current?.offsetHeight || dropdownMaxHeight;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      let top, left;
+      
+      // Prefer showing below, but if not enough space, show above
+      if (spaceBelow >= actualDropdownHeight + 16 || spaceBelow > spaceAbove) {
+        // Show below
+        top = rect.bottom + 8;
+      } else {
+        // Show above
+        top = rect.top - actualDropdownHeight - 8;
+      }
+      
+      // Align right edge of dropdown with right edge of button
+      left = rect.right - dropdownWidth;
+      
+      // Ensure dropdown doesn't go off-screen horizontally
+      if (left < 8) left = 8;
+      if (left + dropdownWidth > window.innerWidth - 8) {
+        left = window.innerWidth - dropdownWidth - 8;
+      }
+      
+      // Ensure dropdown doesn't go off-screen vertically
+      if (top < 8) top = 8;
+      if (top + actualDropdownHeight > window.innerHeight - 8) {
+        top = window.innerHeight - actualDropdownHeight - 8;
+      }
+      
+      return { top, left, direction: spaceBelow >= actualDropdownHeight + 16 ? 'below' : 'above' };
+    }
+    return { top: 0, left: 0, direction: 'below' as const };
   };
 
   const calculateTooltipPosition = () => {
     if (commentContainerRef.current) {
       const commentRect = commentContainerRef.current.getBoundingClientRect();
       const tooltipWidth = 320; // w-80 = 320px
-      const tooltipHeight = 256; // max-h-64 = 256px
+      const tooltipMaxHeight = 256; // max-h-64 = 256px
       
-      // Calculate vertical position
+      // Get actual tooltip height if it exists, otherwise use max
+      const actualTooltipHeight = commentTooltipRef.current?.offsetHeight || tooltipMaxHeight;
       const spaceAbove = commentRect.top;
-      const _spaceBelow = window.innerHeight - commentRect.bottom;
-      const preferAbove = spaceAbove >= tooltipHeight;
+      const spaceBelow = window.innerHeight - commentRect.bottom;
       
       // Calculate horizontal position - center tooltip on the comment icon
       let left = commentRect.left + (commentRect.width / 2) - (tooltipWidth / 2);
       
-      // Keep tooltip within viewport bounds
-      const spaceRight = window.innerWidth - (left + tooltipWidth);
-      if (spaceRight < 20) {
-        left = window.innerWidth - tooltipWidth - 20; // 20px padding from edge
+      // Keep tooltip within viewport bounds horizontally
+      if (left < 8) {
+        left = 8;
       }
-      if (left < 20) {
-        left = 20;
+      if (left + tooltipWidth > window.innerWidth - 8) {
+        left = window.innerWidth - tooltipWidth - 8;
       }
       
-      // Position tooltip above or below the comment icon
+      // Position tooltip - prefer above, fallback to below
       let top;
-      if (preferAbove) {
-        top = commentRect.top - tooltipHeight - 10; // 10px gap above
+      if (spaceAbove >= actualTooltipHeight + 16 || spaceAbove > spaceBelow) {
+        // Show above (preferred)
+        top = commentRect.top - actualTooltipHeight - 8;
       } else {
-        top = commentRect.bottom + 10; // 10px gap below
+        // Show below (fallback)
+        top = commentRect.bottom + 8;
+      }
+      
+      // Ensure tooltip doesn't go off-screen vertically
+      if (top < 8) top = 8;
+      if (top + actualTooltipHeight > window.innerHeight - 8) {
+        top = window.innerHeight - actualTooltipHeight - 8;
       }
       
       return { left, top };
@@ -680,19 +749,57 @@ const TaskCard = React.memo(function TaskCard({
     return { left: 0, top: 0 };
   };
 
+  // Recalculate dropdown positions when they open (before browser paints)
+  useLayoutEffect(() => {
+    if (showPrioritySelect) {
+      setPriorityDropdownPosition(calculateDropdownPosition());
+    }
+  }, [showPrioritySelect]);
+
+  useLayoutEffect(() => {
+    if (showAttachmentsDropdown) {
+      setAttachmentsDropdownPosition(calculateAttachmentsDropdownPosition());
+    }
+  }, [showAttachmentsDropdown]);
+
+  useLayoutEffect(() => {
+    if (showCommentTooltip) {
+      setTooltipPosition(calculateTooltipPosition());
+    }
+  }, [showCommentTooltip]);
+
   useEffect(() => {
-    const handleClickOutside = (_event: MouseEvent) => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      
       if (showMemberSelect) {
         setShowMemberSelect(false);
       }
+      
       if (showPrioritySelect) {
-        setShowPrioritySelect(false);
+        // Check if click is outside both the button and the dropdown
+        if (
+          priorityButtonRef.current && !priorityButtonRef.current.contains(target) &&
+          priorityDropdownRef.current && !priorityDropdownRef.current.contains(target)
+        ) {
+          setShowPrioritySelect(false);
+        }
+      }
+      
+      if (showAttachmentsDropdown) {
+        // Check if click is outside both the button and the dropdown
+        if (
+          attachmentsButtonRef.current && !attachmentsButtonRef.current.contains(target) &&
+          attachmentsDropdownRef.current && !attachmentsDropdownRef.current.contains(target)
+        ) {
+          setShowAttachmentsDropdown(false);
+        }
       }
     };
 
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [showMemberSelect, showPrioritySelect]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMemberSelect, showPrioritySelect, showAttachmentsDropdown]);
 
   useEffect(() => {
     if (isDragging) {
@@ -716,20 +823,6 @@ const TaskCard = React.memo(function TaskCard({
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [showTagRemovalMenu]);
-
-  // Close attachments dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (attachmentsDropdownRef.current && !attachmentsDropdownRef.current.contains(event.target as Node)) {
-        setShowAttachmentsDropdown(false);
-      }
-    };
-
-    if (showAttachmentsDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [showAttachmentsDropdown]);
 
   // Handle click outside for title and description editing
   useEffect(() => {
@@ -791,7 +884,7 @@ const TaskCard = React.memo(function TaskCard({
           setCardElement(node);
         }}
         style={{ ...style, borderLeft: `4px solid ${member.color}` }}
-        className={`task-card sortable-item ${
+        className={`task-card sortable-item cursor-pointer ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
           'bg-white dark:bg-gray-800'
@@ -820,6 +913,41 @@ const TaskCard = React.memo(function TaskCard({
           })() : ''
         }`}
         {...attributes}
+        {...listeners}
+        onClick={(e) => {
+          // Only open task details if we're not in linking mode and not clicking interactive elements
+          if (isLinkingMode) return;
+          
+          const target = e.target as HTMLElement;
+          // Don't open if clicking on interactive elements (they handle stopPropagation themselves)
+          if (
+            target.tagName === 'BUTTON' ||
+            target.tagName === 'INPUT' ||
+            target.tagName === 'SELECT' ||
+            target.tagName === 'A' ||
+            target.closest('button') ||
+            target.closest('a') ||
+            target.closest('input') ||
+            target.closest('select') ||
+            target.closest('[data-stop-propagation]') // Allow marking elements to stop propagation
+          ) {
+            return;
+          }
+          
+          // Delay opening/closing TaskDetails to allow double-click to cancel it
+          if (clickTimerRef.current) {
+            clearTimeout(clickTimerRef.current);
+          }
+          clickTimerRef.current = setTimeout(() => {
+            // Toggle: if clicking the same task that's already selected, close TaskDetails
+            if (selectedTask && selectedTask.id === task.id) {
+              onSelect(null);
+            } else {
+              onSelect(task);
+            }
+            clickTimerRef.current = null;
+          }, 250); // Wait 250ms to distinguish from double-click
+        }}
         onMouseEnter={() => {
           setIsHoveringCard(true);
           setIsHoveringTitle(true);
@@ -964,6 +1092,11 @@ const TaskCard = React.memo(function TaskCard({
                 className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm pr-12"
                 onDoubleClick={(e) => {
                   e.stopPropagation();
+                  // Cancel pending single-click timer to prevent TaskDetails from opening
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                  }
                   handleTitleClick(e as any);
                 }}
                 style={{ cursor: isDragDisabled || isAnyEditingActive ? 'default' : 'grab' }}
@@ -1043,6 +1176,11 @@ const TaskCard = React.memo(function TaskCard({
                   title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : ""}
                   onDoubleClick={(e) => {
                     e.stopPropagation();
+                    // Cancel pending single-click timer to prevent TaskDetails from opening
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
                     handleDescriptionClick(e as any);
                   }}
                   dangerouslySetInnerHTML={{
@@ -1251,50 +1389,61 @@ const TaskCard = React.memo(function TaskCard({
           <div className="flex items-center gap-2">
             {/* Attachments indicator - clickable */}
             {task.attachmentCount > 0 && (
-              <div className="relative" ref={attachmentsDropdownRef}>
+              <div className="relative">
                 <button
+                  ref={attachmentsButtonRef}
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowAttachmentsDropdown(!showAttachmentsDropdown);
                   }}
                   className="flex items-center gap-0.5 text-gray-500 hover:text-blue-600 cursor-pointer transition-colors"
                   title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}
+                  data-stop-propagation
                 >
                   <Paperclip size={12} />
                   <span className="text-xs">{task.attachmentCount}</span>
                 </button>
 
-                {/* Attachments Dropdown */}
-                {showAttachmentsDropdown && (
-                  <div className="absolute right-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-50 max-h-80 overflow-y-auto">
-                    <div className="p-2">
-                      <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
-                        Attachments ({task.attachmentCount})
-                      </div>
-                      {taskAttachments
-                        .filter(att => !att.name.startsWith('img-'))
-                        .map((attachment) => (
-                          <a
-                            key={attachment.id}
-                            href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                          >
-                            <Paperclip size={14} className="flex-shrink-0 text-gray-400" />
-                            <span className="truncate flex-1">{attachment.name}</span>
-                          </a>
-                        ))}
-                      {taskAttachments.filter(att => !att.name.startsWith('img-')).length === 0 && (
-                        <div className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400 italic">
-                          Loading attachments...
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
+            )}
+
+            {/* Attachments Dropdown - Portal */}
+            {showAttachmentsDropdown && createPortal(
+              <div 
+                ref={attachmentsDropdownRef}
+                className="fixed w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] max-h-80 overflow-y-auto"
+                style={{
+                  top: `${attachmentsDropdownPosition.top}px`,
+                  left: `${attachmentsDropdownPosition.left}px`
+                }}
+              >
+                <div className="p-2">
+                  <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
+                    Attachments ({task.attachmentCount})
+                  </div>
+                  {taskAttachments
+                    .filter(att => !att.name.startsWith('img-'))
+                    .map((attachment) => (
+                      <a
+                        key={attachment.id}
+                        href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                      >
+                        <Paperclip size={14} className="flex-shrink-0 text-gray-400" />
+                        <span className="truncate flex-1">{attachment.name}</span>
+                      </a>
+                    ))}
+                  {taskAttachments.filter(att => !att.name.startsWith('img-')).length === 0 && (
+                    <div className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400 italic">
+                      Loading attachments...
+                    </div>
+                  )}
+                </div>
+              </div>,
+              document.body
             )}
 
             {/* Priority */}
@@ -1304,9 +1453,6 @@ const TaskCard = React.memo(function TaskCard({
               onClick={(e) => {
                 e.stopPropagation();
                 setShowPrioritySelect(!showPrioritySelect);
-                if (!showPrioritySelect) {
-                  setDropdownPosition(calculateDropdownPosition());
-                }
               }}
               className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
               style={(() => {
@@ -1364,36 +1510,42 @@ const TaskCard = React.memo(function TaskCard({
               </div>
             )}
 
-            {showPrioritySelect && (
-              <div 
-                className={`absolute left-0 w-24 bg-white rounded-md shadow-lg z-[100] border border-gray-200 ${
-                  dropdownPosition === 'above' ? 'bottom-full mb-2' : 'top-full mt-2'
-                }`}
-              >
-                {availablePriorities
-                  .filter(priorityOption => priorityOption.priority !== task.priority)
-                  .map(priorityOption => (
-                    <button
-                      key={priorityOption.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePriorityChange(priorityOption.priority);
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100 border-b border-gray-100 last:border-b-0 flex items-center gap-2"
-                    >
-                      <div 
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: priorityOption.color }}
-                      />
-                      {priorityOption.priority}
-                    </button>
-                  ))}
-              </div>
-            )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Priority Dropdown - Portal */}
+      {showPrioritySelect && createPortal(
+        <div 
+          ref={priorityDropdownRef}
+          className="fixed w-24 bg-white dark:bg-gray-800 rounded-md shadow-lg z-[9999] border border-gray-200 dark:border-gray-700"
+          style={{
+            top: `${priorityDropdownPosition.top}px`,
+            left: `${priorityDropdownPosition.left}px`
+          }}
+        >
+          {availablePriorities
+            .filter(priorityOption => priorityOption.priority !== task.priority)
+            .map(priorityOption => (
+              <button
+                key={priorityOption.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handlePriorityChange(priorityOption.priority);
+                }}
+                className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 flex items-center gap-2"
+              >
+                <div 
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: priorityOption.color }}
+                />
+                {priorityOption.priority}
+              </button>
+            ))}
+        </div>,
+        document.body
+      )}
 
 
 
@@ -1420,17 +1572,18 @@ const TaskCard = React.memo(function TaskCard({
       {/* Portal-rendered comment tooltip */}
       {showCommentTooltip && createPortal(
         <div 
+          ref={commentTooltipRef}
           className="comment-tooltip fixed w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col"
           style={{
             left: `${tooltipPosition.left}px`,
             top: `${tooltipPosition.top}px`
           }}
-                      onMouseEnter={handleCommentTooltipShow}
-                      onMouseLeave={handleCommentTooltipHide}
-                      onMouseDown={(e) => e.stopPropagation()}
-                      onTouchStart={(e) => e.stopPropagation()}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+          onMouseEnter={handleCommentTooltipShow}
+          onMouseLeave={handleCommentTooltipHide}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
                       {/* Scrollable comments area */}
                       <div className="p-3 overflow-y-auto flex-1">
                     {validComments

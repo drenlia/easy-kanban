@@ -329,14 +329,7 @@ export default function TaskCardToolbar({
               <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
             </button>
             
-            {/* View Details Button */}
-            <button
-              onClick={() => onSelect(task)}
-              className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="View Details"
-            >
-              <FileText size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
-            </button>
+            {/* View Details Button - REMOVED: Click anywhere on card to open details */}
             
             {/* Link Task Button */}
             {onStartLinking && (

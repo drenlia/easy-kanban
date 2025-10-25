@@ -64,6 +64,9 @@ interface KanbanColumnProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  
+  // Network status
+  isOnline?: boolean;
 }
 
 export default function KanbanColumn({
@@ -116,7 +119,10 @@ export default function KanbanColumn({
   hoveredLinkTask,
   onLinkToolHover,
   onLinkToolHoverEnd,
-  getTaskRelationshipType
+  getTaskRelationshipType,
+  
+  // Network status
+  isOnline = true // Default to true if not provided
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -311,7 +317,7 @@ export default function KanbanColumn({
   // Task drag handling moved to App level for cross-column support
 
   const handleAddTask = async () => {
-    if (selectedMembers.length === 0 || isSubmitting) return;
+    if (isSubmitting) return;
     setIsSubmitting(true);
     await onAddTask(column.id);
     setIsSubmitting(false);
@@ -612,10 +618,10 @@ export default function KanbanColumn({
               <button
                 data-column-header
                 onClick={handleAddTask}
-                disabled={selectedMembers.length === 0 || isSubmitting}
-                title={selectedMembers.length > 0 ? 'Add Task' : 'Select a team member first'}
+                disabled={isSubmitting || !isOnline}
+                title={!isOnline ? "Network Offline - Changes Disabled" : "Add Task"}
                 className={`p-1 rounded-full transition-colors ${
-                  selectedMembers.length > 0 && !isSubmitting
+                  !isSubmitting && isOnline
                     ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
                     : 'text-gray-400 cursor-not-allowed'
                 }`}

@@ -15,7 +15,8 @@ import { useGanttScrollPosition, getLeftmostVisibleDateFromDOM } from '../hooks/
 
 interface GanttViewV2Props {
   columns: Columns;
-  onSelectTask: (task: Task) => void;
+  onSelectTask: (task: Task | null) => void;
+  selectedTask?: Task | null;
   taskViewMode?: 'expand' | 'compact' | 'shrink';
   onUpdateTask?: (task: Task) => void;
   onTaskDragStart?: (task: Task) => void;
@@ -63,6 +64,7 @@ const formatLocalDate = (date: Date): string => {
 const GanttViewV2 = ({
   columns,
   onSelectTask,
+  selectedTask,
   taskViewMode = 'expand',
   onUpdateTask,
   onTaskDragStart,
@@ -2041,6 +2043,7 @@ const GanttViewV2 = ({
             columns={columns}
             groupedTasks={groupedTasks}
             visibleTasks={visibleTasks}
+            selectedTask={selectedTask}
             selectedTasks={selectedTasks}
             isMultiSelectMode={isMultiSelectMode}
             isRelationshipMode={isRelationshipMode}

@@ -28,7 +28,7 @@ interface ListViewProps {
   availablePriorities: PriorityOption[]; // Array of priority options with id, priority, color, etc.
   availableTags: Tag[];
   taskViewMode: TaskViewMode;
-  onSelectTask: (task: Task) => void;
+  onSelectTask: (task: Task | null) => void;
   selectedTask: Task | null;
   onRemoveTask: (taskId: string) => void;
   onEditTask: (task: Task) => void;
@@ -132,6 +132,7 @@ export default function ListView({
   const [canScrollRight, setCanScrollRight] = useState(false);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Function to trigger animation for a copied task
   const animateCopiedTask = useCallback((taskId: string) => {
@@ -164,6 +165,15 @@ export default function ListView({
         setCopiedTaskId(null);
       }, 1000);
     }, 2000);
+  }, []);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+      }
+    };
   }, []);
 
   // Handler for when a new tag is created
@@ -1048,16 +1058,7 @@ export default function ListView({
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-gray-500 mr-1">{index + 1}</span>
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectTask(task);
-                          }}
-                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600"
-                          title="View Details"
-                        >
-                          <FileText size={12} />
-                        </button>
+                        {/* View Details Button - REMOVED: Click title/description to open details */}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1107,8 +1108,30 @@ export default function ListView({
                             <div 
                               className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1 py-0.5" 
                               title={task.title}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Delay opening/closing TaskDetails to allow double-click to cancel it
+                                if (clickTimerRef.current) {
+                                  clearTimeout(clickTimerRef.current);
+                                }
+                                clickTimerRef.current = setTimeout(() => {
+                                  // Toggle: if clicking the same task that's already selected, close TaskDetails
+                                  if (selectedTask && selectedTask.id === task.id) {
+                                    onSelectTask(null);
+                                  } else {
+                                    onSelectTask(task);
+                                  }
+                                  clickTimerRef.current = null;
+                                }, 250); // Wait 250ms to distinguish from double-click
+                              }}
                               onDoubleClick={(e) => {
                                 e.stopPropagation();
+                                // Cancel pending single-click timer to prevent TaskDetails from opening
+                                if (clickTimerRef.current) {
+                                  clearTimeout(clickTimerRef.current);
+                                  clickTimerRef.current = null;
+                                }
+                                // Double click enters edit mode
                                 startEditing(task.id, 'title', task.title);
                               }}
                             >
@@ -1159,8 +1182,30 @@ export default function ListView({
                                   taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : 'break-words'
                                 }`} 
                                 title={task.description ? task.description.replace(/<[^>]*>/g, '') : ''}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Delay opening/closing TaskDetails to allow double-click to cancel it
+                                  if (clickTimerRef.current) {
+                                    clearTimeout(clickTimerRef.current);
+                                  }
+                                  clickTimerRef.current = setTimeout(() => {
+                                    // Toggle: if clicking the same task that's already selected, close TaskDetails
+                                    if (selectedTask && selectedTask.id === task.id) {
+                                      onSelectTask(null);
+                                    } else {
+                                      onSelectTask(task);
+                                    }
+                                    clickTimerRef.current = null;
+                                  }, 250); // Wait 250ms to distinguish from double-click
+                                }}
                                 onDoubleClick={(e) => {
                                   e.stopPropagation();
+                                  // Cancel pending single-click timer to prevent TaskDetails from opening
+                                  if (clickTimerRef.current) {
+                                    clearTimeout(clickTimerRef.current);
+                                    clickTimerRef.current = null;
+                                  }
+                                  // Double click enters edit mode
                                   startEditing(task.id, 'description', task.description);
                                 }}
                                 dangerouslySetInnerHTML={{

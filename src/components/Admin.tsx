@@ -139,12 +139,25 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [hasDefaultAdmin, setHasDefaultAdmin] = useState<boolean | null>(null);
   const [tags, setTags] = useState<any[]>([]);
   const [priorities, setPriorities] = useState<any[]>([]);
+  const [ownerEmail, setOwnerEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
       loadData();
+      fetchOwner();
     }
   }, [currentUser]);
+
+  // Fetch instance owner
+  const fetchOwner = async () => {
+    try {
+      const response = await api.get('/admin/owner');
+      setOwnerEmail(response.data.owner);
+    } catch (err) {
+      console.error('Failed to fetch owner:', err);
+      setOwnerEmail(null);
+    }
+  };
 
   // Handle URL hash changes for tab selection
   useEffect(() => {
@@ -1087,6 +1100,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               users={users}
               loading={loading}
               currentUser={currentUser}
+              ownerEmail={ownerEmail}
               showDeleteConfirm={showDeleteConfirm}
               userTaskCounts={userTaskCounts}
               onRoleChange={handleRoleChange}

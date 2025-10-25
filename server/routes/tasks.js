@@ -268,12 +268,25 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       }
     );
     
+    // Add the generated ticket to the task object before publishing
+    task.ticket = ticket;
+    
     // Publish to Redis for real-time updates
+    const publishTimestamp = new Date().toISOString();
+    console.log(`📤 [${publishTimestamp}] Publishing task-created to Redis:`, {
+      taskId: task.id,
+      ticket: task.ticket,
+      title: task.title,
+      boardId: task.boardId
+    });
+    
     await redisService.publish('task-created', {
       boardId: task.boardId,
       task: task,
-      timestamp: new Date().toISOString()
+      timestamp: publishTimestamp
     });
+    
+    console.log(`✅ [${publishTimestamp}] task-created published to Redis successfully`);
     
     res.json(task);
   } catch (error) {
@@ -325,11 +338,21 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     task.ticket = ticket;
     
     // Publish to Redis for real-time updates
+    const publishTimestamp = new Date().toISOString();
+    console.log(`📤 [${publishTimestamp}] Publishing task-created (at top) to Redis:`, {
+      taskId: task.id,
+      ticket: task.ticket,
+      title: task.title,
+      boardId: task.boardId
+    });
+    
     await redisService.publish('task-created', {
       boardId: task.boardId,
       task: task,
-      timestamp: new Date().toISOString()
+      timestamp: publishTimestamp
     });
+    
+    console.log(`✅ [${publishTimestamp}] task-created (at top) published to Redis successfully`);
     
     res.json(task);
   } catch (error) {

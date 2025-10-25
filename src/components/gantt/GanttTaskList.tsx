@@ -11,6 +11,7 @@ interface GanttTaskListProps {
   columns: Columns;
   groupedTasks: { [columnId: string]: any[] };
   visibleTasks: any[];
+  selectedTask?: Task | null;
   selectedTasks: string[];
   isMultiSelectMode: boolean;
   isRelationshipMode: boolean;
@@ -19,7 +20,7 @@ interface GanttTaskListProps {
   priorities: any[];
   taskColumnWidth: number;
   taskViewMode: string;
-  onSelectTask: (task: Task) => void;
+  onSelectTask: (task: Task | null) => void;
   onTaskSelect: (taskId: string) => void;
   onRelationshipClick: (taskId: string) => void;
   onCopyTask?: (task: Task) => Promise<void>;
@@ -98,6 +99,7 @@ const TaskRow = memo(({
   activeDragItem,
   priorities,
   taskViewMode,
+  selectedTask,
   onSelectTask,
   onTaskSelect,
   onRelationshipClick,
@@ -180,13 +182,18 @@ const TaskRow = memo(({
     } else if (isMultiSelectMode) {
       onTaskSelect(task.id);
     } else {
-      // Convert GanttTask back to Task format with string dates
-      const taskForSelection = {
-        ...task,
-        startDate: task.startDate ? `${task.startDate.getFullYear()}-${String(task.startDate.getMonth() + 1).padStart(2, '0')}-${String(task.startDate.getDate()).padStart(2, '0')}` : '',
-        dueDate: task.endDate ? `${task.endDate.getFullYear()}-${String(task.endDate.getMonth() + 1).padStart(2, '0')}-${String(task.endDate.getDate()).padStart(2, '0')}` : task.dueDate || ''
-      };
-      onSelectTask(taskForSelection);
+      // Toggle: if clicking the same task that's already selected, close TaskDetails
+      if (selectedTask && selectedTask.id === task.id) {
+        onSelectTask(null);
+      } else {
+        // Convert GanttTask back to Task format with string dates
+        const taskForSelection = {
+          ...task,
+          startDate: task.startDate ? `${task.startDate.getFullYear()}-${String(task.startDate.getMonth() + 1).padStart(2, '0')}-${String(task.startDate.getDate()).padStart(2, '0')}` : '',
+          dueDate: task.endDate ? `${task.endDate.getFullYear()}-${String(task.endDate.getMonth() + 1).padStart(2, '0')}-${String(task.endDate.getDate()).padStart(2, '0')}` : task.dueDate || ''
+        };
+        onSelectTask(taskForSelection);
+      }
     }
   };
 
@@ -308,6 +315,7 @@ const GanttTaskList = memo(({
   columns,
   groupedTasks,
   visibleTasks,
+  selectedTask,
   selectedTasks,
   isMultiSelectMode,
   isRelationshipMode,
@@ -381,6 +389,7 @@ const GanttTaskList = memo(({
                     activeDragItem={activeDragItem}
                     priorities={priorities}
                     taskViewMode={taskViewMode}
+                    selectedTask={selectedTask}
                     onSelectTask={onSelectTask}
                     onTaskSelect={onTaskSelect}
                     onRelationshipClick={onRelationshipClick}

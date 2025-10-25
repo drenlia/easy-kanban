@@ -1,5 +1,6 @@
 import axios, { CancelTokenSource } from 'axios';
 import { TeamMember, Board, Task, Column, Comment } from './types';
+import { versionDetection } from './utils/versionDetection';
 
 const api = axios.create({
   baseURL: '/api'
@@ -8,18 +9,29 @@ const api = axios.create({
 // Flag to prevent multiple redirects and API calls
 let isRedirecting = false;
 let hasInvalidToken = false;
+let hadTokenBefore = false; // Track if we ever had a token
 
-// Function to handle invalid token
+// Function to handle invalid token (only call when token WAS valid but is now invalid)
 const handleInvalidToken = () => {
   if (isRedirecting) return;
   
-  console.log('🔑 Invalid token detected - stopping all API activity');
+  console.log('🔑 Token expired - redirecting to login');
   isRedirecting = true;
   hasInvalidToken = true;
+  
+  // Clear token
   localStorage.removeItem('authToken');
   
-  // Immediately redirect to login page
-  window.location.replace(window.location.origin + '/#login');
+  // Set a flag to prevent reload loops
+  sessionStorage.setItem('tokenExpiredRedirect', 'true');
+  
+  // Use location.hash for a clean redirect (no page reload)
+  window.location.hash = '#kanban';
+  
+  // Trigger a page reload to clear all state
+  setTimeout(() => {
+    window.location.reload();
+  }, 100);
 };
 
 // Add auth token to requests
@@ -31,25 +43,43 @@ api.interceptors.request.use((config) => {
   
   const token = localStorage.getItem('authToken');
   if (!token) {
-    // No token available, redirect to login
-    handleInvalidToken();
-    return Promise.reject(new Error('No token available'));
+    // No token available - this is OK if user hasn't logged in yet
+    // Don't redirect, just reject the request
+    return Promise.reject(new Error('No auth token available'));
   }
+  
+  // Track that we have/had a token
+  hadTokenBefore = true;
   
   config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Handle auth errors
+// Handle auth errors and version detection
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Check for version updates via X-App-Version header
+    const appVersion = response.headers['x-app-version'];
+    if (appVersion) {
+      versionDetection.checkVersion(appVersion);
+    }
+    return response;
+  },
   (error) => {
     // Only clear token for 401 (unauthorized) errors - true authentication failures
     // 403 (forbidden) means insufficient permissions, not expired token - user should stay logged in
     // 404 errors might be temporary (user promotion/demotion) and shouldn't force logout
     if (error.response?.status === 401 && !isRedirecting) {
-      console.log(`🔑 Auth error 401 detected - token invalid or expired, redirecting to login`);
-      handleInvalidToken();
+      // Check if this is a token expiration (we had a token before)
+      // vs never having logged in (no token)
+      const hadToken = hadTokenBefore || localStorage.getItem('authToken');
+      
+      if (hadToken) {
+        console.log(`🔑 Auth error 401 detected - token expired, redirecting to login`);
+        handleInvalidToken();
+      } else {
+        console.log(`🔑 Auth error 401 detected - no token present (user not logged in)`);
+      }
     }
     return Promise.reject(error);
   }

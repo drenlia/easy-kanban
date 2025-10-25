@@ -64,10 +64,14 @@ class WebSocketService {
 
       // Join board room
       socket.on('join-board', (boardId) => {
+        const timestamp = new Date().toISOString();
+        const room = `board-${boardId}`;
+        
+        console.log(`📋 [${timestamp}] Client ${socket.id} (${socket.userEmail}) joining board room: ${room}`);
         
         // For now, allow all authenticated users to join any board
         // TODO: Add proper board access control based on user permissions
-        socket.join(`board-${boardId}`);
+        socket.join(room);
         this.connectedClients.set(socket.id, { 
           socketId: socket.id, 
           userId: socket.userId,
@@ -76,8 +80,12 @@ class WebSocketService {
           boardId 
         });
         
+        // Check how many clients are now in the room
+        const clientsInRoom = this.io.sockets.adapter.rooms.get(room)?.size || 0;
+        console.log(`✅ [${timestamp}] Client joined room ${room}. Total clients in room: ${clientsInRoom}`);
+        
         // Send confirmation back to client
-        socket.emit('joined-room', { boardId, room: `board-${boardId}` });
+        socket.emit('joined-room', { boardId, room });
       });
 
       // Leave board room
@@ -121,20 +129,37 @@ class WebSocketService {
 
   setupRedisSubscriptions() {
     
-    // Task updates
+    // Task updates - broadcast to ALL clients to keep all boards in sync
     redisService.subscribe('task-updated', (data) => {
-      
-      this.io?.to(`board-${data.boardId}`).emit('task-updated', data);
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket broadcasting task-updated to ALL clients (task: ${data.task?.id})`);
+      this.io?.emit('task-updated', data);
     });
 
-    // Task created
+    // Task created - broadcast to ALL clients so they can update tab counters
     redisService.subscribe('task-created', (data) => {
-      this.io?.to(`board-${data.boardId}`).emit('task-created', data);
+      const timestamp = new Date().toISOString();
+      const totalClients = this.io?.sockets.sockets.size || 0;
+      
+      console.log(`📡 [${timestamp}] WebSocket received task-created from Redis:`, {
+        taskId: data.task?.id,
+        ticket: data.task?.ticket,
+        title: data.task?.title,
+        boardId: data.boardId,
+        totalClients: totalClients
+      });
+      
+      // Broadcast to ALL clients (not just the board room) so tab counters update
+      this.io?.emit('task-created', data);
+      
+      console.log(`📢 [${timestamp}] WebSocket broadcasted task-created to ALL ${totalClients} clients`);
     });
 
-    // Task deleted
+    // Task deleted - broadcast to ALL clients to keep all boards in sync
     redisService.subscribe('task-deleted', (data) => {
-      this.io?.to(`board-${data.boardId}`).emit('task-deleted', data);
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket broadcasting task-deleted to ALL clients (task: ${data.taskId})`);
+      this.io?.emit('task-deleted', data);
     });
 
     // Task relationship created
@@ -334,6 +359,11 @@ class WebSocketService {
             // Instance status updates - broadcast to all connected clients
             redisService.subscribe('instance-status-updated', (data) => {
               this.io?.emit('instance-status-updated', data);
+            });
+
+            // Version update events - broadcast to all connected clients
+            redisService.subscribe('version-updated', (data) => {
+              this.io?.emit('version-updated', data);
             });
   }
 

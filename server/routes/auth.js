@@ -236,26 +236,71 @@ router.get('/google/callback', async (req, res) => {
       
       // Check if user is active
       if (!user.is_active) {
-        console.log('🔐 [GOOGLE SSO] ❌ User account is deactivated:', userInfo.email);
-        debugLog(settingsObj, '🔐 [GOOGLE SSO] Deactivated user attempted to login via Google OAuth');
-        return res.redirect('/?error=account_deactivated');
-      }
-      
-      console.log('🔐 [GOOGLE SSO] ✅ User is active, proceeding with login');
-      
-      // Update auth_provider to 'google' and store Google avatar (but don't change is_active)
-      console.log('🔐 [GOOGLE SSO] Updating user auth_provider to google...');
-      try {
-        db.prepare(`
-          UPDATE users 
-          SET auth_provider = 'google', 
-              google_avatar_url = ?,
-              updated_at = datetime('now')
-          WHERE id = ?
-        `).run(userInfo.picture, user.id);
-        console.log('🔐 [GOOGLE SSO] ✅ User auth_provider updated to google');
-      } catch (error) {
-        console.error('🔐 [GOOGLE SSO] ❌ Failed to update auth_provider:', error);
+        // Special case: invited user (local auth, inactive) logging in with Google for the first time
+        if (user.auth_provider === 'local') {
+          console.log('🔐 [GOOGLE SSO] 🎯 Invited user activating via Google SSO:', userInfo.email);
+          debugLog(settingsObj, '🔐 [GOOGLE SSO] Auto-activating invited user via Google OAuth');
+          
+          try {
+            // Activate the account and convert to Google auth
+            db.prepare(`
+              UPDATE users 
+              SET is_active = 1,
+                  auth_provider = 'google', 
+                  google_avatar_url = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).run(userInfo.picture, user.id);
+            
+            // Clean up any pending invitation tokens for this user
+            db.prepare('DELETE FROM user_invitations WHERE user_id = ? AND used_at IS NULL').run(user.id);
+            
+            console.log('🔐 [GOOGLE SSO] ✅ Invited user activated and converted to Google auth');
+            
+            // Update user object to reflect activation
+            user.is_active = 1;
+            user.auth_provider = 'google';
+          } catch (error) {
+            console.error('🔐 [GOOGLE SSO] ❌ Failed to activate invited user:', error);
+            return res.redirect('/?error=activation_failed');
+          }
+        } else {
+          // User was previously active but has been deactivated (not an invitation case)
+          console.log('🔐 [GOOGLE SSO] ❌ User account is deactivated:', userInfo.email);
+          debugLog(settingsObj, '🔐 [GOOGLE SSO] Deactivated user attempted to login via Google OAuth');
+          return res.redirect('/?error=account_deactivated');
+        }
+      } else {
+        console.log('🔐 [GOOGLE SSO] ✅ User is active, proceeding with login');
+        
+        // Update auth_provider to 'google' and store Google avatar (for users converting from local to Google)
+        if (user.auth_provider !== 'google') {
+          console.log('🔐 [GOOGLE SSO] Converting user from local to Google auth...');
+          try {
+            db.prepare(`
+              UPDATE users 
+              SET auth_provider = 'google', 
+                  google_avatar_url = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).run(userInfo.picture, user.id);
+            console.log('🔐 [GOOGLE SSO] ✅ User auth_provider updated to google');
+          } catch (error) {
+            console.error('🔐 [GOOGLE SSO] ❌ Failed to update auth_provider:', error);
+          }
+        } else {
+          // Just update the Google avatar in case it changed
+          try {
+            db.prepare(`
+              UPDATE users 
+              SET google_avatar_url = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).run(userInfo.picture, user.id);
+          } catch (error) {
+            console.error('🔐 [GOOGLE SSO] ❌ Failed to update Google avatar:', error);
+          }
+        }
       }
     }
     

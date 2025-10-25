@@ -24,7 +24,7 @@ services:
       - INSTANCE_TOKEN=kanban-free-token-00000
       - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
       # Application version (optional, will override database value if set)
-      - APP_VERSION=1.0.0
+      - APP_VERSION=0.9-beta
     volumes:
       - .:/app
       - /app/node_modules

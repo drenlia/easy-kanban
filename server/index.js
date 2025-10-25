@@ -81,6 +81,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// Add app version header to all responses
+app.use((req, res, next) => {
+  // Get version from environment variable or database setting
+  const appVersion = process.env.APP_VERSION || 
+    db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
+    '0';
+  res.setHeader('X-App-Version', appVersion);
+  next();
+});
+
 // OPTIONS requests are now handled by nginx - disable Express OPTIONS handler to avoid duplicate headers
 // app.options('*', (req, res) => {
 //   const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
@@ -3397,6 +3407,15 @@ async function initializeServices() {
     websocketService.initialize(server);
     
     console.log('✅ Real-time services initialized');
+    
+    // Broadcast app version to all connected clients (after brief delay to ensure WebSocket is ready)
+    setTimeout(() => {
+      const appVersion = process.env.APP_VERSION || 
+        db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
+        '0';
+      redisService.publish('version-updated', { version: appVersion });
+      console.log(`📦 Broadcasting app version: ${appVersion}`);
+    }, 1000);
   } catch (error) {
     console.error('❌ Failed to initialize real-time services:', error);
     // Continue without real-time features

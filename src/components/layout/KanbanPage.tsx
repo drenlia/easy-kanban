@@ -134,6 +134,9 @@ interface KanbanPageProps {
   
   // Auto-synced relationships
   boardRelationships?: any[];
+  
+  // Network status
+  isOnline?: boolean;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -236,6 +239,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   
   // Auto-synced relationships
   boardRelationships = [],
+  
+  // Network status
+  isOnline = true, // Default to true if not provided
 }: KanbanPageProps) => {
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
@@ -635,6 +641,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             <GanttViewV2
               columns={getFullyFilteredColumns}
               onSelectTask={onSelectTask}
+              selectedTask={selectedTask}
               taskViewMode={taskViewMode}
               onUpdateTask={onEditTask}
               onTaskDragStart={onTaskDragStart}
@@ -759,6 +766,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onLinkToolHover={onLinkToolHover}
                       onLinkToolHoverEnd={onLinkToolHoverEnd}
                       getTaskRelationshipType={getTaskRelationshipType}
+                      
+                      // Network status
+                      isOnline={isOnline}
                     />
                     ))}
                 </BoardDropArea>
@@ -820,6 +830,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onLinkToolHover={onLinkToolHover}
                       onLinkToolHoverEnd={onLinkToolHoverEnd}
                       getTaskRelationshipType={getTaskRelationshipType}
+                      
+                      // Network status
+                      isOnline={isOnline}
                     />
                   ))}
               </BoardDropArea>

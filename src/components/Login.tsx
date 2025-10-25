@@ -64,6 +64,15 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, h
     fetchDemoCredentials();
   }, [isDemoMode]);
 
+  // Check for token expiration redirect
+  useEffect(() => {
+    const tokenExpired = sessionStorage.getItem('tokenExpiredRedirect');
+    if (tokenExpired === 'true') {
+      setError('Your session has expired. Please log in again.');
+      sessionStorage.removeItem('tokenExpiredRedirect');
+    }
+  }, []);
+
   // Check for OAuth errors in URL parameters
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);

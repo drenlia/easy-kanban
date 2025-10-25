@@ -416,6 +416,15 @@ class WebSocketClient {
     this.socket?.off('instance-status-updated', callback);
   }
 
+  // Version update events
+  onVersionUpdated(callback: (data: any) => void) {
+    this.addEventListener('version-updated', callback);
+  }
+
+  offVersionUpdated(callback?: (data: any) => void) {
+    this.socket?.off('version-updated', callback);
+  }
+
   offWebSocketReady(callback?: () => void) {
     if (callback) {
       const index = this.readyCallbacks.indexOf(callback);

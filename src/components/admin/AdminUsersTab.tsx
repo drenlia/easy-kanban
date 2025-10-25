@@ -23,6 +23,7 @@ interface AdminUsersTabProps {
   users: User[];
   loading: boolean;
   currentUser: any;
+  ownerEmail: string | null;
   showDeleteConfirm: string | null;
   userTaskCounts: { [userId: string]: number };
   onRoleChange: (userId: string, action: 'promote' | 'demote') => Promise<void>;
@@ -43,6 +44,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   users,
   loading,
   currentUser,
+  ownerEmail,
   showDeleteConfirm,
   userTaskCounts,
   onRoleChange,
@@ -75,6 +77,21 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const colorButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string} | null>(null);
+  
+  // Helper function to check if a user is the instance owner
+  const isOwner = (userEmail: string) => {
+    return ownerEmail && userEmail === ownerEmail;
+  };
+
+  // Helper function to check if current user can modify a given user
+  const canModifyUser = (userEmail: string) => {
+    // Owner can only be modified by themselves
+    if (isOwner(userEmail)) {
+      return currentUser?.email === userEmail;
+    }
+    // Other users can be modified by any admin
+    return true;
+  };
   
   // Focus the "No" button when any delete dialog opens and handle Enter key
   useEffect(() => {
@@ -561,37 +578,62 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       {user.roles.includes('admin') ? (
                         <button
                           onClick={() => onRoleChange(user.id, 'demote')}
-                          disabled={user.id === currentUser?.id}
+                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
                           className={`p-1.5 rounded transition-colors group relative ${
-                            user.id === currentUser?.id
+                            user.id === currentUser?.id || (!canModifyUser(user.email))
                               ? 'text-gray-400 cursor-not-allowed'
                               : 'text-red-600 hover:text-red-900 hover:bg-red-50'
                           }`}
-                          title={user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
+                          title={
+                            user.id === currentUser?.id 
+                              ? 'You cannot demote yourself' 
+                              : isOwner(user.email) 
+                                ? 'Cannot demote instance owner' 
+                                : 'Demote to user'
+                          }
                         >
                           <UserIcon size={16} />
                           <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            {user.id === currentUser?.id ? 'You cannot demote yourself' : 'Demote to user'}
+                            {user.id === currentUser?.id 
+                              ? 'You cannot demote yourself' 
+                              : isOwner(user.email) 
+                                ? 'Cannot demote instance owner' 
+                                : 'Demote to user'}
                           </span>
                         </button>
                       ) : (
                         <button
                           onClick={() => onRoleChange(user.id, 'promote')}
-                          className="p-1.5 text-green-600 hover:text-green-900 hover:bg-green-50 dark:hover:bg-green-900 rounded transition-colors group relative"
-                          title="Promote to admin"
+                          disabled={!canModifyUser(user.email)}
+                          className={`p-1.5 rounded transition-colors group relative ${
+                            !canModifyUser(user.email)
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-green-600 hover:text-green-900 hover:bg-green-50 dark:hover:bg-green-900'
+                          }`}
+                          title={isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin'}
                         >
                           <Crown size={16} />
                           <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Promote to admin
+                            {isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin'}
                           </span>
                         </button>
                       )}
                       <button 
                         onClick={() => handleEditUserClick(user)}
-                        className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                        title="Edit user"
+                        disabled={!canModifyUser(user.email)}
+                        className={`p-1.5 rounded transition-colors group relative ${
+                          !canModifyUser(user.email)
+                            ? 'text-gray-400 cursor-not-allowed'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                        title={!canModifyUser(user.email) ? 'Only owner can edit their profile' : 'Edit user'}
                       >
                         <Edit size={16} />
+                        {!canModifyUser(user.email) && (
+                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            Only owner can edit their profile
+                          </span>
+                        )}
                       </button>
                       <div className="relative">
                         <button
@@ -599,7 +641,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             deleteButtonRefs.current[user.id] = el;
                           }}
                           onClick={(e) => {
-                            if (user.id === currentUser?.id) return;
+                            if (user.id === currentUser?.id || !canModifyUser(user.email)) return;
                             
                             const rect = e.currentTarget.getBoundingClientRect();
                             setDeleteButtonPosition({
@@ -609,13 +651,19 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             });
                             onDeleteUser(user.id);
                           }}
-                          disabled={user.id === currentUser?.id}
+                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
                           className={`p-1.5 rounded transition-colors ${
-                            user.id === currentUser?.id
+                            user.id === currentUser?.id || (!canModifyUser(user.email))
                               ? 'text-gray-400 cursor-not-allowed'
                               : 'text-red-600 hover:text-red-900 hover:bg-red-50'
                           }`}
-                          title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
+                          title={
+                            user.id === currentUser?.id 
+                              ? 'You cannot delete your own account' 
+                              : isOwner(user.email)
+                                ? 'Cannot delete instance owner'
+                                : 'Delete user'
+                          }
                         >
                           <Trash2 size={16} />
                         </button>
@@ -775,14 +823,30 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Email
+                    {isOwner(editingUserData.email) && (
+                      <span className="ml-2 text-xs text-amber-600 font-normal">(Owner - cannot be changed)</span>
+                    )}
+                  </label>
                   <input
                     type="email"
                     value={editingUserData.email}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, email: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                    disabled={isOwner(editingUserData.email)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 ${
+                      isOwner(editingUserData.email)
+                        ? 'bg-gray-100 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed border-gray-300 dark:border-gray-500'
+                        : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
+                    }`}
                     placeholder="user@example.com"
+                    title={isOwner(editingUserData.email) ? 'Instance owner email cannot be changed' : ''}
                   />
+                  {isOwner(editingUserData.email) && (
+                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                      As the instance owner, your email address cannot be modified.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="flex items-center">

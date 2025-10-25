@@ -32,6 +32,7 @@ import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
+import VersionUpdateBanner from './components/VersionUpdateBanner';
 import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
@@ -44,6 +45,7 @@ import { useDataPolling, UserStatus } from './hooks/useDataPolling';
 import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
+import { versionDetection } from './utils/versionDetection';
 import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
   DEFAULT_COLUMNS, 
@@ -168,6 +170,42 @@ export default function App() {
     message: '',
     isDismissed: false
   });
+
+  // Version Update Banner State
+  const [showVersionBanner, setShowVersionBanner] = useState<boolean>(false);
+  const [versionInfo, setVersionInfo] = useState<{
+    currentVersion: string;
+    newVersion: string;
+  }>({
+    currentVersion: '',
+    newVersion: ''
+  });
+
+  // Version detection setup
+  useEffect(() => {
+    const handleVersionChange = (oldVersion: string, newVersion: string) => {
+      console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
+      setVersionInfo({ currentVersion: oldVersion, newVersion });
+      setShowVersionBanner(true);
+    };
+
+    // Register version change listener
+    versionDetection.onVersionChange(handleVersionChange);
+
+    // Clean up listener on unmount
+    return () => {
+      versionDetection.offVersionChange(handleVersionChange);
+    };
+  }, []);
+
+  // Handlers for version banner
+  const handleRefreshVersion = () => {
+    window.location.reload();
+  };
+
+  const handleDismissVersionBanner = () => {
+    setShowVersionBanner(false);
+  };
   
   // Instance Status Banner Component
   const InstanceStatusBanner = () => {
@@ -1006,6 +1044,9 @@ export default function App() {
   // Store the latest refreshBoardData function in a ref so we always call the current version
   const refreshBoardDataRef = useRef<(() => Promise<void>) | null>(null);
   
+  // Track pending task refreshes (to cancel fallback if WebSocket event arrives)
+  const pendingTaskRefreshesRef = useRef<Set<string>>(new Set());
+  
   useEffect(() => {
     if (!isAuthenticated || !localStorage.getItem('authToken')) {
       return;
@@ -1017,7 +1058,15 @@ export default function App() {
 
     // Handle reconnection - refresh data to get any changes that happened while offline
     const handleReconnect = () => {
-      console.log('✅ Socket connected, hasConnectedOnce:', hasConnectedOnceRef.current, 'wasOffline:', wasOfflineRef.current);
+      const timestamp = new Date().toISOString();
+      console.log(`✅ [${timestamp}] Socket connected, hasConnectedOnce:`, hasConnectedOnceRef.current, 'wasOffline:', wasOfflineRef.current);
+      
+      // CRITICAL: Always re-join the board room after reconnection
+      // The useEffect for selectedBoard only fires when the board CHANGES, not on reconnection
+      if (selectedBoardRef.current) {
+        console.log(`📋 [${timestamp}] Re-joining board room after reconnection:`, selectedBoardRef.current);
+        websocketClient.joinBoardWhenReady(selectedBoardRef.current);
+      }
       
       // Only refresh if this is a RECONNECTION (not the first connection)
       if (hasConnectedOnceRef.current && wasOfflineRef.current) {
@@ -1025,15 +1074,31 @@ export default function App() {
         // Also add retry logic in case first attempt fails
         const attemptRefresh = async (retryCount = 0) => {
           try {
-            console.log('🔄 WebSocket reconnected after being offline - refreshing data to sync changes (attempt', retryCount + 1, ')');
-            console.log('📊 Current selectedBoard:', selectedBoardRef.current);
+            const refreshTimestamp = new Date().toISOString();
+            console.log(`🔄 [${refreshTimestamp}] WebSocket reconnected after being offline - refreshing data to sync changes (attempt`, retryCount + 1, ')');
+            console.log(`📊 [${refreshTimestamp}] Current selectedBoard:`, selectedBoardRef.current);
             if (refreshBoardDataRef.current) {
               await refreshBoardDataRef.current();
-              console.log('✅ Data refresh successful!');
+              
+              // ALSO refresh activities to ensure activity feed is up-to-date
+              // This catches any activity events that were missed during disconnection
+              const loadedActivities = await getActivityFeed(100);
+              setActivities(loadedActivities || []);
+              
+              const successTimestamp = new Date().toISOString();
+              console.log(`✅ [${successTimestamp}] Data refresh successful!`);
             } else {
               throw new Error('refreshBoardData not yet initialized');
             }
-            wasOfflineRef.current = false; // Reset flag only on success
+            
+            // IMPORTANT: Don't reset wasOfflineRef immediately!
+            // Keep it true for 3 seconds to ensure connection is stable
+            // This prevents missing WebSocket events during reconnection flapping
+            setTimeout(() => {
+              wasOfflineRef.current = false;
+              const stabilizedTimestamp = new Date().toISOString();
+              console.log(`🔌 [${stabilizedTimestamp}] Connection stabilized, ready for real-time updates`);
+            }, 3000);
           } catch (err) {
             console.error('❌ Failed to refresh on reconnect (attempt', retryCount + 1, '):', err);
             // Retry up to 3 times with exponential backoff
@@ -1051,17 +1116,20 @@ export default function App() {
         // Wait 1.5 seconds for both WebSocket and HTTP to stabilize
         setTimeout(() => attemptRefresh(), 1500);
       } else if (hasConnectedOnceRef.current) {
-        console.log('🔌 Socket reconnected (but no offline period detected)');
+        const reconnectTimestamp = new Date().toISOString();
+        console.log(`🔌 [${reconnectTimestamp}] Socket reconnected (but no offline period detected)`);
       } else {
         // Mark that we've connected for the first time
-        console.log('🎉 First WebSocket connection established');
+        const firstConnectTimestamp = new Date().toISOString();
+        console.log(`🎉 [${firstConnectTimestamp}] First WebSocket connection established`);
         hasConnectedOnceRef.current = true;
       }
     };
 
     // Handle disconnect - mark that we were offline
     const handleDisconnect = () => {
-      console.log('🔴 WebSocket disconnected - will refresh data on reconnect');
+      const disconnectTimestamp = new Date().toISOString();
+      console.log(`🔴 [${disconnectTimestamp}] WebSocket disconnected - will refresh data on reconnect`);
       wasOfflineRef.current = true;
     };
 
@@ -1090,10 +1158,26 @@ export default function App() {
 
     // Connect to WebSocket only when we have a valid token
     websocketClient.connect();
-
+    
     // Set up event handlers
     const handleTaskCreated = (data: any) => {
       if (!data.task || !data.boardId) return;
+      
+      const timestamp = new Date().toISOString();
+      console.log(`📨 [${timestamp}] [WebSocket] Task created event received:`, {
+        taskId: data.task.id,
+        ticket: data.task.ticket,
+        title: data.task.title,
+        columnId: data.task.columnId,
+        boardId: data.boardId,
+        currentBoard: selectedBoardRef.current
+      });
+      
+      // Cancel fallback refresh if WebSocket event arrived (for the user who created it)
+      if (pendingTaskRefreshesRef.current.has(data.task.id)) {
+        console.log(`📨 [${timestamp}] [WebSocket] Cancelling fallback for task creator`);
+        pendingTaskRefreshesRef.current.delete(data.task.id);
+      }
       
       // Always update boards state for task count updates (for all boards)
       setBoards(prevBoards => {
@@ -1104,18 +1188,32 @@ export default function App() {
             const targetColumnId = data.task.columnId;
             
             if (updatedColumns[targetColumnId]) {
-              // Add new task at front and renumber all tasks sequentially
+              // Check if task already exists (from optimistic update)
               const existingTasks = updatedColumns[targetColumnId].tasks;
-              const allTasks = [data.task, ...existingTasks];
-              const updatedTasks = allTasks.map((task, index) => ({
-                ...task,
-                position: index
-              }));
+              const taskExists = existingTasks.some(t => t.id === data.task.id);
               
-              updatedColumns[targetColumnId] = {
-                ...updatedColumns[targetColumnId],
-                tasks: updatedTasks
-              };
+              if (taskExists) {
+                // Task already exists, update it with server data (includes ticket number)
+                const updatedTasks = existingTasks.map(t => 
+                  t.id === data.task.id ? data.task : t
+                );
+                updatedColumns[targetColumnId] = {
+                  ...updatedColumns[targetColumnId],
+                  tasks: updatedTasks
+                };
+              } else {
+                // Task doesn't exist yet, add it at front and renumber
+                const allTasks = [data.task, ...existingTasks];
+                const updatedTasks = allTasks.map((task, index) => ({
+                  ...task,
+                  position: index
+                }));
+                
+                updatedColumns[targetColumnId] = {
+                  ...updatedColumns[targetColumnId],
+                  tasks: updatedTasks
+                };
+              }
               
               updatedBoard.columns = updatedColumns;
             }
@@ -1128,53 +1226,53 @@ export default function App() {
       
       // Only update columns/filteredColumns if the task is for the currently selected board
       if (data.boardId === selectedBoardRef.current) {
+        console.log(`📨 [${timestamp}] [WebSocket] Task is for current board, updating columns`);
         // Optimized: Add the specific task instead of full refresh
         setColumns(prevColumns => {
           const updatedColumns = { ...prevColumns };
           const targetColumnId = data.task.columnId;
+          console.log(`📨 [${timestamp}] [WebSocket] Target column:`, targetColumnId, 'exists:', !!updatedColumns[targetColumnId]);
+          
           if (updatedColumns[targetColumnId]) {
-            // Add new task at front and renumber all tasks sequentially
+            // Check if task already exists (from optimistic update)
             const existingTasks = updatedColumns[targetColumnId].tasks;
-            const allTasks = [data.task, ...existingTasks];
-            const updatedTasks = allTasks.map((task, index) => ({
-              ...task,
-              position: index
-            }));
+            const taskExists = existingTasks.some(t => t.id === data.task.id);
+            console.log(`📨 [${timestamp}] [WebSocket] Task exists:`, taskExists, 'existing count:', existingTasks.length);
             
-            updatedColumns[targetColumnId] = {
-              ...updatedColumns[targetColumnId],
-              tasks: updatedTasks
-            };
+            if (taskExists) {
+              // Task already exists (optimistic update), just update it with server data
+              console.log(`📨 [${timestamp}] [WebSocket] Updating existing task with server data`);
+              const updatedTasks = existingTasks.map(t => 
+                t.id === data.task.id ? data.task : t
+              );
+              updatedColumns[targetColumnId] = {
+                ...updatedColumns[targetColumnId],
+                tasks: updatedTasks
+              };
+            } else {
+              // Task doesn't exist yet, add it at front and renumber
+              console.log(`📨 [${timestamp}] [WebSocket] Adding new task to column`);
+              const allTasks = [data.task, ...existingTasks];
+              const updatedTasks = allTasks.map((task, index) => ({
+                ...task,
+                position: index
+              }));
+              
+              updatedColumns[targetColumnId] = {
+                ...updatedColumns[targetColumnId],
+                tasks: updatedTasks
+              };
+            }
+          } else {
+            console.log(`📨 [${timestamp}] [WebSocket] ⚠️ Target column not found in columns state!`);
           }
           return updatedColumns;
         });
         
-        // CRITICAL FIX: Also update filteredColumns immediately, but only if task matches filters
-        setFilteredColumns(prevFilteredColumns => {
-          // Check if task should be included based on current filters (use ref to avoid stale closure)
-          if (!shouldIncludeTaskRef.current(data.task)) {
-            // Task doesn't match filters, don't add it to filteredColumns
-            return prevFilteredColumns;
-          }
-          
-          const updatedFilteredColumns = { ...prevFilteredColumns };
-          const targetColumnId = data.task.columnId;
-          if (updatedFilteredColumns[targetColumnId]) {
-            // Add new task at front and renumber all tasks sequentially
-            const existingTasks = updatedFilteredColumns[targetColumnId].tasks;
-            const allTasks = [data.task, ...existingTasks];
-            const updatedTasks = allTasks.map((task, index) => ({
-              ...task,
-              position: index
-            }));
-            
-            updatedFilteredColumns[targetColumnId] = {
-              ...updatedFilteredColumns[targetColumnId],
-              tasks: updatedTasks
-            };
-          }
-          return updatedFilteredColumns;
-        });
+        // DON'T update filteredColumns here - let the filtering useEffect handle it
+        // This prevents duplicate tasks when the effect runs after columns change
+      } else {
+        console.log(`📨 [${timestamp}] [WebSocket] Task is for different board, skipping columns update`);
       }
     };
 
@@ -1989,6 +2087,14 @@ export default function App() {
       });
     };
 
+    // Version update handler
+    const handleVersionUpdated = (data: any) => {
+      console.log('📦 Version updated via WebSocket:', data);
+      if (data.version) {
+        versionDetection.checkVersion(data.version);
+      }
+    };
+
     // Comment event handlers
     const handleCommentCreated = (data: any) => {
       if (!data.comment || !data.boardId || !data.taskId) return;
@@ -2128,6 +2234,7 @@ export default function App() {
     websocketClient.onTaskTagAdded(handleTaskTagAdded);
     websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
     websocketClient.onInstanceStatusUpdated(handleInstanceStatusUpdated);
+    websocketClient.onVersionUpdated(handleVersionUpdated);
     websocketClient.onCommentCreated(handleCommentCreated);
     websocketClient.onCommentUpdated(handleCommentUpdated);
     websocketClient.onCommentDeleted(handleCommentDeleted);
@@ -2170,6 +2277,7 @@ export default function App() {
       websocketClient.offTaskTagAdded(handleTaskTagAdded);
       websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
       websocketClient.offInstanceStatusUpdated(handleInstanceStatusUpdated);
+      websocketClient.offVersionUpdated(handleVersionUpdated);
       websocketClient.offCommentCreated(handleCommentCreated);
       websocketClient.offCommentUpdated(handleCommentUpdated);
       websocketClient.offCommentDeleted(handleCommentDeleted);
@@ -2780,6 +2888,8 @@ export default function App() {
       
       if (boardToSelect) {
         setSelectedBoard(boardToSelect);
+        // CRITICAL FIX: Save to preferences so it's remembered on next refresh
+        updateCurrentUserPreference('lastSelectedBoard', boardToSelect);
         // Update URL to reflect the selected board (only if no hash exists)
         if (!window.location.hash || window.location.hash === '#') {
           window.location.hash = `#kanban#${boardToSelect}`;
@@ -2820,9 +2930,37 @@ export default function App() {
           setSystemSettings(settingsResponse.data || {});
           setActivities(loadedActivities || []);
           
-          if (loadedBoards.length > 0) {
-            // Set columns for the selected board (board selection is handled by separate effect)
-            const boardToUse = selectedBoard ? loadedBoards.find(b => b.id === selectedBoard) : null;
+          // CRITICAL FIX: If no board is selected yet, immediately select one and load its columns
+          // This prevents the blank board race condition on initial load/refresh
+          if (loadedBoards.length > 0 && !selectedBoard) {
+            // Determine which board to select (same logic as auto-selection effect)
+            const cookiePreference = getCookie('lastSelectedBoard');
+            const userPreference = currentUser?.user_preferences?.lastSelectedBoard;
+            const preferredBoardId = cookiePreference || userPreference;
+            
+            // Try to find the preferred board, fallback to first board
+            const boardToSelect = preferredBoardId 
+              ? loadedBoards.find(b => b.id === preferredBoardId) || loadedBoards[0]
+              : loadedBoards[0];
+            
+            if (boardToSelect) {
+              console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
+              
+              // Set board and columns synchronously to prevent blank board
+              setSelectedBoard(boardToSelect.id);
+              setColumns(boardToSelect.columns || {});
+              
+              // Save to preferences
+              updateCurrentUserPreference('lastSelectedBoard', boardToSelect.id);
+              
+              // Update URL
+              if (!window.location.hash || window.location.hash === '#' || window.location.hash === '#kanban') {
+                window.location.hash = `#kanban#${boardToSelect.id}`;
+              }
+            }
+          } else if (selectedBoard && loadedBoards.length > 0) {
+            // Board already selected, just update its columns
+            const boardToUse = loadedBoards.find(b => b.id === selectedBoard);
             if (boardToUse) {
               setColumns(boardToUse.columns || {});
             }
@@ -2850,28 +2988,47 @@ export default function App() {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
       
-      // Always refresh from server to get fresh data (no polling, so always fresh)
-      refreshBoardData().finally(() => {
-        // Clear switching state after data is loaded
+      // CRITICAL FIX: Check if board data is already loaded in boards array
+      const boardInState = boards.find(b => b.id === selectedBoard);
+      if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
+        // Board data already loaded, set columns immediately to prevent blank screen
+        const newColumns = JSON.parse(JSON.stringify(boardInState.columns));
+        setColumns(newColumns);
         setIsSwitchingBoard(false);
-      });
-      
-      // Load relationships when switching boards
-      getBoardTaskRelationships(selectedBoard)
-        .then(relationships => {
-          setBoardRelationships(relationships);
-        })
-        .catch(error => {
-          console.warn('Failed to load relationships:', error);
-          setBoardRelationships([]);
+        
+        // Still load relationships
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            setBoardRelationships([]);
+          });
+      } else {
+        // Board data not loaded yet, fetch it
+        refreshBoardData().finally(() => {
+          // Clear switching state after data is loaded
+          setIsSwitchingBoard(false);
         });
+        
+        // Load relationships when switching boards
+        getBoardTaskRelationships(selectedBoard)
+          .then(relationships => {
+            setBoardRelationships(relationships);
+          })
+          .catch(error => {
+            console.warn('Failed to load relationships:', error);
+            setBoardRelationships([]);
+          });
+      }
     } else {
       // Clear columns when no board is selected
       setColumns({});
       setBoardRelationships([]);
       setIsSwitchingBoard(false);
     }
-  }, [selectedBoard]);
+  }, [selectedBoard, boards]);
 
   // Watch for copied task to trigger animation
   useEffect(() => {
@@ -3126,6 +3283,12 @@ export default function App() {
   const handleAddTask = async (columnId: string, startDate?: string, dueDate?: string) => {
     if (!selectedBoard || !currentUser) return;
     
+    // Prevent task creation when network is offline
+    if (!isOnline) {
+      console.warn('⚠️ Task creation blocked - network is offline');
+      return;
+    }
+    
     // Always assign new tasks to the logged-in user, not the filtered selection
     const currentUserMember = members.find(m => m.user_id === currentUser.id);
     if (!currentUserMember) {
@@ -3153,35 +3316,138 @@ export default function App() {
       comments: []
     };
 
-    // Don't do optimistic update - let WebSocket handle it to avoid duplicate keys
+    // OPTIMISTIC UPDATE: Add task to UI immediately for instant feedback
+    setColumns(prev => {
+      const targetColumn = prev[columnId];
+      if (!targetColumn) return prev;
+      
+      // Insert at top (position 0)
+      const updatedTasks = [newTask, ...targetColumn.tasks];
+      
+      return {
+        ...prev,
+        [columnId]: {
+          ...targetColumn,
+          tasks: updatedTasks
+        }
+      };
+    });
+    
+    // ALSO update boards state for tab counters
+    setBoards(prev => {
+      return prev.map(board => {
+        if (board.id === selectedBoard) {
+          const updatedBoard = { ...board };
+          const updatedColumns = { ...updatedBoard.columns };
+          const targetColumnId = newTask.columnId;
+          
+          if (updatedColumns[targetColumnId]) {
+            // Add new task at front
+            const existingTasks = updatedColumns[targetColumnId].tasks || [];
+            updatedColumns[targetColumnId] = {
+              ...updatedColumns[targetColumnId],
+              tasks: [newTask, ...existingTasks]
+            };
+            
+            updatedBoard.columns = updatedColumns;
+          }
+          
+          return updatedBoard;
+        }
+        return board;
+      });
+    });
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
+    const createTimestamp = new Date().toISOString();
+    console.log(`🆕 [${createTimestamp}] Creating task:`, {
+      taskId: newTask.id,
+      title: newTask.title,
+      columnId: newTask.columnId,
+      boardId: newTask.boardId
+    });
 
     try {
       await withLoading('tasks', async () => {
         // Let backend handle positioning and shifting
         await createTaskAtTop(newTask);
         
-        // Don't refresh - WebSocket will handle the update
+        // Task already visible via optimistic update - WebSocket will confirm/sync
       });
+      
+      // ALWAYS schedule a fallback refresh to fetch ticket if WebSocket event doesn't arrive
+      // This handles WebSocket reconnection flapping after sleep/wake
+      pendingTaskRefreshesRef.current.add(newTask.id);
+      
+      setTimeout(() => {
+        const fallbackTimestamp = new Date().toISOString();
+        // Check if WebSocket event already updated the task
+        if (pendingTaskRefreshesRef.current.has(newTask.id)) {
+          // WebSocket event never arrived, force refresh to get ticket
+          console.log(`⏱️ [${fallbackTimestamp}] Fallback triggered - WebSocket event never arrived for task ${newTask.id}`);
+          pendingTaskRefreshesRef.current.delete(newTask.id);
+          if (refreshBoardDataRef.current) {
+            refreshBoardDataRef.current();
+          }
+        } else {
+          console.log(`✅ [${fallbackTimestamp}] Fallback skipped - WebSocket event already handled task ${newTask.id}`);
+        }
+      }, 1000);
       
       // Check if the new task would be filtered out and show warning
       const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive);
-      const wouldBeFilteredByMembers = (selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters) && (() => {
+      const wouldBeFilteredByMembers = (() => {
         // Check if task matches member filtering criteria
-        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+        if (!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
           return false; // No member filters active
         }
         
+        // If no members selected, treat as "all members" (task will be shown)
+        const showAllMembers = selectedMembers.length === 0;
         const memberIds = new Set(selectedMembers);
         let hasMatchingMember = false;
         
-        if (includeAssignees && newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
-        if (includeRequesters && newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
-        if (includeWatchers && newTask.watchers && Array.isArray(newTask.watchers) && newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
-        if (includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators) && newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+        if (includeAssignees) {
+          if (showAllMembers) {
+            // All tasks with assignees are shown
+            if (newTask.memberId) hasMatchingMember = true;
+          } else {
+            // Only tasks assigned to selected members
+            if (newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeRequesters) {
+          if (showAllMembers) {
+            // All tasks with requesters are shown
+            if (newTask.requesterId) hasMatchingMember = true;
+          } else {
+            // Only tasks requested by selected members
+            if (newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeWatchers && newTask.watchers && Array.isArray(newTask.watchers)) {
+          if (showAllMembers) {
+            // All tasks with watchers are shown
+            if (newTask.watchers.length > 0) hasMatchingMember = true;
+          } else {
+            // Only tasks watched by selected members
+            if (newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
+          }
+        }
+        
+        if (!hasMatchingMember && includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators)) {
+          if (showAllMembers) {
+            // All tasks with collaborators are shown
+            if (newTask.collaborators.length > 0) hasMatchingMember = true;
+          } else {
+            // Only tasks with selected members as collaborators
+            if (newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
+          }
+        }
         
         return !hasMatchingMember; // Return true if would be filtered out
       })();
@@ -3189,7 +3455,7 @@ export default function App() {
       if (wouldBeFilteredBySearch || wouldBeFilteredByMembers) {
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: 'Task created but hidden by active filters.\n**Tip:** Click "All" to see all tasks and disable relevant filters.'
+          [columnId]: 'Task created but hidden by active filters.\n**Tip:** Click "Clear" to see all tasks and disable relevant filters.'
         }));
       }
       
@@ -3335,6 +3601,17 @@ export default function App() {
         
         // Don't refresh - WebSocket will handle the update
       });
+      
+      // SAFETY FALLBACK: If WebSocket was offline/reconnecting, manually refresh after delay
+      if (wasOfflineRef.current) {
+        console.log('⚠️ Copying task while WebSocket is reconnecting - will refresh board in 2s to ensure it appears');
+        setTimeout(() => {
+          if (refreshBoardDataRef.current) {
+            console.log('🔄 Safety fallback: Refreshing board after task copy (was offline)');
+            refreshBoardDataRef.current();
+          }
+        }, 2000);
+      }
       
       // Set up pending animation - useEffect will trigger when columns update
       setPendingCopyAnimation({
@@ -4332,7 +4609,6 @@ export default function App() {
 
       
       if (!isFiltering) {
-
         setFilteredColumns(columns);
         return;
       }
@@ -4963,6 +5239,16 @@ export default function App() {
       </div>
 
       <InstanceStatusBanner />
+      
+      {/* Version Update Banner */}
+      {showVersionBanner && (
+        <VersionUpdateBanner
+          currentVersion={versionInfo.currentVersion}
+          newVersion={versionInfo.newVersion}
+          onRefresh={handleRefreshVersion}
+          onDismiss={handleDismissVersionBanner}
+        />
+      )}
 
       <ModalManager
         selectedTask={selectedTask}

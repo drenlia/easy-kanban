@@ -19,7 +19,7 @@ services:
       - DEMO_ENABLED=false
       - LICENSE_ENABLED=false
       # Application version (optional, will override database value if set)
-      - APP_VERSION=1.0.0
+      - APP_VERSION=0.9-beta
     volumes:
       - .:/app
       - /app/node_modules
