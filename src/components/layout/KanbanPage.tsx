@@ -306,19 +306,24 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
     return fullyFiltered;
   }, [filteredColumns, selectedBoard, boardColumnVisibility]);
 
-  // Count tasks assigned to system user
+  // Count tasks assigned to system user across ALL boards
   const getSystemTaskCount = useMemo(() => {
-    if (!selectedBoard) return 0;
-    
     const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
     let count = 0;
-    Object.values(columns).forEach(column => {
-      if (column.tasks) {
-        count += column.tasks.filter(task => task.memberId === SYSTEM_MEMBER_ID).length;
+    
+    // Count system tasks across all boards (not just the selected one)
+    boards.forEach(board => {
+      if (board.columns) {
+        Object.values(board.columns).forEach((column: any) => {
+          if (column.tasks) {
+            count += column.tasks.filter((task: any) => task.memberId === SYSTEM_MEMBER_ID).length;
+          }
+        });
       }
     });
+    
     return count;
-  }, [columns, selectedBoard]);
+  }, [boards]);
 
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);

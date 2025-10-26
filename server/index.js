@@ -1606,13 +1606,77 @@ app.delete('/api/admin/users/:userId', authenticateToken, requireRole(['admin'])
       const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(SYSTEM_USER_ID);
       
       if (systemMember) {
+        // Get all tasks that will be reassigned (for WebSocket notifications)
+        const tasksToReassign = wrapQuery(
+          db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
+          'SELECT'
+        ).all(userMember.id, userMember.id);
+        
         // Reassign all tasks assigned to this user to the SYSTEM user
         wrapQuery(db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
         
         // Reassign all tasks requested by this user to the SYSTEM user
         wrapQuery(db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
         
-        console.log(`✅ Reassigned tasks from user ${userId} to SYSTEM user`);
+        console.log(`✅ Reassigned ${tasksToReassign.length} tasks from user ${userId} to SYSTEM user`);
+        
+        // Publish task-updated events for real-time updates
+        for (const task of tasksToReassign) {
+          // Get the full updated task details
+          const updatedTask = wrapQuery(
+            db.prepare(`
+              SELECT t.*, 
+                     json_group_array(
+                       DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+                         'id', tag.id,
+                         'tag', tag.tag,
+                         'description', tag.description,
+                         'color', tag.color
+                       ) ELSE NULL END
+                     ) as tags,
+                     json_group_array(
+                       DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
+                         'id', watcher.id,
+                         'name', watcher.name,
+                         'color', watcher.color
+                       ) ELSE NULL END
+                     ) as watchers,
+                     json_group_array(
+                       DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
+                         'id', collaborator.id,
+                         'name', collaborator.name,
+                         'color', collaborator.color
+                       ) ELSE NULL END
+                     ) as collaborators
+              FROM tasks t
+              LEFT JOIN task_tags tt ON tt.taskId = t.id
+              LEFT JOIN tags tag ON tag.id = tt.tagId
+              LEFT JOIN watchers w ON w.taskId = t.id
+              LEFT JOIN members watcher ON watcher.id = w.memberId
+              LEFT JOIN collaborators col ON col.taskId = t.id
+              LEFT JOIN members collaborator ON collaborator.id = col.memberId
+              WHERE t.id = ?
+              GROUP BY t.id
+            `),
+            'SELECT'
+          ).get(task.id);
+          
+          if (updatedTask) {
+            updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
+            updatedTask.watchers = updatedTask.watchers === '[null]' ? [] : JSON.parse(updatedTask.watchers).filter(Boolean);
+            updatedTask.collaborators = updatedTask.collaborators === '[null]' ? [] : JSON.parse(updatedTask.collaborators).filter(Boolean);
+            
+            redisService.publish('task-updated', {
+              boardId: task.boardId,
+              task: updatedTask,
+              timestamp: new Date().toISOString()
+            }).catch(err => {
+              console.error('Failed to publish task-updated event:', err);
+            });
+          }
+        }
+        
+        console.log(`📤 Published ${tasksToReassign.length} task-updated events to Redis`);
       } else {
         console.warn('⚠️ SYSTEM user member not found, tasks will be orphaned');
       }

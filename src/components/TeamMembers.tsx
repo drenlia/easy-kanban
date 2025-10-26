@@ -1,5 +1,4 @@
 import React from 'react';
-import { X } from 'lucide-react';
 import { TeamMember } from '../types';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
@@ -126,19 +125,7 @@ export default function TeamMembers({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-            Team Members 
-            {selectedMembers.length > 0 && (
-              <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
-                {selectedMembers.length} selected
-                <button
-                  onClick={handleClearSelections}
-                  className="p-0.5 hover:bg-blue-200 rounded-full transition-colors"
-                  title="Clear selections and revert to current user"
-                >
-                  <X size={10} className="text-blue-600" />
-                </button>
-              </span>
-            )}
+            Team Members
           </h2>
           
           {/* Clear Members Button */}
@@ -166,89 +153,102 @@ export default function TeamMembers({
             </button>
           )}
           
-          {/* Filter Options Checkboxes */}
-          <div className="flex items-center gap-3">
+          {/* Role Filter Chips */}
+          <div className="flex items-center gap-2">
             {onToggleAssignees && (
-              <label 
-                className="flex items-center gap-1 cursor-pointer"
+              <button
+                onClick={() => onToggleAssignees(!includeAssignees)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
+                  transition-all duration-200
+                  ${includeAssignees
+                    ? 'bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 ring-offset-1 transform scale-102'
+                    : 'bg-gray-500/15 dark:bg-gray-500/25 text-gray-600 dark:text-gray-400 hover:scale-101'
+                  }
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                `}
                 title="Show tasks assigned to the selected team members"
               >
-                <input
-                  type="checkbox"
-                  checked={includeAssignees}
-                  onChange={(e) => onToggleAssignees(e.target.checked)}
-                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
-                />
-                <span className="text-xs text-gray-600 dark:text-gray-300">assignees</span>
-              </label>
+                <span>Assignees</span>
+              </button>
             )}
             
             {onToggleWatchers && (
-              <label 
-                className="flex items-center gap-1 cursor-pointer"
+              <button
+                onClick={() => onToggleWatchers(!includeWatchers)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
+                  transition-all duration-200
+                  ${includeWatchers
+                    ? 'bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 ring-offset-1 transform scale-102'
+                    : 'bg-gray-500/15 dark:bg-gray-500/25 text-gray-600 dark:text-gray-400 hover:scale-101'
+                  }
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                `}
                 title="Show tasks where the selected members are watching for updates"
               >
-                <input
-                  type="checkbox"
-                  checked={includeWatchers}
-                  onChange={(e) => onToggleWatchers(e.target.checked)}
-                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
-                />
-                <span className="text-xs text-gray-600 dark:text-gray-300">watchers</span>
-              </label>
+                <span>Watchers</span>
+              </button>
             )}
             
             {onToggleCollaborators && (
-              <label 
-                className="flex items-center gap-1 cursor-pointer"
+              <button
+                onClick={() => onToggleCollaborators(!includeCollaborators)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
+                  transition-all duration-200
+                  ${includeCollaborators
+                    ? 'bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 ring-offset-1 transform scale-102'
+                    : 'bg-gray-500/15 dark:bg-gray-500/25 text-gray-600 dark:text-gray-400 hover:scale-101'
+                  }
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                `}
                 title="Show tasks where the selected members are actively collaborating"
               >
-                <input
-                  type="checkbox"
-                  checked={includeCollaborators}
-                  onChange={(e) => onToggleCollaborators(e.target.checked)}
-                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
-                />
-                <span className="text-xs text-gray-600 dark:text-gray-300">collaborators</span>
-              </label>
+                <span>Collaborators</span>
+              </button>
             )}
             
             {onToggleRequesters && (
-              <label 
-                className="flex items-center gap-1 cursor-pointer"
+              <button
+                onClick={() => onToggleRequesters(!includeRequesters)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
+                  transition-all duration-200
+                  ${includeRequesters
+                    ? 'bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 ring-offset-1 transform scale-102'
+                    : 'bg-gray-500/15 dark:bg-gray-500/25 text-gray-600 dark:text-gray-400 hover:scale-101'
+                  }
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                `}
                 title="Show tasks requested by the selected team members"
               >
-                <input
-                  type="checkbox"
-                  checked={includeRequesters}
-                  onChange={(e) => onToggleRequesters(e.target.checked)}
-                  className="w-3 h-3 text-blue-600 rounded focus:ring-blue-500 focus:ring-1"
-                />
-                <span className="text-xs text-gray-600 dark:text-gray-300">requesters</span>
-              </label>
+                <span>Requesters</span>
+              </button>
             )}
             
-            {/* System checkbox - only show for admins */}
+            {/* System chip - only show for admins */}
             {onToggleSystem && currentUser?.roles?.includes('admin') && (
-              <label 
-                className="flex items-center gap-1 cursor-pointer"
+              <button
+                onClick={() => onToggleSystem(!includeSystem)}
+                className={`
+                  flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
+                  transition-all duration-200
+                  ${includeSystem
+                    ? 'bg-blue-500/15 dark:bg-blue-500/25 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 ring-offset-1 transform scale-102'
+                    : 'bg-gray-500/15 dark:bg-gray-500/25 text-gray-600 dark:text-gray-400 hover:scale-101'
+                  }
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                `}
                 title="Show tasks assigned to the system user (admin only)"
               >
-                <input
-                  type="checkbox"
-                  checked={includeSystem}
-                  onChange={(e) => onToggleSystem(e.target.checked)}
-                  className="w-3 h-3 text-amber-600 rounded focus:ring-amber-500 focus:ring-1"
-                />
-                <span className="text-xs text-amber-700 font-medium">
-                  system
-                  {systemTaskCount > 0 && (
-                    <span className="ml-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900 text-amber-800 dark:text-amber-200 rounded-full text-xs font-medium">
-                      {systemTaskCount}
-                    </span>
-                  )}
-                </span>
-              </label>
+                <span>System</span>
+                {systemTaskCount > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full text-xs font-semibold">
+                    {systemTaskCount}
+                  </span>
+                )}
+              </button>
             )}
           </div>
         </div>

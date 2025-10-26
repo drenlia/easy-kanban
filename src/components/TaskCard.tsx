@@ -254,7 +254,7 @@ const TaskCard = React.memo(function TaskCard({
   // @dnd-kit sortable hook for vertical reordering
   const {
     attributes,
-    listeners,
+    listeners: originalListeners,
     setNodeRef: setSortableRef,
     transform,
     transition,
@@ -269,6 +269,25 @@ const TaskCard = React.memo(function TaskCard({
       position: task.position
     }
   });
+
+  // Wrap listeners to prevent drag from starting on elements with data-no-dnd attribute
+  const listeners = React.useMemo(() => {
+    if (!originalListeners) return originalListeners;
+    
+    return {
+      ...originalListeners,
+      onPointerDown: (e: React.PointerEvent) => {
+        // Check if the target or any parent has data-no-dnd attribute
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-no-dnd="true"]')) {
+          // Don't start drag for elements marked with data-no-dnd
+          return;
+        }
+        // Call original listener
+        originalListeners.onPointerDown?.(e);
+      }
+    };
+  }, [originalListeners]);
 
   // @dnd-kit droppable hook for cross-column insertion
   const { setNodeRef: setDroppableRef } = useDroppable({
@@ -341,20 +360,6 @@ const TaskCard = React.memo(function TaskCard({
       wasDraggingRef.current = false;
     }
   }, [isDragging, task, onDragStart, onDragEnd]);
-
-  useEffect(() => {
-    const handleClickOutside = (_event: MouseEvent) => {
-      if (showMemberSelect) {
-        setShowMemberSelect(false);
-      }
-      if (showPrioritySelect) {
-        setShowPrioritySelect(false);
-      }
-    };
-
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, [showMemberSelect, showPrioritySelect]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -772,9 +777,8 @@ const TaskCard = React.memo(function TaskCard({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       
-      if (showMemberSelect) {
-        setShowMemberSelect(false);
-      }
+      // Don't handle member select here - it's portal-rendered in TaskCardToolbar
+      // and handles its own click-outside logic via stopPropagation
       
       if (showPrioritySelect) {
         // Check if click is outside both the button and the dropdown
@@ -799,7 +803,7 @@ const TaskCard = React.memo(function TaskCard({
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showMemberSelect, showPrioritySelect, showAttachmentsDropdown]);
+  }, [showPrioritySelect, showAttachmentsDropdown]);
 
   useEffect(() => {
     if (isDragging) {
@@ -919,16 +923,21 @@ const TaskCard = React.memo(function TaskCard({
           if (isLinkingMode) return;
           
           const target = e.target as HTMLElement;
-          // Don't open if clicking on interactive elements (they handle stopPropagation themselves)
+          // Don't open if clicking on interactive elements or their children
+          // Check both direct tag and closest() to catch clicks on elements inside buttons
           if (
             target.tagName === 'BUTTON' ||
             target.tagName === 'INPUT' ||
             target.tagName === 'SELECT' ||
             target.tagName === 'A' ||
+            target.tagName === 'IMG' || // Images might be inside buttons
+            target.tagName === 'SVG' || // SVG icons might be inside buttons
+            target.tagName === 'PATH' || // SVG paths inside icons
             target.closest('button') ||
             target.closest('a') ||
             target.closest('input') ||
             target.closest('select') ||
+            target.closest('svg') || // SVG elements and their children
             target.closest('[data-stop-propagation]') // Allow marking elements to stop propagation
           ) {
             return;

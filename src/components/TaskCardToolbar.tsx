@@ -265,6 +265,26 @@ export default function TaskCardToolbar({
     }
   }, [showQuickTagDropdown]);
 
+  // Close member dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      
+      // Check if click is outside both the member button and the portal dropdown
+      if (
+        memberButtonRef.current && 
+        !memberButtonRef.current.contains(target) &&
+        !target.closest('[data-member-dropdown]') // Check if click is inside the portal dropdown
+      ) {
+        onToggleMemberSelect();
+      }
+    };
+
+    if (showMemberSelect) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMemberSelect, onToggleMemberSelect]);
 
   const handleMemberToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -334,6 +354,7 @@ export default function TaskCardToolbar({
             {/* Link Task Button */}
             {onStartLinking && (
               <button
+                data-no-dnd="true"
                 onMouseDown={handleLinkMouseDown}
                 onMouseEnter={() => onLinkToolHover?.(task)}
                 onMouseLeave={() => onLinkToolHoverEnd?.()}
@@ -498,6 +519,7 @@ export default function TaskCardToolbar({
         const position = getMemberDropdownPosition();
         return createPortal(
           <div 
+            data-member-dropdown
             className="fixed bg-white border border-gray-200 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
             style={{
               left: `${position.left}px`,

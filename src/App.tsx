@@ -455,14 +455,14 @@ export default function App() {
   const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
   const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
   
-  // Computed: Check if we're in "All" mode (no members selected + all main checkboxes checked)
+  // Computed: Check if we're in "All Roles" mode (all main role checkboxes checked)
+  // This is independent of member selection - works anytime
   const isAllModeActive = useMemo(() => {
-    const noMembersSelected = selectedMembers.length === 0;
     const allMainCheckboxesChecked = includeAssignees && includeWatchers && 
       includeCollaborators && includeRequesters;
     
-    return noMembersSelected && allMainCheckboxesChecked;
-  }, [selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
+    return allMainCheckboxesChecked;
+  }, [includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
   const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
   const viewModeRef = useRef<ViewMode>(userPrefs.viewMode);
@@ -1281,6 +1281,62 @@ export default function App() {
       const currentSelectedBoard = selectedBoardRef.current;
       // Check if we should process this update
       const shouldProcess = currentSelectedBoard && data.boardId === currentSelectedBoard && data.task;
+      
+      // ALWAYS update boards state for system task counter (even if not currently selected board)
+      if (data.task && data.boardId) {
+        setBoards(prevBoards => {
+          return prevBoards.map(board => {
+            if (board.id === data.boardId && board.columns) {
+              // Update the task in the appropriate column
+              const updatedColumns = { ...board.columns };
+              const taskId = data.task.id;
+              const newColumnId = data.task.columnId;
+              
+              // Find and update the task
+              let found = false;
+              Object.keys(updatedColumns).forEach(columnId => {
+                const column = updatedColumns[columnId];
+                const taskIndex = column.tasks?.findIndex((t: any) => t.id === taskId) ?? -1;
+                
+                if (taskIndex !== -1) {
+                  found = true;
+                  if (columnId === newColumnId) {
+                    // Same column - update in place
+                    updatedColumns[columnId] = {
+                      ...column,
+                      tasks: [
+                        ...column.tasks.slice(0, taskIndex),
+                        data.task,
+                        ...column.tasks.slice(taskIndex + 1)
+                      ]
+                    };
+                  } else {
+                    // Different column - remove from old
+                    updatedColumns[columnId] = {
+                      ...column,
+                      tasks: [
+                        ...column.tasks.slice(0, taskIndex),
+                        ...column.tasks.slice(taskIndex + 1)
+                      ]
+                    };
+                  }
+                }
+              });
+              
+              // Add to new column if it was moved
+              if (found && updatedColumns[newColumnId] && !updatedColumns[newColumnId].tasks?.some((t: any) => t.id === taskId)) {
+                updatedColumns[newColumnId] = {
+                  ...updatedColumns[newColumnId],
+                  tasks: [...(updatedColumns[newColumnId].tasks || []), data.task]
+                };
+              }
+              
+              return { ...board, columns: updatedColumns };
+            }
+            return board;
+          });
+        });
+      }
       
       if (currentSelectedBoard && data.boardId === currentSelectedBoard && data.task) {
         // Skip entirely if we're in Gantt view - GanttViewV2 handles its own WebSocket events
@@ -2975,7 +3031,30 @@ export default function App() {
     };
 
     loadInitialData();
-  }, [isAuthenticated, includeSystem, currentUser?.id]);
+  }, [isAuthenticated, currentUser?.id]);
+
+  // Reload members only when includeSystem changes (without flashing the entire screen)
+  const isInitialSystemMount = useRef(true);
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser?.id) return;
+    
+    // Skip on initial mount - members are already loaded by loadInitialData
+    if (isInitialSystemMount.current) {
+      isInitialSystemMount.current = false;
+      return;
+    }
+    
+    const reloadMembers = async () => {
+      try {
+        const loadedMembers = await getMembers(includeSystem);
+        setMembers(loadedMembers);
+      } catch (error) {
+        console.error('Failed to reload members:', error);
+      }
+    };
+    
+    reloadMembers();
+  }, [includeSystem, isAuthenticated, currentUser?.id]);
 
   // Track board switching state to prevent task count flashing
   const [isSwitchingBoard, setIsSwitchingBoard] = useState(false);
@@ -4581,11 +4660,20 @@ export default function App() {
         includeTask = true;
       }
       
-      // If we're checking watchers or collaborators, optimistically include the task
-      // The useEffect will filter it out later if needed (avoids async in WebSocket handlers)
-      if (!includeTask && (includeWatchers || includeCollaborators)) {
-        // Optimistically include - the async useEffect will handle the final filtering
-        return true;
+      // Check watchers (synchronous using cached data)
+      if (!includeTask && includeWatchers) {
+        const watchers = task.watchers || [];
+        if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
+          includeTask = true;
+        }
+      }
+      
+      // Check collaborators (synchronous using cached data)
+      if (!includeTask && includeCollaborators) {
+        const collaborators = task.collaborators || [];
+        if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
+          includeTask = true;
+        }
       }
       
       return includeTask;
@@ -4600,9 +4688,10 @@ export default function App() {
     shouldIncludeTaskRef.current = shouldIncludeTask;
   }, [shouldIncludeTask]);
 
-  // Enhanced async filtering effect with watchers/collaborators/requesters support
+  // Enhanced filtering effect with watchers/collaborators/requesters support
+  // NOTE: Now uses cached data (task.watchers/task.collaborators) instead of API calls for performance
   useEffect(() => {
-    const performFiltering = async () => {
+    const performFiltering = () => {
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
@@ -4613,8 +4702,8 @@ export default function App() {
         return;
       }
 
-      // Create custom filtering function that includes watchers/collaborators/requesters
-      const customFilterTasks = async (tasks: any[]) => {
+      // Create custom filtering function that includes watchers/collaborators/requesters (synchronous)
+      const customFilterTasks = (tasks: any[]) => {
         // If no checkboxes enabled, return all tasks (no filtering)
         if (!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
           return tasks;
@@ -4643,43 +4732,35 @@ export default function App() {
             }
           }
           
-          // Check watchers if checkbox is enabled
+          // Check watchers if checkbox is enabled (use cached data)
           if (!includeTask && includeWatchers) {
-            try {
-              const watchers = await getTaskWatchers(task.id);
-              if (watchers && watchers.length > 0) {
-                if (showAllMembers) {
-                  // Show all tasks with watchers
+            const watchers = task.watchers || [];
+            if (watchers.length > 0) {
+              if (showAllMembers) {
+                // Show all tasks with watchers
+                includeTask = true;
+              } else {
+                // Show only tasks watched by selected members
+                if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
                   includeTask = true;
-                } else {
-                  // Show only tasks watched by selected members
-                  if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
-                    includeTask = true;
-                  }
                 }
               }
-            } catch (error) {
-              // console.error('Error checking task watchers:', error);
             }
           }
           
-          // Check collaborators if checkbox is enabled
+          // Check collaborators if checkbox is enabled (use cached data)
           if (!includeTask && includeCollaborators) {
-            try {
-              const collaborators = await getTaskCollaborators(task.id);
-              if (collaborators && collaborators.length > 0) {
-                if (showAllMembers) {
-                  // Show all tasks with collaborators
+            const collaborators = task.collaborators || [];
+            if (collaborators.length > 0) {
+              if (showAllMembers) {
+                // Show all tasks with collaborators
+                includeTask = true;
+              } else {
+                // Show only tasks with selected members as collaborators
+                if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
                   includeTask = true;
-                } else {
-                  // Show only tasks with selected members as collaborators
-                  if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
-                    includeTask = true;
-                  }
                 }
               }
-            } catch (error) {
-              // console.error('Error checking task collaborators:', error);
             }
           }
           
@@ -4735,7 +4816,7 @@ export default function App() {
         // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
         // Run member filtering if at least one filter type is enabled (works with 0 or more members selected)
         if (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
-          columnTasks = await customFilterTasks(columnTasks);
+          columnTasks = customFilterTasks(columnTasks);
         }
         
         filteredColumns[columnId] = {
