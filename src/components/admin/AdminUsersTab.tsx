@@ -71,16 +71,35 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
+  const [hoveredButton, setHoveredButton] = useState<{userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', position: {top: number, left: number}} | null>(null);
   
   // Refs for button positioning and focus
   const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
   const colorButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
+  const actionButtonRefs = useRef<{[key: string]: {[type: string]: HTMLButtonElement | null}}>({});
   const noButtonRef = useRef<HTMLButtonElement>(null);
   const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   
   // Helper function to check if a user is the instance owner
   const isOwner = (userEmail: string) => {
     return ownerEmail && userEmail === ownerEmail;
+  };
+
+  // Handle button hover for tooltips
+  const handleButtonMouseEnter = (userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHoveredButton({
+      userId,
+      type,
+      position: {
+        top: rect.top - 8, // Position above button
+        left: rect.left + rect.width / 2 // Center horizontally
+      }
+    });
+  };
+
+  const handleButtonMouseLeave = () => {
+    setHoveredButton(null);
   };
 
   // Helper function to check if current user can modify a given user
@@ -485,10 +504,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           </div>
         )}
         
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-visible">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">Actions</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-16">Avatar</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Status</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Name</th>
@@ -498,13 +518,87 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-24">AUTH TYPE</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Color</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-28">Joined</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {Array.isArray(users) && users.length > 0 ? (
                 users.map((user) => (
                 <tr key={user.id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
+                    <div className="flex items-center space-x-2">
+                      {user.roles.includes('admin') ? (
+                        <button
+                          onClick={() => onRoleChange(user.id, 'demote')}
+                          onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'demote', e)}
+                          onMouseLeave={handleButtonMouseLeave}
+                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
+                          className={`p-1.5 rounded transition-colors ${
+                            user.id === currentUser?.id || (!canModifyUser(user.email))
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                          }`}
+                        >
+                          <UserIcon size={16} />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => onRoleChange(user.id, 'promote')}
+                          onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'promote', e)}
+                          onMouseLeave={handleButtonMouseLeave}
+                          disabled={!canModifyUser(user.email)}
+                          className={`p-1.5 rounded transition-colors ${
+                            !canModifyUser(user.email)
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-green-600 hover:text-green-900 hover:bg-green-50 dark:hover:bg-green-900'
+                          }`}
+                        >
+                          <Crown size={16} />
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => handleEditUserClick(user)}
+                        onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'edit', e)}
+                        onMouseLeave={handleButtonMouseLeave}
+                        disabled={!canModifyUser(user.email)}
+                        className={`p-1.5 rounded transition-colors ${
+                          !canModifyUser(user.email)
+                            ? 'text-gray-400 cursor-not-allowed'
+                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <div className="relative">
+                        <button
+                          ref={(el) => {
+                            deleteButtonRefs.current[user.id] = el;
+                          }}
+                          onClick={(e) => {
+                            if (user.id === currentUser?.id || !canModifyUser(user.email)) return;
+                            
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            setDeleteButtonPosition({
+                              top: rect.bottom + 5,
+                              left: rect.right - 200, // Adjust positioning to ensure visibility
+                              userId: user.id
+                            });
+                            onDeleteUser(user.id);
+                          }}
+                          onMouseEnter={(e) => handleButtonMouseEnter(user.id, 'delete', e)}
+                          onMouseLeave={handleButtonMouseLeave}
+                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
+                          className={`p-1.5 rounded transition-colors ${
+                            user.id === currentUser?.id || (!canModifyUser(user.email))
+                              ? 'text-gray-400 cursor-not-allowed'
+                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+                          }`}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                        
+                      </div>
+                    </div>
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap w-16">
                     <div className="flex-shrink-0 h-10 w-10">
                       {(user.googleAvatarUrl || user.avatarUrl) ? (
@@ -573,109 +667,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-28">
                     {user.joined}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium w-48">
-                    <div className="flex items-center space-x-2">
-                      {user.roles.includes('admin') ? (
-                        <button
-                          onClick={() => onRoleChange(user.id, 'demote')}
-                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
-                          className={`p-1.5 rounded transition-colors group relative ${
-                            user.id === currentUser?.id || (!canModifyUser(user.email))
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                          }`}
-                          title={
-                            user.id === currentUser?.id 
-                              ? 'You cannot demote yourself' 
-                              : isOwner(user.email) 
-                                ? 'Cannot demote instance owner' 
-                                : 'Demote to user'
-                          }
-                        >
-                          <UserIcon size={16} />
-                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            {user.id === currentUser?.id 
-                              ? 'You cannot demote yourself' 
-                              : isOwner(user.email) 
-                                ? 'Cannot demote instance owner' 
-                                : 'Demote to user'}
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => onRoleChange(user.id, 'promote')}
-                          disabled={!canModifyUser(user.email)}
-                          className={`p-1.5 rounded transition-colors group relative ${
-                            !canModifyUser(user.email)
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-green-600 hover:text-green-900 hover:bg-green-50 dark:hover:bg-green-900'
-                          }`}
-                          title={isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin'}
-                        >
-                          <Crown size={16} />
-                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            {isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin'}
-                          </span>
-                        </button>
-                      )}
-                      <button 
-                        onClick={() => handleEditUserClick(user)}
-                        disabled={!canModifyUser(user.email)}
-                        className={`p-1.5 rounded transition-colors group relative ${
-                          !canModifyUser(user.email)
-                            ? 'text-gray-400 cursor-not-allowed'
-                            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }`}
-                        title={!canModifyUser(user.email) ? 'Only owner can edit their profile' : 'Edit user'}
-                      >
-                        <Edit size={16} />
-                        {!canModifyUser(user.email) && (
-                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Only owner can edit their profile
-                          </span>
-                        )}
-                      </button>
-                      <div className="relative">
-                        <button
-                          ref={(el) => {
-                            deleteButtonRefs.current[user.id] = el;
-                          }}
-                          onClick={(e) => {
-                            if (user.id === currentUser?.id || !canModifyUser(user.email)) return;
-                            
-                            const rect = e.currentTarget.getBoundingClientRect();
-                            setDeleteButtonPosition({
-                              top: rect.bottom + 5,
-                              left: rect.right - 200, // Adjust positioning to ensure visibility
-                              userId: user.id
-                            });
-                            onDeleteUser(user.id);
-                          }}
-                          disabled={user.id === currentUser?.id || (!canModifyUser(user.email))}
-                          className={`p-1.5 rounded transition-colors ${
-                            user.id === currentUser?.id || (!canModifyUser(user.email))
-                              ? 'text-gray-400 cursor-not-allowed'
-                              : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-                          }`}
-                          title={
-                            user.id === currentUser?.id 
-                              ? 'You cannot delete your own account' 
-                              : isOwner(user.email)
-                                ? 'Cannot delete instance owner'
-                                : 'Delete user'
-                          }
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                        
-                      </div>
-                    </div>
-                  </td>
                 </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                     {loading ? 'Loading users...' : 'No users found'}
                   </td>
                 </tr>
@@ -1089,6 +1085,45 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               className="w-10 h-10 rounded border border-gray-300 cursor-pointer"
             />
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-based Tooltips */}
+      {hoveredButton && createPortal(
+        <div
+          className="fixed px-2 py-1 text-xs text-white bg-gray-900 dark:bg-gray-800 rounded whitespace-nowrap z-[9999] pointer-events-none transition-opacity duration-200"
+          style={{
+            top: `${hoveredButton.position.top}px`,
+            left: `${hoveredButton.position.left}px`,
+            transform: 'translate(-50%, -100%)'
+          }}
+        >
+          {(() => {
+            const user = users.find(u => u.id === hoveredButton.userId);
+            if (!user) return '';
+            
+            switch (hoveredButton.type) {
+              case 'promote':
+                return isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin';
+              case 'demote':
+                return user.id === currentUser?.id 
+                  ? 'You cannot demote yourself' 
+                  : isOwner(user.email) 
+                    ? 'Cannot demote instance owner' 
+                    : 'Demote to user';
+              case 'edit':
+                return !canModifyUser(user.email) ? 'Only owner can edit their profile' : 'Edit user';
+              case 'delete':
+                return user.id === currentUser?.id 
+                  ? 'You cannot delete your own account' 
+                  : isOwner(user.email)
+                    ? 'Cannot delete instance owner'
+                    : 'Delete user';
+              default:
+                return '';
+            }
+          })()}
         </div>,
         document.body
       )}

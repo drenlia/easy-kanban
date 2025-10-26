@@ -104,6 +104,35 @@ const SortablePriorityRow = ({
 
   return (
     <tr ref={setNodeRef} style={style} className={isDragging ? 'z-50' : ''}>
+      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => onEdit(priority)}
+            className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+            title="Edit priority"
+          >
+            <Edit size={16} />
+          </button>
+          <button
+            ref={deleteButtonRef}
+            onClick={handleDeleteClick}
+            disabled={!!priority.isDefault || !!priority.initial}
+            className={`p-1.5 rounded transition-colors ${
+              priority.isDefault || priority.initial
+                ? 'text-gray-400 cursor-not-allowed opacity-50'
+                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
+            }`}
+            title={
+              priority.isDefault || priority.initial
+                ? 'Cannot delete the default priority'
+                : 'Delete priority'
+            }
+            data-priority-id={priority.id}
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </td>
       <td className="px-6 py-4 whitespace-nowrap">
         <div className="flex items-center gap-2">
           <div 
@@ -166,35 +195,6 @@ const SortablePriorityRow = ({
           className="w-4 h-4 text-blue-600 dark:text-blue-400 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:ring-2 cursor-pointer"
           title={priority.initial ? 'This is the default priority' : 'Set as default priority'}
         />
-      </td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-        <div className="flex items-center space-x-2">
-          <button
-            onClick={() => onEdit(priority)}
-            className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
-            title="Edit priority"
-          >
-            <Edit size={16} />
-          </button>
-          <button
-            ref={deleteButtonRef}
-            onClick={handleDeleteClick}
-            disabled={!!priority.isDefault || !!priority.initial}
-            className={`p-1.5 rounded transition-colors ${
-              priority.isDefault || priority.initial
-                ? 'text-gray-400 cursor-not-allowed opacity-50'
-                : 'text-red-600 hover:text-red-900 hover:bg-red-50'
-            }`}
-            title={
-              priority.isDefault || priority.initial
-                ? 'Cannot delete the default priority'
-                : 'Delete priority'
-            }
-            data-priority-id={priority.id}
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
       </td>
       
       {/* Portal-based Delete Confirmation Dialog */}
@@ -395,10 +395,10 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Priority</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Default</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
                 </tr>
               </thead>
               <SortableContext

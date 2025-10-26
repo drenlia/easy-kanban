@@ -655,11 +655,8 @@ export default function App() {
       localStorage.clear();
       sessionStorage.clear();
       
-      // Show appropriate message
-      const message = 'Your account has been deactivated. Please contact an administrator.';
-      
-      // Force logout with message
-      handleLogout(message);
+      // Force logout
+      handleLogout();
       return;
     }
     
@@ -990,7 +987,21 @@ export default function App() {
         if (process.env.NODE_ENV === 'development' && updateTime > 50) {
           // console.log(`⚠️ [UserStatus] Update handler took ${updateTime.toFixed(1)}ms`);
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Handle user account deletion (404 error)
+        if (error?.response?.status === 404) {
+          console.log('🔐 User account no longer exists - forcing logout');
+          
+          // Clear all local storage and session data
+          localStorage.clear();
+          sessionStorage.clear();
+          
+          // Force logout
+          handleLogout();
+          return;
+        }
+        
+        // For other errors (network issues, etc.), just log
         // console.error('❌ [UserStatus] Polling failed:', error);
       } finally {
         isPolling = false;

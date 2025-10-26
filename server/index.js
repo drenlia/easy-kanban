@@ -1146,6 +1146,7 @@ app.get('/api/admin/users', authenticateToken, requireRole(['admin']), (req, res
       roles: user.roles ? user.roles.split(',') : [],
       isActive: !!user.is_active,
       createdAt: user.created_at,
+      joined: user.created_at,
       avatarUrl: user.avatar_path,
       authProvider: user.auth_provider || 'local',
       googleAvatarUrl: user.google_avatar_url,
@@ -1514,7 +1515,8 @@ app.post('/api/admin/users', authenticateToken, requireRole(['admin']), async (r
         displayName: memberName,
         memberColor: memberColor,
         authProvider: 'local',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        joined: new Date().toISOString()
       },
       member: { id: memberId, name: memberName, color: memberColor },
       timestamp: new Date().toISOString()

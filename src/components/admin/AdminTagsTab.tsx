@@ -163,16 +163,42 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Actions</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Tag</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Preview</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
               {Array.isArray(tags) && tags.length > 0 ? (
                 tags.map((tag) => (
                   <tr key={tag.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => {
+                            setEditingTag(tag);
+                            setShowEditTagForm(true);
+                          }}
+                          className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
+                          title="Edit tag"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <div className="relative">
+                          <button
+                            ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
+                            onClick={(e) => handleDeleteClick(tag.id, e)}
+                            className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
+                            title="Delete tag"
+                            data-tag-id={tag.id}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <div 
@@ -199,32 +225,6 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                         })()}
                       >
                         {tag.tag}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => {
-                            setEditingTag(tag);
-                            setShowEditTagForm(true);
-                          }}
-                          className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
-                          title="Edit tag"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <div className="relative">
-                          <button
-                            ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
-                            onClick={(e) => handleDeleteClick(tag.id, e)}
-                            className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
-                            title="Delete tag"
-                            data-tag-id={tag.id}
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                          
-                        </div>
                       </div>
                     </td>
                   </tr>

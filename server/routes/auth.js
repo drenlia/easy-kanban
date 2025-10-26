@@ -277,7 +277,9 @@ router.get('/google/callback', async (req, res) => {
                 lastName: user.last_name,
                 isActive: true,
                 authProvider: 'google',
-                googleAvatarUrl: userInfo.picture
+                googleAvatarUrl: userInfo.picture,
+                createdAt: user.created_at,
+                joined: user.created_at
               },
               timestamp: new Date().toISOString()
             }).catch(err => {
