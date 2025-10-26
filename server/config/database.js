@@ -480,6 +480,7 @@ const initializeDefaultData = (db) => {
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
       ['UPLOAD_MAX_FILESIZE', '10485760'], // 10MB max file size in bytes (10 * 1024^2)
+      ['UPLOAD_LIMITS_ENFORCED', 'true'], // Enable/disable file upload restrictions (default true)
       ['NOTIFICATION_DELAY', '30'], // Email notification delay in minutes (default 30)
       ['NOTIFICATION_DEFAULTS', JSON.stringify({
         newTaskAssigned: true,
@@ -492,24 +493,44 @@ const initializeDefaultData = (db) => {
         requesterTaskUpdated: true
       })], // Global notification defaults
       ['UPLOAD_FILETYPES', JSON.stringify({
+        // Images
         'image/jpeg': true,
-        'image/jpg': true,
         'image/png': true,
         'image/gif': true,
         'image/webp': true,
         'image/svg+xml': true,
+        'image/bmp': true,
+        'image/tiff': true,
+        'image/ico': true,
+        'image/heic': true,
+        'image/heif': true,
+        'image/avif': true,
+        // Videos
+        'video/mp4': true,
+        'video/webm': true,
+        'video/ogg': true,
+        'video/quicktime': true,
+        'video/x-msvideo': true,
+        'video/x-ms-wmv': true,
+        'video/x-matroska': true,
+        'video/mpeg': true,
+        'video/3gpp': true,
+        // Documents
         'application/pdf': true,
         'text/plain': true,
         'text/csv': true,
+        // Office Documents
         'application/msword': true,
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
         'application/vnd.ms-excel': true,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
         'application/vnd.ms-powerpoint': true,
         'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
+        // Archives
         'application/zip': true,
         'application/x-rar-compressed': true,
         'application/x-7z-compressed': true,
+        // Code Files
         'text/javascript': true,
         'text/css': true,
         'text/html': true,

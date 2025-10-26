@@ -459,6 +459,18 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
       avatarUrl = user.avatar_path;
     }
     
+    // Generate a fresh JWT token with current roles (important for role changes)
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        role: userRoles.includes('admin') ? 'admin' : 'user',
+        roles: userRoles
+      }, 
+      JWT_SECRET, 
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
     res.json({
       user: {
         id: user.id,
@@ -469,7 +481,8 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
         avatarUrl: avatarUrl,
         authProvider: user.auth_provider || 'local',
         googleAvatarUrl: user.google_avatar_url
-      }
+      },
+      token: token // Include fresh token with updated roles
     });
     
   } catch (error) {
@@ -939,6 +952,19 @@ app.delete('/api/users/account', authenticateToken, (req, res) => {
       return res.status(404).json({ error: 'User not found or already inactive' });
     }
     
+    // Get the member ID for the user being deleted (before deletion)
+    const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    
+    // Get all tasks that will be reassigned (for WebSocket notifications)
+    let tasksToReassign = [];
+    if (userMember) {
+      tasksToReassign = wrapQuery(
+        db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
+        'SELECT'
+      ).all(userMember.id, userMember.id);
+      console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
+    }
+    
     // Begin transaction for cascading deletion
     const transaction = db.transaction(() => {
       try {
@@ -978,6 +1004,72 @@ app.delete('/api/users/account', authenticateToken, (req, res) => {
     
     // Execute the transaction
     transaction();
+    
+    // Publish task-updated events for all reassigned tasks (for real-time updates)
+    if (tasksToReassign.length > 0) {
+      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
+      
+      if (systemMember) {
+        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
+        for (const task of tasksToReassign) {
+          // Get the full updated task details
+          const updatedTask = wrapQuery(
+            db.prepare(`
+              SELECT t.*, 
+                     json_group_array(
+                       DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+                         'id', tag.id,
+                         'tag', tag.tag,
+                         'description', tag.description,
+                         'color', tag.color
+                       ) ELSE NULL END
+                     ) as tags,
+                     json_group_array(
+                       DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
+                         'id', watcher.id,
+                         'name', watcher.name,
+                         'color', watcher.color
+                       ) ELSE NULL END
+                     ) as watchers,
+                     json_group_array(
+                       DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
+                         'id', collaborator.id,
+                         'name', collaborator.name,
+                         'color', collaborator.color
+                       ) ELSE NULL END
+                     ) as collaborators
+              FROM tasks t
+              LEFT JOIN task_tags tt ON tt.taskId = t.id
+              LEFT JOIN tags tag ON tag.id = tt.tagId
+              LEFT JOIN watchers w ON w.taskId = t.id
+              LEFT JOIN members watcher ON watcher.id = w.memberId
+              LEFT JOIN collaborators col ON col.taskId = t.id
+              LEFT JOIN members collaborator ON collaborator.id = col.memberId
+              WHERE t.id = ?
+              GROUP BY t.id
+            `),
+            'SELECT'
+          ).get(task.id);
+          
+          if (updatedTask) {
+            updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
+            updatedTask.watchers = updatedTask.watchers === '[null]' ? [] : JSON.parse(updatedTask.watchers).filter(Boolean);
+            updatedTask.collaborators = updatedTask.collaborators === '[null]' ? [] : JSON.parse(updatedTask.collaborators).filter(Boolean);
+            
+            redisService.publish('task-updated', {
+              boardId: task.boardId,
+              task: updatedTask,
+              timestamp: new Date().toISOString()
+            }).catch(err => {
+              console.error('Failed to publish task-updated event:', err);
+            });
+          }
+        }
+        console.log(`✅ Published ${tasksToReassign.length} task-updated events to Redis`);
+      } else {
+        console.warn('⚠️ SYSTEM user member not found, tasks reassigned but no WebSocket events published');
+      }
+    }
     
     // Publish to Redis for real-time updates to admins viewing user list
     console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);

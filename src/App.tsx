@@ -1921,10 +1921,19 @@ export default function App() {
       // Update the specific member in the members list
       if (data.member) {
         setMembers(prevMembers => {
-          const updatedMembers = prevMembers.map(member => 
-            member.id === data.member.id ? { ...member, ...data.member } : member
-          );
-          return updatedMembers;
+          // Check if member exists in current list
+          const memberExists = prevMembers.some(member => member.id === data.member.id);
+          
+          if (memberExists) {
+            // Update existing member
+            return prevMembers.map(member => 
+              member.id === data.member.id ? { ...member, ...data.member } : member
+            );
+          } else {
+            // Member doesn't exist, add it to the list
+            console.log('📨 Adding new member to list:', data.member);
+            return [...prevMembers, data.member];
+          }
         });
       } else {
         // Fallback: refresh entire members list
@@ -1947,9 +1956,14 @@ export default function App() {
       handleMembersUpdate([data.member]);
     };
 
-    const handleMemberDeleted = (data: any) => {
-      // Refresh members list
-      handleMembersUpdate([]);
+    const handleMemberDeleted = async (data: any) => {
+      // Refresh members list from server (don't pass empty array!)
+      try {
+        const loadedMembers = await getMembers(includeSystem);
+        setMembers(loadedMembers);
+      } catch (error) {
+        console.error('Failed to refresh members after deletion:', error);
+      }
     };
 
     const handleUserProfileUpdated = async (data: any) => {

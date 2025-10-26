@@ -169,9 +169,15 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
 
   const handleProfileUpdated = async () => {
     try {
-      // Refresh current user data to get updated avatar
+      // Refresh current user data to get updated avatar and roles
       const response = await api.getCurrentUser();
       setCurrentUser(response.user);
+      
+      // If a fresh token is provided (for role updates), save it
+      if (response.token) {
+        localStorage.setItem('authToken', response.token);
+        console.log('🔑 Updated JWT token with fresh roles');
+      }
       
       // Also refresh members to get updated display names
       await callbacks.onMembersRefresh();

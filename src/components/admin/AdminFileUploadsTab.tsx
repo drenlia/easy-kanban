@@ -25,8 +25,10 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   error,
 }) => {
   const [isSaving, setIsSaving] = useState(false);
+  const [isTogglingLimits, setIsTogglingLimits] = useState(false);
   const [fileTypes, setFileTypes] = useState<FileTypeConfig>({});
   const [maxFileSize, setMaxFileSize] = useState(10); // MB
+  const [limitsEnforced, setLimitsEnforced] = useState(true); // Default enforced
 
   // Define all possible file types with their descriptions
   const fileTypeCategories = [
@@ -37,7 +39,27 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
         { mime: 'image/png', label: 'PNG Images', ext: '.png' },
         { mime: 'image/gif', label: 'GIF Images', ext: '.gif' },
         { mime: 'image/webp', label: 'WebP Images', ext: '.webp' },
-        { mime: 'image/svg+xml', label: 'SVG Images', ext: '.svg' }
+        { mime: 'image/svg+xml', label: 'SVG Images', ext: '.svg' },
+        { mime: 'image/bmp', label: 'BMP Images', ext: '.bmp' },
+        { mime: 'image/tiff', label: 'TIFF Images', ext: '.tiff, .tif' },
+        { mime: 'image/ico', label: 'Icon Files', ext: '.ico' },
+        { mime: 'image/heic', label: 'HEIC Images (Apple)', ext: '.heic' },
+        { mime: 'image/heif', label: 'HEIF Images', ext: '.heif' },
+        { mime: 'image/avif', label: 'AVIF Images', ext: '.avif' }
+      ]
+    },
+    {
+      name: 'Videos',
+      types: [
+        { mime: 'video/mp4', label: 'MP4 Videos', ext: '.mp4' },
+        { mime: 'video/webm', label: 'WebM Videos', ext: '.webm' },
+        { mime: 'video/ogg', label: 'Ogg Videos', ext: '.ogv' },
+        { mime: 'video/quicktime', label: 'QuickTime Videos', ext: '.mov' },
+        { mime: 'video/x-msvideo', label: 'AVI Videos', ext: '.avi' },
+        { mime: 'video/x-ms-wmv', label: 'WMV Videos', ext: '.wmv' },
+        { mime: 'video/x-matroska', label: 'MKV Videos', ext: '.mkv' },
+        { mime: 'video/mpeg', label: 'MPEG Videos', ext: '.mpeg, .mpg' },
+        { mime: 'video/3gpp', label: '3GP Videos (Mobile)', ext: '.3gp' }
       ]
     },
     {
@@ -135,6 +157,12 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
     setMaxFileSize(sizeMB);
   }, [editingSettings.UPLOAD_MAX_FILESIZE]);
 
+  // Initialize limits enforced from settings
+  useEffect(() => {
+    const enforced = editingSettings.UPLOAD_LIMITS_ENFORCED !== 'false'; // Default to true
+    setLimitsEnforced(enforced);
+  }, [editingSettings.UPLOAD_LIMITS_ENFORCED]);
+
   const handleSave = async () => {
     console.log('🔄 handleSave called - checking if save should proceed...');
     console.log('hasChanges():', hasChanges());
@@ -155,6 +183,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
         ...editingSettings,
         UPLOAD_MAX_FILESIZE: sizeBytes.toString(),
         UPLOAD_FILETYPES: JSON.stringify(fileTypes)
+        // Note: UPLOAD_LIMITS_ENFORCED is auto-saved via handleToggleLimitsEnforced
       };
       
       // Debug logging
@@ -211,8 +240,31 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
     setFileTypes(updatedTypes);
   };
 
+  const handleToggleLimitsEnforced = async () => {
+    const newValue = !limitsEnforced;
+    setLimitsEnforced(newValue);
+    setIsTogglingLimits(true);
+    
+    try {
+      const updatedSettings = {
+        ...editingSettings,
+        UPLOAD_LIMITS_ENFORCED: newValue.toString()
+      };
+      
+      onSettingsChange(updatedSettings);
+      await onSave(updatedSettings);
+    } catch (error) {
+      console.error('Failed to save limits enforced setting:', error);
+      // Revert on error
+      setLimitsEnforced(!newValue);
+    } finally {
+      setIsTogglingLimits(false);
+    }
+  };
+
   const hasChanges = () => {
     // Compare with ORIGINAL settings, not editingSettings
+    // Note: UPLOAD_LIMITS_ENFORCED is excluded because it auto-saves
     const originalSizeBytes = parseInt(settings.UPLOAD_MAX_FILESIZE || '10485760');
     const originalSizeMB = Math.round(originalSizeBytes / (1024 * 1024));
     const originalFileTypes = JSON.parse(settings.UPLOAD_FILETYPES || '{}');
@@ -277,6 +329,42 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
 
 
         <div className="px-6 py-4 space-y-6">
+          {/* Enforce Upload Limits Toggle */}
+          <div className="flex items-start justify-between pb-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                Enforce Upload Restrictions
+              </label>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                When enabled, file uploads will be restricted by size and type settings below. 
+                When disabled, all file uploads will be allowed regardless of these settings.
+              </p>
+            </div>
+            <div className="ml-6 flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleToggleLimitsEnforced}
+                disabled={isTogglingLimits}
+                className={`
+                  relative inline-flex h-6 w-11 items-center rounded-full transition-colors
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
+                  ${isTogglingLimits ? 'opacity-50 cursor-not-allowed' : ''}
+                  ${limitsEnforced 
+                    ? 'bg-blue-600 hover:bg-blue-700' 
+                    : 'bg-gray-200 dark:bg-gray-600 hover:bg-gray-300 dark:hover:bg-gray-500'
+                  }
+                `}
+              >
+                <span
+                  className={`
+                    inline-block h-4 w-4 transform rounded-full bg-white transition-transform
+                    ${limitsEnforced ? 'translate-x-6' : 'translate-x-1'}
+                  `}
+                />
+              </button>
+            </div>
+          </div>
+
           {/* Max File Size Setting */}
           <div className="flex items-start justify-between">
             <div className="flex-1">

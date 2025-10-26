@@ -3,17 +3,20 @@ import { wrapQuery } from './queryLogger.js';
 /**
  * Get admin-configured file upload settings from database
  * @param {Database} db - Database instance
- * @returns {Promise<Object>} { maxSize, allowedTypes, blockedTypes, blockedExtensions }
+ * @returns {Promise<Object>} { maxSize, allowedTypes, blockedTypes, blockedExtensions, limitsEnforced }
  */
 export const getAdminFileSettings = async (db) => {
   try {
-    const settings = await wrapQuery(db, 'SELECT key, value FROM settings WHERE key IN (?, ?)', 
-      ['UPLOAD_MAX_FILESIZE', 'UPLOAD_FILETYPES']);
+    const settings = await wrapQuery(db, 'SELECT key, value FROM settings WHERE key IN (?, ?, ?)', 
+      ['UPLOAD_MAX_FILESIZE', 'UPLOAD_FILETYPES', 'UPLOAD_LIMITS_ENFORCED']);
     
     const settingsMap = {};
     settings.forEach(row => {
       settingsMap[row.key] = row.value;
     });
+    
+    // Parse limits enforced flag (default true)
+    const limitsEnforced = settingsMap.UPLOAD_LIMITS_ENFORCED !== 'false';
     
     // Parse max file size (default 10MB)
     const maxSize = parseInt(settingsMap.UPLOAD_MAX_FILESIZE || '10485760');
@@ -26,24 +29,45 @@ export const getAdminFileSettings = async (db) => {
       console.error('Error parsing UPLOAD_FILETYPES:', error);
       // Default to all enabled if parsing fails
       allowedTypes = {
+        // Images
         'image/jpeg': true,
         'image/png': true,
         'image/gif': true,
         'image/webp': true,
         'image/svg+xml': true,
+        'image/bmp': true,
+        'image/tiff': true,
+        'image/ico': true,
+        'image/heic': true,
+        'image/heif': true,
+        'image/avif': true,
+        // Videos
+        'video/mp4': true,
+        'video/webm': true,
+        'video/ogg': true,
+        'video/quicktime': true,
+        'video/x-msvideo': true,
+        'video/x-ms-wmv': true,
+        'video/x-matroska': true,
+        'video/mpeg': true,
+        'video/3gpp': true,
+        // Documents
         'application/pdf': true,
         'text/plain': true,
         'text/csv': true,
+        // Office Documents
         'application/msword': true,
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
         'application/vnd.ms-excel': true,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
         'application/vnd.ms-powerpoint': true,
         'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
+        // Archives
         'application/zip': true,
         'application/x-rar-compressed': true,
         'application/x-7z-compressed': true,
-        'text/javascript': false,
+        // Code Files
+        'text/javascript': true,
         'text/css': true,
         'text/html': true,
         'application/json': true
@@ -70,7 +94,8 @@ export const getAdminFileSettings = async (db) => {
       maxSize,
       allowedTypes,
       blockedTypes,
-      blockedExtensions
+      blockedExtensions,
+      limitsEnforced
     };
   } catch (error) {
     console.error('Error getting admin file settings:', error);
@@ -90,7 +115,8 @@ export const getAdminFileSettings = async (db) => {
       blockedExtensions: [
         '.exe', '.bat', '.cmd', '.com', '.pif', '.scr', '.vbs', '.js', '.jar', '.msi',
         '.sh', '.ps1', '.app', '.dmg', '.deb', '.rpm'
-      ]
+      ],
+      limitsEnforced: true // Default to enforced for safety
     };
   }
 };
@@ -102,26 +128,31 @@ export const getAdminFileSettings = async (db) => {
  * @returns {Object} { valid: boolean, error?: string }
  */
 export const validateFile = (file, settings) => {
-  const { maxSize, allowedTypes, blockedTypes, blockedExtensions } = settings;
+  const { maxSize, allowedTypes, blockedTypes, blockedExtensions, limitsEnforced } = settings;
   
-  // Check file size
-  if (file.size > maxSize) {
-    const sizeMB = Math.round(maxSize / 1024 / 1024);
-    return { valid: false, error: `File size exceeds ${sizeMB}MB limit` };
-  }
-  
-  // Check blocked MIME types (security)
+  // Always check blocked MIME types (security - always enforced)
   if (blockedTypes.includes(file.mimetype)) {
     return { valid: false, error: `File type "${file.mimetype}" is not allowed for security reasons` };
   }
   
-  // Check blocked extensions (security)
+  // Always check blocked extensions (security - always enforced)
   const extension = getFileExtension(file.originalname);
   if (blockedExtensions.includes(extension)) {
     return { valid: false, error: `File extension "${extension}" is not allowed for security reasons` };
   }
   
-  // Check allowed MIME types (only if admin has configured them)
+  // If limits are not enforced, skip size and type restrictions
+  if (!limitsEnforced) {
+    return { valid: true };
+  }
+  
+  // Check file size (only if limits enforced)
+  if (file.size > maxSize) {
+    const sizeMB = Math.round(maxSize / 1024 / 1024);
+    return { valid: false, error: `File size exceeds ${sizeMB}MB limit` };
+  }
+  
+  // Check allowed MIME types (only if limits enforced and admin has configured them)
   if (Object.keys(allowedTypes).length > 0) {
     const isAllowed = allowedTypes[file.mimetype] === true;
     if (!isAllowed) {

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -260,6 +261,44 @@ router.get('/google/callback', async (req, res) => {
             // Update user object to reflect activation
             user.is_active = 1;
             user.auth_provider = 'google';
+            
+            // Get member info for the activated user
+            const memberInfo = db.prepare('SELECT id, name, color FROM members WHERE user_id = ?').get(user.id);
+            
+            // Publish to Redis for real-time updates
+            console.log('📤 Publishing user-updated and member-updated to Redis for Google OAuth activation');
+            
+            // Publish user-updated for admin panel
+            redisService.publish('user-updated', {
+              user: {
+                id: user.id,
+                email: user.email,
+                firstName: user.first_name,
+                lastName: user.last_name,
+                isActive: true,
+                authProvider: 'google',
+                googleAvatarUrl: userInfo.picture
+              },
+              timestamp: new Date().toISOString()
+            }).catch(err => {
+              console.error('Failed to publish user-updated event:', err);
+            });
+            
+            // Publish member-updated for Kanban board team members list
+            if (memberInfo) {
+              redisService.publish('member-updated', {
+                memberId: memberInfo.id,
+                member: {
+                  id: memberInfo.id,
+                  name: memberInfo.name,
+                  color: memberInfo.color,
+                  userId: user.id
+                },
+                timestamp: new Date().toISOString()
+              }).catch(err => {
+                console.error('Failed to publish member-updated event:', err);
+              });
+            }
           } catch (error) {
             console.error('🔐 [GOOGLE SSO] ❌ Failed to activate invited user:', error);
             return res.redirect('/?error=activation_failed');
