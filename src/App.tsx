@@ -469,6 +469,7 @@ export default function App() {
   const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
   const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
   const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
+  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(userPrefs.selectedSprintId);
   const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
   const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
@@ -527,7 +528,7 @@ export default function App() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
-  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+  const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'reports' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
 
   // Sync local state with global preference saving state
   useEffect(() => {
@@ -817,11 +818,64 @@ export default function App() {
     initializeAdminDefaults();
   }, [isAuthenticated, currentUser?.roles, userStatus?.isAdmin]); // Run when authentication status, user roles, or admin status change
 
-  // Load auto-refresh setting from user preferences
+  // Load auto-refresh setting and sprint selection from user preferences
   useEffect(() => {
     if (currentUser) {
-      const prefs = loadUserPreferences(currentUser.id);
-      // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
+      const restorePreferences = async () => {
+        try {
+          // Load preferences from database (not just cookies)
+          const prefs = await loadUserPreferencesAsync(currentUser.id);
+          
+          // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
+          
+          // Restore sprint selection and apply date filters
+          const savedSprintId = prefs.selectedSprintId;
+          
+          if (savedSprintId) {
+            // Fetch sprint details to get date ranges
+            const token = localStorage.getItem('authToken');
+            const response = await fetch('/api/admin/sprints', {
+              headers: {
+                'Authorization': `Bearer ${token}`
+              }
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              const sprints = data.sprints || data || [];
+              const selectedSprint = sprints.find((s: any) => s.id === savedSprintId);
+              
+              if (selectedSprint) {
+                // Update sprint ID
+                setSelectedSprintId(savedSprintId);
+                
+                // Reapply the date filters for this sprint
+                setSearchFilters(prev => ({
+                  ...prev,
+                  dateFrom: selectedSprint.start_date,
+                  dateTo: selectedSprint.end_date
+                }));
+                
+                // Ensure search is active
+                if (!prefs.isSearchActive) {
+                  setIsSearchActive(true);
+                }
+              } else {
+                // Sprint no longer exists, clear the selection
+                setSelectedSprintId(null);
+                updateCurrentUserPreference('selectedSprintId', null);
+              }
+            }
+          } else {
+            // No saved sprint, make sure state is cleared
+            setSelectedSprintId(null);
+          }
+        } catch (error) {
+          console.error('Failed to restore sprint selection:', error);
+        }
+      };
+      
+      restorePreferences();
     }
   }, [currentUser]);
 
@@ -2526,7 +2580,7 @@ export default function App() {
   };
 
   // Header event handlers
-  const handlePageChange = (page: 'kanban' | 'admin' | 'test') => {
+  const handlePageChange = (page: 'kanban' | 'admin' | 'reports' | 'test') => {
     setCurrentPage(page);
     if (page === 'kanban') {
       // If there was a previously selected board, restore it
@@ -2535,8 +2589,12 @@ export default function App() {
       } else {
         window.location.hash = 'kanban';
       }
-    } else {
+    } else if (page === 'reports') {
+      window.location.hash = 'reports';
+    } else if (page === 'admin') {
       window.location.hash = 'admin';
+    } else {
+      window.location.hash = page;
     }
   };
 
@@ -4506,6 +4564,46 @@ export default function App() {
     }
   };
 
+  // Handle sprint selection
+  const handleSprintChange = (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => {
+    // Update selected sprint ID in state and preferences
+    const newSprintId = sprint?.id || null;
+    setSelectedSprintId(newSprintId);
+    updateCurrentUserPreference('selectedSprintId', newSprintId);
+    
+    // Update date filters when sprint is selected
+    if (sprint) {
+      const newFilters = {
+        ...searchFilters,
+        dateFrom: sprint.start_date,
+        dateTo: sprint.end_date
+      };
+      setSearchFilters(newFilters);
+      updateCurrentUserPreference('searchFilters', newFilters);
+      
+      // Auto-enable search when sprint is selected
+      if (!isSearchActive) {
+        setIsSearchActive(true);
+        updateCurrentUserPreference('isSearchActive', true);
+      }
+    } else {
+      // When "All Sprints" is selected, clear date filters
+      const newFilters = {
+        ...searchFilters,
+        dateFrom: '',
+        dateTo: ''
+      };
+      setSearchFilters(newFilters);
+      updateCurrentUserPreference('searchFilters', newFilters);
+    }
+    
+    // Clear current filter view when sprint changes
+    if (currentFilterView) {
+      setCurrentFilterView(null);
+      updateCurrentUserPreference('currentFilterViewId', null);
+    }
+  };
+
   // Load a saved filter view by ID
   const loadSavedFilterView = async (viewId: number) => {
     try {
@@ -5189,6 +5287,8 @@ export default function App() {
           // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
+        selectedSprintId={selectedSprintId}
+        onSprintChange={handleSprintChange}
       />
 
       {/* Network Status Indicator */}

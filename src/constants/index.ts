@@ -8,17 +8,17 @@ export const DEFAULT_COLUMNS = [
 ];
 
 // Page and navigation constants
-export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'task', 'forgot-password', 'reset-password', 'reset-success', 'activate-account'];
-export const ADMIN_TABS = ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'licensing'];
+export const PAGE_IDENTIFIERS = ['kanban', 'admin', 'reports', 'task', 'forgot-password', 'reset-password', 'reset-success', 'activate-account'];
+export const ADMIN_TABS = ['users', 'site-settings', 'sso', 'mail-server', 'tags', 'priorities', 'app-settings', 'project-settings', 'sprint-settings', 'reporting', 'licensing'];
 
 // Routing configuration
 export const ROUTES = {
   // Pages that don't require authentication
   PUBLIC_PAGES: ['forgot-password', 'reset-password', 'reset-success', 'activate-account'],
   // Pages that require authentication
-  PROTECTED_PAGES: ['kanban', 'admin', 'task'],
+  PROTECTED_PAGES: ['kanban', 'admin', 'reports', 'task'],
   // Pages that should skip auto-board-selection
-  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'activate-account', 'admin', 'task'],
+  NO_AUTO_BOARD: ['forgot-password', 'reset-password', 'reset-success', 'activate-account', 'admin', 'reports', 'task'],
   // Default routes
   DEFAULT_PAGE: 'kanban',
   DEFAULT_ADMIN_TAB: 'users'

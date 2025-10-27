@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
+import SprintSelector from '../SprintSelector';
 
 interface SystemInfo {
   memory: {
@@ -32,19 +33,21 @@ interface SystemInfo {
 interface HeaderProps {
   currentUser: CurrentUser | null;
   siteSettings: SiteSettings;
-  currentPage: 'kanban' | 'admin';
+  currentPage: 'kanban' | 'admin' | 'reports';
   // isPolling: boolean; // Removed - using real-time WebSocket updates
   // lastPollTime: Date | null; // Removed - using real-time WebSocket updates
   members: TeamMember[];
   onProfileClick: () => void;
   onLogout: () => void;
-  onPageChange: (page: 'kanban' | 'admin') => void;
+  onPageChange: (page: 'kanban' | 'admin' | 'reports') => void;
   onRefresh: () => Promise<void>;
   onHelpClick: () => void;
   onInviteUser?: (email: string) => Promise<void>;
   // Auto-refresh toggle - DISABLED (using real-time updates)
   // isAutoRefreshEnabled: boolean;
   // onToggleAutoRefresh: () => void;
+  selectedSprintId: string | null;
+  onSprintChange: (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -62,6 +65,8 @@ const Header: React.FC<HeaderProps> = ({
   onInviteUser,
   // isAutoRefreshEnabled, // Disabled - using real-time updates
   // onToggleAutoRefresh, // Disabled - using real-time updates
+  selectedSprintId,
+  onSprintChange,
 }) => {
   const [showInviteDropdown, setShowInviteDropdown] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -71,6 +76,83 @@ const Header: React.FC<HeaderProps> = ({
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [reportsEnabled, setReportsEnabled] = useState(true); // Default to enabled
+  const [reportsVisibleTo, setReportsVisibleTo] = useState('all'); // Default to all users
+
+  // Fetch reports settings to check if reports module is enabled
+  useEffect(() => {
+    const fetchReportsSettings = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        if (!token) return;
+
+        const response = await fetch('/api/reports/settings', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setReportsEnabled(data.REPORTS_ENABLED === 'true');
+          setReportsVisibleTo(data.REPORTS_VISIBLE_TO || 'all');
+        }
+      } catch (error) {
+        console.error('Failed to fetch reports settings:', error);
+        // Default to enabled on error
+        setReportsEnabled(true);
+        setReportsVisibleTo('all');
+      }
+    };
+
+    if (currentUser) {
+      fetchReportsSettings();
+    }
+  }, [currentUser]);
+
+  // Listen for real-time settings updates via WebSocket
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const handleSettingsUpdate = (data: any) => {
+      console.log('📊 [Header] Settings updated via WebSocket:', data);
+      
+      // If REPORTS_ENABLED was updated, refresh the reports button visibility
+      if (data.key === 'REPORTS_ENABLED') {
+        const isEnabled = data.value === 'true' || data.value === true;
+        console.log(`📊 [Header] Reports module is now: ${isEnabled ? 'ENABLED' : 'DISABLED'}`);
+        setReportsEnabled(isEnabled);
+        
+        // If reports were disabled and user is on reports page, redirect to kanban
+        if (!isEnabled && currentPage === 'reports') {
+          console.log('📊 [Header] Redirecting to Kanban as reports were disabled');
+          window.location.hash = 'kanban';
+        }
+      }
+      
+      // If REPORTS_VISIBLE_TO was updated, refresh the visibility setting
+      if (data.key === 'REPORTS_VISIBLE_TO') {
+        console.log(`📊 [Header] Reports visibility changed to: ${data.value}`);
+        setReportsVisibleTo(data.value);
+        
+        // If visibility changed to admin-only and user is not admin and on reports page, redirect
+        const isAdmin = currentUser?.roles?.includes('admin');
+        if (data.value === 'admin' && !isAdmin && currentPage === 'reports') {
+          console.log('📊 [Header] Redirecting to Kanban as reports are now admin-only');
+          window.location.hash = 'kanban';
+        }
+      }
+    };
+
+    // Import websocket client and listen for settings updates
+    import('../../services/websocketClient').then(({ default: websocketClient }) => {
+      websocketClient.onSettingsUpdated(handleSettingsUpdate);
+      
+      return () => {
+        websocketClient.offSettingsUpdated(handleSettingsUpdate);
+      };
+    });
+  }, [currentUser, currentPage]);
 
   const handleRefresh = async () => {
     try {
@@ -235,6 +317,13 @@ const Header: React.FC<HeaderProps> = ({
           >
             {siteSettings.SITE_NAME || 'Easy Kanban'}
           </a>
+          {/* Sprint Selector - only show in Kanban view */}
+          {currentUser && currentPage === 'kanban' && (
+            <SprintSelector
+              selectedSprintId={selectedSprintId}
+              onSprintChange={onSprintChange}
+            />
+          )}
         </div>
         
         <div className="flex items-center gap-3">
@@ -320,9 +409,8 @@ const Header: React.FC<HeaderProps> = ({
                 {/* User Avatar */}
                 <div className="relative group">
                   <button
-                    className="flex items-center gap-2 p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                    className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
                     onClick={onProfileClick}
-                    title="Profile Settings"
                     data-tour-id="profile-menu"
                   >
                     {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
@@ -362,20 +450,20 @@ const Header: React.FC<HeaderProps> = ({
                   </button>
                   
                   {/* Profile Dropdown */}
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-md shadow-lg z-50 border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                  <div className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
                     <div className="py-1">
                       <button
                         onClick={onProfileClick}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
                       >
-                        <User size={16} />
+                        <User size={18} />
                         Profile
                       </button>
                       <button
                         onClick={onLogout}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
                       >
-                        <LogOut size={16} />
+                        <LogOut size={18} />
                         Logout
                       </button>
                     </div>
@@ -385,16 +473,26 @@ const Header: React.FC<HeaderProps> = ({
               
               {/* Navigation */}
               <div className="flex items-center gap-2 ml-4">
-                {currentUser.roles?.includes('admin') && (
+                <button
+                  onClick={() => onPageChange('kanban')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    currentPage === 'kanban'
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                >
+                  Kanban
+                </button>
+                {reportsEnabled && (reportsVisibleTo === 'all' || currentUser.roles?.includes('admin')) && (
                   <button
-                    onClick={() => onPageChange('kanban')}
+                    onClick={() => onPageChange('reports')}
                     className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      currentPage === 'kanban'
+                      currentPage === 'reports'
                         ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                         : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                   >
-                    Kanban
+                    Reports
                   </button>
                 )}
                 {currentUser.roles?.includes('admin') && (
@@ -404,7 +502,7 @@ const Header: React.FC<HeaderProps> = ({
                       currentPage === 'admin'
                         ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                         : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
+                      }`}
                     data-tour-id="admin-tab"
                   >
                     Admin

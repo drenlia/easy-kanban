@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { runMigrations } from '../migrations/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -102,6 +103,14 @@ export const initializeDatabase = () => {
   
   // Initialize default data
   initializeDefaultData(db);
+  
+  // Run database migrations (automatically applies new schema changes)
+  try {
+    runMigrations(db);
+  } catch (error) {
+    console.error('❌ Failed to run migrations:', error);
+    throw error;
+  }
   
   return db;
 };
@@ -492,6 +501,23 @@ const initializeDefaultData = (db) => {
         requesterTaskCreated: true,
         requesterTaskUpdated: true
       })], // Global notification defaults
+      // Reporting & Analytics Settings
+      ['REPORTS_ENABLED', 'true'], // Enable/disable Reports module
+      ['REPORTS_GAMIFICATION_ENABLED', 'true'], // Enable points and gamification
+      ['REPORTS_LEADERBOARD_ENABLED', 'true'], // Enable leaderboard rankings
+      ['REPORTS_ACHIEVEMENTS_ENABLED', 'true'], // Enable achievement badges
+      ['REPORTS_SNAPSHOT_FREQUENCY', 'daily'], // Snapshot frequency: daily, weekly, or manual
+      ['REPORTS_RETENTION_DAYS', '730'], // Data retention in days (2 years default)
+      ['REPORTS_VISIBLE_TO', 'all'], // Who can see reports: all, admin, members
+      ['REPORTS_POINTS_TASK_CREATED', '5'], // Points for creating a task
+      ['REPORTS_POINTS_TASK_COMPLETED', '10'], // Points for completing a task
+      ['REPORTS_POINTS_TASK_MOVED', '2'], // Points for moving a task
+      ['REPORTS_POINTS_TASK_UPDATED', '1'], // Points for updating a task
+      ['REPORTS_POINTS_COMMENT_ADDED', '3'], // Points for adding a comment
+      ['REPORTS_POINTS_WATCHER_ADDED', '1'], // Points for adding a watcher
+      ['REPORTS_POINTS_COLLABORATOR_ADDED', '2'], // Points for adding a collaborator
+      ['REPORTS_POINTS_TAG_ADDED', '1'], // Points for adding a tag
+      ['REPORTS_POINTS_EFFORT_MULTIPLIER', '2'], // Multiplier for effort points
       ['UPLOAD_FILETYPES', JSON.stringify({
         // Images
         'image/jpeg': true,

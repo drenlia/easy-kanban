@@ -11,9 +11,10 @@ import {
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import Admin from '../Admin';
 import KanbanPage from './KanbanPage';
+import Reports from '../Reports';
 
 interface MainLayoutProps {
-  currentPage: 'kanban' | 'admin';
+  currentPage: 'kanban' | 'admin' | 'reports';
   currentUser: CurrentUser | null;
   selectedTask: Task | null;
   
@@ -150,6 +151,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({
             onUsersChanged={onUsersChanged}
             onSettingsChanged={onSettingsChanged}
           />
+        ) : currentPage === 'reports' ? (
+          <Reports currentUser={currentUser} />
         ) : (
           <KanbanPage
             currentUser={currentUser}
