@@ -14,19 +14,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Get git commit hash (short version)
-let gitCommit = 'unknown';
-try {
-  gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
-} catch (error) {
-  console.warn('⚠️ Unable to get git commit hash:', error.message);
+// Prefer environment variable (from Docker build args), fallback to git command
+let gitCommit = process.env.GIT_COMMIT || 'unknown';
+if (gitCommit === 'unknown') {
+  try {
+    gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim();
+  } catch (error) {
+    console.warn('⚠️ Unable to get git commit hash:', error.message);
+  }
 }
 
 // Get git branch
-let gitBranch = 'unknown';
-try {
-  gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
-} catch (error) {
-  console.warn('⚠️ Unable to get git branch:', error.message);
+// Prefer environment variable (from Docker build args), fallback to git command
+let gitBranch = process.env.GIT_BRANCH || 'unknown';
+if (gitBranch === 'unknown') {
+  try {
+    gitBranch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+  } catch (error) {
+    console.warn('⚠️ Unable to get git branch:', error.message);
+  }
 }
 
 // Read package.json version
@@ -40,8 +46,8 @@ try {
   console.warn('⚠️ Unable to read package.json version:', error.message);
 }
 
-// Build timestamp
-const buildTime = new Date().toISOString();
+// Build timestamp (prefer env var from Docker build arg)
+const buildTime = process.env.BUILD_TIME || new Date().toISOString();
 
 // Generate version string (semantic-version-gitCommit)
 // Example: 1.2.3-a1b2c3d or 0.9-beta-a1b2c3d

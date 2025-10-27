@@ -21,6 +21,18 @@ RUN npm run build
 # Stage 2: Build the backend and create production image
 FROM node:20-alpine AS production
 
+# Build arguments for version tracking
+ARG GIT_COMMIT=unknown
+ARG GIT_BRANCH=unknown
+ARG BUILD_TIME
+ARG BUILD_NUMBER
+
+# Set as environment variables for version generation
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV GIT_BRANCH=${GIT_BRANCH}
+ENV BUILD_TIME=${BUILD_TIME}
+ENV BUILD_NUMBER=${BUILD_NUMBER}
+
 WORKDIR /app
 
 # Install dumb-init and curl for proper signal handling and health checks
@@ -41,11 +53,8 @@ COPY . .
 
 # Note: We exclude node_modules via .dockerignore
 
-# Generate version.json at build time (requires git to be available temporarily)
-USER root
-RUN apk add --no-cache git && \
-    node scripts/generate-version.js && \
-    apk del git
+# Generate version.json at build time using build args
+RUN node scripts/generate-version.js
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
