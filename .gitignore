@@ -115,3 +115,6 @@ Thumbs.db
 # Test files
 test-xss-fix.html
 QA_Test_Plan.csv
+
+# Generated version file (created at Docker build time)
+server/version.json

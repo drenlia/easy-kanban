@@ -598,6 +598,15 @@ class WebSocketClient {
     this.socket?.off('settings-updated', callback);
   }
 
+  // Task snapshots update events
+  onTaskSnapshotsUpdated(callback: (data: any) => void) {
+    this.addEventListener('task-snapshots-updated', callback);
+  }
+
+  offTaskSnapshotsUpdated(callback?: (data: any) => void) {
+    this.socket?.off('task-snapshots-updated', callback);
+  }
+
   // User management events
   onUserCreated(callback: (data: any) => void) {
     this.addEventListener('user-created', callback);

@@ -1,6 +1,7 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
+import * as reportingLogger from '../services/reportingLogger.js';
 import { TASK_ACTIONS } from '../constants/activityActions.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkTaskLimit } from '../middleware/licenseCheck.js';
@@ -74,6 +75,64 @@ const generateTaskTicket = (db, prefix = 'TASK-') => {
     nextNumber = currentNumber + 1;
   }
   return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+};
+
+// Helper function to log activity to reporting system
+const logReportingActivity = async (db, eventType, userId, taskId, metadata = {}) => {
+  try {
+    // Get user info
+    const userInfo = reportingLogger.getUserInfo(db, userId);
+    if (!userInfo) {
+      console.warn(`User ${userId} not found for reporting activity log`);
+      return;
+    }
+
+    // Get task info
+    const task = wrapQuery(db.prepare(`
+      SELECT t.*, b.title as board_title, c.title as column_title, b.id as board_id
+      FROM tasks t
+      LEFT JOIN boards b ON t.boardId = b.id
+      LEFT JOIN columns c ON t.columnId = c.id
+      WHERE t.id = ?
+    `), 'SELECT').get(taskId);
+
+    if (!task) {
+      console.warn(`Task ${taskId} not found for reporting activity log`);
+      return;
+    }
+
+    // Get tags if any
+    const taskTags = wrapQuery(db.prepare(`
+      SELECT t.tag as name FROM task_tags tt
+      JOIN tags t ON tt.tagId = t.id
+      WHERE tt.taskId = ?
+    `), 'SELECT').all(taskId);
+
+    // Prepare event data
+    const eventData = {
+      eventType,
+      userId: userInfo.id,
+      userName: userInfo.name,
+      userEmail: userInfo.email,
+      taskId: task.id,
+      taskTitle: task.title,
+      taskTicket: task.ticket,
+      boardId: task.boardId,
+      boardName: task.board_title,
+      columnId: task.columnId,
+      columnName: task.column_title,
+      effortPoints: task.effort,
+      priorityName: task.priority,
+      tags: taskTags.length > 0 ? taskTags.map(t => t.name) : null,
+      ...metadata
+    };
+
+    // Log the activity
+    await reportingLogger.logActivity(db, eventData);
+  } catch (error) {
+    console.error('Failed to log reporting activity:', error);
+    // Don't throw - reporting should never break main functionality
+  }
 };
 
 // Get all tasks
@@ -268,6 +327,9 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       }
     );
     
+    // Log to reporting system
+    await logReportingActivity(db, 'task_created', userId, task.id);
+    
     // Add the generated ticket to the task object before publishing
     task.ticket = ticket;
     
@@ -333,6 +395,9 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
         boardId: task.boardId 
       }
     );
+    
+    // Log to reporting system
+    await logReportingActivity(db, 'task_created', userId, task.id);
     
     // Add the generated ticket to the task object
     task.ticket = ticket;
@@ -435,6 +500,25 @@ router.put('/:id', authenticateToken, async (req, res) => {
           newValue
         }
       );
+      
+      // Log to reporting system
+      // Check if this is a column move
+      if (currentTask.columnId !== task.columnId) {
+        // Get column info to check if task is completed
+        const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(task.columnId);
+        const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask.columnId);
+        
+        const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
+        await logReportingActivity(db, eventType, userId, id, {
+          fromColumnId: currentTask.columnId,
+          fromColumnName: oldColumn?.title,
+          toColumnId: task.columnId,
+          toColumnName: newColumn?.title
+        });
+      } else {
+        // Regular update
+        await logReportingActivity(db, 'task_updated', userId, id);
+      }
     }
     
     // Publish to Redis for real-time updates
@@ -472,6 +556,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Get board title for activity logging
     const board = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
+    
+    // Log to reporting system BEFORE deletion (while we can still fetch task data)
+    await logReportingActivity(db, 'task_deleted', userId, id);
     
     // Get task attachments before deleting the task
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE taskId = ?');
@@ -597,6 +684,21 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         boardId: currentTask.boardId
       }
     );
+    
+    // Log to reporting system - check if column changed
+    if (previousColumnId !== columnId) {
+      // This is a column move
+      const newColumn = wrapQuery(db.prepare('SELECT title, is_done FROM columns WHERE id = ?'), 'SELECT').get(columnId);
+      const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(previousColumnId);
+      
+      const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
+      await logReportingActivity(db, eventType, userId, taskId, {
+        fromColumnId: previousColumnId,
+        fromColumnName: oldColumn?.title,
+        toColumnId: columnId,
+        toColumnName: newColumn?.title
+      });
+    }
 
     // Get the updated task data for WebSocket
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
@@ -748,6 +850,18 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       }
     );
     
+    // Log to reporting system
+    const newColumn = wrapQuery(db.prepare('SELECT title, is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);
+    const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(originalColumnId);
+    
+    const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
+    await logReportingActivity(db, eventType, userId, taskId, {
+      fromColumnId: originalColumnId,
+      fromColumnName: oldColumn?.title,
+      toColumnId: targetColumn.id,
+      toColumnName: newColumn?.title
+    });
+    
     // Get the updated task data for WebSocket
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
@@ -808,10 +922,11 @@ router.get('/by-board/:boardId', authenticateToken, (req, res) => {
 });
 
 // Add watcher to task
-router.post('/:taskId/watchers/:memberId', async (req, res) => {
+router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
+    const userId = req.user?.id || 'system';
     
     // Get task's board ID for Redis publishing
     const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
@@ -823,6 +938,9 @@ router.post('/:taskId/watchers/:memberId', async (req, res) => {
       INSERT OR IGNORE INTO watchers (taskId, memberId, createdAt)
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    // Log to reporting system
+    await logReportingActivity(db, 'watcher_added', userId, taskId);
     
     // Publish to Redis for real-time updates
     await redisService.publish('task-watcher-added', {
@@ -871,10 +989,11 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
 });
 
 // Add collaborator to task
-router.post('/:taskId/collaborators/:memberId', async (req, res) => {
+router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { taskId, memberId } = req.params;
+    const userId = req.user?.id || 'system';
     
     // Get task's board ID for Redis publishing
     const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
@@ -886,6 +1005,9 @@ router.post('/:taskId/collaborators/:memberId', async (req, res) => {
       INSERT OR IGNORE INTO collaborators (taskId, memberId, createdAt)
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
+    
+    // Log to reporting system
+    await logReportingActivity(db, 'collaborator_added', userId, taskId);
     
     // Publish to Redis for real-time updates
     await redisService.publish('task-collaborator-added', {

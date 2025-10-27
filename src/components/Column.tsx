@@ -130,16 +130,43 @@ export default function KanbanColumn({
   const [isArchived, setIsArchived] = useState(column.is_archived || false);
   const [showMenu, setShowMenu] = useState(false);
 
-  // Reset state when editing starts
+  // Initialize state when editing starts (but only once per edit session)
   useEffect(() => {
-    if (isEditing) {
+    if (isEditing && !editingStartedRef.current) {
+      // Mark that we've started editing
+      editingStartedRef.current = true;
+      
+      setTitle(column.title);
+      setIsFinished(column.is_finished || false);
+      setIsArchived(column.is_archived || false);
+      
+      // Run auto-detection immediately when editing starts
+      if (siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES) {
+        const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
+        const shouldBeFinished = finishedColumnNames.some(finishedName => 
+          finishedName.toLowerCase() === column.title.toLowerCase()
+        );
+        if (shouldBeFinished) {
+          setIsFinished(true);
+          setIsArchived(false);
+        }
+      }
+    } else if (!isEditing) {
+      // Reset the flag when we exit editing mode
+      editingStartedRef.current = false;
+    }
+  }, [isEditing, column.title, column.is_finished, column.is_archived, siteSettings]);
+  
+  // Sync state with props when NOT editing
+  useEffect(() => {
+    if (!isEditing) {
       setTitle(column.title);
       setIsFinished(column.is_finished || false);
       setIsArchived(column.is_archived || false);
     }
-  }, [isEditing, column.title, column.is_finished, column.is_archived]);
+  }, [column.title, column.is_finished, column.is_archived, isEditing]);
 
-  // Auto-detect finished column names when title changes
+  // Auto-detect finished column names when title changes during editing
   useEffect(() => {
     if (isEditing && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES) {
       const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
@@ -180,6 +207,20 @@ export default function KanbanColumn({
   const [shouldSelectAll, setShouldSelectAll] = useState(false);
   const columnHeaderRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const lastSaveTimestampRef = useRef<number>(0);
+  const editingStartedRef = useRef<boolean>(false);
+  
+  // Refs to track latest state values for click-outside handler
+  const titleRef = useRef(title);
+  const isFinishedRef = useRef(isFinished);
+  const isArchivedRef = useRef(isArchived);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    titleRef.current = title;
+    isFinishedRef.current = isFinished;
+    isArchivedRef.current = isArchived;
+  }, [title, isFinished, isArchived]);
 
   // Auto-close menu when clicking outside
   React.useEffect(() => {
@@ -211,10 +252,21 @@ export default function KanbanColumn({
         const target = event.target as HTMLElement;
         // Check if click is outside the column header (edit form)
         if (!columnHeaderRef.current.contains(target)) {
-          // Save the changes
-          if (title.trim() && !isSubmitting) {
+          // Skip save if we just did an immediate save (within last 500ms)
+          const now = Date.now();
+          if (now - lastSaveTimestampRef.current < 500) {
+            setIsEditing(false);
+            return;
+          }
+          
+          // Save the changes using latest values from refs
+          const currentTitle = titleRef.current;
+          const currentIsFinished = isFinishedRef.current;
+          const currentIsArchived = isArchivedRef.current;
+          
+          if (currentTitle.trim() && !isSubmitting) {
             setIsSubmitting(true);
-            await onEditColumn(column.id, title.trim(), isFinished, isArchived);
+            await onEditColumn(column.id, currentTitle.trim(), currentIsFinished, currentIsArchived);
             setIsEditing(false);
             setIsSubmitting(false);
           }
@@ -234,7 +286,7 @@ export default function KanbanColumn({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isEditing, title, isFinished, isArchived, isSubmitting, column.id, onEditColumn]);
+  }, [isEditing, isSubmitting, column.id, onEditColumn]);
 
   // Handle text selection when editing starts via click
   React.useEffect(() => {
@@ -304,11 +356,46 @@ export default function KanbanColumn({
 
   const handleTitleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || isSubmitting) return;
+    
+    // Use refs to get latest values (in case auto-detection just ran)
+    const currentTitle = titleRef.current;
+    const currentIsFinished = isFinishedRef.current;
+    const currentIsArchived = isArchivedRef.current;
+    
+    if (!currentTitle.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
-    await onEditColumn(column.id, title.trim(), isFinished, isArchived);
+    await onEditColumn(column.id, currentTitle.trim(), currentIsFinished, currentIsArchived);
     setIsEditing(false);
+    setIsSubmitting(false);
+  };
+
+  // Handle immediate save when toggling checkboxes
+  const handleFinishedToggle = async (checked: boolean) => {
+    if (isSubmitting) return;
+    
+    setIsFinished(checked);
+    if (checked) {
+      setIsArchived(false); // Cannot be both
+    }
+    
+    setIsSubmitting(true);
+    lastSaveTimestampRef.current = Date.now(); // Mark that we just saved
+    await onEditColumn(column.id, title.trim(), checked, checked ? false : isArchived);
+    setIsSubmitting(false);
+  };
+
+  const handleArchivedToggle = async (checked: boolean) => {
+    if (isSubmitting) return;
+    
+    setIsArchived(checked);
+    if (checked) {
+      setIsFinished(false); // Cannot be both
+    }
+    
+    setIsSubmitting(true);
+    lastSaveTimestampRef.current = Date.now(); // Mark that we just saved
+    await onEditColumn(column.id, title.trim(), checked ? false : isFinished, checked);
     setIsSubmitting(false);
   };
 
@@ -528,12 +615,15 @@ export default function KanbanColumn({
                       </span>
                     ) : null;
                   })()}
+                  {isSubmitting && (
+                    <span className="text-xs text-gray-500">Saving...</span>
+                  )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
                     checked={isFinished}
-                    onChange={(e) => setIsFinished(e.target.checked)}
+                    onChange={(e) => handleFinishedToggle(e.target.checked)}
                     className="sr-only peer"
                     disabled={isSubmitting}
                   />
@@ -551,12 +641,15 @@ export default function KanbanColumn({
                       Auto-detected
                     </span>
                   )}
+                  {isSubmitting && (
+                    <span className="text-xs text-gray-500">Saving...</span>
+                  )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
                     checked={isArchived}
-                    onChange={(e) => setIsArchived(e.target.checked)}
+                    onChange={(e) => handleArchivedToggle(e.target.checked)}
                     className="sr-only peer"
                     disabled={isSubmitting}
                   />

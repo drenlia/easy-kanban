@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { runMigrations } from '../migrations/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -100,10 +101,23 @@ export const initializeDatabase = () => {
   // Create tables
   createTables(db);
   
-  // Initialize default data
-  initializeDefaultData(db);
+  // Initialize default data and capture version info
+  const versionInfo = initializeDefaultData(db);
   
-  return db;
+  // Run database migrations (automatically applies new schema changes)
+  try {
+    runMigrations(db);
+  } catch (error) {
+    console.error('❌ Failed to run migrations:', error);
+    throw error;
+  }
+  
+  // Return both db and version info for broadcasting
+  return { 
+    db, 
+    appVersion: versionInfo?.appVersion || null,
+    versionChanged: versionInfo?.versionChanged || false
+  };
 };
 
 // Create database tables
@@ -492,6 +506,23 @@ const initializeDefaultData = (db) => {
         requesterTaskCreated: true,
         requesterTaskUpdated: true
       })], // Global notification defaults
+      // Reporting & Analytics Settings
+      ['REPORTS_ENABLED', 'true'], // Enable/disable Reports module
+      ['REPORTS_GAMIFICATION_ENABLED', 'true'], // Enable points and gamification
+      ['REPORTS_LEADERBOARD_ENABLED', 'true'], // Enable leaderboard rankings
+      ['REPORTS_ACHIEVEMENTS_ENABLED', 'true'], // Enable achievement badges
+      ['REPORTS_SNAPSHOT_FREQUENCY', 'daily'], // Snapshot frequency: daily, weekly, or manual
+      ['REPORTS_RETENTION_DAYS', '730'], // Data retention in days (2 years default)
+      ['REPORTS_VISIBLE_TO', 'all'], // Who can see reports: all, admin, members
+      ['REPORTS_POINTS_TASK_CREATED', '5'], // Points for creating a task
+      ['REPORTS_POINTS_TASK_COMPLETED', '10'], // Points for completing a task
+      ['REPORTS_POINTS_TASK_MOVED', '2'], // Points for moving a task
+      ['REPORTS_POINTS_TASK_UPDATED', '1'], // Points for updating a task
+      ['REPORTS_POINTS_COMMENT_ADDED', '3'], // Points for adding a comment
+      ['REPORTS_POINTS_WATCHER_ADDED', '1'], // Points for adding a watcher
+      ['REPORTS_POINTS_COLLABORATOR_ADDED', '2'], // Points for adding a collaborator
+      ['REPORTS_POINTS_TAG_ADDED', '1'], // Points for adding a tag
+      ['REPORTS_POINTS_EFFORT_MULTIPLIER', '2'], // Multiplier for effort points
       ['UPLOAD_FILETYPES', JSON.stringify({
         // Images
         'image/jpeg': true,
@@ -932,22 +963,49 @@ const initializeDefaultData = (db) => {
     console.error('Error cleaning up orphaned members:', error);
   }
 
-  // Update APP_VERSION from environment variable on every startup (if present and different)
-  if (process.env.APP_VERSION) {
+  // Update APP_VERSION on every startup (from version.json or environment variable)
+  // Priority: 1) version.json (build-time), 2) ENV variable (runtime)
+  let appVersion = null;
+  let versionChanged = false;
+  
+  // Try to read from version.json (build-time version, works in K8s)
+  try {
+    const versionPath = new URL('../version.json', import.meta.url);
+    const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+    appVersion = versionData.version;
+    console.log(`📦 Read version from build-time version.json: ${appVersion}`);
+    console.log(`   Git commit: ${versionData.gitCommit} | Branch: ${versionData.gitBranch}`);
+    console.log(`   Built at: ${versionData.buildTime}`);
+  } catch (error) {
+    // Fallback to environment variable (Docker Compose, legacy)
+    if (process.env.APP_VERSION) {
+      appVersion = process.env.APP_VERSION;
+      console.log(`📦 Read version from environment variable: ${appVersion}`);
+    }
+  }
+  
+  // Update database if version is available
+  if (appVersion) {
     const currentVersion = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION');
     
     if (!currentVersion) {
       // APP_VERSION doesn't exist in settings, insert it
       db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-        .run('APP_VERSION', process.env.APP_VERSION);
-      console.log(`✅ Initialized APP_VERSION=${process.env.APP_VERSION} from environment variable`);
-    } else if (currentVersion.value !== process.env.APP_VERSION) {
+        .run('APP_VERSION', appVersion);
+      console.log(`✅ Initialized APP_VERSION=${appVersion}`);
+      versionChanged = true;
+    } else if (currentVersion.value !== appVersion) {
       // APP_VERSION has changed, update it
       db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
-        .run(process.env.APP_VERSION, 'APP_VERSION');
-      console.log(`✅ Updated APP_VERSION from ${currentVersion.value} to ${process.env.APP_VERSION}`);
+        .run(appVersion, 'APP_VERSION');
+      console.log(`✅ Updated APP_VERSION from ${currentVersion.value} to ${appVersion}`);
+      console.log(`   🔄 Users will be notified to refresh their browsers`);
+      versionChanged = true;
     }
   }
+  
+  // Return version info for broadcasting
+  return { appVersion, versionChanged };
 };
 
 export default initializeDatabase;

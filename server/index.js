@@ -29,8 +29,11 @@ const generateRandomPassword = (length = 12) => {
 };
 import { createDefaultAvatar, getRandomColor } from './utils/avatarGenerator.js';
 import { initActivityLogger, logActivity, logCommentActivity } from './services/activityLogger.js';
+import { initReportingLogger } from './services/reportingLogger.js';
+import * as reportingLogger from './services/reportingLogger.js';
 import { initNotificationService, getNotificationService } from './services/notificationService.js';
 import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
+import { initializeScheduler, manualTriggers } from './jobs/scheduler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
 
 // Import route modules
@@ -42,6 +45,8 @@ import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
 import adminPortalRouter from './routes/adminPortal.js';
+import reportsRouter from './routes/reports.js';
+import sprintsRouter from './routes/sprints.js';
 
 // Import real-time services
 import redisService from './services/redisService.js';
@@ -55,16 +60,22 @@ import { getLicenseManager } from './config/license.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Initialize database using extracted module
-const db = initializeDatabase();
+// Initialize database using extracted module and capture version info
+const dbInit = initializeDatabase();
+const db = dbInit.db;
+const versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
 
 // Initialize instance status setting
 initializeInstanceStatus(db);
 
-// Initialize activity logger and notification service with database instance
+// Initialize activity logger, reporting logger, and notification service with database instance
 initActivityLogger(db);
+initReportingLogger(db);
 initNotificationService(db);
 initNotificationThrottler(db);
+
+// Initialize background job scheduler
+initializeScheduler(db);
 
 const app = express();
 
@@ -81,13 +92,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helper function to get app version (from version.json or ENV or database)
+const getAppVersion = () => {
+  // Try version.json first (build-time, works in K8s)
+  try {
+    const versionPath = new URL('./version.json', import.meta.url);
+    const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+    return versionData.version;
+  } catch (error) {
+    // Fallback to ENV variable or database
+    return process.env.APP_VERSION || 
+      db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
+      '0';
+  }
+};
+
 // Add app version header to all responses
 app.use((req, res, next) => {
-  // Get version from environment variable or database setting
-  const appVersion = process.env.APP_VERSION || 
-    db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
-    '0';
-  res.setHeader('X-App-Version', appVersion);
+  res.setHeader('X-App-Version', getAppVersion());
   next();
 });
 
@@ -544,6 +566,8 @@ app.use('/api/tasks', authenticateToken, tasksRouter);
 app.use('/api/views', viewsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
+app.use('/api/reports', reportsRouter);
+app.use('/api/admin/sprints', sprintsRouter);
 
 // Admin Portal API routes (external access using INSTANCE_TOKEN)
 app.use('/api/admin-portal', adminPortalRouter);
@@ -551,6 +575,23 @@ app.use('/api/admin-portal', adminPortalRouter);
 // ================================
 // ADDITIONAL ENDPOINTS
 // ================================
+
+// Version info endpoint (public, useful for debugging and K8s readiness checks)
+app.get('/api/version', (req, res) => {
+  try {
+    // Try to read full version info from version.json
+    const versionPath = new URL('./version.json', import.meta.url);
+    const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+    res.json(versionData);
+  } catch (error) {
+    // Fallback to basic version info
+    res.json({
+      version: getAppVersion(),
+      source: 'environment',
+      environment: process.env.NODE_ENV || 'production'
+    });
+  }
+});
 
 // Comments endpoints
 app.post('/api/comments', authenticateToken, async (req, res) => {
@@ -612,6 +653,38 @@ app.post('/api/comments', authenticateToken, async (req, res) => {
         `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
         { commentContent: comment.text }
       );
+      
+      // Log to reporting system
+      try {
+        const userInfo = reportingLogger.getUserInfo(db, userId);
+        const taskInfo = wrapQuery(db.prepare(`
+          SELECT t.*, b.title as board_title, c.title as column_title
+          FROM tasks t
+          LEFT JOIN boards b ON t.boardId = b.id
+          LEFT JOIN columns c ON t.columnId = c.id
+          WHERE t.id = ?
+        `), 'SELECT').get(comment.taskId);
+        
+        if (userInfo && taskInfo) {
+          await reportingLogger.logActivity(db, {
+            eventType: 'comment_added',
+            userId: userInfo.id,
+            userName: userInfo.name,
+            userEmail: userInfo.email,
+            taskId: taskInfo.id,
+            taskTitle: taskInfo.title,
+            taskTicket: taskInfo.ticket,
+            boardId: taskInfo.boardId,
+            boardName: taskInfo.board_title,
+            columnId: taskInfo.columnId,
+            columnName: taskInfo.column_title,
+            effortPoints: taskInfo.effort,
+            priorityName: taskInfo.priority
+          });
+        }
+      } catch (reportError) {
+        console.error('Failed to log comment to reporting system:', reportError);
+      }
       
       // Get the task's board ID for Redis publishing
       const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
@@ -2490,6 +2563,85 @@ const getContainerMemoryInfo = () => {
 };
 
 // System information endpoint (admin only)
+// Database migrations status endpoint
+app.get('/api/admin/migrations', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { getMigrationStatus } = require('./migrations/index.js');
+    const status = getMigrationStatus(db);
+    
+    res.json({
+      success: true,
+      ...status
+    });
+  } catch (error) {
+    console.error('Error fetching migration status:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch migration status',
+      message: error.message 
+    });
+  }
+});
+
+// Admin endpoints for manual job triggers
+app.post('/api/admin/jobs/snapshot', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    console.log('🔧 Admin triggered: Task snapshot creation');
+    const result = await manualTriggers.triggerSnapshot(db);
+    res.json({
+      success: true,
+      message: 'Task snapshots created successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error triggering snapshot:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create snapshots',
+      message: error.message 
+    });
+  }
+});
+
+app.post('/api/admin/jobs/achievements', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    console.log('🔧 Admin triggered: Achievement check');
+    const result = await manualTriggers.triggerAchievementCheck(db);
+    res.json({
+      success: true,
+      message: 'Achievement check completed',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error triggering achievement check:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check achievements',
+      message: error.message 
+    });
+  }
+});
+
+app.post('/api/admin/jobs/cleanup', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { retentionDays } = req.body;
+    console.log(`🔧 Admin triggered: Snapshot cleanup (${retentionDays || 730} days)`);
+    const result = await manualTriggers.triggerCleanup(db, retentionDays);
+    res.json({
+      success: true,
+      message: 'Cleanup completed successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error triggering cleanup:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to cleanup snapshots',
+      message: error.message 
+    });
+  }
+});
+
 app.get('/api/admin/system-info', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     // Memory usage (container-aware)
@@ -2951,6 +3103,39 @@ app.post('/api/tasks/:taskId/tags/:tagId', authenticateToken, async (req, res) =
           boardId: task.boardId
         }
       );
+      
+      // Log to reporting system
+      try {
+        const userInfo = reportingLogger.getUserInfo(db, userId);
+        const taskInfo = wrapQuery(db.prepare(`
+          SELECT t.*, b.title as board_title, c.title as column_title
+          FROM tasks t
+          LEFT JOIN boards b ON t.boardId = b.id
+          LEFT JOIN columns c ON t.columnId = c.id
+          WHERE t.id = ?
+        `), 'SELECT').get(taskId);
+        
+        if (userInfo && taskInfo) {
+          await reportingLogger.logActivity(db, {
+            eventType: 'tag_added',
+            userId: userInfo.id,
+            userName: userInfo.name,
+            userEmail: userInfo.email,
+            taskId: taskInfo.id,
+            taskTitle: taskInfo.title,
+            taskTicket: taskInfo.ticket,
+            boardId: taskInfo.boardId,
+            boardName: taskInfo.board_title,
+            columnId: taskInfo.columnId,
+            columnName: taskInfo.column_title,
+            effortPoints: taskInfo.effort,
+            priorityName: taskInfo.priority,
+            metadata: { tagName: tag.tag }
+          });
+        }
+      } catch (reportError) {
+        console.error('Failed to log tag to reporting system:', reportError);
+      }
     }
     
     // Publish to Redis for real-time updates
@@ -3180,8 +3365,9 @@ app.get('/api/tasks/:taskId/watchers', authenticateToken, (req, res) => {
   }
 });
 
-app.post('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+app.post('/api/tasks/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
+  const userId = req.user?.id || 'system';
   
   try {
     // Check if association already exists
@@ -3192,6 +3378,39 @@ app.post('/api/tasks/:taskId/watchers/:memberId', authenticateToken, (req, res) 
     }
     
     wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    
+    // Log to reporting system
+    try {
+      const userInfo = reportingLogger.getUserInfo(db, userId);
+      const taskInfo = wrapQuery(db.prepare(`
+        SELECT t.*, b.title as board_title, c.title as column_title
+        FROM tasks t
+        LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN columns c ON t.columnId = c.id
+        WHERE t.id = ?
+      `), 'SELECT').get(taskId);
+      
+      if (userInfo && taskInfo) {
+        await reportingLogger.logActivity(db, {
+          eventType: 'watcher_added',
+          userId: userInfo.id,
+          userName: userInfo.name,
+          userEmail: userInfo.email,
+          taskId: taskInfo.id,
+          taskTitle: taskInfo.title,
+          taskTicket: taskInfo.ticket,
+          boardId: taskInfo.boardId,
+          boardName: taskInfo.board_title,
+          columnId: taskInfo.columnId,
+          columnName: taskInfo.column_title,
+          effortPoints: taskInfo.effort,
+          priorityName: taskInfo.priority
+        });
+      }
+    } catch (reportError) {
+      console.error('Failed to log watcher to reporting system:', reportError);
+    }
+    
     res.json({ message: 'Watcher added to task successfully' });
   } catch (error) {
     console.error('Error adding watcher to task:', error);
@@ -3235,8 +3454,9 @@ app.get('/api/tasks/:taskId/collaborators', authenticateToken, (req, res) => {
   }
 });
 
-app.post('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+app.post('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
+  const userId = req.user?.id || 'system';
   
   try {
     // Check if association already exists
@@ -3247,6 +3467,39 @@ app.post('/api/tasks/:taskId/collaborators/:memberId', authenticateToken, (req, 
     }
     
     wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    
+    // Log to reporting system
+    try {
+      const userInfo = reportingLogger.getUserInfo(db, userId);
+      const taskInfo = wrapQuery(db.prepare(`
+        SELECT t.*, b.title as board_title, c.title as column_title
+        FROM tasks t
+        LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN columns c ON t.columnId = c.id
+        WHERE t.id = ?
+      `), 'SELECT').get(taskId);
+      
+      if (userInfo && taskInfo) {
+        await reportingLogger.logActivity(db, {
+          eventType: 'collaborator_added',
+          userId: userInfo.id,
+          userName: userInfo.name,
+          userEmail: userInfo.email,
+          taskId: taskInfo.id,
+          taskTitle: taskInfo.title,
+          taskTicket: taskInfo.ticket,
+          boardId: taskInfo.boardId,
+          boardName: taskInfo.board_title,
+          columnId: taskInfo.columnId,
+          columnName: taskInfo.column_title,
+          effortPoints: taskInfo.effort,
+          priorityName: taskInfo.priority
+        });
+      }
+    } catch (reportError) {
+      console.error('Failed to log collaborator to reporting system:', reportError);
+    }
+    
     res.json({ message: 'Collaborator added to task successfully' });
   } catch (error) {
     console.error('Error adding collaborator to task:', error);
@@ -3566,14 +3819,21 @@ async function initializeServices() {
     
     console.log('✅ Real-time services initialized');
     
-    // Broadcast app version to all connected clients (after brief delay to ensure WebSocket is ready)
-    setTimeout(() => {
-      const appVersion = process.env.APP_VERSION || 
-        db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
-        '0';
+    // Broadcast app version to all connected clients
+    // If version changed, broadcast immediately; otherwise wait briefly for WebSocket connections
+    const broadcastVersion = () => {
+      const appVersion = getAppVersion();
       redisService.publish('version-updated', { version: appVersion });
-      console.log(`📦 Broadcasting app version: ${appVersion}`);
-    }, 1000);
+      console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
+    };
+    
+    if (versionInfo.versionChanged && versionInfo.appVersion) {
+      // Version changed - broadcast immediately to notify users
+      broadcastVersion();
+    } else {
+      // Normal startup - wait briefly for WebSocket connections
+      setTimeout(broadcastVersion, 1000);
+    }
   } catch (error) {
     console.error('❌ Failed to initialize real-time services:', error);
     // Continue without real-time features
