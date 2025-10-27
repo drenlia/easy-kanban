@@ -41,6 +41,12 @@ COPY . .
 
 # Note: We exclude node_modules via .dockerignore
 
+# Generate version.json at build time (requires git to be available temporarily)
+USER root
+RUN apk add --no-cache git && \
+    node scripts/generate-version.js && \
+    apk del git
+
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
     chown -R nextjs:nodejs /app

@@ -60,8 +60,10 @@ import { getLicenseManager } from './config/license.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Initialize database using extracted module
-const db = initializeDatabase();
+// Initialize database using extracted module and capture version info
+const dbInit = initializeDatabase();
+const db = dbInit.db;
+const versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
 
 // Initialize instance status setting
 initializeInstanceStatus(db);
@@ -90,13 +92,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Helper function to get app version (from version.json or ENV or database)
+const getAppVersion = () => {
+  // Try version.json first (build-time, works in K8s)
+  try {
+    const versionPath = new URL('./version.json', import.meta.url);
+    const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+    return versionData.version;
+  } catch (error) {
+    // Fallback to ENV variable or database
+    return process.env.APP_VERSION || 
+      db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
+      '0';
+  }
+};
+
 // Add app version header to all responses
 app.use((req, res, next) => {
-  // Get version from environment variable or database setting
-  const appVersion = process.env.APP_VERSION || 
-    db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
-    '0';
-  res.setHeader('X-App-Version', appVersion);
+  res.setHeader('X-App-Version', getAppVersion());
   next();
 });
 
@@ -562,6 +575,23 @@ app.use('/api/admin-portal', adminPortalRouter);
 // ================================
 // ADDITIONAL ENDPOINTS
 // ================================
+
+// Version info endpoint (public, useful for debugging and K8s readiness checks)
+app.get('/api/version', (req, res) => {
+  try {
+    // Try to read full version info from version.json
+    const versionPath = new URL('./version.json', import.meta.url);
+    const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+    res.json(versionData);
+  } catch (error) {
+    // Fallback to basic version info
+    res.json({
+      version: getAppVersion(),
+      source: 'environment',
+      environment: process.env.NODE_ENV || 'production'
+    });
+  }
+});
 
 // Comments endpoints
 app.post('/api/comments', authenticateToken, async (req, res) => {
@@ -3789,14 +3819,21 @@ async function initializeServices() {
     
     console.log('✅ Real-time services initialized');
     
-    // Broadcast app version to all connected clients (after brief delay to ensure WebSocket is ready)
-    setTimeout(() => {
-      const appVersion = process.env.APP_VERSION || 
-        db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_VERSION')?.value || 
-        '0';
+    // Broadcast app version to all connected clients
+    // If version changed, broadcast immediately; otherwise wait briefly for WebSocket connections
+    const broadcastVersion = () => {
+      const appVersion = getAppVersion();
       redisService.publish('version-updated', { version: appVersion });
-      console.log(`📦 Broadcasting app version: ${appVersion}`);
-    }, 1000);
+      console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
+    };
+    
+    if (versionInfo.versionChanged && versionInfo.appVersion) {
+      // Version changed - broadcast immediately to notify users
+      broadcastVersion();
+    } else {
+      // Normal startup - wait briefly for WebSocket connections
+      setTimeout(broadcastVersion, 1000);
+    }
   } catch (error) {
     console.error('❌ Failed to initialize real-time services:', error);
     // Continue without real-time features
