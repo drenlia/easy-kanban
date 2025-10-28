@@ -44,7 +44,7 @@ const AdminSprintSettingsTab: React.FC = () => {
       }
 
       const data = await response.json();
-      setSprints(data);
+      setSprints(data.sprints || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sprints');
@@ -186,7 +186,10 @@ const AdminSprintSettingsTab: React.FC = () => {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+    // Parse as local date to avoid timezone offset issues
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day); // month is 0-indexed
+    return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'

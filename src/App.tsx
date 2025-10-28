@@ -1205,25 +1205,12 @@ export default function App() {
     wasOfflineRef.current = true;
   }, [setIsOnline]);
 
-  useEffect(() => {
-    if (!isAuthenticated || !localStorage.getItem('authToken')) {
-      return;
-    }
-
-    // Register handlers BEFORE connecting
-    websocketClient.onWebSocketReady(handleWebSocketReady);
-    websocketClient.onConnect(handleReconnect);
-    websocketClient.onDisconnect(handleDisconnect);
-
-    // Listen to browser online/offline events
-    window.addEventListener('online', handleBrowserOnline);
-    window.addEventListener('offline', handleBrowserOffline);
-
-    // Connect to WebSocket only when we have a valid token
-    websocketClient.connect();
-    
-    // Set up event handlers
-    const handleTaskCreated = (data: any) => {
+  // ============================================================================
+  // WEBSOCKET EVENT HANDLERS - Memoized to prevent duplicate registrations
+  // ============================================================================
+  // All handlers use functional setState or refs, so they have minimal dependencies
+  
+  const handleTaskCreated = useCallback((data: any) => {
       if (!data.task || !data.boardId) return;
       
       const timestamp = new Date().toISOString();
@@ -1337,9 +1324,9 @@ export default function App() {
       } else {
         console.log(`📨 [${timestamp}] [WebSocket] Task is for different board, skipping columns update`);
       }
-    };
+  }, [setBoards, setColumns]); // setState functions are stable
 
-    const handleTaskUpdated = (data: any) => {
+  const handleTaskUpdated = useCallback((data: any) => {
       // Get current selectedBoard value from ref to avoid stale closure
       const currentSelectedBoard = selectedBoardRef.current;
       // Check if we should process this update
@@ -1386,11 +1373,18 @@ export default function App() {
                 }
               });
               
-              // Add to new column if it was moved
+              // Add to new column if it was moved, at the correct position
               if (found && updatedColumns[newColumnId] && !updatedColumns[newColumnId].tasks?.some((t: any) => t.id === taskId)) {
+                const targetColumn = updatedColumns[newColumnId];
+                const targetPosition = data.task.position ?? (targetColumn.tasks?.length || 0);
+                const newTasks = [...(targetColumn.tasks || [])];
+                
+                // Insert at the specified position
+                newTasks.splice(targetPosition, 0, data.task);
+                
                 updatedColumns[newColumnId] = {
-                  ...updatedColumns[newColumnId],
-                  tasks: [...(updatedColumns[newColumnId].tasks || []), data.task]
+                  ...targetColumn,
+                  tasks: newTasks
                 };
               }
               
@@ -1468,11 +1462,18 @@ export default function App() {
               }
             }
             
-            // Add to new column
+            // Add to new column at the correct position
             if (updatedColumns[newColumnId]) {
+              const targetColumn = updatedColumns[newColumnId];
+              const targetPosition = data.task.position ?? targetColumn.tasks.length;
+              const newTasks = [...targetColumn.tasks];
+              
+              // Insert at the specified position
+              newTasks.splice(targetPosition, 0, data.task);
+              
               updatedColumns[newColumnId] = {
-                ...updatedColumns[newColumnId],
-                tasks: [...updatedColumns[newColumnId].tasks, data.task]
+                ...targetColumn,
+                tasks: newTasks
               };
             } else {
             }
@@ -1533,18 +1534,27 @@ export default function App() {
                   ]
                 };
               } else {
-                // Task not found, add at end
+                // Task not found, insert at correct position
+                const targetPosition = data.task.position ?? column.tasks.length;
+                const newTasks = [...column.tasks];
+                newTasks.splice(targetPosition, 0, data.task);
+                
                 updatedFilteredColumns[newColumnId] = {
                   ...column,
-                  tasks: [...column.tasks, data.task]
+                  tasks: newTasks
                 };
               }
             } else {
-              // Different column or new task - add to new column
+              // Different column or new task - add to new column at correct position
               if (updatedFilteredColumns[newColumnId]) {
+                const targetColumn = updatedFilteredColumns[newColumnId];
+                const targetPosition = data.task.position ?? targetColumn.tasks.length;
+                const newTasks = [...targetColumn.tasks];
+                newTasks.splice(targetPosition, 0, data.task);
+                
                 updatedFilteredColumns[newColumnId] = {
-                  ...updatedFilteredColumns[newColumnId],
-                  tasks: [...updatedFilteredColumns[newColumnId].tasks, data.task]
+                  ...targetColumn,
+                  tasks: newTasks
                 };
               }
             }
@@ -1622,9 +1632,9 @@ export default function App() {
         });
       } else {
       }
-    };
+  }, [setBoards, setColumns]); // setState functions are stable
 
-    const handleTaskDeleted = (data: any) => {
+  const handleTaskDeleted = useCallback((data: any) => {
       if (!data.taskId || !data.boardId) return;
       
       // Always update boards state for task count updates (for all boards)
@@ -1720,9 +1730,9 @@ export default function App() {
           return updatedFilteredColumns;
         });
       }
-    };
+  }, [setBoards, setColumns]); // setState functions are stable
 
-    const handleTaskRelationshipCreated = (data: any) => {
+  const handleTaskRelationshipCreated = useCallback((data: any) => {
       // Only refresh if the relationship is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Load just the relationships instead of full refresh
@@ -1733,12 +1743,14 @@ export default function App() {
           .catch(error => {
             console.warn('Failed to load relationships:', error);
             // Fallback to full refresh on error
-            refreshBoardData();
+            if (refreshBoardDataRef.current) {
+              refreshBoardDataRef.current();
+            }
           });
       }
-    };
+  }, [setBoardRelationships]);
 
-    const handleTaskRelationshipDeleted = (data: any) => {
+  const handleTaskRelationshipDeleted = useCallback((data: any) => {
       // Only refresh if the relationship is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // Load just the relationships instead of full refresh
@@ -1749,12 +1761,14 @@ export default function App() {
           .catch(error => {
             console.warn('Failed to load relationships:', error);
             // Fallback to full refresh on error
-            refreshBoardData();
+            if (refreshBoardDataRef.current) {
+              refreshBoardDataRef.current();
+            }
           });
       }
-    };
+  }, [setBoardRelationships]);
 
-    const handleColumnUpdated = (data: any) => {
+  const handleColumnUpdated = useCallback((data: any) => {
       if (!data.column || !data.boardId) return;
       
       // Update boards state for all boards
@@ -1795,9 +1809,9 @@ export default function App() {
           return updatedColumns;
         });
       }
-    };
+  }, [setBoards, setColumns]);
 
-    const handleColumnDeleted = (data: any) => {
+  const handleColumnDeleted = useCallback((data: any) => {
       if (!data.columnId || !data.boardId) return;
       
       // Update boards state for all boards
@@ -1828,9 +1842,9 @@ export default function App() {
           return updatedColumns;
         });
       }
-    };
+  }, [setBoards, setColumns]);
 
-    const handleColumnReordered = (data: any) => {
+  const handleColumnReordered = useCallback((data: any) => {
       if (!data.boardId || !data.columns) return;
       
       // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
@@ -1877,71 +1891,87 @@ export default function App() {
           return updatedColumns;
         });
       }
-    };
+  }, [setBoards, setColumns, currentUser?.id]);
 
-    const handleBoardCreated = (data: any) => {
+  const handleBoardCreated = useCallback((data: any) => {
       // Refresh boards list to show new board
-      refreshBoardData();
-    };
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current();
+      }
+  }, []);
 
-    const handleBoardUpdated = (data: any) => {
+  const handleBoardUpdated = useCallback((data: any) => {
       console.log('🔄 Refreshing board data due to board update...');
       // Refresh boards list
-      refreshBoardData();
-    };
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current();
+      }
+  }, []);
 
-    const handleBoardDeleted = (data: any) => {
+  const handleBoardDeleted = useCallback((data: any) => {
       // If the deleted board was selected, clear selection
       if (data.boardId === selectedBoardRef.current) {
         setSelectedBoard(null);
         setColumns({});
       }
       // Refresh boards list
-      refreshBoardData();
-    };
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current();
+      }
+  }, [setSelectedBoard, setColumns]);
 
-    const handleBoardReordered = (data: any) => {
+  const handleBoardReordered = useCallback((data: any) => {
       // Refresh boards list to show new order
-      refreshBoardData();
-    };
+      if (refreshBoardDataRef.current) {
+        refreshBoardDataRef.current();
+      }
+  }, []);
 
-    const handleTaskWatcherAdded = (data: any) => {
+  const handleTaskWatcherAdded = useCallback((data: any) => {
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const handleTaskWatcherRemoved = (data: any) => {
+  const handleTaskWatcherRemoved = useCallback((data: any) => {
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const handleTaskCollaboratorAdded = (data: any) => {
+  const handleTaskCollaboratorAdded = useCallback((data: any) => {
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const handleTaskCollaboratorRemoved = (data: any) => {
+  const handleTaskCollaboratorRemoved = useCallback((data: any) => {
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
         // For watchers/collaborators, we need to refresh the specific task
         // This is more efficient than refreshing the entire board
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const handleColumnCreated = (data: any) => {
+  const handleColumnCreated = useCallback((data: any) => {
       if (!data.column || !data.boardId) return;
       
       // Update boards state for all boards
@@ -1978,9 +2008,9 @@ export default function App() {
           return updatedColumns;
         });
       }
-    };
+  }, [setBoards, setColumns]);
 
-    const handleMemberUpdated = async (data: any) => {
+  const handleMemberUpdated = useCallback(async (data: any) => {
       // Update the specific member in the members list
       if (data.member) {
         setMembers(prevMembers => {
@@ -2007,19 +2037,19 @@ export default function App() {
           console.error('Failed to refresh members after update:', error);
         }
       }
-    };
+  }, [setMembers, includeSystem]);
 
-    const handleActivityUpdated = (data: any) => {
+  const handleActivityUpdated = useCallback((data: any) => {
       // Refresh activity feed
       handleActivitiesUpdate(data.activities || []);
-    };
+  }, [handleActivitiesUpdate]);
 
-    const handleMemberCreated = (data: any) => {
+  const handleMemberCreated = useCallback((data: any) => {
       // Refresh members list
       handleMembersUpdate([data.member]);
-    };
+  }, [handleMembersUpdate]);
 
-    const handleMemberDeleted = async (data: any) => {
+  const handleMemberDeleted = useCallback(async (data: any) => {
       // Refresh members list from server (don't pass empty array!)
       try {
         const loadedMembers = await getMembers(includeSystem);
@@ -2027,9 +2057,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh members after deletion:', error);
       }
-    };
+  }, [includeSystem, setMembers]);
 
-    const handleUserProfileUpdated = async (data: any) => {
+  const handleUserProfileUpdated = useCallback(async (data: any) => {
       // If this is the current user's profile update, refresh currentUser
       if (data.userId === currentUser?.id) {
         try {
@@ -2047,16 +2077,16 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh members after profile update:', error);
       }
-    };
+  }, [currentUser?.id, includeSystem, setCurrentUser, setMembers]);
 
-    const handleFilterCreated = (data: any) => {
+  const handleFilterCreated = useCallback((data: any) => {
       // Refresh shared filters list
       if (data.filter && data.filter.shared) {
         handleSharedFilterViewsUpdate([data.filter]);
       }
-    };
+  }, [handleSharedFilterViewsUpdate]);
 
-    const handleFilterUpdated = (data: any) => {
+  const handleFilterUpdated = useCallback((data: any) => {
       // Handle filter sharing/unsharing
       if (data.filter) {
         if (data.filter.shared) {
@@ -2067,19 +2097,19 @@ export default function App() {
           setSharedFilterViews(prev => prev.filter(f => f.id !== data.filter.id));
         }
       }
-    };
+  }, [handleSharedFilterViewsUpdate, setSharedFilterViews]);
 
-    const handleFilterDeleted = (data: any) => {
+  const handleFilterDeleted = useCallback((data: any) => {
       console.log('📨 Filter deleted via WebSocket:', data);
       // Remove from shared filters list
       if (data.filterId) {
         const filterIdToDelete = parseInt(data.filterId, 10);
         setSharedFilterViews(prev => prev.filter(f => f.id !== filterIdToDelete));
       }
-    };
+  }, [setSharedFilterViews]);
 
-    // Tag management event handlers
-    const handleTagCreated = async (data: any) => {
+  // Tag management event handlers
+  const handleTagCreated = useCallback(async (data: any) => {
       console.log('📨 Tag created via WebSocket:', data);
       try {
         const tags = await getTags();
@@ -2088,9 +2118,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh tags after creation:', error);
       }
-    };
+  }, [setAvailableTags]);
 
-    const handleTagUpdated = async (data: any) => {
+  const handleTagUpdated = useCallback(async (data: any) => {
       console.log('📨 Tag updated via WebSocket:', data);
       try {
         const tags = await getTags();
@@ -2099,9 +2129,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh tags after update:', error);
       }
-    };
+  }, [setAvailableTags]);
 
-    const handleTagDeleted = async (data: any) => {
+  const handleTagDeleted = useCallback(async (data: any) => {
       console.log('📨 Tag deleted via WebSocket:', data);
       try {
         const tags = await getTags();
@@ -2110,10 +2140,10 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh tags after deletion:', error);
       }
-    };
+  }, [setAvailableTags]);
 
-    // Priority management event handlers
-    const handlePriorityCreated = async (data: any) => {
+  // Priority management event handlers
+  const handlePriorityCreated = useCallback(async (data: any) => {
       console.log('📨 Priority created via WebSocket:', data);
       try {
         const priorities = await getPriorities();
@@ -2122,9 +2152,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh priorities after creation:', error);
       }
-    };
+  }, [setAvailablePriorities]);
 
-    const handlePriorityUpdated = async (data: any) => {
+  const handlePriorityUpdated = useCallback(async (data: any) => {
       console.log('📨 Priority updated via WebSocket:', data);
       try {
         const priorities = await getPriorities();
@@ -2133,9 +2163,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh priorities after update:', error);
       }
-    };
+  }, [setAvailablePriorities]);
 
-    const handlePriorityDeleted = async (data: any) => {
+  const handlePriorityDeleted = useCallback(async (data: any) => {
       console.log('📨 Priority deleted via WebSocket:', data);
       try {
         const priorities = await getPriorities();
@@ -2144,9 +2174,9 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh priorities after deletion:', error);
       }
-    };
+  }, [setAvailablePriorities]);
 
-    const handlePriorityReordered = async (data: any) => {
+  const handlePriorityReordered = useCallback(async (data: any) => {
       console.log('📨 Priority reordered via WebSocket:', data);
       try {
         const priorities = await getPriorities();
@@ -2155,10 +2185,10 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh priorities after reorder:', error);
       }
-    };
+  }, [setAvailablePriorities]);
 
-    // Settings update event handler
-    const handleSettingsUpdated = async (data: any) => {
+  // Settings update event handler
+  const handleSettingsUpdated = useCallback(async (data: any) => {
       try {
         // Update the specific setting directly from WebSocket data instead of fetching all settings
         if (data.key && data.value !== undefined) {
@@ -2175,26 +2205,30 @@ export default function App() {
       } catch (error) {
         console.error('Failed to refresh settings after update:', error);
       }
-    };
+  }, [setSiteSettings]);
 
-    // Task tag event handlers
-    const handleTaskTagAdded = (data: any) => {
+  // Task tag event handlers
+  const handleTaskTagAdded = useCallback((data: any) => {
       console.log('📨 Task tag added via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const handleTaskTagRemoved = (data: any) => {
+  const handleTaskTagRemoved = useCallback((data: any) => {
       console.log('📨 Task tag removed via WebSocket:', data);
       // Only refresh if the task is for the current board
       if (data.boardId === selectedBoardRef.current) {
-        refreshBoardData();
+        if (refreshBoardDataRef.current) {
+          refreshBoardDataRef.current();
+        }
       }
-    };
+  }, []);
 
-    const getStatusMessage = (status: string) => {
+  const getStatusMessage = (status: string) => {
       switch (status) {
         case 'active':
           return 'This instance is running normally.';
@@ -2209,27 +2243,27 @@ export default function App() {
         default:
           return 'This instance is currently unavailable. Please contact support.';
       }
-    };
+  };
 
-    const handleInstanceStatusUpdated = (data: any) => {
+  const handleInstanceStatusUpdated = useCallback((data: any) => {
       console.log('📨 Instance status updated via WebSocket:', data);
       setInstanceStatus({
         status: data.status,
         message: getStatusMessage(data.status),
         isDismissed: false
       });
-    };
+  }, [setInstanceStatus]);
 
-    // Version update handler
-    const handleVersionUpdated = (data: any) => {
+  // Version update handler
+  const handleVersionUpdated = useCallback((data: any) => {
       console.log('📦 Version updated via WebSocket:', data);
       if (data.version) {
         versionDetection.checkVersion(data.version);
       }
-    };
+  }, []);
 
-    // Comment event handlers
-    const handleCommentCreated = (data: any) => {
+  // Comment event handlers
+  const handleCommentCreated = useCallback((data: any) => {
       if (!data.comment || !data.boardId || !data.taskId) return;
       
       // Find the task in the current board and add the comment
@@ -2260,9 +2294,9 @@ export default function App() {
         
         return updatedColumns;
       });
-    };
+  }, [setColumns]);
 
-    const handleCommentUpdated = (data: any) => {
+  const handleCommentUpdated = useCallback((data: any) => {
       if (!data.comment || !data.boardId || !data.taskId) return;
       
       // Find the task and update the comment
@@ -2298,9 +2332,9 @@ export default function App() {
         
         return updatedColumns;
       });
-    };
+  }, [setColumns]);
 
-    const handleCommentDeleted = (data: any) => {
+  const handleCommentDeleted = useCallback((data: any) => {
       if (!data.commentId || !data.boardId || !data.taskId) return;
       
       // Find the task and remove the comment
@@ -2328,9 +2362,31 @@ export default function App() {
         
         return updatedColumns;
       });
-    };
+  }, [setColumns]);
 
-    // Register event listeners
+  // ============================================================================
+  // WEBSOCKET CONNECTION EFFECT
+  // ============================================================================
+  // Register all memoized handlers and connect
+  
+  useEffect(() => {
+    if (!isAuthenticated || !localStorage.getItem('authToken')) {
+      return;
+    }
+
+    // Register handlers BEFORE connecting
+    websocketClient.onWebSocketReady(handleWebSocketReady);
+    websocketClient.onConnect(handleReconnect);
+    websocketClient.onDisconnect(handleDisconnect);
+
+    // Listen to browser online/offline events
+    window.addEventListener('online', handleBrowserOnline);
+    window.addEventListener('offline', handleBrowserOffline);
+
+    // Connect to WebSocket only when we have a valid token
+    websocketClient.connect();
+    
+    // Register all event listeners
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskUpdated(handleTaskUpdated);
     websocketClient.onTaskDeleted(handleTaskDeleted);
@@ -2420,7 +2476,33 @@ export default function App() {
       window.removeEventListener('online', handleBrowserOnline);
       window.removeEventListener('offline', handleBrowserOffline);
     };
-  }, [isAuthenticated, handleWebSocketReady, handleReconnect, handleDisconnect, handleBrowserOnline, handleBrowserOffline]); // Include memoized handlers
+  }, [
+    isAuthenticated,
+    // Connection handlers
+    handleWebSocketReady, handleReconnect, handleDisconnect, handleBrowserOnline, handleBrowserOffline,
+    // Task handlers
+    handleTaskCreated, handleTaskUpdated, handleTaskDeleted, 
+    handleTaskRelationshipCreated, handleTaskRelationshipDeleted,
+    handleTaskWatcherAdded, handleTaskWatcherRemoved,
+    handleTaskCollaboratorAdded, handleTaskCollaboratorRemoved,
+    handleTaskTagAdded, handleTaskTagRemoved,
+    // Column handlers
+    handleColumnUpdated, handleColumnDeleted, handleColumnReordered, handleColumnCreated,
+    // Board handlers
+    handleBoardCreated, handleBoardUpdated, handleBoardDeleted, handleBoardReordered,
+    // Member handlers
+    handleMemberUpdated, handleMemberCreated, handleMemberDeleted, handleUserProfileUpdated,
+    // Filter handlers
+    handleFilterCreated, handleFilterUpdated, handleFilterDeleted,
+    // Tag handlers
+    handleTagCreated, handleTagUpdated, handleTagDeleted,
+    // Priority handlers
+    handlePriorityCreated, handlePriorityUpdated, handlePriorityDeleted, handlePriorityReordered,
+    // Settings and status handlers
+    handleSettingsUpdated, handleInstanceStatusUpdated, handleVersionUpdated, handleActivityUpdated,
+    // Comment handlers
+    handleCommentCreated, handleCommentUpdated, handleCommentDeleted
+  ]); // All memoized handlers included to prevent duplicates
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -2833,6 +2915,7 @@ export default function App() {
         setIsSearchActive(userSpecificPrefs.isSearchActive);
         setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
         setSearchFilters(userSpecificPrefs.searchFilters);
+        setSelectedSprintId(userSpecificPrefs.selectedSprintId); // Load sprint selection from DB
         
         // Load saved filter view if one is remembered
         if (userSpecificPrefs.currentFilterViewId) {

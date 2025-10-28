@@ -339,9 +339,16 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
     if (userId) {
       try {
         // Helper function to only save non-undefined values
+        // Special case: allow null for selectedSprintId (represents "All Sprints")
         const saveIfDefined = (key: string, value: any) => {
-          if (value !== undefined && value !== null) {
-            return updateUserSetting(key, value);
+          if (value !== undefined) {
+            // Allow null for selectedSprintId to save "All Sprints" selection
+            if (value === null && key === 'selectedSprintId') {
+              return updateUserSetting(key, value);
+            }
+            if (value !== null) {
+              return updateUserSetting(key, value);
+            }
           }
           return Promise.resolve(); // Skip undefined values
         };
@@ -484,13 +491,14 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
       const dbSettings = await getUserSettings();
       
       // Smart merge: Only use database value if cookie is at default value AND database has a non-default value
-      const smartMerge = (cookieValue: any, dbValue: any, defaultValue: any) => {
+      const smartMerge = (cookieValue: any, dbValue: any, defaultValue: any, allowNull: boolean = false) => {
         // If cookie is customized (not default), keep cookie value
         if (!isDefaultValue(cookieValue, defaultValue)) {
           return cookieValue;
         }
         // If cookie is default but database has a value, use database value
-        if (dbValue !== undefined && dbValue !== null && !isDefaultValue(dbValue, defaultValue)) {
+        // Special case: allow null for sprint selection (represents "All Sprints")
+        if (dbValue !== undefined && ((allowNull && dbValue === null) || (dbValue !== null && !isDefaultValue(dbValue, defaultValue)))) {
           needsCookieUpdate = true;
           return dbValue;
         }
@@ -521,8 +529,8 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         lastSelectedBoard: smartMerge(preferences.lastSelectedBoard, dbSettings.lastSelectedBoard, defaults.lastSelectedBoard),
         selectedMembers: smartMerge(preferences.selectedMembers, dbSettings.selectedMembers ? JSON.parse(dbSettings.selectedMembers) : undefined, defaults.selectedMembers),
         
-        // Sprint Selection
-        selectedSprintId: smartMerge(preferences.selectedSprintId, dbSettings.selectedSprintId, defaults.selectedSprintId),
+        // Sprint Selection (allow null to represent "All Sprints")
+        selectedSprintId: smartMerge(preferences.selectedSprintId, dbSettings.selectedSprintId, defaults.selectedSprintId, true),
         
         // Last Report Tab
         lastReportTab: smartMerge(preferences.lastReportTab, dbSettings.lastReportTab, defaults.lastReportTab),

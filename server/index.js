@@ -3325,10 +3325,27 @@ app.put('/api/user/settings', authenticateToken, (req, res) => {
   const { setting_key, setting_value } = req.body;
   
   try {
-    // Handle undefined/null values
-    if (setting_value === undefined || setting_value === null) {
-      console.warn(`Skipping save for ${setting_key}: value is ${setting_value}`);
-      return res.json({ message: 'Setting skipped (undefined/null value)' });
+    // Handle undefined values (skip them)
+    if (setting_value === undefined) {
+      console.warn(`Skipping save for ${setting_key}: value is undefined`);
+      return res.json({ message: 'Setting skipped (undefined value)' });
+    }
+    
+    // Allow null for selectedSprintId (represents "All Sprints")
+    // For other settings, skip null values
+    if (setting_value === null && setting_key !== 'selectedSprintId') {
+      console.warn(`Skipping save for ${setting_key}: value is null`);
+      return res.json({ message: 'Setting skipped (null value)' });
+    }
+    
+    // Special handling for selectedSprintId null value - delete the row to represent "All Sprints"
+    if (setting_value === null && setting_key === 'selectedSprintId') {
+      wrapQuery(db.prepare(`
+        DELETE FROM user_settings 
+        WHERE userId = ? AND setting_key = ?
+      `), 'DELETE').run(userId, setting_key);
+      
+      return res.json({ message: 'Setting cleared successfully (null value stored as deletion)' });
     }
     
     // Convert value to string safely
