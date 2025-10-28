@@ -73,6 +73,7 @@
     "react-joyride": "2.9.3",
     "react-window": "^1.8.10",
     "react-window-infinite-loader": "^1.0.9",
+    "recharts": "3.3.0",
     "redis": "^4.6.12",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",

@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* CSS Variables for Recharts Tooltips */
+:root {
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #e5e7eb;
+  --tooltip-text: #111827;
+}
+
+.dark {
+  --tooltip-bg: #1f2937;
+  --tooltip-border: #374151;
+  --tooltip-text: #f9fafb;
+}
+
 /* Disable drag-and-drop when comment tooltip is active (JS version) */
 .comment-tooltip-active [data-dnd-kit-draggable-handle],
 .comment-tooltip-active [data-sortable-handle],

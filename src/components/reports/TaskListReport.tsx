@@ -43,11 +43,27 @@ interface TaskListData {
   tasks: Task[];
 }
 
-const TaskListReport: React.FC = () => {
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [status, setStatus] = useState('');
+interface TaskListReportProps {
+  initialFilters?: {
+    startDate?: string;
+    endDate?: string;
+    status?: string;
+  };
+  onFiltersChange?: (filters: { startDate: string; endDate: string; status: string }) => void;
+}
+
+const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFiltersChange }) => {
+  const [startDate, setStartDate] = useState(initialFilters?.startDate || '');
+  const [endDate, setEndDate] = useState(initialFilters?.endDate || '');
+  const [status, setStatus] = useState(initialFilters?.status || '');
   const [taskData, setTaskData] = useState<TaskListData | null>(null);
+
+  // Notify parent of filter changes
+  useEffect(() => {
+    if (onFiltersChange) {
+      onFiltersChange({ startDate, endDate, status });
+    }
+  }, [startDate, endDate, status, onFiltersChange]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,7 +132,7 @@ const TaskListReport: React.FC = () => {
             <button
               onClick={fetchTaskList}
               disabled={loading}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg font-medium transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh

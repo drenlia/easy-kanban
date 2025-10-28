@@ -29,12 +29,27 @@ interface TeamPerformanceData {
   users: UserPerformance[];
 }
 
-const TeamPerformanceReport: React.FC = () => {
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+interface TeamPerformanceReportProps {
+  initialFilters?: {
+    startDate?: string;
+    endDate?: string;
+  };
+  onFiltersChange?: (filters: { startDate: string; endDate: string }) => void;
+}
+
+const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFilters, onFiltersChange }) => {
+  const [startDate, setStartDate] = useState(initialFilters?.startDate || '');
+  const [endDate, setEndDate] = useState(initialFilters?.endDate || '');
   const [performanceData, setPerformanceData] = useState<TeamPerformanceData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Notify parent of filter changes
+  useEffect(() => {
+    if (onFiltersChange) {
+      onFiltersChange({ startDate, endDate });
+    }
+  }, [startDate, endDate, onFiltersChange]);
 
   const fetchPerformanceData = async () => {
     if (!startDate || !endDate) {

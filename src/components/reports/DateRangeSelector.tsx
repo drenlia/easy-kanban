@@ -40,7 +40,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
 
       if (response.ok) {
         const data = await response.json();
-        setSprints(data);
+        setSprints(data.sprints || []);
       }
     } catch (error) {
       console.error('Failed to fetch sprints:', error);

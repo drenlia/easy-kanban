@@ -5,6 +5,8 @@ import LeaderboardReport from './reports/LeaderboardReport';
 import BurndownReport from './reports/BurndownReport';
 import TeamPerformanceReport from './reports/TeamPerformanceReport';
 import TaskListReport from './reports/TaskListReport';
+import { REPORT_TABS, ROUTES } from '../constants';
+import { loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
 
 type ReportTab = 'stats' | 'leaderboard' | 'burndown' | 'team' | 'tasks';
 
@@ -17,17 +19,113 @@ interface ReportSettings {
 }
 
 interface ReportsProps {
-  currentUser?: { roles?: string[] };
+  currentUser?: { id?: string; roles?: string[] };
 }
 
 const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
-  const [activeTab, setActiveTab] = useState<ReportTab>('stats');
+  const [activeTab, setActiveTab] = useState<ReportTab>(() => {
+    // Priority 1: Get tab from URL hash
+    const fullHash = window.location.hash;
+    const hashParts = fullHash.split('#');
+    const tabHash = hashParts[hashParts.length - 1];
+    
+    if (REPORT_TABS.includes(tabHash)) {
+      return tabHash as ReportTab;
+    }
+    
+    // Priority 2: Will be loaded from user preferences in useEffect
+    // Priority 3: Default tab
+    return ROUTES.DEFAULT_REPORT_TAB as ReportTab;
+  });
   const [settings, setSettings] = useState<ReportSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+  
+  // Persistent filter state for each report tab
+  const [reportFilters, setReportFilters] = useState<{ [key: string]: any }>(() => {
+    try {
+      const saved = localStorage.getItem('reportFilters');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
 
   useEffect(() => {
     fetchSettings();
   }, []);
+
+  // Load last accessed report tab from user preferences (database-stored)
+  useEffect(() => {
+    const loadLastReportTab = async () => {
+      if (!currentUser?.id) {
+        setPreferencesLoaded(true);
+        return;
+      }
+
+      try {
+        const preferences = await loadUserPreferencesAsync(currentUser.id);
+        
+        // Only use saved tab if no URL hash is present
+        const fullHash = window.location.hash;
+        const hashParts = fullHash.split('#');
+        const tabHash = hashParts[hashParts.length - 1];
+        
+        if (!REPORT_TABS.includes(tabHash) && preferences.lastReportTab && REPORT_TABS.includes(preferences.lastReportTab)) {
+          setActiveTab(preferences.lastReportTab as ReportTab);
+        }
+      } catch (error) {
+        console.error('Failed to load last report tab:', error);
+      } finally {
+        setPreferencesLoaded(true);
+      }
+    };
+
+    loadLastReportTab();
+  }, [currentUser?.id]);
+
+  // Save filters to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('reportFilters', JSON.stringify(reportFilters));
+    } catch (error) {
+      console.error('Failed to save report filters:', error);
+    }
+  }, [reportFilters]);
+
+  // Handle URL hash changes for tab selection
+  useEffect(() => {
+    const handleHashChange = async () => {
+      const fullHash = window.location.hash;
+      const hashParts = fullHash.split('#');
+      const tabHash = hashParts[hashParts.length - 1];
+      
+      if (REPORT_TABS.includes(tabHash) && tabHash !== activeTab) {
+        setActiveTab(tabHash as ReportTab);
+        
+        // Save to database-stored user preferences
+        if (currentUser?.id) {
+          try {
+            await updateUserPreference('lastReportTab', tabHash, currentUser.id);
+          } catch (error) {
+            console.error('Failed to save last report tab:', error);
+          }
+        }
+      }
+    };
+
+    // Handle initial hash on component mount
+    const fullHash = window.location.hash;
+    const hashParts = fullHash.split('#');
+    const tabHash = hashParts[hashParts.length - 1];
+    
+    if (REPORT_TABS.includes(tabHash) && tabHash !== activeTab) {
+      setActiveTab(tabHash as ReportTab);
+    }
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [activeTab, currentUser?.id]);
 
   // Listen for real-time settings updates via WebSocket
   useEffect(() => {
@@ -89,6 +187,35 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Helper function to update filters for a specific report
+  const updateReportFilters = (reportId: string, filters: any) => {
+    setReportFilters(prev => ({
+      ...prev,
+      [reportId]: filters
+    }));
+  };
+
+  // Helper function to get filters for a specific report
+  const getReportFilters = (reportId: string) => {
+    return reportFilters[reportId] || {};
+  };
+
+  // Handle tab change with URL update and save to user preferences
+  const handleTabChange = async (tab: ReportTab) => {
+    setActiveTab(tab);
+    // Update URL hash for tab persistence
+    window.location.hash = `reports#${tab}`;
+    
+    // Save to database-stored user preferences (persists across logout/login)
+    if (currentUser?.id) {
+      try {
+        await updateUserPreference('lastReportTab', tab, currentUser.id);
+      } catch (error) {
+        console.error('Failed to save last report tab:', error);
+      }
     }
   };
 
@@ -195,7 +322,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => handleTabChange(tab.id)}
                 className={`
                   flex items-center gap-2 px-4 py-3 font-medium text-sm
                   border-b-2 transition-colors
@@ -219,9 +346,24 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
         <div className="max-w-7xl mx-auto p-6">
           {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
           {currentTab === 'leaderboard' && <LeaderboardReport />}
-          {currentTab === 'burndown' && <BurndownReport />}
-          {currentTab === 'team' && <TeamPerformanceReport />}
-          {currentTab === 'tasks' && <TaskListReport />}
+          {currentTab === 'burndown' && (
+            <BurndownReport 
+              initialFilters={getReportFilters('burndown')}
+              onFiltersChange={(filters) => updateReportFilters('burndown', filters)}
+            />
+          )}
+          {currentTab === 'team' && (
+            <TeamPerformanceReport 
+              initialFilters={getReportFilters('team')}
+              onFiltersChange={(filters) => updateReportFilters('team', filters)}
+            />
+          )}
+          {currentTab === 'tasks' && (
+            <TaskListReport 
+              initialFilters={getReportFilters('tasks')}
+              onFiltersChange={(filters) => updateReportFilters('tasks', filters)}
+            />
+          )}
         </div>
       </div>
     </div>

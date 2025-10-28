@@ -50,6 +50,7 @@ export interface UserPreferences {
   ganttScrollPositions: { [boardId: string]: { date: string; sessionId: string } }; // Per-board scroll positions
   listViewColumnVisibility: ColumnVisibility;
   selectedSprintId: string | null; // Selected sprint for filtering
+  lastReportTab: string | null; // Last accessed report tab (persists across sessions)
 
   searchFilters: {
     text: string;
@@ -152,6 +153,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   ganttTaskColumnWidth: 320, // Default Gantt task column width in pixels
   ganttScrollPositions: {}, // Per-board Gantt scroll positions (empty by default)
   selectedSprintId: null, // Default to "All Sprints" (no filter)
+  lastReportTab: null, // Default to no last report (will use burndown)
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
@@ -385,6 +387,9 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           // Sprint Selection
           saveIfDefined('selectedSprintId', preferences.selectedSprintId),
           
+          // Last Report Tab
+          saveIfDefined('lastReportTab', preferences.lastReportTab),
+          
           // Gantt Scroll Positions
           saveIfDefined('ganttScrollPositions', JSON.stringify(preferences.ganttScrollPositions))
         ]);
@@ -518,6 +523,9 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         
         // Sprint Selection
         selectedSprintId: smartMerge(preferences.selectedSprintId, dbSettings.selectedSprintId, defaults.selectedSprintId),
+        
+        // Last Report Tab
+        lastReportTab: smartMerge(preferences.lastReportTab, dbSettings.lastReportTab, defaults.lastReportTab),
         
         // List View Column Visibility (special handling for object)
         listViewColumnVisibility: (() => {
