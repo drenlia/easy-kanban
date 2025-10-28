@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # Configuration
 DELAY_BETWEEN_BATCHES=30  # seconds to wait between batches
 BATCH_SIZE=2              # number of instances to update at once
-HEALTH_CHECK_TIMEOUT=120  # seconds to wait for health check
+HEALTH_CHECK_TIMEOUT=300  # seconds to wait for health check (increased for potential scheduling delays)
 
 # Get all Easy Kanban namespaces
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -29,7 +29,7 @@ echo -e "  • Health check timeout: ${HEALTH_CHECK_TIMEOUT} seconds"
 echo ""
 
 # Get all namespaces
-NAMESPACES=($(kubectl get namespaces -o jsonpath='{.items[?(@.metadata.name=="easy-kanban-*")].metadata.name}' 2>/dev/null || true))
+NAMESPACES=($(kubectl get namespaces -o json | jq -r '.items[].metadata.name | select(startswith("easy-kanban-"))' 2>/dev/null || true))
 
 if [ ${#NAMESPACES[@]} -eq 0 ]; then
     echo -e "${RED}❌ No Easy Kanban namespaces found!${NC}"
@@ -95,6 +95,23 @@ wait_for_deployment() {
         fi
     else
         echo -e "${RED}   ✗ Deployment failed or timed out${NC}"
+        
+        # Show diagnostic information
+        echo -e "${YELLOW}   📋 Diagnostic Info:${NC}"
+        
+        # Check for scheduling issues
+        local pod_name=$(kubectl get pods -n ${namespace} -l app=${deployment_name} --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1:].metadata.name}' 2>/dev/null)
+        if [ -n "$pod_name" ]; then
+            local pod_phase=$(kubectl get pod ${pod_name} -n ${namespace} -o jsonpath='{.status.phase}' 2>/dev/null)
+            echo -e "${YELLOW}      Pod Phase: ${pod_phase}${NC}"
+            
+            # Check for scheduling events
+            if kubectl get events -n ${namespace} --field-selector involvedObject.name=${pod_name} 2>/dev/null | grep -i "FailedScheduling" >/dev/null; then
+                echo -e "${RED}      ⚠ Scheduling Issue Detected!${NC}"
+                kubectl get events -n ${namespace} --field-selector involvedObject.name=${pod_name} | grep "FailedScheduling" | tail -1
+            fi
+        fi
+        
         return 1
     fi
 }
