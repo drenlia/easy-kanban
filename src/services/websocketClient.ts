@@ -184,33 +184,40 @@ class WebSocketClient {
     }
   }
 
+  // Helper method to register callback with duplicate prevention
+  private registerCallback(eventName: string, callback: Function) {
+    if (!this.eventCallbacks.has(eventName)) {
+      this.eventCallbacks.set(eventName, []);
+    }
+    
+    const callbacks = this.eventCallbacks.get(eventName)!;
+    // Prevent duplicate registration of the same callback
+    if (!callbacks.includes(callback)) {
+      callbacks.push(callback);
+      
+      if (this.socket) {
+        this.socket.on(eventName, callback as any);
+      }
+    }
+  }
+
   // Re-register all stored event listeners
   private reregisterEventListeners() {
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach(callback => {
-        this.socket?.on(eventName, callback);
+        this.socket?.on(eventName, callback as any);
       });
     });
     
     // Add debugging for task-updated events specifically
-    this.socket?.on('task-updated', (data) => {
+    this.socket?.on('task-updated', () => {
     });
   }
 
   // Helper method to store and register event listeners
   private addEventListener(eventName: string, callback: Function) {
-    // Store the callback
-    if (!this.eventCallbacks.has(eventName)) {
-      this.eventCallbacks.set(eventName, []);
-    }
-    this.eventCallbacks.get(eventName)!.push(callback);
-    
-    // Register with socket if connected
-    if (this.socket?.connected) {
-      this.socket.on(eventName, callback);
-      if (eventName === 'task-updated') {
-      }
-    }
+    // Use registerCallback helper which prevents duplicates
+    this.registerCallback(eventName, callback);
   }
 
   // Event listeners
@@ -303,11 +310,14 @@ class WebSocketClient {
   }
 
   onWebSocketReady(callback: () => void) {
-    this.readyCallbacks.push(callback);
-    
-    // If already connected, call immediately
-    if (this.isConnected) {
-      callback();
+    // Prevent duplicate registration
+    if (!this.readyCallbacks.includes(callback)) {
+      this.readyCallbacks.push(callback);
+      
+      // If already connected, call immediately
+      if (this.isConnected) {
+        callback();
+      }
     }
   }
 
@@ -664,14 +674,7 @@ class WebSocketClient {
 
   // Subscribe to connect event
   onConnect(callback: () => void) {
-    if (!this.eventCallbacks.has('connect')) {
-      this.eventCallbacks.set('connect', []);
-    }
-    this.eventCallbacks.get('connect')!.push(callback);
-    
-    if (this.socket) {
-      this.socket.on('connect', callback);
-    }
+    this.registerCallback('connect', callback);
   }
 
   offConnect(callback: () => void) {
@@ -688,14 +691,7 @@ class WebSocketClient {
 
   // Subscribe to disconnect event
   onDisconnect(callback: () => void) {
-    if (!this.eventCallbacks.has('disconnect')) {
-      this.eventCallbacks.set('disconnect', []);
-    }
-    this.eventCallbacks.get('disconnect')!.push(callback);
-    
-    if (this.socket) {
-      this.socket.on('disconnect', callback);
-    }
+    this.registerCallback('disconnect', callback);
   }
 
   offDisconnect(callback: () => void) {
