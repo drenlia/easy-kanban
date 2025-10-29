@@ -21,6 +21,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     email: string;
     password: string;
   } | null>(null);
+  const [backendAvailable, setBackendAvailable] = useState<boolean>(true);
+  const [checkingBackend, setCheckingBackend] = useState<boolean>(true);
   
   // Copy to clipboard function
   const copyToClipboard = async (text: string, itemId: string) => {
@@ -36,9 +38,57 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   // Check if demo mode is enabled
   const isDemoMode = process.env.DEMO_ENABLED === 'true';
 
+  // Check backend availability on mount and periodically
+  useEffect(() => {
+    let retryCount = 0;
+    const maxRetries = 3;
+    let retryTimeout: NodeJS.Timeout;
+
+    const checkBackendHealth = async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        
+        const response = await fetch('/api/settings', { 
+          signal: controller.signal,
+          cache: 'no-store'
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          setBackendAvailable(true);
+          setCheckingBackend(false);
+          retryCount = 0; // Reset retry count on success
+        } else {
+          throw new Error('Backend responded with error');
+        }
+      } catch (error) {
+        console.error('Backend health check failed:', error);
+        retryCount++;
+        
+        if (retryCount >= maxRetries) {
+          setBackendAvailable(false);
+          setCheckingBackend(false);
+        } else {
+          // Retry after delay (exponential backoff: 2s, 4s, 8s)
+          const delay = Math.min(2000 * Math.pow(2, retryCount - 1), 8000);
+          retryTimeout = setTimeout(checkBackendHealth, delay);
+        }
+      }
+    };
+
+    checkBackendHealth();
+
+    // Cleanup timeout on unmount
+    return () => {
+      if (retryTimeout) clearTimeout(retryTimeout);
+    };
+  }, []);
+
   // Fetch admin credentials only if demo mode is enabled
   useEffect(() => {
-    if (!isDemoMode) {
+    if (!isDemoMode || !backendAvailable) {
       setAdminCredentials(null);
       return;
     }
@@ -61,7 +111,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     };
 
     fetchAdminCredentials();
-  }, [isDemoMode]);
+  }, [isDemoMode, backendAvailable]);
 
   // Check for token expiration redirect
   useEffect(() => {
@@ -191,7 +241,65 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
           </p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        {/* Backend Unavailable Message */}
+        {!backendAvailable && !checkingBackend && (
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600 p-6 rounded-lg">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-yellow-400 dark:text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                  System Temporarily Unavailable
+                </h3>
+                <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
+                  <p>
+                    The system is currently starting up or undergoing maintenance. 
+                    Please check back in a few moments.
+                  </p>
+                  <p className="mt-2">
+                    If the issue persists, please contact your system administrator.
+                  </p>
+                </div>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-yellow-800 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-900/40 hover:bg-yellow-200 dark:hover:bg-yellow-900/60 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+                  >
+                    <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Retry Connection
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Loading Spinner while checking backend */}
+        {checkingBackend && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400 dark:border-blue-600 p-6 rounded-lg">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="animate-spin h-6 w-6 text-blue-500" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                  Connecting to server...
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit} style={{ display: backendAvailable ? 'block' : 'none' }}>
           <div className="rounded-md shadow-sm -space-y-px bg-white dark:bg-gray-800 p-6 rounded-lg">
             <div>
               <label htmlFor="email" className="sr-only">

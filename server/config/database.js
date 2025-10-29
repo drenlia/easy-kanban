@@ -102,16 +102,16 @@ export const initializeDatabase = () => {
   // Create tables
   createTables(db);
   
-  // Initialize default data and capture version info
-  const versionInfo = initializeDefaultData(db);
-  
-  // Run database migrations (automatically applies new schema changes)
+  // Run database migrations BEFORE initializing data (migrations may create tables needed by demo data)
   try {
     runMigrations(db);
   } catch (error) {
     console.error('❌ Failed to run migrations:', error);
     throw error;
   }
+  
+  // Initialize default data and capture version info (must run AFTER migrations)
+  const versionInfo = initializeDefaultData(db);
   
   // Return both db and version info for broadcasting
   return { 
@@ -460,7 +460,7 @@ const initializeDefaultData = (db) => {
       // Admin-configurable user preference defaults
       ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users
-      ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 0, "y": 443}'], // Default activity feed position
+      ['DEFAULT_ACTIVITY_FEED_POSITION', '{"x": 10, "y": 220}'], // Default activity feed position
       ['DEFAULT_ACTIVITY_FEED_WIDTH', '160'], // Default activity feed width
       ['DEFAULT_ACTIVITY_FEED_HEIGHT', '400'], // Default activity feed height
       // Project and task identification settings

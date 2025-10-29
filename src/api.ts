@@ -428,14 +428,30 @@ export const getActivityFeed = async (limit: number = 20) => {
   return data;
 };
 
-// User Settings
+// User Settings with rate limiting to prevent infinite loops
+let lastUserSettingsCall = 0;
+let cachedUserSettings: any = null;
+const USER_SETTINGS_CACHE_MS = 100; // Cache for 100ms to prevent rapid consecutive calls
+
 export const getUserSettings = async () => {
+  const now = Date.now();
+  
+  // If we called this very recently, return cached data
+  if (cachedUserSettings && (now - lastUserSettingsCall) < USER_SETTINGS_CACHE_MS) {
+    console.warn('⚠️ getUserSettings called too frequently, returning cached data');
+    return cachedUserSettings;
+  }
+  
+  lastUserSettingsCall = now;
   const { data } = await api.get('/user/settings');
+  cachedUserSettings = data;
   return data;
 };
 
 export const updateUserSetting = async (setting_key: string, setting_value: any) => {
   const { data } = await api.put('/user/settings', { setting_key, setting_value });
+  // Clear cache when settings are updated
+  cachedUserSettings = null;
   return data;
 };
 

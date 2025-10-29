@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart3, Trophy, TrendingUp, Users, List } from 'lucide-react';
 import UserStatsReport from './reports/UserStatsReport';
 import LeaderboardReport from './reports/LeaderboardReport';
@@ -191,12 +191,18 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   };
 
   // Helper function to update filters for a specific report
-  const updateReportFilters = (reportId: string, filters: any) => {
-    setReportFilters(prev => ({
-      ...prev,
-      [reportId]: filters
-    }));
-  };
+  const updateReportFilters = useCallback((reportId: string, filters: any) => {
+    setReportFilters(prev => {
+      // Only update if filters actually changed
+      if (JSON.stringify(prev[reportId]) === JSON.stringify(filters)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [reportId]: filters
+      };
+    });
+  }, []);
 
   // Helper function to get filters for a specific report
   const getReportFilters = (reportId: string) => {
@@ -305,17 +311,17 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   const currentTab = tabs.some(tab => tab.id === activeTab) ? activeTab : (tabs[0]?.id || 'burndown');
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex flex-col">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+      <div className="bg-white dark:bg-gray-800 py-4 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <BarChart3 className="w-7 h-7" />
           Reports & Analytics
         </h1>
       </div>
 
-      {/* Tabs */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6">
+      {/* Tabs - Sticky */}
+      <div className="sticky top-[66px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;
@@ -342,29 +348,27 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
       </div>
 
       {/* Report Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto p-6">
-          {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
-          {currentTab === 'leaderboard' && <LeaderboardReport />}
-          {currentTab === 'burndown' && (
-            <BurndownReport 
-              initialFilters={getReportFilters('burndown')}
-              onFiltersChange={(filters) => updateReportFilters('burndown', filters)}
-            />
-          )}
-          {currentTab === 'team' && (
-            <TeamPerformanceReport 
-              initialFilters={getReportFilters('team')}
-              onFiltersChange={(filters) => updateReportFilters('team', filters)}
-            />
-          )}
-          {currentTab === 'tasks' && (
-            <TaskListReport 
-              initialFilters={getReportFilters('tasks')}
-              onFiltersChange={(filters) => updateReportFilters('tasks', filters)}
-            />
-          )}
-        </div>
+      <div className="mt-6">
+        {currentTab === 'stats' && <UserStatsReport gamificationEnabled={settings?.REPORTS_GAMIFICATION_ENABLED === 'true'} achievementsEnabled={settings?.REPORTS_ACHIEVEMENTS_ENABLED === 'true'} />}
+        {currentTab === 'leaderboard' && <LeaderboardReport />}
+        {currentTab === 'burndown' && (
+          <BurndownReport 
+            initialFilters={getReportFilters('burndown')}
+            onFiltersChange={(filters) => updateReportFilters('burndown', filters)}
+          />
+        )}
+        {currentTab === 'team' && (
+          <TeamPerformanceReport 
+            initialFilters={getReportFilters('team')}
+            onFiltersChange={(filters) => updateReportFilters('team', filters)}
+          />
+        )}
+        {currentTab === 'tasks' && (
+          <TaskListReport 
+            initialFilters={getReportFilters('tasks')}
+            onFiltersChange={(filters) => updateReportFilters('tasks', filters)}
+          />
+        )}
       </div>
     </div>
   );

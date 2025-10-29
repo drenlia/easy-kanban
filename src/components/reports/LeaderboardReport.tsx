@@ -83,7 +83,7 @@ const LeaderboardReport: React.FC = () => {
       case 2:
         return <Medal className="w-6 h-6 text-gray-400" />;
       case 3:
-        return <Award className="w-6 h-6 text-amber-600" />;
+        return <Award className="w-6 h-6 text-orange-700 dark:text-orange-600" />;
       default:
         return <span className="text-lg font-bold text-gray-600 dark:text-gray-400">#{rank}</span>;
     }
@@ -96,7 +96,7 @@ const LeaderboardReport: React.FC = () => {
       case 2:
         return 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600';
       case 3:
-        return 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800';
+        return 'bg-orange-50 dark:bg-orange-900/20 border-orange-300 dark:border-orange-800';
       default:
         return 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700';
     }

@@ -439,10 +439,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 <div className="ml-6 flex-shrink-0">
                   <input
                     type="text"
-                    value={editingSettings.DEFAULT_ACTIVITY_FEED_POSITION || '{"x": 0, "y": 66}'}
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_POSITION || '{"x": 10, "y": 66}'}
                     onChange={(e) => handleDefaultActivityFeedPositionChange(e.target.value)}
                     className="block w-40 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder='{"x": 0, "y": 66}'
+                    placeholder='{"x": 10, "y": 66}'
                   />
                   </div>
                   </div>
@@ -462,7 +462,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     type="number"
                     min="180"
                     max="400"
-                    value={editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH || '208'}
+                    value={editingSettings.DEFAULT_ACTIVITY_FEED_WIDTH || '180'}
                     onChange={(e) => handleDefaultActivityFeedWidthChange(e.target.value)}
                     className="block w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   />

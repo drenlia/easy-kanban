@@ -109,7 +109,7 @@ export default function App() {
   // Auto-refresh toggle state (loaded from user preferences)
   // const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true); // Disabled - using real-time updates
   const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
-    x: typeof window !== 'undefined' ? window.innerWidth - 220 : 0, 
+    x: 10, // Position on left side with 10px margin (matches userPreferences.ts default)
     y: 66 
   });
   const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
@@ -754,52 +754,8 @@ export default function App() {
     };
   }, [taskDeleteConfirmation.confirmationTask, taskDeleteConfirmation.cancelDelete]);
 
-  // Load user settings for activity feed
-  useEffect(() => {
-    const loadUserSettings = async () => {
-      if (isAuthenticated && currentUser?.id) {
-        try {
-          const settings = await getUserSettings();
-          // Use system default if user hasn't set a preference
-          const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false'; // Default to true unless system says false
-          setShowActivityFeed(settings.showActivityFeed !== undefined ? settings.showActivityFeed : defaultFromSystem);
-          setActivityFeedMinimized(settings.activityFeedMinimized || false); // Default to expanded
-          setLastSeenActivityId(settings.lastSeenActivityId || 0); // Default to 0 (show all as unread)
-          setClearActivityId(settings.clearActivityId || 0); // Default to 0 (show all)
-          
-          // Load saved position or use default
-          if (settings.activityFeedPosition) {
-            try {
-              // console.log('Loading saved activity feed position:', settings.activityFeedPosition);
-              const savedPosition = JSON.parse(settings.activityFeedPosition);
-              // console.log('Parsed position:', savedPosition);
-              setActivityFeedPosition(savedPosition);
-            } catch (error) {
-              // console.warn('Failed to parse saved activity feed position:', error);
-            }
-          } else {
-            // console.log('No saved activity feed position found, using default');
-          }
-
-          // Load saved dimensions or use default
-          if (settings.activityFeedWidth || settings.activityFeedHeight) {
-            const savedDimensions = {
-              width: settings.activityFeedWidth || 208,
-              height: settings.activityFeedHeight || (typeof window !== 'undefined' ? window.innerHeight - 200 : 400)
-            };
-            // console.log('Loading saved activity feed dimensions:', savedDimensions);
-            setActivityFeedDimensions(savedDimensions);
-          } else {
-            // console.log('No saved activity feed dimensions found, using default');
-          }
-        } catch (error) {
-          // console.error('Failed to load user settings:', error);
-        }
-      }
-    };
-    
-    loadUserSettings();
-  }, [isAuthenticated, currentUser?.id, systemSettings]);
+  // Note: Activity feed settings are now loaded together with other user preferences
+  // in the consolidated useEffect below to avoid duplicate API calls
 
   // Load admin defaults for new user preferences (only for admin users)
   useEffect(() => {
@@ -2893,11 +2849,12 @@ export default function App() {
     }
   }, [isAuthenticated, currentPage]);
 
-  // Load user-specific preferences when authenticated
+  // CONSOLIDATED: Load all user-specific preferences when authenticated (ONE API CALL)
   useEffect(() => {
     if (isAuthenticated && currentUser?.id) {
       const loadPreferences = async () => {
         // Load from both cookie and database (database takes precedence for stored values)
+        // This makes ONE call to getUserSettings() internally and merges with cookies
         const userSpecificPrefs = await loadUserPreferencesAsync(currentUser.id);
         
         // Update all preference-based state with user-specific values
@@ -2906,7 +2863,6 @@ export default function App() {
         setIncludeWatchers(userSpecificPrefs.includeWatchers);
         setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
         setIncludeRequesters(userSpecificPrefs.includeRequesters);
-        // console.log(`🔄 Loading user preferences - includeSystem: ${userSpecificPrefs.includeSystem}`);
         setIncludeSystem(userSpecificPrefs.includeSystem);
         setTaskViewMode(userSpecificPrefs.taskViewMode);
         setViewMode(userSpecificPrefs.viewMode);
@@ -2916,12 +2872,26 @@ export default function App() {
         setSearchFilters(userSpecificPrefs.searchFilters);
         setSelectedSprintId(userSpecificPrefs.selectedSprintId); // Load sprint selection from DB
         
+        // Activity Feed Settings (from the same getUserSettings call above)
+        const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false';
+        setShowActivityFeed(userSpecificPrefs.activityFeed.showActivityFeed !== undefined 
+          ? userSpecificPrefs.activityFeed.showActivityFeed 
+          : defaultFromSystem);
+        setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
+        setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
+        setClearActivityId(userSpecificPrefs.activityFeed.clearActivityId);
+        setActivityFeedPosition(userSpecificPrefs.activityFeed.position);
+        setActivityFeedDimensions({
+          width: userSpecificPrefs.activityFeed.width,
+          height: userSpecificPrefs.activityFeed.height
+        });
+        
         // Load saved filter view if one is remembered
         if (userSpecificPrefs.currentFilterViewId) {
           loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
         }
         
-        // Set initial selected board with preference fallback
+        // Set initial selected board with preference fallback - only if not already set
         if (!selectedBoard) {
           const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
           if (initialBoard) {
@@ -2932,7 +2902,7 @@ export default function App() {
       
       loadPreferences();
     }
-  }, [isAuthenticated, currentUser?.id, selectedBoard]);
+  }, [isAuthenticated, currentUser?.id]); // Only run when auth state or user changes
 
   // CENTRALIZED ROUTING HANDLER - Single source of truth
   useEffect(() => {
@@ -5323,7 +5293,7 @@ export default function App() {
     <TourProvider currentUser={currentUser}>
       <ThemeProvider>
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
-      {process.env.DEMO_ENABLED === 'true' && <ResetCountdown />}
+      {process.env.DEMO_ENABLED === 'true' && <ResetCountdown onReset={handleLogout} />}
       
       
       {/* New Enhanced Drag & Drop System */}

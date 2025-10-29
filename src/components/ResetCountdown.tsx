@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Clock } from 'lucide-react';
 
-const ResetCountdown: React.FC = () => {
+interface ResetCountdownProps {
+  onReset?: () => void;
+}
+
+const ResetCountdown: React.FC<ResetCountdownProps> = ({ onReset }) => {
   const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number }>({
     minutes: 0,
     seconds: 0
   });
+  const [mounted, setMounted] = useState(false);
+  const [hasReset, setHasReset] = useState(false);
 
   // Calculate time until next hour
   const calculateTimeUntilNextHour = (): { minutes: number; seconds: number } => {
@@ -23,21 +31,50 @@ const ResetCountdown: React.FC = () => {
   };
 
   useEffect(() => {
+    setMounted(true);
     // Set initial time
     setTimeLeft(calculateTimeUntilNextHour());
     
     const interval = setInterval(() => {
-      setTimeLeft(calculateTimeUntilNextHour());
+      const newTime = calculateTimeUntilNextHour();
+      setTimeLeft(newTime);
+      
+      // Check if time has reached 0 and trigger reset
+      if (newTime.minutes === 0 && newTime.seconds === 0 && !hasReset) {
+        setHasReset(true);
+        if (onReset) {
+          onReset();
+        }
+      }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [hasReset, onReset]);
 
-  return (
-    <div className="bg-red-100 text-red-700 text-xs py-1 px-2 text-center font-medium">
-      This demo will reset in {timeLeft.minutes}m {timeLeft.seconds}s
+  if (!mounted) return null;
+
+  // Check if we're in the last 30 seconds (urgent state)
+  const isUrgent = timeLeft.minutes === 0 && timeLeft.seconds <= 30;
+
+  const content = (
+    <div className="fixed top-2 left-1/2 transform -translate-x-1/2 pointer-events-none" style={{ zIndex: 9999 }}>
+      <div className={`
+        ${isUrgent 
+          ? 'bg-red-600 dark:bg-red-700 text-white border-red-700 dark:border-red-800' 
+          : 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800'
+        }
+        text-xs py-1.5 px-3 rounded-full shadow-lg border flex items-center space-x-1.5 transition-colors duration-300
+        ${isUrgent ? 'animate-pulse' : ''}
+      `}>
+        <Clock size={12} className={isUrgent ? 'text-white' : 'text-red-500 dark:text-red-400'} />
+        <span className="font-medium">
+          Demo resets in {timeLeft.minutes}m {timeLeft.seconds}s
+        </span>
+      </div>
     </div>
   );
+
+  return createPortal(content, document.body);
 };
 
 export default ResetCountdown;

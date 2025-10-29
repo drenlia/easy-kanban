@@ -203,8 +203,8 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   },
   activityFeed: {
     isMinimized: false,
-    position: { x: typeof window !== 'undefined' ? window.innerWidth - 220 : 800, y: 66 },
-    width: 208, // Default width (now supports 120-600px range)
+    position: { x: 10, y: 220 }, // Position on left side with 10px margin
+    width: 160, // Default width (now supports 120-600px range)
     height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400, // Dynamic default height
     lastSeenActivityId: 0,
     clearActivityId: 0,

@@ -64,6 +64,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const currentDragDimensionsRef = useRef<{ width: number; height: number } | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+  const [showDimensionsTooltip, setShowDimensionsTooltip] = useState(false);
   
   // Filter state
   const [filterText, setFilterText] = useState('');
@@ -250,6 +251,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       y: e.clientY - rect.top
     });
     setIsDragging(true);
+    setShowDimensionsTooltip(true);
     
     // Prevent text selection
     e.preventDefault();
@@ -271,6 +273,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const handleDragEnd = async () => {
     if (!isDragging) return;
     setIsDragging(false);
+    setShowDimensionsTooltip(false);
     
     // Use the position that was actually set during dragging
     const positionToSave = currentDragPositionRef.current || position;
@@ -296,6 +299,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
       y: e.clientY - rect.bottom  // Distance from bottom edge
     });
     setIsResizing(resizeType);
+    setShowDimensionsTooltip(true);
     
     // Prevent text selection
     e.preventDefault();
@@ -352,6 +356,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   const handleResizeEnd = async () => {
     if (!isResizing) return;
     setIsResizing(null);
+    setShowDimensionsTooltip(false);
     
     // Use the dimensions that were actually set during resizing
     const dimensionsToSave = currentDragDimensionsRef.current || dimensions;
@@ -1002,6 +1007,30 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
         onMouseDown={(e) => handleResizeStart(e, 'both-top')}
         style={{ top: -2, right: -2 }}
       />
+      
+      {/* Dimensions Tooltip - shown while dragging or resizing */}
+      {showDimensionsTooltip && (isDragging || isResizing) && createPortal(
+        <div 
+          className="fixed bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 rounded-md shadow-lg z-[10002] px-2 py-1 pointer-events-none"
+          style={{
+            left: position.x + dimensions.width / 2,
+            top: position.y - 35,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <div className="font-mono text-gray-700 dark:text-gray-300 space-y-0.5" style={{ fontSize: '6px' }}>
+            <div className="flex items-center gap-1">
+              <span className="text-gray-500 dark:text-gray-400">Position:</span>
+              <span className="font-medium">x: {Math.round(position.x)}, y: {Math.round(position.y)}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-gray-500 dark:text-gray-400">Size:</span>
+              <span className="font-medium">w: {Math.round(dimensions.width)}, h: {Math.round(dimensions.height)}</span>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       
       {/* Minimize Dropdown Portal - rendered outside the feed to avoid clipping */}
       {showMinimizeDropdown && dropdownPosition && createPortal(
