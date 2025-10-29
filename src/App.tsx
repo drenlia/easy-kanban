@@ -612,7 +612,6 @@ export default function App() {
     currentUser,
     siteSettings,
     hasDefaultAdmin,
-    hasDemoUser,
     intendedDestination,
     justRedirected,
     handleLogin,
@@ -5260,7 +5259,6 @@ export default function App() {
           siteSettings={siteSettings}
           onLogin={handleLogin}
           hasDefaultAdmin={hasDefaultAdmin ?? undefined}
-          hasDemoUser={hasDemoUser ?? undefined}
           intendedDestination={intendedDestination}
           onForgotPassword={() => {
             localStorage.removeItem('authToken');
@@ -5310,7 +5308,6 @@ export default function App() {
         onLogin={handleLogin} 
         siteSettings={siteSettings}
         hasDefaultAdmin={hasDefaultAdmin ?? undefined}
-        hasDemoUser={hasDemoUser ?? undefined}
         intendedDestination={intendedDestination}
         onForgotPassword={() => {
           // Clear auth token to prevent conflicts during password reset

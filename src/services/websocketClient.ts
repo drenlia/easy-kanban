@@ -203,6 +203,16 @@ class WebSocketClient {
 
   // Re-register all stored event listeners
   private reregisterEventListeners() {
+    if (!this.socket) return;
+    
+    // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
+    // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
+    this.eventCallbacks.forEach((callbacks, eventName) => {
+      // Remove ALL listeners for this event before re-registering
+      this.socket?.removeAllListeners(eventName);
+    });
+    
+    // Now register all callbacks from our stored map
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach(callback => {
         this.socket?.on(eventName, callback as any);
