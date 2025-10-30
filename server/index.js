@@ -3875,9 +3875,10 @@ server.listen(PORT, '0.0.0.0', async () => {
 process.on('SIGINT', async () => {
   console.log('\n🔄 Received SIGINT, shutting down gracefully...');
   
-  // Flush all pending notifications
+  // Stop notification processing and flush pending notifications
   const throttler = getNotificationThrottler();
   if (throttler) {
+    throttler.stopProcessing();
     await throttler.flushAllNotifications();
   }
   
@@ -3888,9 +3889,10 @@ process.on('SIGINT', async () => {
 process.on('SIGTERM', async () => {
   console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
   
-  // Flush all pending notifications
+  // Stop notification processing and flush pending notifications
   const throttler = getNotificationThrottler();
   if (throttler) {
+    throttler.stopProcessing();
     await throttler.flushAllNotifications();
   }
   

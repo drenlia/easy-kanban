@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Users, Columns, ClipboardList, MessageSquare, ArrowRight, LayoutGrid, List, Calendar, Search, Eye, Settings, Play } from 'lucide-react';
 import { useTour } from '../contexts/TourContext';
+import { versionDetection } from '../utils/versionDetection';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -442,7 +443,10 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
         </div>
 
         {/* Sticky Footer */}
-        <div className="flex justify-end p-6 border-t bg-gray-50 dark:bg-gray-700 sticky bottom-0">
+        <div className="flex justify-between items-center p-6 border-t bg-gray-50 dark:bg-gray-700 sticky bottom-0">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Version {versionDetection.getInitialVersion() || '0.9-beta'}
+          </span>
           <button
             onClick={onClose}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"

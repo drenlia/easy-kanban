@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip, Calendar } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
@@ -50,6 +50,9 @@ interface ColumnConfig {
   visible: boolean;
   width: number;
 }
+
+// System user member ID constant
+const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'ticket', label: 'ID', visible: true, width: 100 },
@@ -126,6 +129,16 @@ export default function ListView({
   // Add Tag Modal state
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [tagModalTaskId, setTagModalTaskId] = useState<string | null>(null);
+
+  // Sprint selector state
+  const [showSprintSelector, setShowSprintSelector] = useState<string | null>(null); // taskId of sprint selector being shown
+  const [sprints, setSprints] = useState<any[]>([]);
+  const [sprintSearchTerm, setSprintSearchTerm] = useState('');
+  const [highlightedSprintIndex, setHighlightedSprintIndex] = useState<number>(-1);
+  const [sprintsLoading, setSprintsLoading] = useState(false);
+  const [sprintSelectorCoords, setSprintSelectorCoords] = useState<{left: number, top: number, height?: number} | null>(null);
+  const sprintSelectorRef = useRef<HTMLDivElement | null>(null);
+  const sprintOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Horizontal scroll navigation state
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -581,11 +594,29 @@ export default function ListView({
     return (
       <div className="flex items-center gap-2">
         <div className="flex items-center gap-1">
-          <img
-            src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl) || getAuthenticatedAvatarUrl('/default-avatar.png')}
-            alt={`${member.firstName} ${member.lastName}`}
-            className="w-5 h-5 rounded-full object-cover border border-gray-200"
-          />
+          {member.id === SYSTEM_MEMBER_ID ? (
+            // System user - show robot emoji instead of avatar
+            <div 
+              className="w-5 h-5 rounded-full flex items-center justify-center text-xs border border-gray-200"
+              style={{ backgroundColor: member.color }}
+            >
+              🤖
+            </div>
+          ) : member.googleAvatarUrl || member.avatarUrl ? (
+            <img
+              src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
+              alt={`${member.firstName} ${member.lastName}`}
+              className="w-5 h-5 rounded-full object-cover border border-gray-200"
+            />
+          ) : (
+            // Fallback to initial if no avatar
+            <div 
+              className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium text-white border border-gray-200"
+              style={{ backgroundColor: member.color }}
+            >
+              {member.firstName?.charAt(0).toUpperCase()}
+            </div>
+          )}
           <span className="text-xs text-gray-900 truncate">{member.firstName} {member.lastName}</span>
         </div>
         
@@ -716,6 +747,116 @@ export default function ListView({
     }
   };
 
+  // Sprint selector handlers
+  const handleSprintSelectorOpen = (taskId: string, event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const coords = calculateDropdownCoords(target, 'sprint');
+    setSprintSelectorCoords(coords);
+    setShowSprintSelector(taskId);
+  };
+
+  const handleSprintSelect = (taskId: string, sprint: any) => {
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    // Update both start and due dates to match sprint dates
+    const updatedTask = {
+      ...task,
+      startDate: sprint.start_date,
+      dueDate: sprint.end_date
+    };
+
+    onEditTask(updatedTask);
+    setShowSprintSelector(null);
+    setSprintSelectorCoords(null);
+    setSprintSearchTerm('');
+    setHighlightedSprintIndex(-1);
+  };
+
+  const handleSprintKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, taskId: string) => {
+    const filteredSprints = sprints.filter(sprint =>
+      sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+    );
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedSprintIndex(prev =>
+        prev < filteredSprints.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedSprintIndex(prev => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === 'Enter' && highlightedSprintIndex >= 0) {
+      e.preventDefault();
+      handleSprintSelect(taskId, filteredSprints[highlightedSprintIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowSprintSelector(null);
+      setSprintSearchTerm('');
+      setHighlightedSprintIndex(-1);
+    }
+  };
+
+  // Fetch sprints when sprint selector is opened
+  useEffect(() => {
+    const fetchSprints = async () => {
+      if (!showSprintSelector || sprints.length > 0) return;
+      
+      try {
+        setSprintsLoading(true);
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/admin/sprints', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSprints(data.sprints || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sprints:', error);
+      } finally {
+        setSprintsLoading(false);
+      }
+    };
+
+    fetchSprints();
+  }, [showSprintSelector, sprints.length]);
+
+  // Close sprint selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sprintSelectorRef.current && !sprintSelectorRef.current.contains(event.target as Node)) {
+        setShowSprintSelector(null);
+        setSprintSelectorCoords(null);
+        setSprintSearchTerm('');
+        setHighlightedSprintIndex(-1);
+      }
+    };
+
+    if (showSprintSelector) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSprintSelector]);
+
+  // Reset highlighted index when search term changes
+  useEffect(() => {
+    setHighlightedSprintIndex(-1);
+  }, [sprintSearchTerm]);
+
+  // Auto-scroll to highlighted sprint option
+  useEffect(() => {
+    if (highlightedSprintIndex >= 0 && sprintOptionRefs.current[highlightedSprintIndex]) {
+      sprintOptionRefs.current[highlightedSprintIndex]?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth'
+      });
+    }
+  }, [highlightedSprintIndex]);
+
   const calculateDropdownPosition = (element: HTMLElement) => {
     const rect = element.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
@@ -726,7 +867,7 @@ export default function ListView({
     return spaceBelow < 200 && spaceAbove > spaceBelow ? 'above' : 'below';
   };
 
-  const calculateDropdownCoords = (element: HTMLElement, dropdownType: 'assignee' | 'priority' | 'status' | 'tags') => {
+  const calculateDropdownCoords = (element: HTMLElement, dropdownType: 'assignee' | 'priority' | 'status' | 'tags' | 'sprint') => {
     const rect = element.getBoundingClientRect();
     
     // Set dimensions based on dropdown type
@@ -762,6 +903,10 @@ export default function ListView({
       case 'tags':
         dropdownWidth = 200;
         dropdownHeight = 180;
+        break;
+      case 'sprint':
+        dropdownWidth = 256; // w-64 = 16rem = 256px
+        dropdownHeight = 300; // Max height for sprint list with search
         break;
     }
     
@@ -1339,28 +1484,42 @@ export default function ListView({
                         </div>
                       )}
                       {column.key === 'startDate' && (
-                        editingCell?.taskId === task.id && editingCell?.field === 'startDate' ? (
-                          <input
-                            ref={editInputRef}
-                            type="date"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={saveEdit}
-                            onKeyDown={handleKeyDown}
-                            className="text-xs text-gray-700 dark:text-gray-200 font-mono bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-full"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ) : (
-                          <span 
-                            className="text-xs text-gray-700 font-mono cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
+                        <div className="flex items-center gap-1">
+                          <div
+                            title="Click to select sprint or set custom dates"
                             onClick={(e) => {
                               e.stopPropagation();
-                              startEditing(task.id, 'startDate', task.startDate);
+                              handleSprintSelectorOpen(task.id, e);
                             }}
                           >
-                            {formatDate(task.startDate)}
-                          </span>
-                        )
+                            <Calendar 
+                              size={12} 
+                              className="cursor-pointer hover:text-blue-600 transition-colors flex-shrink-0"
+                            />
+                          </div>
+                          {editingCell?.taskId === task.id && editingCell?.field === 'startDate' ? (
+                            <input
+                              ref={editInputRef}
+                              type="date"
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onBlur={saveEdit}
+                              onKeyDown={handleKeyDown}
+                              className="text-xs text-gray-700 dark:text-gray-200 font-mono bg-white dark:bg-gray-700 border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 flex-1"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <span 
+                              className="text-xs text-gray-700 font-mono cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startEditing(task.id, 'startDate', task.startDate);
+                              }}
+                            >
+                              {formatDate(task.startDate)}
+                            </span>
+                          )}
+                        </div>
                       )}
                       {column.key === 'dueDate' && (
                         editingCell?.taskId === task.id && editingCell?.field === 'dueDate' ? (
@@ -1599,21 +1758,29 @@ export default function ListView({
       {showDropdown?.field === 'assignee' && assigneeDropdownCoords && createPortal(
         <div 
           ref={dropdownRef}
-          className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg z-[9999] min-w-[180px]"
+          className="fixed bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg shadow-2xl z-[9999] min-w-[200px] overflow-hidden"
           style={{
             left: `${assigneeDropdownCoords.left}px`,
             top: `${assigneeDropdownCoords.top}px`,
             maxHeight: `${assigneeDropdownCoords.height || 150}px`,
           }}
         >
-          <div className="py-1 max-h-full overflow-y-auto">
+          <div className="overflow-y-auto py-1" style={{ maxHeight: `${assigneeDropdownCoords.height || 150}px` }}>
             {members?.map(member => (
               <button
                 key={member.id}
                 onClick={() => handleDropdownSelect(showDropdown.taskId, 'memberId', member.id)}
-                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
               >
-                {member.googleAvatarUrl || member.avatarUrl ? (
+                {member.id === SYSTEM_MEMBER_ID ? (
+                  // System user - show robot emoji
+                  <div 
+                    className="w-4 h-4 rounded-full flex items-center justify-center text-xs border border-gray-200"
+                    style={{ backgroundColor: member.color }}
+                  >
+                    🤖
+                  </div>
+                ) : member.googleAvatarUrl || member.avatarUrl ? (
                   <img
                     src={getAuthenticatedAvatarUrl(member.googleAvatarUrl || member.avatarUrl)}
                     alt={member.name}
@@ -1926,6 +2093,81 @@ export default function ListView({
         document.body
       )}
 
+      {/* Portal-rendered Sprint Selector Dropdown */}
+      {showSprintSelector && sprintSelectorCoords && createPortal(
+        <div 
+          ref={sprintSelectorRef}
+          className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-[9999]"
+          style={{
+            left: `${sprintSelectorCoords.left}px`,
+            top: `${sprintSelectorCoords.top}px`,
+            width: '256px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-2">
+            <input
+              type="text"
+              value={sprintSearchTerm}
+              onChange={(e) => setSprintSearchTerm(e.target.value)}
+              onKeyDown={(e) => handleSprintKeyDown(e, showSprintSelector)}
+              placeholder="Search sprints..."
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+              autoFocus
+            />
+          </div>
+          
+          <div className="max-h-60 overflow-y-auto">
+            {sprintsLoading ? (
+              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                Loading sprints...
+              </div>
+            ) : sprints.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                No sprints available. Create one in Admin settings.
+              </div>
+            ) : (
+              sprints
+                .filter(sprint =>
+                  sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+                )
+                .map((sprint, index) => (
+                  <button
+                    key={sprint.id}
+                    ref={(el) => (sprintOptionRefs.current[index] = el)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSprintSelect(showSprintSelector, sprint);
+                    }}
+                    onMouseEnter={() => setHighlightedSprintIndex(index)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                      highlightedSprintIndex === index
+                        ? 'bg-blue-50 dark:bg-blue-900/20'
+                        : sprint.is_active === 1 || sprint.is_active === true
+                        ? 'bg-green-50 dark:bg-green-900/10'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        {sprint.name}
+                      </div>
+                      {(sprint.is_active === 1 || sprint.is_active === true) && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)}
+                    </div>
+                  </button>
+                ))
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
       
       {/* Add Tag Modal */}
       {showAddTagModal && createPortal(

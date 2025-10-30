@@ -50,7 +50,7 @@ export const getPointsConfig = (db) => {
   
   try {
     const settings = {};
-    const rows = db.prepare('SELECT key, value FROM settings WHERE key LIKE "REPORTS_POINTS_%"').all();
+    const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'REPORTS_POINTS_%'").all();
     
     rows.forEach(row => {
       settings[row.key] = row.value;

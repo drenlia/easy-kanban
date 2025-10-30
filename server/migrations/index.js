@@ -413,8 +413,84 @@ const migrations = [
     down: (db) => {
       console.log('⚠️  Rollback not supported for this migration (SQLite limitation)');
     }
+  },
+  {
+    version: 7,
+    name: 'add_notification_queue',
+    description: 'Add persistent notification queue table to survive server restarts',
+    up: (db) => {
+      console.log('📧 Applying migration: Add notification queue table...');
+      
+      try {
+        db.exec(`
+          -- Notification Queue Table
+          -- Stores pending notifications that will be sent after a delay
+          -- This ensures notifications survive server restarts
+          CREATE TABLE IF NOT EXISTS notification_queue (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            notification_type TEXT NOT NULL, -- 'assignee', 'watcher', 'collaborator', 'creator'
+            action TEXT NOT NULL, -- 'created', 'updated', 'assigned', etc.
+            details TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            task_data TEXT, -- JSON snapshot of task data
+            participants_data TEXT, -- JSON snapshot of participants
+            actor_data TEXT, -- JSON snapshot of actor (person making change)
+            status TEXT DEFAULT 'pending', -- 'pending', 'sent', 'failed'
+            scheduled_send_time DATETIME NOT NULL, -- When this notification should be sent
+            first_change_time DATETIME NOT NULL, -- When the first change occurred
+            last_change_time DATETIME NOT NULL, -- When the last change occurred
+            change_count INTEGER DEFAULT 1, -- How many changes accumulated
+            error_message TEXT, -- Error message if sending failed
+            retry_count INTEGER DEFAULT 0, -- How many times we've tried to send
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            sent_at DATETIME, -- When the notification was successfully sent
+            
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+          );
+          
+          -- Indexes for efficient querying
+          CREATE INDEX IF NOT EXISTS idx_notification_queue_status 
+            ON notification_queue(status);
+          
+          CREATE INDEX IF NOT EXISTS idx_notification_queue_scheduled_send 
+            ON notification_queue(scheduled_send_time, status);
+          
+          CREATE INDEX IF NOT EXISTS idx_notification_queue_user_task 
+            ON notification_queue(user_id, task_id, status);
+          
+          CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at 
+            ON notification_queue(created_at);
+        `);
+        
+        console.log('✅ Notification queue table created successfully');
+        console.log('   • Added notification_queue table');
+        console.log('   • Added indexes for efficient querying');
+        console.log('   • Notifications will now persist across server restarts');
+        
+      } catch (error) {
+        console.error('❌ Failed to create notification queue table:', error);
+        throw error;
+      }
+    },
+    down: (db) => {
+      console.log('⚠️  Rolling back notification queue migration...');
+      try {
+        db.exec(`
+          DROP TABLE IF EXISTS notification_queue;
+        `);
+        console.log('✅ Notification queue table removed');
+      } catch (error) {
+        console.error('❌ Failed to remove notification queue table:', error);
+        throw error;
+      }
+    }
   }
-  // Future migrations will be added here with version: 7, 8, etc.
+  // Future migrations will be added here with version: 8, 9, etc.
 ];
 
 /**

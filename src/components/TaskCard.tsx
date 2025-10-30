@@ -221,6 +221,17 @@ const TaskCard = React.memo(function TaskCard({
   const [editedEffort, setEditedEffort] = useState(task.effort);
   const [editedDescription, setEditedDescription] = useState(task.description);
   const [showAllTags, setShowAllTags] = useState(false);
+  
+  // Sprint selector states
+  const [showSprintSelector, setShowSprintSelector] = useState(false);
+  const [sprints, setSprints] = useState<any[]>([]);
+  const [sprintSearchTerm, setSprintSearchTerm] = useState('');
+  const [highlightedSprintIndex, setHighlightedSprintIndex] = useState<number>(-1);
+  const [sprintsLoading, setSprintsLoading] = useState(false);
+  const [sprintSelectorCoords, setSprintSelectorCoords] = useState<{left: number, top: number} | null>(null);
+  const sprintSelectorRef = useRef<HTMLDivElement>(null);
+  const sprintOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const calendarIconRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
@@ -240,7 +251,7 @@ const TaskCard = React.memo(function TaskCard({
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown;
+  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector;
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -574,6 +585,142 @@ const TaskCard = React.memo(function TaskCard({
       handleDueDateCancel();
     }
   };
+
+  // Sprint selector handlers
+  const handleSprintSelectorOpen = () => {
+    if (!calendarIconRef.current) return;
+    
+    const rect = calendarIconRef.current.getBoundingClientRect();
+    const dropdownWidth = 256; // w-64
+    const dropdownHeight = 300; // Approximate max height
+    
+    // Calculate horizontal position
+    let left = rect.left;
+    const spaceRight = window.innerWidth - (left + dropdownWidth);
+    
+    if (spaceRight < 10) {
+      left = rect.right - dropdownWidth;
+    }
+    
+    if (left < 10) {
+      left = 10;
+    }
+    
+    // Calculate vertical position
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    
+    let top;
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+      // Show above
+      top = rect.top - Math.min(dropdownHeight, spaceAbove - 10);
+    } else {
+      // Show below
+      top = rect.bottom + 4;
+    }
+    
+    setSprintSelectorCoords({ left, top });
+    setShowSprintSelector(true);
+  };
+
+  const handleSprintSelect = (sprint: any) => {
+    // Update both start and due dates to match sprint dates
+    onEdit({ 
+      ...task, 
+      startDate: sprint.start_date,
+      dueDate: sprint.end_date
+    });
+    setEditedDate(sprint.start_date);
+    setEditedDueDate(sprint.end_date);
+    setShowSprintSelector(false);
+    setSprintSelectorCoords(null);
+    setSprintSearchTerm('');
+    setHighlightedSprintIndex(-1);
+  };
+
+  const handleSprintKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const filteredSprints = sprints.filter(sprint =>
+      sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+    );
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedSprintIndex(prev =>
+        prev < filteredSprints.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedSprintIndex(prev => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === 'Enter' && highlightedSprintIndex >= 0) {
+      e.preventDefault();
+      handleSprintSelect(filteredSprints[highlightedSprintIndex]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setShowSprintSelector(false);
+      setSprintSearchTerm('');
+      setHighlightedSprintIndex(-1);
+    }
+  };
+
+  // Fetch sprints when sprint selector is opened
+  useEffect(() => {
+    const fetchSprints = async () => {
+      if (!showSprintSelector || sprints.length > 0) return;
+      
+      try {
+        setSprintsLoading(true);
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/admin/sprints', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSprints(data.sprints || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sprints:', error);
+      } finally {
+        setSprintsLoading(false);
+      }
+    };
+
+    fetchSprints();
+  }, [showSprintSelector, sprints.length]);
+
+  // Close sprint selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sprintSelectorRef.current && !sprintSelectorRef.current.contains(event.target as Node)) {
+        setShowSprintSelector(false);
+        setSprintSelectorCoords(null);
+        setSprintSearchTerm('');
+        setHighlightedSprintIndex(-1);
+      }
+    };
+
+    if (showSprintSelector) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showSprintSelector]);
+
+  // Reset highlighted index when search term changes
+  useEffect(() => {
+    setHighlightedSprintIndex(-1);
+  }, [sprintSearchTerm]);
+
+  // Auto-scroll to highlighted sprint option
+  useEffect(() => {
+    if (highlightedSprintIndex >= 0 && sprintOptionRefs.current[highlightedSprintIndex]) {
+      sprintOptionRefs.current[highlightedSprintIndex]?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth'
+      });
+    }
+  }, [highlightedSprintIndex]);
 
   const handleEffortSave = () => {
     if (editedEffort !== task.effort) {
@@ -1279,9 +1426,21 @@ const TaskCard = React.memo(function TaskCard({
         <div className="flex items-center justify-between text-sm text-gray-500">
           {/* Left side - dates and effort and comments */}
           <div className="flex items-center gap-2">
-            {/* Dates - ultra compact */}
+            {/* Dates - ultra compact with sprint selector */}
             <div className="flex items-center gap-0.5">
-              <Calendar size={12} />
+              <div
+                ref={calendarIconRef}
+                title="Click to select sprint or set custom dates"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSprintSelectorOpen();
+                }}
+              >
+                <Calendar 
+                  size={12} 
+                  className="cursor-pointer hover:text-blue-600 transition-colors"
+                />
+              </div>
               <div className="text-xs leading-none font-mono">
                 {/* Start Date */}
                 {isEditingDate ? (
@@ -1725,6 +1884,82 @@ const TaskCard = React.memo(function TaskCard({
               Cancel
                     </button>
               </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Portal-rendered Sprint Selector Dropdown */}
+      {showSprintSelector && sprintSelectorCoords && createPortal(
+        <div
+          ref={sprintSelectorRef}
+          className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-[9999]"
+          style={{
+            left: `${sprintSelectorCoords.left}px`,
+            top: `${sprintSelectorCoords.top}px`,
+            width: '256px',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-2">
+            <input
+              type="text"
+              value={sprintSearchTerm}
+              onChange={(e) => setSprintSearchTerm(e.target.value)}
+              onKeyDown={handleSprintKeyDown}
+              placeholder="Search sprints..."
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
+              autoFocus
+            />
+          </div>
+          
+          <div className="max-h-60 overflow-y-auto">
+            {sprintsLoading ? (
+              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                Loading sprints...
+              </div>
+            ) : sprints.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                No sprints available. Create one in Admin settings.
+              </div>
+            ) : (
+              sprints
+                .filter(sprint =>
+                  sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+                )
+                .map((sprint, index) => (
+                  <button
+                    key={sprint.id}
+                    ref={(el) => (sprintOptionRefs.current[index] = el)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSprintSelect(sprint);
+                    }}
+                    onMouseEnter={() => setHighlightedSprintIndex(index)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                      highlightedSprintIndex === index
+                        ? 'bg-blue-50 dark:bg-blue-900/20'
+                        : sprint.is_active === 1 || sprint.is_active === true
+                        ? 'bg-green-50 dark:bg-green-900/10'
+                        : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium text-gray-900 dark:text-white">
+                        {sprint.name}
+                      </div>
+                      {(sprint.is_active === 1 || sprint.is_active === true) && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)}
+                    </div>
+                  </button>
+                ))
+            )}
+          </div>
         </div>,
         document.body
       )}
