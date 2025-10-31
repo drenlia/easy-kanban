@@ -11,7 +11,7 @@ export const createDailyTaskSnapshots = async (db) => {
     const startTime = Date.now();
     console.log('📸 Starting daily task snapshots...');
     
-    // Get all tasks with their current state
+    // Get all tasks with their current state (excluding archived columns)
     const tasks = wrapQuery(db.prepare(`
       SELECT 
         t.id, t.title, t.ticket, t.description, t.effort, t.priority,
@@ -25,6 +25,7 @@ export const createDailyTaskSnapshots = async (db) => {
       LEFT JOIN columns c ON t.columnId = c.id
       LEFT JOIN members m ON t.memberId = m.user_id
       LEFT JOIN members r ON t.requesterId = r.user_id
+      WHERE (c.is_archived IS NULL OR c.is_archived = 0)
     `), 'SELECT').all();
     
     if (tasks.length === 0) {

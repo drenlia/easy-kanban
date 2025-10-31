@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send } from 'lucide-react';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
@@ -48,6 +48,15 @@ interface HeaderProps {
   // onToggleAutoRefresh: () => void;
   selectedSprintId: string | null;
   onSprintChange: (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => void;
+  boards?: Array<{
+    id: string;
+    columns?: {
+      [columnId: string]: {
+        id: string;
+        tasks?: Array<{ id: string; sprintId?: string | null }>;
+      };
+    };
+  }>;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -67,7 +76,25 @@ const Header: React.FC<HeaderProps> = ({
   // onToggleAutoRefresh, // Disabled - using real-time updates
   selectedSprintId,
   onSprintChange,
+  boards = [],
 }) => {
+  // Extract all tasks from all boards for sprint counting
+  const allTasks = useMemo(() => {
+    const tasks: Array<{ id: string; sprintId?: string | null }> = [];
+    boards.forEach(board => {
+      if (board.columns) {
+        Object.values(board.columns).forEach(column => {
+          if (column.tasks) {
+            tasks.push(...column.tasks.map(task => ({
+              id: task.id,
+              sprintId: task.sprintId
+            })));
+          }
+        });
+      }
+    });
+    return tasks;
+  }, [boards]);
   const [showInviteDropdown, setShowInviteDropdown] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [isInviting, setIsInviting] = useState(false);
@@ -322,6 +349,7 @@ const Header: React.FC<HeaderProps> = ({
             <SprintSelector
               selectedSprintId={selectedSprintId}
               onSprintChange={onSprintChange}
+              tasks={allTasks}
             />
           )}
         </div>

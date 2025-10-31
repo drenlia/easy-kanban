@@ -149,7 +149,16 @@ router.get('/', authenticateToken, (req, res) => {
       GROUP BY t.id
       ORDER BY t.position ASC
     `), 'SELECT').all();
-    res.json(tasks);
+    
+    // Convert snake_case to camelCase for frontend
+    const tasksWithCamelCase = tasks.map(task => ({
+      ...task,
+      sprintId: task.sprint_id || null,
+      createdAt: task.created_at,
+      updatedAt: task.updated_at
+    }));
+    
+    res.json(tasksWithCamelCase);
   } catch (error) {
     console.error('Error fetching tasks:', error);
     res.status(500).json({ error: 'Failed to fetch tasks' });
@@ -271,19 +280,28 @@ router.get('/:id', authenticateToken, (req, res) => {
     task.collaborators = collaborators || [];
     task.tags = tags || [];
     
+    // Convert snake_case to camelCase for frontend
+    const taskResponse = {
+      ...task,
+      sprintId: task.sprint_id || null,
+      createdAt: task.created_at,
+      updatedAt: task.updated_at
+    };
+    
     console.log('📦 [TASK API] Final task data:', {
-      id: task.id,
-      title: task.title,
-      commentsCount: task.comments.length,
-      watchersCount: task.watchers.length,
-      collaboratorsCount: task.collaborators.length,
-      tagsCount: task.tags.length,
-      priority: task.priority,
-      priorityId: task.priorityId,
-      status: task.status
+      id: taskResponse.id,
+      title: taskResponse.title,
+      commentsCount: taskResponse.comments.length,
+      watchersCount: taskResponse.watchers.length,
+      collaboratorsCount: taskResponse.collaborators.length,
+      tagsCount: taskResponse.tags.length,
+      priority: taskResponse.priority,
+      priorityId: taskResponse.priorityId,
+      status: taskResponse.status,
+      sprintId: taskResponse.sprintId
     });
     
-    res.json(task);
+    res.json(taskResponse);
   } catch (error) {
     console.error('Error fetching task:', error);
     res.status(500).json({ error: 'Failed to fetch task' });
@@ -308,11 +326,11 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     
     // Create the task
     wrapQuery(db.prepare(`
-      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, sprint_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
       task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-      task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, now, now
+      task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, task.sprintId || null, now, now
     );
     
     // Log the activity (console only for now)
@@ -376,11 +394,11 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     db.transaction(() => {
       wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
       wrapQuery(db.prepare(`
-        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, sprint_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `), 'INSERT').run(
         task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-        task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, now, now
+        task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.sprintId || null, now, now
       );
     })();
     
@@ -466,11 +484,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
       dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ?, 
-      pre_boardId = ?, pre_columnId = ?, updated_at = ? WHERE id = ?
+      sprint_id = ?, pre_boardId = ?, pre_columnId = ?, updated_at = ? WHERE id = ?
     `), 'UPDATE').run(
       task.title, task.description, task.memberId, task.requesterId, task.startDate,
       task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0,
-      previousBoardId, previousColumnId, now, id
+      task.sprintId || null, previousBoardId, previousColumnId, now, id
     );
     
     // Log activity if there were changes
@@ -521,18 +539,29 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
     }
     
-    // Publish to Redis for real-time updates
+    // Fetch the updated task from database to ensure we have all fields (including sprint_id)
+    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    
+    // Convert snake_case to camelCase for frontend
+    const taskResponse = {
+      ...updatedTask,
+      sprintId: updatedTask.sprint_id || null,
+      createdAt: updatedTask.created_at,
+      updatedAt: updatedTask.updated_at
+    };
+    
+    // Publish to Redis for real-time updates (use updated task from DB)
     const webSocketData = {
-      boardId: task.boardId,
+      boardId: taskResponse.boardId,
       task: {
-        ...task,
+        ...taskResponse,
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
     };
     await redisService.publish('task-updated', webSocketData);
     
-    res.json(task);
+    res.json(taskResponse);
   } catch (error) {
     console.error('Error updating task:', error);
     res.status(500).json({ error: 'Failed to update task' });
@@ -703,11 +732,19 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     // Get the updated task data for WebSocket
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
+    // Convert snake_case to camelCase for frontend
+    const taskResponse = {
+      ...updatedTask,
+      sprintId: updatedTask.sprint_id || null,
+      createdAt: updatedTask.created_at,
+      updatedAt: updatedTask.updated_at
+    };
+    
     // Publish to Redis for real-time updates
     await redisService.publish('task-updated', {
       boardId: currentTask.boardId,
       task: {
-        ...updatedTask,
+        ...taskResponse,
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
@@ -865,11 +902,19 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     // Get the updated task data for WebSocket
     const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
+    // Convert snake_case to camelCase for frontend
+    const taskResponse = {
+      ...updatedTask,
+      sprintId: updatedTask.sprint_id || null,
+      createdAt: updatedTask.created_at,
+      updatedAt: updatedTask.updated_at
+    };
+    
     // Publish to Redis for real-time updates (both boards need to be notified)
     await redisService.publish('task-updated', {
       boardId: originalBoardId,
       task: {
-        ...updatedTask,
+        ...taskResponse,
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
@@ -878,7 +923,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     await redisService.publish('task-updated', {
       boardId: targetBoardId,
       task: {
-        ...updatedTask,
+        ...taskResponse,
         updatedBy: userId
       },
       timestamp: new Date().toISOString()

@@ -210,47 +210,53 @@ router.get('/burndown', authenticateToken, (req, res) => {
       });
     }
     
-    // Build query based on filters
+    // Build query based on filters (exclude archived columns via JOIN)
     let snapshotQuery = `
       SELECT 
-        snapshot_date,
-        COUNT(DISTINCT task_id) as total_tasks,
-        COUNT(DISTINCT CASE WHEN is_completed = 1 THEN task_id END) as completed_tasks,
-        SUM(effort_points) as total_effort,
-        SUM(CASE WHEN is_completed = 1 THEN effort_points ELSE 0 END) as completed_effort
-      FROM task_snapshots
-      WHERE snapshot_date BETWEEN ? AND ?
+        ts.snapshot_date,
+        COUNT(DISTINCT ts.task_id) as total_tasks,
+        COUNT(DISTINCT CASE WHEN ts.is_completed = 1 THEN ts.task_id END) as completed_tasks,
+        SUM(ts.effort_points) as total_effort,
+        SUM(CASE WHEN ts.is_completed = 1 THEN ts.effort_points ELSE 0 END) as completed_effort
+      FROM task_snapshots ts
+      LEFT JOIN columns c ON ts.column_id = c.id
+      WHERE ts.snapshot_date BETWEEN ? AND ?
+      AND (c.is_archived IS NULL OR c.is_archived = 0)
     `;
     
     const params = [startDate, endDate];
     
     if (boardId) {
-      snapshotQuery += ' AND board_id = ?';
+      snapshotQuery += ' AND ts.board_id = ?';
       params.push(boardId);
     }
     
-    snapshotQuery += ' GROUP BY snapshot_date ORDER BY snapshot_date ASC';
+    snapshotQuery += ' GROUP BY ts.snapshot_date ORDER BY ts.snapshot_date ASC';
     
     const snapshots = wrapQuery(db.prepare(snapshotQuery), 'SELECT').all(...params);
     
-    // Get planning baseline (tasks at first available snapshot in range)
+    // Get planning baseline (tasks at first available snapshot in range, excluding archived)
     let baselineQuery = `
       SELECT 
-        COUNT(DISTINCT task_id) as planned_tasks,
-        SUM(effort_points) as planned_effort
-      FROM task_snapshots
-      WHERE snapshot_date = (
-        SELECT MIN(snapshot_date) 
-        FROM task_snapshots 
-        WHERE snapshot_date BETWEEN ? AND ?
-        ${boardId ? 'AND board_id = ?' : ''}
+        COUNT(DISTINCT ts.task_id) as planned_tasks,
+        SUM(ts.effort_points) as planned_effort
+      FROM task_snapshots ts
+      LEFT JOIN columns c ON ts.column_id = c.id
+      WHERE ts.snapshot_date = (
+        SELECT MIN(ts2.snapshot_date) 
+        FROM task_snapshots ts2
+        LEFT JOIN columns c2 ON ts2.column_id = c2.id
+        WHERE ts2.snapshot_date BETWEEN ? AND ?
+        AND (c2.is_archived IS NULL OR c2.is_archived = 0)
+        ${boardId ? 'AND ts2.board_id = ?' : ''}
       )
+      AND (c.is_archived IS NULL OR c.is_archived = 0)
     `;
     
     const baselineParams = [startDate, endDate];
     if (boardId) {
       baselineParams.push(boardId); // For the subquery
-      baselineQuery += ' AND board_id = ?';
+      baselineQuery += ' AND ts.board_id = ?';
       baselineParams.push(boardId); // For the outer query
     }
     
@@ -289,13 +295,15 @@ router.get('/burndown', authenticateToken, (req, res) => {
     // If no boardId filter, get per-board breakdown
     let boardsData = [];
     if (!boardId) {
-      // Get all unique boards in the date range
+      // Get all unique boards in the date range (excluding archived columns)
       const boardsQuery = `
-        SELECT DISTINCT board_id, board_name
-        FROM task_snapshots
-        WHERE snapshot_date BETWEEN ? AND ?
-        AND board_id IS NOT NULL
-        ORDER BY board_name
+        SELECT DISTINCT ts.board_id, ts.board_name
+        FROM task_snapshots ts
+        LEFT JOIN columns c ON ts.column_id = c.id
+        WHERE ts.snapshot_date BETWEEN ? AND ?
+        AND ts.board_id IS NOT NULL
+        AND (c.is_archived IS NULL OR c.is_archived = 0)
+        ORDER BY ts.board_name
       `;
       const boards = wrapQuery(db.prepare(boardsQuery), 'SELECT').all(startDate, endDate);
       
@@ -303,16 +311,18 @@ router.get('/burndown', authenticateToken, (req, res) => {
       boardsData = boards.map(board => {
         const boardSnapshotsQuery = `
           SELECT 
-            snapshot_date,
-            COUNT(DISTINCT task_id) as total_tasks,
-            COUNT(DISTINCT CASE WHEN is_completed = 1 THEN task_id END) as completed_tasks,
-            SUM(effort_points) as total_effort,
-            SUM(CASE WHEN is_completed = 1 THEN effort_points ELSE 0 END) as completed_effort
-          FROM task_snapshots
-          WHERE snapshot_date BETWEEN ? AND ?
-          AND board_id = ?
-          GROUP BY snapshot_date
-          ORDER BY snapshot_date ASC
+            ts.snapshot_date,
+            COUNT(DISTINCT ts.task_id) as total_tasks,
+            COUNT(DISTINCT CASE WHEN ts.is_completed = 1 THEN ts.task_id END) as completed_tasks,
+            SUM(ts.effort_points) as total_effort,
+            SUM(CASE WHEN ts.is_completed = 1 THEN ts.effort_points ELSE 0 END) as completed_effort
+          FROM task_snapshots ts
+          LEFT JOIN columns c ON ts.column_id = c.id
+          WHERE ts.snapshot_date BETWEEN ? AND ?
+          AND ts.board_id = ?
+          AND (c.is_archived IS NULL OR c.is_archived = 0)
+          GROUP BY ts.snapshot_date
+          ORDER BY ts.snapshot_date ASC
         `;
         
         const boardSnapshots = wrapQuery(
@@ -534,6 +544,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
       LEFT JOIN members m ON t.memberId = m.user_id
       LEFT JOIN members r ON t.requesterId = r.user_id
       WHERE 1=1
+      AND (c.is_archived IS NULL OR c.is_archived = 0)
     `;
     
     const params = [];

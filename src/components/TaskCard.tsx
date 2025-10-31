@@ -6,7 +6,8 @@ import { TaskViewMode } from '../utils/userPreferences';
 import QuickEditModal from './QuickEditModal';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
-import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
+import DateRangePicker from './DateRangePicker';
+import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
 import { createComment, fetchTaskAttachments } from '../api';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { generateUUID } from '../utils/uuid';
@@ -211,15 +212,13 @@ const TaskCard = React.memo(function TaskCard({
   };
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
-  const [isEditingDate, setIsEditingDate] = useState(false);
-  const [isEditingDueDate, setIsEditingDueDate] = useState(false);
   const [isEditingEffort, setIsEditingEffort] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showPrioritySelect, setShowPrioritySelect] = useState(false);
-  const [editedDate, setEditedDate] = useState(task.startDate);
-  const [editedDueDate, setEditedDueDate] = useState(task.dueDate || '');
   const [editedEffort, setEditedEffort] = useState(task.effort);
   const [editedDescription, setEditedDescription] = useState(task.description);
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [dateRangePickerPosition, setDateRangePickerPosition] = useState<{ left: number; top: number } | null>(null);
   const [showAllTags, setShowAllTags] = useState(false);
   
   // Sprint selector states
@@ -232,6 +231,12 @@ const TaskCard = React.memo(function TaskCard({
   const sprintSelectorRef = useRef<HTMLDivElement>(null);
   const sprintOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const calendarIconRef = useRef<HTMLDivElement>(null);
+  
+  // Date validation tooltip states
+  const [showStartDateTooltip, setShowStartDateTooltip] = useState(false);
+  const [showDueDateTooltip, setShowDueDateTooltip] = useState(false);
+  const [dateTooltipPosition, setDateTooltipPosition] = useState<{left: number, top: number} | null>(null);
+  const dateTooltipRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<'above' | 'below'>('below');
   const [showAddCommentModal, setShowAddCommentModal] = useState(false);
   const [showAttachmentsDropdown, setShowAttachmentsDropdown] = useState(false);
@@ -251,7 +256,7 @@ const TaskCard = React.memo(function TaskCard({
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingDate || isEditingDueDate || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector;
+  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -333,17 +338,63 @@ const TaskCard = React.memo(function TaskCard({
     return formatToYYYYMMDDHHmmss(dateStr);
   };
 
-  // Helper function to parse date string as local date (avoiding timezone issues)
-  const parseLocalDate = (dateString: string): Date => {
-    if (!dateString) return new Date();
-    
-    // Handle both YYYY-MM-DD and full datetime strings
-    const dateOnly = dateString.split('T')[0]; // Get just the date part
-    const [year, month, day] = dateOnly.split('-').map(Number);
-    
-    // Create date in local timezone
-    return new Date(year, month - 1, day); // month is 0-indexed
+  // Validate task dates against sprint dates
+  const getDateValidation = () => {
+    if (!task.sprintId || sprints.length === 0) {
+      return { startDateValid: true, dueDateValid: true, sprint: null };
+    }
+
+    const sprint = sprints.find(s => s.id === task.sprintId);
+    if (!sprint || !sprint.start_date || !sprint.end_date) {
+      return { startDateValid: true, dueDateValid: true, sprint: null };
+    }
+
+    const sprintStart = parseLocalDate(sprint.start_date);
+    const sprintEnd = parseLocalDate(sprint.end_date);
+    sprintStart.setHours(0, 0, 0, 0);
+    sprintEnd.setHours(0, 0, 0, 0);
+
+    let startDateValid = true;
+    let dueDateValid = true;
+    let startDateError = '';
+    let dueDateError = '';
+
+    if (task.startDate) {
+      const taskStart = parseLocalDate(task.startDate);
+      taskStart.setHours(0, 0, 0, 0);
+      
+      if (taskStart < sprintStart) {
+        startDateValid = false;
+        startDateError = `Start date is before sprint start (${formatDate(sprint.start_date)})`;
+      } else if (taskStart > sprintEnd) {
+        startDateValid = false;
+        startDateError = `Start date is after sprint end (${formatDate(sprint.end_date)})`;
+      }
+    }
+
+    if (task.dueDate) {
+      const taskDue = parseLocalDate(task.dueDate);
+      taskDue.setHours(0, 0, 0, 0);
+      
+      if (taskDue < sprintStart) {
+        dueDateValid = false;
+        dueDateError = `Due date is before sprint start (${formatDate(sprint.start_date)})`;
+      } else if (taskDue > sprintEnd) {
+        dueDateValid = false;
+        dueDateError = `Due date is after sprint end (${formatDate(sprint.end_date)})`;
+      }
+    }
+
+    return {
+      startDateValid,
+      dueDateValid,
+      sprint,
+      startDateError,
+      dueDateError
+    };
   };
+
+  const dateValidation = getDateValidation();
 
   // Check if task is overdue (due date is before today)
   // Tasks in finished columns are never considered overdue
@@ -542,48 +593,28 @@ const TaskCard = React.memo(function TaskCard({
     }
   };
 
-  const handleDateSave = () => {
-    if (editedDate !== task.startDate) {
-      onEdit({ ...task, startDate: editedDate });
-    }
-    setIsEditingDate(false);
+  const handleDateRangeClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    setDateRangePickerPosition({
+      left: rect.left,
+      top: rect.bottom + 4
+    });
+    setShowDateRangePicker(true);
   };
 
-  const handleDateCancel = () => {
-    setEditedDate(task.startDate);
-    setIsEditingDate(false);
+  const handleDateRangeChange = (startDate: string, endDate: string) => {
+    onEdit({ 
+      ...task, 
+      startDate,
+      dueDate: endDate || undefined
+    });
   };
 
-  const handleDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleDateSave();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleDateCancel();
-    }
-  };
-
-  const handleDueDateSave = () => {
-    if (editedDueDate !== (task.dueDate || '')) {
-      onEdit({ ...task, dueDate: editedDueDate || undefined });
-    }
-    setIsEditingDueDate(false);
-  };
-
-  const handleDueDateCancel = () => {
-    setEditedDueDate(task.dueDate || '');
-    setIsEditingDueDate(false);
-  };
-
-  const handleDueDateKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleDueDateSave();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleDueDateCancel();
-    }
+  const handleDateRangePickerClose = () => {
+    setShowDateRangePicker(false);
+    setDateRangePickerPosition(null);
   };
 
   // Sprint selector handlers
@@ -623,15 +654,20 @@ const TaskCard = React.memo(function TaskCard({
     setShowSprintSelector(true);
   };
 
-  const handleSprintSelect = (sprint: any) => {
-    // Update both start and due dates to match sprint dates
-    onEdit({ 
-      ...task, 
-      startDate: sprint.start_date,
-      dueDate: sprint.end_date
-    });
-    setEditedDate(sprint.start_date);
-    setEditedDueDate(sprint.end_date);
+  const handleSprintSelect = (sprint: any | null) => {
+    if (sprint === null) {
+      // "None (Backlog)" selected - clear sprint association
+      onEdit({ 
+        ...task, 
+        sprintId: null
+      });
+    } else {
+      // Sprint selected - only set sprint_id, don't modify dates
+      onEdit({ 
+        ...task, 
+        sprintId: sprint.id
+      });
+    }
     setShowSprintSelector(false);
     setSprintSelectorCoords(null);
     setSprintSearchTerm('');
@@ -662,10 +698,12 @@ const TaskCard = React.memo(function TaskCard({
     }
   };
 
-  // Fetch sprints when sprint selector is opened
+  // Fetch sprints when sprint selector is opened OR when task has sprintId (for validation)
   useEffect(() => {
     const fetchSprints = async () => {
-      if (!showSprintSelector || sprints.length > 0) return;
+      // Fetch if selector is opened OR if task has sprintId and we don't have sprints yet
+      const shouldFetch = showSprintSelector || (task.sprintId && sprints.length === 0);
+      if (!shouldFetch) return;
       
       try {
         setSprintsLoading(true);
@@ -688,7 +726,7 @@ const TaskCard = React.memo(function TaskCard({
     };
 
     fetchSprints();
-  }, [showSprintSelector, sprints.length]);
+  }, [showSprintSelector, task.sprintId, sprints.length]);
 
   // Close sprint selector when clicking outside
   useEffect(() => {
@@ -1441,59 +1479,48 @@ const TaskCard = React.memo(function TaskCard({
                   className="cursor-pointer hover:text-blue-600 transition-colors"
                 />
               </div>
-              <div className="text-xs leading-none font-mono">
+              <div 
+                className="text-xs leading-none font-mono cursor-pointer hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
+                onClick={handleDateRangeClick}
+                title="Click to change dates"
+              >
                 {/* Start Date */}
-                {isEditingDate ? (
-                  <input
-                    type="date"
-                    value={editedDate}
-                    onChange={(e) => setEditedDate(e.target.value)}
-                    onBlur={handleDateSave}
-                    onKeyDown={handleDateKeyDown}
-                    className="text-[10px] bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-[100px] font-mono"
-                    autoFocus
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsEditingDate(true);
-                    }}
-                    className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer"
-                    title="Click to change start date"
-                  >
-                    {formatDate(task.startDate)}
-                  </div>
-                )}
-                
+                <div
+                  className={`${!dateValidation.startDateValid ? 'font-semibold ring-1 ring-red-400 rounded px-0.5' : ''}`}
+                  onMouseEnter={(e) => {
+                    if (!dateValidation.startDateValid) {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setDateTooltipPosition({
+                        left: rect.left + rect.width / 2,
+                        top: rect.top - 4
+                      });
+                      setShowStartDateTooltip(true);
+                    }
+                  }}
+                  onMouseLeave={() => setShowStartDateTooltip(false)}
+                  title={!dateValidation.startDateValid ? dateValidation.startDateError : ''}
+                >
+                  {formatDate(task.startDate)}
+                </div>
                 {/* Due Date - directly underneath with zero spacing */}
-                {(task.dueDate || isEditingDueDate) && (
-                  <>
-                    {isEditingDueDate ? (
-                      <input
-                        type="date"
-                        value={editedDueDate}
-                        onChange={(e) => setEditedDueDate(e.target.value)}
-                        onBlur={handleDueDateSave}
-                        onKeyDown={handleDueDateKeyDown}
-                        className="text-[10px] bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-[100px] block font-mono"
-                        autoFocus
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setIsEditingDueDate(true);
-                        }}
-                        className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer font-bold"
-                        title="Click to change due date"
-                      >
-                        {formatDate(task.dueDate || '')}
-                      </div>
-                    )}
-                  </>
+                {task.dueDate && (
+                  <div 
+                    className={`font-bold ${!dateValidation.dueDateValid ? 'ring-1 ring-red-400 rounded px-0.5' : ''}`}
+                    onMouseEnter={(e) => {
+                      if (!dateValidation.dueDateValid) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setDateTooltipPosition({
+                          left: rect.left + rect.width / 2,
+                          top: rect.top - 4
+                        });
+                        setShowDueDateTooltip(true);
+                      }
+                    }}
+                    onMouseLeave={() => setShowDueDateTooltip(false)}
+                    title={!dateValidation.dueDateValid ? dateValidation.dueDateError : ''}
+                  >
+                    {formatDate(task.dueDate)}
+                  </div>
                 )}
               </div>
             </div>
@@ -1917,49 +1944,113 @@ const TaskCard = React.memo(function TaskCard({
               <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                 Loading sprints...
               </div>
-            ) : sprints.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                No sprints available. Create one in Admin settings.
-              </div>
             ) : (
-              sprints
-                .filter(sprint =>
-                  sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
-                )
-                .map((sprint, index) => (
+              <>
+                {/* "None (Backlog)" option */}
+                {'backlog'.includes(sprintSearchTerm.toLowerCase()) && (
                   <button
-                    key={sprint.id}
-                    ref={(el) => (sprintOptionRefs.current[index] = el)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleSprintSelect(sprint);
+                      handleSprintSelect(null);
                     }}
-                    onMouseEnter={() => setHighlightedSprintIndex(index)}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                      highlightedSprintIndex === index
+                    onMouseEnter={() => setHighlightedSprintIndex(-1)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-600 ${
+                      highlightedSprintIndex === -1
                         ? 'bg-blue-50 dark:bg-blue-900/20'
-                        : sprint.is_active === 1 || sprint.is_active === true
-                        ? 'bg-green-50 dark:bg-green-900/10'
                         : ''
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-medium text-gray-900 dark:text-white">
-                        {sprint.name}
+                        None (Backlog)
                       </div>
-                      {(sprint.is_active === 1 || sprint.is_active === true) && (
-                        <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">
-                          Active
-                        </span>
-                      )}
+                      <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-400 dark:bg-gray-600 text-white">
+                        Unassigned
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Remove from sprint
+                    </div>
+                  </button>
+                )}
+                
+                {sprints.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                    No sprints available. Create one in Admin settings.
+                  </div>
+                ) : (
+                  sprints
+                    .filter(sprint =>
+                      sprint.name.toLowerCase().includes(sprintSearchTerm.toLowerCase())
+                    )
+                    .map((sprint, index) => (
+                      <button
+                        key={sprint.id}
+                        ref={(el) => (sprintOptionRefs.current[index] = el)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSprintSelect(sprint);
+                        }}
+                        onMouseEnter={() => setHighlightedSprintIndex(index)}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                          highlightedSprintIndex === index
+                            ? 'bg-blue-50 dark:bg-blue-900/20'
+                            : sprint.is_active === 1 || sprint.is_active === true
+                            ? 'bg-green-50 dark:bg-green-900/10'
+                            : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-gray-900 dark:text-white">
+                            {sprint.name}
+                          </div>
+                          {(sprint.is_active === 1 || sprint.is_active === true) && (
+                            <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">
+                              Active
+                            </span>
+                          )}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       {formatDate(sprint.start_date)} → {formatDate(sprint.end_date)}
                     </div>
                   </button>
                 ))
+                )}
+              </>
             )}
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Date Range Picker */}
+      {showDateRangePicker && dateRangePickerPosition && (
+        <DateRangePicker
+          startDate={task.startDate || ''}
+          endDate={task.dueDate}
+          onDateChange={handleDateRangeChange}
+          onClose={handleDateRangePickerClose}
+          position={dateRangePickerPosition}
+        />
+      )}
+
+      {/* Date Validation Tooltip */}
+      {(showStartDateTooltip || showDueDateTooltip) && dateTooltipPosition && createPortal(
+        <div
+          ref={dateTooltipRef}
+          className="fixed bg-red-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[10000] pointer-events-none whitespace-nowrap"
+          style={{
+            left: `${dateTooltipPosition.left}px`,
+            top: `${dateTooltipPosition.top}px`,
+            transform: 'translate(-50%, -100%)',
+            marginBottom: '4px'
+          }}
+        >
+          {showStartDateTooltip && dateValidation.startDateError}
+          {showDueDateTooltip && dateValidation.dueDateError}
+          <div 
+            className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600"
+          />
         </div>,
         document.body
       )}

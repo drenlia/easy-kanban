@@ -489,8 +489,144 @@ const migrations = [
         throw error;
       }
     }
+  },
+  {
+    version: 8,
+    name: 'add_performance_indexes',
+    description: 'Add indexes on frequently queried columns for better performance with large datasets',
+    up: (db) => {
+      console.log('⚡ Applying migration: Add performance indexes...');
+      
+      try {
+        db.exec(`
+          -- Tasks table indexes for common query patterns
+          CREATE INDEX IF NOT EXISTS idx_tasks_start_date 
+            ON tasks(startDate);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_due_date 
+            ON tasks(dueDate);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_board_id 
+            ON tasks(boardId);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_column_id 
+            ON tasks(columnId);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_member_id 
+            ON tasks(memberId);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_requester_id 
+            ON tasks(requesterId);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_created_at 
+            ON tasks(created_at);
+          
+          CREATE INDEX IF NOT EXISTS idx_tasks_updated_at 
+            ON tasks(updated_at);
+          
+          -- Composite index for sprint filtering (date range + board)
+          CREATE INDEX IF NOT EXISTS idx_tasks_dates_board 
+            ON tasks(startDate, dueDate, boardId);
+          
+          -- Composite index for common filtering patterns
+          CREATE INDEX IF NOT EXISTS idx_tasks_board_column 
+            ON tasks(boardId, columnId);
+        `);
+        
+        console.log('✅ Performance indexes created successfully');
+        console.log('   • Added 8 single-column indexes on tasks table');
+        console.log('   • Added 2 composite indexes for common query patterns');
+        console.log('   • Sprint filtering and date range queries will be much faster');
+        
+      } catch (error) {
+        console.error('❌ Failed to create performance indexes:', error);
+        throw error;
+      }
+    },
+    down: (db) => {
+      console.log('⚠️  Rolling back performance indexes migration...');
+      try {
+        db.exec(`
+          DROP INDEX IF EXISTS idx_tasks_start_date;
+          DROP INDEX IF EXISTS idx_tasks_due_date;
+          DROP INDEX IF EXISTS idx_tasks_board_id;
+          DROP INDEX IF EXISTS idx_tasks_column_id;
+          DROP INDEX IF EXISTS idx_tasks_member_id;
+          DROP INDEX IF EXISTS idx_tasks_requester_id;
+          DROP INDEX IF EXISTS idx_tasks_created_at;
+          DROP INDEX IF EXISTS idx_tasks_updated_at;
+          DROP INDEX IF EXISTS idx_tasks_dates_board;
+          DROP INDEX IF EXISTS idx_tasks_board_column;
+        `);
+        console.log('✅ Performance indexes removed');
+      } catch (error) {
+        console.error('❌ Failed to remove performance indexes:', error);
+        throw error;
+      }
+    }
+  },
+  {
+    version: 9,
+    name: 'add_sprint_id_to_tasks',
+    description: 'Add sprint_id column to tasks for direct sprint association (agile workflow support)',
+    up: (db) => {
+      console.log('🏃 Applying migration: Add sprint_id to tasks...');
+      
+      try {
+        // Add sprint_id column (nullable - NULL means "in backlog")
+        db.exec(`
+          -- Add sprint_id column to tasks table
+          -- NULL = task is in backlog (not assigned to any sprint)
+          -- Non-NULL = task is assigned to a specific sprint
+          ALTER TABLE tasks ADD COLUMN sprint_id TEXT NULL;
+          
+          -- Add foreign key constraint (SQLite doesn't enforce FK on ALTER, so this is documentation)
+          -- FOREIGN KEY (sprint_id) REFERENCES planning_periods(id) ON DELETE SET NULL
+          
+          -- Add index for efficient sprint-based queries
+          CREATE INDEX IF NOT EXISTS idx_tasks_sprint_id 
+            ON tasks(sprint_id);
+          
+          -- Composite index for board + sprint filtering (common pattern)
+          CREATE INDEX IF NOT EXISTS idx_tasks_board_sprint 
+            ON tasks(boardId, sprint_id);
+        `);
+        
+        console.log('✅ Sprint ID column added to tasks table');
+        console.log('   • sprint_id is nullable (NULL = backlog/unassigned)');
+        console.log('   • All existing tasks are in backlog (sprint_id = NULL)');
+        console.log('   • Added indexes for efficient sprint queries');
+        console.log('   • Ready for agile workflow with sprint planning');
+        
+        // Note: We intentionally DO NOT auto-assign tasks to sprints based on dates
+        // This allows users to explicitly plan their sprints
+        // Tasks remain in backlog until explicitly assigned
+        
+      } catch (error) {
+        console.error('❌ Failed to add sprint_id to tasks:', error);
+        throw error;
+      }
+    },
+    down: (db) => {
+      console.log('⚠️  Rolling back sprint_id migration...');
+      try {
+        // SQLite doesn't support DROP COLUMN directly in older versions
+        // This would require recreating the table, but for now we'll document it
+        db.exec(`
+          DROP INDEX IF EXISTS idx_tasks_sprint_id;
+          DROP INDEX IF EXISTS idx_tasks_board_sprint;
+          
+          -- Note: Dropping the column requires table recreation in SQLite
+          -- This is a simplified rollback that removes indexes only
+        `);
+        console.log('✅ Sprint indexes removed (column remains for safety)');
+      } catch (error) {
+        console.error('❌ Failed to rollback sprint_id migration:', error);
+        throw error;
+      }
+    }
   }
-  // Future migrations will be added here with version: 8, 9, etc.
+  // Future migrations will be added here with version: 10, 11, etc.
 ];
 
 /**

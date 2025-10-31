@@ -9,14 +9,21 @@ interface Sprint {
   is_active: boolean;
 }
 
+interface Task {
+  id: string;
+  sprintId?: string | null;
+}
+
 interface SprintSelectorProps {
   selectedSprintId: string | null;
   onSprintChange: (sprint: Sprint | null) => void;
+  tasks?: Task[]; // All tasks for counting
 }
 
 const SprintSelector: React.FC<SprintSelectorProps> = ({
   selectedSprintId,
-  onSprintChange
+  onSprintChange,
+  tasks = []
 }) => {
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [isOpen, setIsOpen] = useState(false);
@@ -90,8 +97,24 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
     sprint.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Total options = "All Sprints" + filtered sprints
-  const totalOptions = 1 + filteredSprints.length;
+  // Calculate task counts for each sprint
+  const getSprintTaskCount = (sprintId: string | null): number => {
+    if (sprintId === null) {
+      // Backlog: count tasks with sprintId = null or undefined
+      return tasks.filter(task => !task.sprintId).length;
+    }
+    // Specific sprint: count tasks with matching sprintId
+    return tasks.filter(task => task.sprintId === sprintId).length;
+  };
+
+  // Get total task count for "All Sprints"
+  const totalTaskCount = tasks.length;
+
+  // Check if "backlog" matches the search term
+  const showBacklogOption = 'backlog'.includes(searchTerm.toLowerCase()) || searchTerm === '';
+
+  // Total options = "All Sprints" + "Backlog" (if shown) + filtered sprints
+  const totalOptions = 1 + (showBacklogOption ? 1 : 0) + filteredSprints.length;
 
   const handleSelectSprint = (sprint: Sprint | null) => {
     onSprintChange(sprint);
@@ -124,9 +147,16 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
         } else if (highlightedIndex === 0) {
           // "All Sprints" selected
           handleSelectSprint(null);
+        } else if (highlightedIndex === 1 && showBacklogOption) {
+          // "Backlog" selected - pass special value
+          onSprintChange({ id: 'backlog', name: 'Backlog', start_date: '', end_date: '' } as any);
+          setIsOpen(false);
+          setSearchTerm('');
+          setHighlightedIndex(-1);
         } else {
           // Specific sprint selected
-          const selectedSprint = filteredSprints[highlightedIndex - 1];
+          const sprintIndex = showBacklogOption ? highlightedIndex - 2 : highlightedIndex - 1;
+          const selectedSprint = filteredSprints[sprintIndex];
           if (selectedSprint) {
             handleSelectSprint(selectedSprint);
           }
@@ -150,7 +180,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
       >
         <Calendar className="h-4 w-4" />
         <span className="max-w-[150px] truncate">
-          {selectedSprint ? selectedSprint.name : 'All Sprints'}
+          {selectedSprintId === 'backlog' ? 'Backlog' : selectedSprint ? selectedSprint.name : 'All Sprints'}
         </span>
         <ChevronDown className="h-4 w-4" />
       </button>
@@ -201,20 +231,58 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                   className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
                     highlightedIndex === 0 ? 'bg-gray-50 dark:bg-gray-700' : ''
                   } ${
-                    !selectedSprintId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
+                    !selectedSprintId && selectedSprintId !== 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
                   }`}
                 >
                   <span className="font-medium">All Sprints</span>
-                  {!selectedSprintId && (
-                    <span className="text-xs text-blue-600 dark:text-blue-400">(No filter)</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {totalTaskCount > 0 && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                        {totalTaskCount}
+                      </span>
+                    )}
+                    {!selectedSprintId && selectedSprintId !== 'backlog' && (
+                      <span className="text-xs text-blue-600 dark:text-blue-400">(No filter)</span>
+                    )}
+                  </div>
                 </button>
+
+                {/* Backlog Option */}
+                {showBacklogOption && (
+                  <button
+                    ref={(el) => optionRefs.current[1] = el}
+                    onClick={() => {
+                      onSprintChange({ id: 'backlog', name: 'Backlog', start_date: '', end_date: '' } as any);
+                      setIsOpen(false);
+                      setSearchTerm('');
+                      setHighlightedIndex(-1);
+                    }}
+                    onMouseEnter={() => setHighlightedIndex(1)}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                      highlightedIndex === 1 ? 'bg-gray-50 dark:bg-gray-700' : ''
+                    } ${
+                      selectedSprintId === 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
+                    }`}
+                  >
+                    <span className="font-medium">Backlog</span>
+                    <div className="flex items-center gap-2">
+                      {getSprintTaskCount(null) > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                          {getSprintTaskCount(null)}
+                        </span>
+                      )}
+                      {selectedSprintId === 'backlog' && (
+                        <span className="text-xs text-blue-600 dark:text-blue-400">(Unassigned)</span>
+                      )}
+                    </div>
+                  </button>
+                )}
 
                 <div className="border-t border-gray-200 dark:border-gray-700"></div>
 
                 {/* Sprint Options */}
                 {filteredSprints.map((sprint, index) => {
-                  const optionIndex = index + 1;
+                  const optionIndex = showBacklogOption ? index + 2 : index + 1;
                   return (
                     <button
                       key={sprint.id}
@@ -227,7 +295,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                         selectedSprintId === sprint.id ? 'bg-blue-50 dark:bg-blue-900/20' : ''
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between w-full">
                         <div className="flex-1 min-w-0">
                           <div className={`font-medium truncate ${
                             selectedSprintId === sprint.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
@@ -243,6 +311,11 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                             {new Date(sprint.start_date).toLocaleDateString()} - {new Date(sprint.end_date).toLocaleDateString()}
                           </div>
                         </div>
+                        {getSprintTaskCount(sprint.id) > 0 && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 ml-2 flex-shrink-0">
+                            {getSprintTaskCount(sprint.id)}
+                          </span>
+                        )}
                       </div>
                     </button>
                   );

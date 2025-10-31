@@ -17,7 +17,7 @@ router.get('/', authenticateToken, (req, res) => {
     const tasksStmt = wrapQuery(
       db.prepare(`
         SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
-               t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId,
+               t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId, t.sprint_id,
                t.created_at, t.updated_at,
                CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                     THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
@@ -85,6 +85,7 @@ router.get('/', authenticateToken, (req, res) => {
       columns.forEach(column => {
         const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
+          sprintId: task.sprint_id || null, // Map snake_case to camelCase
           createdAt: task.created_at, // Map snake_case to camelCase
           updatedAt: task.updated_at, // Map snake_case to camelCase
           comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),

@@ -369,30 +369,34 @@ export default function TaskCardToolbar({
               </button>
             )}
             
-            {/* Archive Task Button - Only show in Done (finished) columns */}
-            {columnIsFinished && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Find the archive column (is_archived can be boolean true or number 1 from database)
-                  const archiveColumn = columns && Object.values(columns).find(col => 
-                    col.is_archived === true || (col.is_archived as any) === 1
-                  );
-                  
-                  if (archiveColumn) {
+            {/* Archive Task Button - Show on all tasks when archive column exists, but not if task is already archived */}
+            {(() => {
+              // Check if an archive column exists in the board
+              const archiveColumn = columns && Object.values(columns).find(col => 
+                col.is_archived === true || (col.is_archived as any) === 1
+              );
+              
+              // Check if current column is archived
+              const currentColumn = columns && columns[task.columnId];
+              const isCurrentColumnArchived = currentColumn && (
+                currentColumn.is_archived === true || (currentColumn.is_archived as any) === 1
+              );
+              
+              // Show button if archive column exists AND task is not already in an archived column
+              return archiveColumn && !isCurrentColumnArchived ? (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     // Move task to archive column
                     onEdit({ ...task, columnId: archiveColumn.id });
-                  } else {
-                    // No archive column found - alert user
-                    alert('No archive column found. Please create a column with "is_archived" enabled.');
-                  }
-                }}
-                className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
-                title="Archive Task"
-              >
-                <Archive size={14} className="text-yellow-600" />
-              </button>
-            )}
+                  }}
+                  className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
+                  title="Archive Task"
+                >
+                  <Archive size={14} className="text-yellow-600" />
+                </button>
+              ) : null;
+            })()}
             
             {/* Delete Task Button */}
             <button

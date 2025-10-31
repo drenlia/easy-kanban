@@ -57,6 +57,7 @@ export interface Task {
   comments: Comment[];
   position?: number;
   boardId?: string;
+  sprintId?: string | null; // Sprint assignment (NULL = backlog/unassigned)
   tags?: Tag[];
   watchers?: TeamMember[];
   collaborators?: TeamMember[];

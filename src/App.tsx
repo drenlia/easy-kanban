@@ -787,40 +787,8 @@ export default function App() {
           const savedSprintId = prefs.selectedSprintId;
           
           if (savedSprintId) {
-            // Fetch sprint details to get date ranges
-            const token = localStorage.getItem('authToken');
-            const response = await fetch('/api/admin/sprints', {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
-            });
-            
-            if (response.ok) {
-              const data = await response.json();
-              const sprints = data.sprints || data || [];
-              const selectedSprint = sprints.find((s: any) => s.id === savedSprintId);
-              
-              if (selectedSprint) {
-                // Update sprint ID
-                setSelectedSprintId(savedSprintId);
-                
-                // Reapply the date filters for this sprint
-                setSearchFilters(prev => ({
-                  ...prev,
-                  dateFrom: selectedSprint.start_date,
-                  dateTo: selectedSprint.end_date
-                }));
-                
-                // Ensure search is active
-                if (!prefs.isSearchActive) {
-                  setIsSearchActive(true);
-                }
-              } else {
-                // Sprint no longer exists, clear the selection
-                setSelectedSprintId(null);
-                updateCurrentUserPreference('selectedSprintId', null);
-              }
-            }
+            // Simply restore the sprint selection (no date filter manipulation)
+            setSelectedSprintId(savedSprintId);
           } else {
             // No saved sprint, make sure state is cleared
             setSelectedSprintId(null);
@@ -4607,6 +4575,13 @@ export default function App() {
   const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
     setSearchFilters(newFilters);
     updateCurrentUserPreference('searchFilters', newFilters);
+    
+    // If date filters are cleared and a sprint was selected, reset sprint selector to "All Sprints"
+    if (!newFilters.dateFrom && !newFilters.dateTo && selectedSprintId) {
+      setSelectedSprintId(null);
+      updateCurrentUserPreference('selectedSprintId', null);
+    }
+    
     // Clear current filter view when manually changing filters
     if (currentFilterView) {
       setCurrentFilterView(null);
@@ -4617,35 +4592,17 @@ export default function App() {
   // Handle sprint selection
   const handleSprintChange = (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => {
     // Update selected sprint ID in state and preferences
+    // sprint.id can be: null (All Sprints), 'backlog' (Backlog), or an actual sprint ID
     const newSprintId = sprint?.id || null;
     setSelectedSprintId(newSprintId);
     updateCurrentUserPreference('selectedSprintId', newSprintId);
     
-    // Update date filters when sprint is selected
-    if (sprint) {
-      const newFilters = {
-        ...searchFilters,
-        dateFrom: sprint.start_date,
-        dateTo: sprint.end_date
-      };
-      setSearchFilters(newFilters);
-      updateCurrentUserPreference('searchFilters', newFilters);
-      
-      // Auto-enable search when sprint is selected
-      if (!isSearchActive) {
-        setIsSearchActive(true);
-        updateCurrentUserPreference('isSearchActive', true);
-      }
-    } else {
-      // When "All Sprints" is selected, clear date filters
-      const newFilters = {
-        ...searchFilters,
-        dateFrom: '',
-        dateTo: ''
-      };
-      setSearchFilters(newFilters);
-      updateCurrentUserPreference('searchFilters', newFilters);
-    }
+    // Sprint filtering is now purely based on sprint_id:
+    // - "All Sprints" (null) = show all tasks regardless of sprint_id
+    // - "Backlog" ('backlog') = show only tasks with sprint_id = NULL
+    // - Specific sprint = show only tasks with sprint_id = sprint.id
+    // 
+    // Date filters remain independent for date-based searching
     
     // Clear current filter view when sprint changes
     if (currentFilterView) {
@@ -4796,7 +4753,24 @@ export default function App() {
 
   // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
   const shouldIncludeTask = useCallback((task: Task): boolean => {
-    // If no filters active, include all tasks
+    // Sprint filtering (applied first, before other filters)
+    // Pure sprint_id matching - no date-based fallback
+    if (selectedSprintId !== null) {
+      if (selectedSprintId === 'backlog') {
+        // Show only tasks NOT assigned to any sprint (backlog)
+        if (task.sprintId !== null && task.sprintId !== undefined) {
+          return false;
+        }
+      } else {
+        // Show only tasks with matching sprint_id (explicit assignment)
+        if (task.sprintId !== selectedSprintId) {
+          return false;
+        }
+      }
+    }
+    // If selectedSprintId is null, show all tasks (no sprint filtering)
+
+    // If no other filters active, include all tasks (that passed sprint filter)
     const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
     if (!isFiltering) return true;
 
@@ -4853,7 +4827,7 @@ export default function App() {
     }
 
     return true;
-  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards]);
+  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId]);
 
   // Store shouldIncludeTask in a ref to avoid stale closures in WebSocket handlers
   const shouldIncludeTaskRef = useRef(shouldIncludeTask);
@@ -4974,8 +4948,19 @@ export default function App() {
       for (const [columnId, column] of Object.entries(columns)) {
         let columnTasks = column.tasks;
 
+        // FIRST: Apply sprint filtering (if a sprint is selected)
+        // Pure sprint_id matching - no date-based fallback
+        if (selectedSprintId !== null) {
+          if (selectedSprintId === 'backlog') {
+            // Show only tasks NOT assigned to any sprint (backlog)
+            columnTasks = columnTasks.filter(task => !task.sprintId);
+          } else {
+            // Show only tasks with matching sprint_id (explicit assignment)
+            columnTasks = columnTasks.filter(task => task.sprintId === selectedSprintId);
+          }
+        }
         
-        // Apply search filters first, but skip member filtering if we have checkboxes enabled
+        // SECOND: Apply search filters, but skip member filtering if we have checkboxes enabled
         if (isSearchActive) {
           // Create filters without member filtering if we have checkboxes enabled
           const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
@@ -4986,7 +4971,7 @@ export default function App() {
           columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members, boards);
         }
         
-        // Then apply our custom member filtering with assignees/watchers/collaborators/requesters
+        // THIRD: Apply our custom member filtering with assignees/watchers/collaborators/requesters
         // Run member filtering if at least one filter type is enabled (works with 0 or more members selected)
         if (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
           columnTasks = customFilterTasks(columnTasks);
@@ -5003,7 +4988,7 @@ export default function App() {
     };
 
     performFiltering();
-  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
+  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId]);
 
   // Use filtered columns state
   const hasColumnFilters = selectedBoard ? (boardColumnVisibility[selectedBoard] && boardColumnVisibility[selectedBoard].length < Object.keys(columns).length) : false;
@@ -5053,16 +5038,27 @@ export default function App() {
         }
       }
       
-      // If no search filtering, just count visible columns
-      let totalCount = 0;
-      Object.values(columnFilteredColumns).forEach(column => {
-        totalCount += column.tasks.length;
-      });
-      taskCount = totalCount;
+      // If filteredColumns wasn't used (or wasn't valid), apply filters manually
+      if (taskCount === 0 || !filteredColumns || Object.keys(filteredColumns).length === 0) {
+        let totalCount = 0;
+        Object.values(columnFilteredColumns).forEach(column => {
+          // Apply sprint filtering if active
+          let columnTasks = column.tasks;
+          if (selectedSprintId !== null) {
+            if (selectedSprintId === 'backlog') {
+              columnTasks = columnTasks.filter(task => !task.sprintId);
+            } else {
+              columnTasks = columnTasks.filter(task => task.sprintId === selectedSprintId);
+            }
+          }
+          totalCount += columnTasks.length;
+        });
+        taskCount = totalCount;
+      }
     }
     
     // For other boards, apply the same filtering logic used in performFiltering
-    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
+    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters || selectedSprintId !== null;
     
     if (!isFiltering) {
       // No filters active - return total count (excluding archived columns)
@@ -5088,11 +5084,11 @@ export default function App() {
       (includeCollaborators && selectedMembers.length > 0) || 
       (includeRequesters && selectedMembers.length > 0);
     
-    if (!hasMemberFiltering) {
+    if (!hasMemberFiltering && selectedSprintId === null) {
       taskCount = searchFilteredCount;
     }
     
-    // Apply member filtering on top of search filtering
+    // Apply member filtering and sprint filtering on top of search filtering
     let totalCount = 0;
     Object.values(board.columns || {}).forEach(column => {
       if (!column.tasks || !Array.isArray(column.tasks)) return;
@@ -5104,7 +5100,22 @@ export default function App() {
       const filteredTasks = column.tasks.filter(task => {
         if (!task) return false;
         
-        // First apply search filters using the same logic as performFiltering
+        // FIRST: Apply sprint filtering (if a sprint is selected)
+        if (selectedSprintId !== null) {
+          if (selectedSprintId === 'backlog') {
+            // Show only tasks NOT assigned to any sprint (backlog)
+            if (task.sprintId !== null && task.sprintId !== undefined) {
+              return false;
+            }
+          } else {
+            // Show only tasks with matching sprint_id (explicit assignment)
+            if (task.sprintId !== selectedSprintId) {
+              return false;
+            }
+          }
+        }
+        
+        // SECOND: Apply search filters using the same logic as performFiltering
         if (isSearchActive) {
           const searchFiltered = filterTasks([task], searchFilters, isSearchActive, members, boards);
           if (searchFiltered.length === 0) return false;
@@ -5337,6 +5348,7 @@ export default function App() {
         onInviteUser={handleInviteUser}
         selectedSprintId={selectedSprintId}
         onSprintChange={handleSprintChange}
+        boards={boards}
       />
 
       {/* Network Status Indicator */}
