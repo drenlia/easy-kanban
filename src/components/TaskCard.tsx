@@ -76,6 +76,9 @@ interface TaskCardProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  
+  // Sprint filtering props
+  selectedSprintId?: string | null;
 }
 
 
@@ -114,7 +117,10 @@ const TaskCard = React.memo(function TaskCard({
   hoveredLinkTask,
   onLinkToolHover,
   onLinkToolHoverEnd,
-  getTaskRelationshipType
+  getTaskRelationshipType,
+  
+  // Sprint filtering props
+  selectedSprintId = null
 }: TaskCardProps) {
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
@@ -336,6 +342,24 @@ const TaskCard = React.memo(function TaskCard({
   const formatDateTime = (dateStr: string) => {
     if (!dateStr) return '';
     return formatToYYYYMMDDHHmmss(dateStr);
+  };
+
+  // Get sprint name for display
+  const getSprintName = (): string => {
+    if (!task.sprintId || sprints.length === 0) return '';
+    const sprint = sprints.find(s => s.id === task.sprintId);
+    return sprint?.name || '';
+  };
+
+  // Determine if sprint badge should be shown
+  const shouldShowSprintBadge = (): boolean => {
+    // Only show badge if:
+    // 1. Task has a sprint assigned
+    // 2. No sprint filter is active (selectedSprintId is null)
+    // 3. Sprint name is available
+    return task.sprintId !== null && task.sprintId !== undefined && 
+           selectedSprintId === null && 
+           getSprintName() !== '';
   };
 
   // Validate task dates against sprint dates
@@ -1391,6 +1415,24 @@ const TaskCard = React.memo(function TaskCard({
             )}
           </>
         )}
+
+        {/* Sprint Badge - Conditional Display */}
+        {shouldShowSprintBadge() && (() => {
+          const sprintName = getSprintName();
+          // Truncate long sprint names
+          const displayName = sprintName.length > 20 ? sprintName.substring(0, 17) + '...' : sprintName;
+          
+          return (
+            <div className="flex justify-end mb-2">
+              <span
+                className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate"
+                title={`Sprint: ${sprintName}`}
+              >
+                {displayName}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* Tags Section - Right Aligned */}
         {task.tags && task.tags.length > 0 && (() => {

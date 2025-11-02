@@ -67,6 +67,9 @@ interface KanbanColumnProps {
   
   // Network status
   isOnline?: boolean;
+  
+  // Sprint filtering
+  selectedSprintId?: string | null;
 }
 
 export default function KanbanColumn({
@@ -122,7 +125,10 @@ export default function KanbanColumn({
   getTaskRelationshipType,
   
   // Network status
-  isOnline = true // Default to true if not provided
+  isOnline = true, // Default to true if not provided
+  
+  // Sprint filtering
+  selectedSprintId = null
 }: KanbanColumnProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
@@ -493,6 +499,9 @@ export default function KanbanColumn({
             onLinkToolHover={onLinkToolHover}
             onLinkToolHoverEnd={onLinkToolHoverEnd}
             getTaskRelationshipType={getTaskRelationshipType}
+            
+            // Sprint filtering
+            selectedSprintId={selectedSprintId}
           />
         </div>
       );

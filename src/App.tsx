@@ -5362,6 +5362,7 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
         siteSettings={siteSettings}
         isOnline={isOnline}
+        selectedSprintId={selectedSprintId}
               onUsersChanged={async () => {
                 try {
                   const loadedMembers = await getMembers(includeSystem);

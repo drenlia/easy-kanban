@@ -42,7 +42,7 @@ interface ListViewProps {
   currentUser?: CurrentUser | null; // Current user for admin checks
 }
 
-type SortField = 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
+type SortField = 'sprint' | 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
 type SortDirection = 'asc' | 'desc';
 
 interface ColumnConfig {
@@ -56,6 +56,7 @@ interface ColumnConfig {
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
 const DEFAULT_COLUMNS: ColumnConfig[] = [
+  { key: 'sprint', label: 'Sprint', visible: true, width: 150 },
   { key: 'ticket', label: 'ID', visible: true, width: 100 },
   { key: 'title', label: 'Task', visible: true, width: 300 },
   { key: 'assignee', label: 'Assignee', visible: true, width: 120 },
@@ -420,6 +421,12 @@ export default function ListView({
             aValue = a.columnTitle.toLowerCase();
             bValue = b.columnTitle.toLowerCase();
             break;
+          case 'sprint':
+            const aSprint = sprints.find(s => s.id === a.sprintId);
+            const bSprint = sprints.find(s => s.id === b.sprintId);
+            aValue = aSprint?.name?.toLowerCase() || '';
+            bValue = bSprint?.name?.toLowerCase() || '';
+            break;
           case 'tags':
             aValue = a.tags?.length || 0;
             bValue = b.tags?.length || 0;
@@ -437,7 +444,7 @@ export default function ListView({
         return 0;
       }
     });
-  }, [allTasks, sortField, sortDirection, availablePriorities, members]);
+  }, [allTasks, sortField, sortDirection, availablePriorities, members, sprints]);
 
   // Update scroll state when table content changes
   useEffect(() => {
@@ -595,6 +602,12 @@ export default function ListView({
         )}
       </div>
     );
+  };
+
+  const getSprintName = (sprintId: string | null | undefined): string => {
+    if (!sprintId) return '';
+    const sprint = sprints.find(s => s.id === sprintId);
+    return sprint?.name || '';
   };
 
   const getMemberDisplay = (memberId: string, task?: Task) => {
@@ -1501,6 +1514,15 @@ export default function ListView({
                                 }}
                               />
                             )
+                          )}
+                        </div>
+                      )}
+                      {column.key === 'sprint' && (
+                        <div className="text-sm text-gray-700">
+                          {task.sprintId ? (
+                            getSprintName(task.sprintId) || '-'
+                          ) : (
+                            <span className="text-gray-400">-</span>
                           )}
                         </div>
                       )}

@@ -137,6 +137,9 @@ interface KanbanPageProps {
   
   // Network status
   isOnline?: boolean;
+  
+  // Sprint filtering
+  selectedSprintId?: string | null;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -242,6 +245,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   
   // Network status
   isOnline = true, // Default to true if not provided
+  
+  // Sprint filtering
+  selectedSprintId = null
 }: KanbanPageProps) => {
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
@@ -774,6 +780,9 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       
                       // Network status
                       isOnline={isOnline}
+                      
+                      // Sprint filtering
+                      selectedSprintId={selectedSprintId}
                     />
                     ))}
                 </BoardDropArea>
