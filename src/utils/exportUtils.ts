@@ -8,11 +8,10 @@ import { Task, Board, TeamMember, Tag, Columns } from '../types';
 function stripHtmlPreservingLineBreaks(html: string): string {
   if (!html) return '';
   
-  // Convert <p> opening tags to CRLF
+  // Convert <p> tags to single CRLF (only opening tag, closing tag becomes nothing)
+  // This prevents double CRLF between paragraphs
   let text = html.replace(/<p[^>]*>/gi, '\r\n');
-  
-  // Convert </p> closing tags to CRLF
-  text = text.replace(/<\/p>/gi, '\r\n');
+  text = text.replace(/<\/p>/gi, '');
   
   // Convert <br> tags to CRLF
   text = text.replace(/<br\s*\/?>/gi, '\r\n');
@@ -32,8 +31,8 @@ function stripHtmlPreservingLineBreaks(html: string): string {
   text = text.replace(/&quot;/g, '"');
   text = text.replace(/&#39;/g, "'");
   
-  // Clean up multiple consecutive line breaks (more than 2)
-  text = text.replace(/(\r\n){3,}/g, '\r\n\r\n');
+  // Normalize all multiple consecutive line breaks to single CRLF
+  text = text.replace(/(\r\n)+/g, '\r\n');
   
   // Trim leading/trailing whitespace
   text = text.trim();
@@ -48,6 +47,7 @@ export interface ExportData {
   assignee?: string;
   priority: string;
   status: string;
+  sprint?: string;
   startDate: string;
   dueDate?: string;
   effort: number;
@@ -75,7 +75,8 @@ export function transformTaskForExport(
   members: TeamMember[], 
   availableTags: Tag[],
   project?: string,
-  columns?: Columns
+  columns?: Columns,
+  sprints?: Array<{ id: string; name: string }>
 ): ExportData {
   // Get assignee name
   const assignee = task.memberId 
@@ -97,6 +98,11 @@ export function transformTaskForExport(
     ? columns[task.columnId]?.title || 'Unknown'
     : task.status || 'Unknown';
 
+  // Get sprint name
+  const sprint = task.sprintId && sprints
+    ? sprints.find(s => s.id === task.sprintId)?.name || ''
+    : '';
+
   return {
     ticket: task.ticket || '',
     title: task.title,
@@ -104,6 +110,7 @@ export function transformTaskForExport(
     assignee,
     priority: task.priorityName || task.priority,
     status,
+    sprint,
     startDate: task.startDate,
     dueDate: task.dueDate || '',
     effort: task.effort,
@@ -122,7 +129,8 @@ export function transformTaskForExport(
 export function getAllTasksForExport(
   boards: Board[], 
   members: TeamMember[], 
-  availableTags: Tag[]
+  availableTags: Tag[],
+  sprints?: Array<{ id: string; name: string }>
 ): ExportData[] {
   const allTasks: ExportData[] = [];
 
@@ -135,7 +143,8 @@ export function getAllTasksForExport(
           members, 
           availableTags,
           board.project,
-          board.columns
+          board.columns,
+          sprints
         );
         allTasks.push(exportData);
       });
@@ -151,7 +160,8 @@ export function getAllTasksForExport(
 export function getCurrentBoardTasksForExport(
   board: Board, 
   members: TeamMember[], 
-  availableTags: Tag[]
+  availableTags: Tag[],
+  sprints?: Array<{ id: string; name: string }>
 ): ExportData[] {
   const tasks: ExportData[] = [];
 
@@ -163,7 +173,8 @@ export function getCurrentBoardTasksForExport(
         members, 
         availableTags,
         board.project,
-        board.columns
+        board.columns,
+        sprints
       );
       tasks.push(exportData);
     });
@@ -179,7 +190,7 @@ export function convertToCSV(data: ExportData[]): string {
   if (data.length === 0) return '';
   
   const headers = [
-    'Board', 'Ticket', 'Task', 'Description', 'Assignee', 'Priority', 'Status',
+    'Board', 'Sprint', 'Ticket', 'Task', 'Description', 'Assignee', 'Priority', 'Status',
     'Start Date', 'Due Date', 'Effort', 'Tags', 'Comments', 'Created', 'Updated', 'Project'
   ];
   
@@ -188,6 +199,7 @@ export function convertToCSV(data: ExportData[]): string {
   data.forEach(row => {
     const values = [
       `"${String(row.boardName || '').replace(/"/g, '""')}"`,
+      `"${String(row.sprint || '').replace(/"/g, '""')}"`,
       `"${String(row.ticket || '').replace(/"/g, '""')}"`,
       `"${String(row.title || '').replace(/"/g, '""')}"`,
       `"${String(row.description || '').replace(/"/g, '""')}"`,

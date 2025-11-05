@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TrendingUp, Calendar, Info, RefreshCw, ChevronDown, Search, X, ZoomOut } from 'lucide-react';
+import { TrendingUp, Calendar, Info, RefreshCw, ChevronDown, Search, X, ZoomOut, Printer } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
 import DateRangeSelector from './DateRangeSelector';
 import { getBoards } from '../../api';
@@ -466,21 +466,127 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
     setZoomState(null);
   };
 
+  const handlePrint = () => {
+    window.print();
+  };
+
   return (
     <div className="space-y-6">
+      <style>{`
+        @media print {
+          /* Hide navigation and UI chrome */
+          header,
+          nav,
+          .no-print,
+          .reports-tabs,
+          .reports-header,
+          [class*="ActivityFeed"],
+          [class*="activity-feed"],
+          div[style*="position: fixed"],
+          div[style*="position:fixed"],
+          div[class*="fixed"],
+          [style*="z-index: 9999"],
+          [style*="z-index:9999"],
+          [class*="NetworkStatus"],
+          [class*="ToastContainer"],
+          [class*="Toast"],
+          [class*="ModalManager"],
+          [class*="TaskLinkingOverlay"],
+          [class*="VersionUpdateBanner"],
+          [class*="ResetCountdown"],
+          [class*="DebugPanel"],
+          [class*="sticky"] {
+            display: none !important;
+            visibility: hidden !important;
+            position: absolute !important;
+            left: -9999px !important;
+          }
+          
+          /* Hide print button itself */
+          button[title="Print report"] {
+            display: none !important;
+          }
+          
+          /* Remove padding and constraints from layout wrappers */
+          body > *:not(script),
+          html {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          /* Make report content full width and remove layout constraints */
+          .flex-1,
+          .w-4\\/5,
+          .mx-auto,
+          [class*="p-6"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          /* Ensure report content is visible and properly formatted */
+          .space-y-6 {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          
+          .space-y-6 > * {
+            page-break-inside: avoid;
+            margin-top: 1rem !important;
+          }
+          
+          .space-y-6 > *:first-child {
+            margin-top: 0 !important;
+          }
+          
+          /* Force grid layouts to match screen display */
+          .grid {
+            display: grid !important;
+          }
+          
+          /* Burndown: 3 columns (horizontal stack) */
+          .grid.grid-cols-1,
+          .grid[class*="grid-cols-1"],
+          .grid[class*="grid-cols-3"],
+          .grid[class*="md:grid-cols-3"] {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          }
+          
+          /* Print styles */
+          @page {
+            margin: 1cm;
+          }
+          
+          /* Ensure charts print properly */
+          [class*="recharts"] {
+            page-break-inside: avoid;
+          }
+        }
+      `}</style>
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-          <TrendingUp className="w-7 h-7 text-blue-500" />
-          Burndown Chart
-        </h2>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Track planned vs actual task completion over time
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <TrendingUp className="w-7 h-7 text-blue-500" />
+            Burndown Chart
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400 mt-1">
+            Track planned vs actual task completion over time
+          </p>
+        </div>
+        <button
+          onClick={handlePrint}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
+          title="Print report"
+        >
+          <Printer className="w-4 h-4" />
+          Print
+        </button>
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+      <div className="no-print bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-400" />

@@ -313,7 +313,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-800 py-4 border-b border-gray-200 dark:border-gray-700">
+      <div className="reports-header bg-white dark:bg-gray-800 py-4 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <BarChart3 className="w-7 h-7" />
           Reports & Analytics
@@ -321,7 +321,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
       </div>
 
       {/* Tabs - Sticky */}
-      <div className="sticky top-[66px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+      <div className="reports-tabs sticky top-[66px] z-40 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex gap-1">
           {tabs.map((tab) => {
             const Icon = tab.icon;

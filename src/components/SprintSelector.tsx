@@ -283,6 +283,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                 {/* Sprint Options */}
                 {filteredSprints.map((sprint, index) => {
                   const optionIndex = showBacklogOption ? index + 2 : index + 1;
+                  const taskCount = getSprintTaskCount(sprint.id);
                   return (
                     <button
                       key={sprint.id}
@@ -301,7 +302,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                             selectedSprintId === sprint.id ? 'text-blue-600 dark:text-blue-400' : 'text-gray-900 dark:text-gray-100'
                           }`}>
                             {sprint.name}
-                            {sprint.is_active && (
+                            {(sprint.is_active === 1 || sprint.is_active === true) && (
                               <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
                                 Active
                               </span>
@@ -311,11 +312,11 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                             {new Date(sprint.start_date).toLocaleDateString()} - {new Date(sprint.end_date).toLocaleDateString()}
                           </div>
                         </div>
-                        {getSprintTaskCount(sprint.id) > 0 && (
+                        {taskCount > 0 ? (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 ml-2 flex-shrink-0">
-                            {getSprintTaskCount(sprint.id)}
+                            {taskCount}
                           </span>
-                        )}
+                        ) : null}
                       </div>
                     </button>
                   );

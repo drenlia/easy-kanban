@@ -29,7 +29,31 @@ export default function ExportMenu({
 }: ExportMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [sprints, setSprints] = useState<Array<{ id: string; name: string }>>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Fetch sprints when component mounts
+  useEffect(() => {
+    const fetchSprints = async () => {
+      try {
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('/api/admin/sprints', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSprints(data.sprints || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch sprints:', error);
+      }
+    };
+
+    fetchSprints();
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -57,9 +81,9 @@ export default function ExportMenu({
       let data;
       
       if (options.scope === 'current') {
-        data = getCurrentBoardTasksForExport(selectedBoard, members, availableTags);
+        data = getCurrentBoardTasksForExport(selectedBoard, members, availableTags, sprints);
       } else {
-        data = getAllTasksForExport(boards, members, availableTags);
+        data = getAllTasksForExport(boards, members, availableTags, sprints);
       }
 
       const filename = generateFilename(
@@ -112,13 +136,14 @@ export default function ExportMenu({
 
       const worksheet = XLSX.utils.json_to_sheet(boardTasks, {
         header: [
-          'ticket', 'title', 'description', 'assignee', 'priority', 'status',
+          'sprint', 'ticket', 'title', 'description', 'assignee', 'priority', 'status',
           'startDate', 'dueDate', 'effort', 'tags', 'comments', 'createdAt', 'updatedAt', 'project'
         ]
       });
 
       // Set column widths
       const colWidths = [
+        { wch: 20 }, // sprint
         { wch: 15 }, // ticket
         { wch: 30 }, // title
         { wch: 40 }, // description
@@ -143,7 +168,7 @@ export default function ExportMenu({
     if (Object.keys(boardGroups).length > 1) {
       const summarySheet = XLSX.utils.json_to_sheet(data, {
         header: [
-          'boardName', 'ticket', 'title', 'description', 'assignee', 'priority', 'status',
+          'boardName', 'sprint', 'ticket', 'title', 'description', 'assignee', 'priority', 'status',
           'startDate', 'dueDate', 'effort', 'tags', 'comments', 'createdAt', 'updatedAt', 'project'
         ]
       });
