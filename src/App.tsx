@@ -1215,9 +1215,31 @@ export default function App() {
             if (taskExists) {
               // Task already exists (optimistic update), just update it with server data
               console.log(`📨 [${timestamp}] [WebSocket] Updating existing task with server data`);
-              const updatedTasks = existingTasks.map(t => 
-                t.id === data.task.id ? data.task : t
-              );
+              const updatedTasks = existingTasks.map(t => {
+                if (t.id === data.task.id) {
+                  // Preserve existing task data (comments, watchers, etc.) when updating
+                  const mergedTask = {
+                    ...t,          // Preserve existing data (comments, watchers, collaborators, etc.)
+                    ...data.task,  // Override with server data (position, columnId, etc.)
+                    // Explicitly preserve nested arrays that might not be in data.task
+                    // Use server data if it exists and is valid, otherwise preserve existing
+                    comments: (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0) 
+                      ? data.task.comments 
+                      : (t.comments || []),
+                    watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+                      ? data.task.watchers
+                      : (t.watchers || []),
+                    collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+                      ? data.task.collaborators
+                      : (t.collaborators || []),
+                    tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+                      ? data.task.tags
+                      : (t.tags || [])
+                  };
+                  return mergedTask;
+                }
+                return t;
+              });
               updatedColumns[targetColumnId] = {
                 ...updatedColumns[targetColumnId],
                 tasks: updatedTasks
@@ -1275,11 +1297,32 @@ export default function App() {
                   found = true;
                   if (columnId === newColumnId) {
                     // Same column - update in place
+              // Preserve existing task data (comments, watchers, etc.) when updating
+              const existingTask = column.tasks[taskIndex];
+              const mergedTask = {
+                ...existingTask,  // Preserve existing data (comments, watchers, collaborators, etc.)
+                ...data.task,     // Override with server data (position, columnId, etc.)
+                // Explicitly preserve nested arrays that might not be in data.task
+                // Use server data if it exists and is valid, otherwise preserve existing
+                comments: (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0) 
+                  ? data.task.comments 
+                  : (existingTask.comments || []),
+                watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+                  ? data.task.watchers
+                  : (existingTask.watchers || []),
+                collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+                  ? data.task.collaborators
+                  : (existingTask.collaborators || []),
+                tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+                  ? data.task.tags
+                  : (existingTask.tags || [])
+              };
+                    
                     updatedColumns[columnId] = {
                       ...column,
                       tasks: [
                         ...column.tasks.slice(0, taskIndex),
-                        data.task,
+                        mergedTask,
                         ...column.tasks.slice(taskIndex + 1)
                       ]
                     };
@@ -1302,8 +1345,31 @@ export default function App() {
                 const targetPosition = data.task.position ?? (targetColumn.tasks?.length || 0);
                 const newTasks = [...(targetColumn.tasks || [])];
                 
+                // Find existing task data if it exists in the target column (shouldn't happen, but be safe)
+                const existingTaskInTarget = targetColumn.tasks?.find((t: any) => t.id === taskId);
+                
+                // Preserve existing task data (comments, watchers, etc.) when updating
+                const mergedTask = existingTaskInTarget ? {
+                  ...existingTaskInTarget,  // Preserve existing data (comments, watchers, collaborators, etc.)
+                  ...data.task,             // Override with server data (position, columnId, etc.)
+                  // Explicitly preserve nested arrays that might not be in data.task
+                  // Use server data if it exists and is valid, otherwise preserve existing
+                  comments: (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0) 
+                    ? data.task.comments 
+                    : (existingTaskInTarget.comments || []),
+                  watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+                    ? data.task.watchers
+                    : (existingTaskInTarget.watchers || []),
+                  collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+                    ? data.task.collaborators
+                    : (existingTaskInTarget.collaborators || []),
+                  tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+                    ? data.task.tags
+                    : (existingTaskInTarget.tags || [])
+                } : data.task;
+                
                 // Insert at the specified position
-                newTasks.splice(targetPosition, 0, data.task);
+                newTasks.splice(targetPosition, 0, mergedTask);
                 
                 updatedColumns[newColumnId] = {
                   ...targetColumn,
@@ -1358,17 +1424,49 @@ export default function App() {
             const column = updatedColumns[newColumnId];
             const taskIndex = column.tasks.findIndex(t => t.id === taskId);
             if (taskIndex !== -1) {
+              // Preserve existing task data (comments, watchers, etc.) when updating
+              const existingTask = column.tasks[taskIndex];
+              
+              // CRITICAL: Preserve nested arrays by checking if incoming data has them
+              // If incoming data doesn't have comments (or has empty/undefined), use existing
+              const preservedComments = (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0) 
+                ? data.task.comments 
+                : (existingTask.comments || []);
+              
+              const mergedTask = {
+                ...existingTask,  // Preserve existing data (comments, watchers, collaborators, etc.)
+                ...data.task,     // Override with server data (position, columnId, etc.)
+                // Explicitly preserve nested arrays AFTER spread to ensure they're not overwritten
+                comments: preservedComments,
+                watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+                  ? data.task.watchers
+                  : (existingTask.watchers || []),
+                collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+                  ? data.task.collaborators
+                  : (existingTask.collaborators || []),
+                tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+                  ? data.task.tags
+                  : (existingTask.tags || [])
+              };
+              
               updatedColumns[newColumnId] = {
                 ...column,
                 tasks: [
                   ...column.tasks.slice(0, taskIndex),
-                  data.task,
+                  mergedTask,
                   ...column.tasks.slice(taskIndex + 1)
                 ]
               };
             }
           } else {
             // Different column - remove from old column and add to new column
+            
+            // FIRST: Capture the existing task data BEFORE removing it (to preserve comments, watchers, etc.)
+            let existingTaskData = null;
+            if (currentColumnId && prevColumns[currentColumnId]) {
+              const oldColumn = prevColumns[currentColumnId];
+              existingTaskData = oldColumn.tasks.find(t => t.id === taskId) || null;
+            }
             
             // Remove from current column
             if (currentColumnId) {
@@ -1391,8 +1489,34 @@ export default function App() {
               const targetPosition = data.task.position ?? targetColumn.tasks.length;
               const newTasks = [...targetColumn.tasks];
               
+              // Find existing task data if it exists in the target column (shouldn't happen, but be safe)
+              const existingTaskInTarget = targetColumn.tasks.find(t => t.id === taskId);
+              
+              // Use existingTaskData from the old column if available, otherwise use target column's task
+              const taskToPreserve = existingTaskData || existingTaskInTarget;
+              
+              // Preserve existing task data (comments, watchers, etc.) when updating
+              const mergedTask = taskToPreserve ? {
+                ...taskToPreserve,  // Preserve existing data (comments, watchers, collaborators, etc.)
+                ...data.task,        // Override with server data (position, columnId, etc.)
+                // Explicitly preserve nested arrays that might not be in data.task
+                // Use server data if it exists and is valid, otherwise preserve existing
+                comments: (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0) 
+                  ? data.task.comments 
+                  : (taskToPreserve.comments || []),
+                watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+                  ? data.task.watchers
+                  : (taskToPreserve.watchers || []),
+                collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+                  ? data.task.collaborators
+                  : (taskToPreserve.collaborators || []),
+                tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+                  ? data.task.tags
+                  : (taskToPreserve.tags || [])
+              } : data.task;
+              
               // Insert at the specified position
-              newTasks.splice(targetPosition, 0, data.task);
+              newTasks.splice(targetPosition, 0, mergedTask);
               
               updatedColumns[newColumnId] = {
                 ...targetColumn,
@@ -2035,7 +2159,7 @@ export default function App() {
   const handleTagCreated = useCallback(async (data: any) => {
       console.log('📨 Tag created via WebSocket:', data);
       try {
-        const tags = await getTags();
+        const tags = await getAllTags();
         setAvailableTags(tags);
         console.log('📨 Tags refreshed after creation');
       } catch (error) {
@@ -2046,7 +2170,7 @@ export default function App() {
   const handleTagUpdated = useCallback(async (data: any) => {
       console.log('📨 Tag updated via WebSocket:', data);
       try {
-        const tags = await getTags();
+        const tags = await getAllTags();
         setAvailableTags(tags);
         console.log('📨 Tags refreshed after update');
       } catch (error) {
@@ -2057,7 +2181,7 @@ export default function App() {
   const handleTagDeleted = useCallback(async (data: any) => {
       console.log('📨 Tag deleted via WebSocket:', data);
       try {
-        const tags = await getTags();
+        const tags = await getAllTags();
         setAvailableTags(tags);
         console.log('📨 Tags refreshed after deletion');
       } catch (error) {
@@ -2069,7 +2193,7 @@ export default function App() {
   const handlePriorityCreated = useCallback(async (data: any) => {
       console.log('📨 Priority created via WebSocket:', data);
       try {
-        const priorities = await getPriorities();
+        const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
         console.log('📨 Priorities refreshed after creation');
       } catch (error) {
@@ -2080,7 +2204,7 @@ export default function App() {
   const handlePriorityUpdated = useCallback(async (data: any) => {
       console.log('📨 Priority updated via WebSocket:', data);
       try {
-        const priorities = await getPriorities();
+        const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
         console.log('📨 Priorities refreshed after update');
       } catch (error) {
@@ -2091,7 +2215,7 @@ export default function App() {
   const handlePriorityDeleted = useCallback(async (data: any) => {
       console.log('📨 Priority deleted via WebSocket:', data);
       try {
-        const priorities = await getPriorities();
+        const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
         console.log('📨 Priorities refreshed after deletion');
       } catch (error) {
@@ -2102,7 +2226,7 @@ export default function App() {
   const handlePriorityReordered = useCallback(async (data: any) => {
       console.log('📨 Priority reordered via WebSocket:', data);
       try {
-        const priorities = await getPriorities();
+        const priorities = await getAllPriorities();
         setAvailablePriorities(priorities);
         console.log('📨 Priorities refreshed after reorder');
       } catch (error) {
@@ -2187,105 +2311,277 @@ export default function App() {
 
   // Comment event handlers
   const handleCommentCreated = useCallback((data: any) => {
-      if (!data.comment || !data.boardId || !data.taskId) return;
+      if (!data.comment || !data.boardId || !data.taskId) {
+        return;
+      }
+      
+      // Only process if this is for the current board
+      const currentSelectedBoard = selectedBoardRef.current;
+      if (!currentSelectedBoard || data.boardId !== currentSelectedBoard) {
+        return;
+      }
       
       // Find the task in the current board and add the comment
       setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
+        // Create a completely new columns object to ensure React detects the change
+        // This prevents any stale references from being preserved
+        const updatedColumns: Columns = {};
+        let updatedTaskForSelection = null;
+        let taskFound = false;
         
         // Find the task across all columns
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
+        Object.keys(prevColumns).forEach(columnId => {
+          const column = prevColumns[columnId];
           const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
           
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
+          if (taskIndex === -1) {
+            // This column doesn't contain the task, so we can preserve the reference
+            updatedColumns[columnId] = column;
+            return;
+          }
+          
+          // This column contains the task we need to update
+          taskFound = true;
+          const updatedTasks = [...column.tasks];
+          const task = { ...updatedTasks[taskIndex] };
+          
+          // Preserve existing comments and add the new one if it doesn't already exist
+          // IMPORTANT: Always ensure comments is an array, even if undefined/null
+          const existingComments = Array.isArray(task.comments) 
+            ? task.comments 
+            : (task.comments ? [task.comments] : []);
+          
+          if (!existingComments.find(c => c && c.id === data.comment.id)) {
+            // Ensure comment has all required fields for validation
+            const newComment = {
+              ...data.comment,
+              taskId: data.taskId,
+              attachments: Array.isArray(data.comment.attachments) ? data.comment.attachments : []
+            };
             
-            // Add the new comment if it doesn't already exist
-            const comments = task.comments || [];
-            if (!comments.find(c => c.id === data.comment.id)) {
-              task.comments = [...comments, data.comment];
-              updatedTasks[taskIndex] = task;
-              updatedColumns[columnId] = {
-                ...column,
-                tasks: updatedTasks
-              };
+            // Create new comments array IMMEDIATELY without mutating task.comments
+            const newComments = [...existingComments, newComment];
+            
+            // Create a completely new task object to ensure React detects the change
+            const updatedTask = {
+              ...task,
+              comments: newComments // Use the new array we created
+            };
+            
+            updatedTasks[taskIndex] = updatedTask;
+            // Create a completely new column object to ensure React detects the change
+            updatedColumns[columnId] = {
+              ...column,
+              tasks: updatedTasks // New array reference
+            };
+            
+            // If this is the selected task, update it for TaskDetails
+            if (selectedTask && selectedTask.id === data.taskId) {
+              updatedTaskForSelection = updatedTask;
             }
+          } else {
+            // Still need to add this column to updatedColumns even if comment already exists
+            updatedColumns[columnId] = column;
           }
         });
         
+        if (!taskFound) {
+          console.warn('⚠️ [WebSocket] handleCommentCreated: Task not found in columns', data.taskId);
+        }
+        
+        // Update selectedTask if it's the one that got the comment
+        if (updatedTaskForSelection) {
+          setSelectedTask(updatedTaskForSelection);
+        }
+        
         return updatedColumns;
       });
-  }, [setColumns]);
+  }, [setColumns, selectedTask]);
 
   const handleCommentUpdated = useCallback((data: any) => {
-      if (!data.comment || !data.boardId || !data.taskId) return;
+      if (!data.comment || !data.boardId || !data.taskId) {
+        return;
+      }
+      
+      // Only process if this is for the current board
+      const currentSelectedBoard = selectedBoardRef.current;
+      if (!currentSelectedBoard || data.boardId !== currentSelectedBoard) {
+        return;
+      }
       
       // Find the task and update the comment
+      // Use functional update to ensure we're working with the latest state
       setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
         
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
+        // Create a completely new columns object to ensure React detects the change
+        // This prevents any stale references from being preserved
+        const updatedColumns: Columns = {};
+        let updatedTaskForSelection = null;
+        let taskFound = false;
+        
+        // First, copy all columns that we're NOT modifying (preserve references)
+        Object.keys(prevColumns).forEach(columnId => {
+          const column = prevColumns[columnId];
           const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
           
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
+          if (taskIndex === -1) {
+            // This column doesn't contain the task, so we can preserve the reference
+            updatedColumns[columnId] = column;
+            return;
+          }
+          
+          // This column contains the task we need to update
+          taskFound = true;
+          // Create a new array copy first
+          const updatedTasks = [...column.tasks];
+          // Create a new task object copy (don't mutate the original)
+          const originalTask = updatedTasks[taskIndex];
+          const task = { ...originalTask };
+          
+          // Preserve existing comments and update the specific one
+          // IMPORTANT: Always ensure comments is an array, even if undefined/null
+          const existingComments = Array.isArray(task.comments) 
+            ? task.comments 
+            : (task.comments ? [task.comments] : []);
+          const commentIndex = existingComments.findIndex(c => c && c.id === data.comment.id);
+          
+          // Create updated comments array IMMEDIATELY without mutating task.comments
+          let newComments: any[];
+          if (commentIndex !== -1) {
+            // Ensure updated comment has all required fields
+            const updatedComment = {
+              ...data.comment,
+              taskId: data.taskId,
+              attachments: Array.isArray(data.comment.attachments) ? data.comment.attachments : []
+            };
             
-            // Update the comment
-            const comments = task.comments || [];
-            const commentIndex = comments.findIndex(c => c.id === data.comment.id);
-            
-            if (commentIndex !== -1) {
-              task.comments = [
-                ...comments.slice(0, commentIndex),
-                data.comment,
-                ...comments.slice(commentIndex + 1)
-              ];
-              updatedTasks[taskIndex] = task;
-              updatedColumns[columnId] = {
-                ...column,
-                tasks: updatedTasks
-              };
-            }
+            newComments = [
+              ...existingComments.slice(0, commentIndex),
+              updatedComment,
+              ...existingComments.slice(commentIndex + 1)
+            ];
+          } else {
+            // Comment not found, add it (shouldn't happen but handle gracefully)
+            const newComment = {
+              ...data.comment,
+              taskId: data.taskId,
+              attachments: Array.isArray(data.comment.attachments) ? data.comment.attachments : []
+            };
+            newComments = [...existingComments, newComment];
+          }
+          
+          // Create a completely new task object with new comments array
+          // This is critical for React.memo to detect the change and re-render TaskCard
+          const updatedTask = {
+            ...task,
+            comments: newComments // Use the new array we created
+          };
+          
+          updatedTasks[taskIndex] = updatedTask;
+          // Create a completely new column object to ensure React detects the change
+          updatedColumns[columnId] = {
+            ...column,
+            tasks: updatedTasks // New array reference
+          };
+          
+          // If this is the selected task, update it for TaskDetails
+          if (selectedTask && selectedTask.id === data.taskId) {
+            updatedTaskForSelection = updatedTask;
           }
         });
         
+        if (!taskFound) {
+          console.warn('⚠️ [WebSocket] handleCommentUpdated: Task not found in columns', data.taskId);
+        }
+        
+        // Update selectedTask if it's the one that got the comment updated
+        if (updatedTaskForSelection) {
+          setSelectedTask(updatedTaskForSelection);
+        }
+        
         return updatedColumns;
       });
-  }, [setColumns]);
+  }, [setColumns, selectedTask]);
 
   const handleCommentDeleted = useCallback((data: any) => {
-      if (!data.commentId || !data.boardId || !data.taskId) return;
+      if (!data.commentId || !data.boardId || !data.taskId) {
+        return;
+      }
+      
+      // Only process if this is for the current board
+      const currentSelectedBoard = selectedBoardRef.current;
+      if (!currentSelectedBoard || data.boardId !== currentSelectedBoard) {
+        return;
+      }
       
       // Find the task and remove the comment
       setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
+        // Create a completely new columns object to ensure React detects the change
+        // This prevents any stale references from being preserved
+        const updatedColumns: Columns = {};
+        let updatedTaskForSelection = null;
+        let taskFound = false;
         
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
+        Object.keys(prevColumns).forEach(columnId => {
+          const column = prevColumns[columnId];
           const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
           
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
-            
-            // Remove the comment
-            const comments = task.comments || [];
-            task.comments = comments.filter(c => c.id !== data.commentId);
-            updatedTasks[taskIndex] = task;
-            updatedColumns[columnId] = {
-              ...column,
-              tasks: updatedTasks
-            };
+          if (taskIndex === -1) {
+            // This column doesn't contain the task, so we can preserve the reference
+            updatedColumns[columnId] = column;
+            return;
+          }
+          
+          // This column contains the task we need to update
+          taskFound = true;
+          const updatedTasks = [...column.tasks];
+          const task = { ...updatedTasks[taskIndex] };
+          
+          // Preserve existing comments and remove the deleted one
+          // IMPORTANT: Always ensure comments is an array, even if undefined/null
+          const existingComments = Array.isArray(task.comments) 
+            ? task.comments 
+            : (task.comments !== undefined && task.comments !== null ? [task.comments] : []);
+          
+          const beforeCount = existingComments.length;
+          
+          // Create new comments array IMMEDIATELY without mutating task.comments
+          // Filter out the deleted comment
+          const newComments = existingComments.filter(c => c && c.id !== data.commentId);
+          const afterCount = newComments.length;
+          
+          // Create a completely new task object with new comments array
+          // This is critical for React.memo to detect the change and re-render TaskCard
+          const updatedTask = {
+            ...task,
+            comments: newComments // Use the new filtered array
+          };
+          
+          updatedTasks[taskIndex] = updatedTask;
+          // Create a completely new column object to ensure React detects the change
+          updatedColumns[columnId] = {
+            ...column,
+            tasks: updatedTasks // New array reference
+          };
+          
+          // Update selectedTask reference if needed
+          if (selectedTask && selectedTask.id === data.taskId) {
+            updatedTaskForSelection = updatedTask;
           }
         });
         
+        if (!taskFound) {
+          console.warn('⚠️ [WebSocket] handleCommentDeleted: Task not found in columns', data.taskId);
+        }
+        
+        // Update selectedTask if it's the one that got the comment deleted
+        if (updatedTaskForSelection) {
+          setSelectedTask(updatedTaskForSelection);
+        }
+        
         return updatedColumns;
       });
-  }, [setColumns]);
+  }, [setColumns, selectedTask]);
 
   // ============================================================================
   // WEBSOCKET CONNECTION EFFECT
@@ -3690,6 +3986,7 @@ export default function App() {
     
     // Optimistic update
     const previousColumns = { ...columns };
+    const previousSelectedTask = selectedTask;
     
     // Update UI immediately
     setColumns(prev => {
@@ -3728,6 +4025,11 @@ export default function App() {
       return updatedColumns;
     });
     
+    // Update selectedTask if this is the selected task
+    if (selectedTask && selectedTask.id === task.id) {
+      setSelectedTask(task);
+    }
+    
     try {
       await withLoading('tasks', async () => {
         await updateTask(task);
@@ -3743,8 +4045,11 @@ export default function App() {
       
       // Rollback on error
       setColumns(previousColumns);
+      if (previousSelectedTask) {
+        setSelectedTask(previousSelectedTask);
+      }
     }
-  }, [withLoading, fetchQueryLogs]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask]);
 
   const handleCopyTask = async (task: Task) => {
     // Find the original task's position in the sorted list
@@ -4977,14 +5282,23 @@ export default function App() {
           columnTasks = customFilterTasks(columnTasks);
         }
         
+        // IMPORTANT: Create new column object and ensure task objects are preserved
+        // When filtering, we create a new array but the task objects inside are references
+        // to the original tasks from columns. This is correct - we want to preserve the
+        // task object references so that when we update a task in columns, filteredColumns
+        // picks up the new reference on the next computation.
+        // 
+        // CRITICAL: We must ensure that when filtering creates a new array, we preserve
+        // the exact task object references from the original column.tasks array, not
+        // create new task objects.
         filteredColumns[columnId] = {
           ...column,
-          tasks: columnTasks
+          tasks: columnTasks // New array, but task objects are references to original tasks
         };
+        
       }
       
       setFilteredColumns(filteredColumns);
-      
     };
 
     performFiltering();

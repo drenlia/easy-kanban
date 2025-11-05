@@ -1,0 +1,201 @@
+import express from 'express';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { wrapQuery } from '../utils/queryLogger.js';
+import { logActivity } from '../services/activityLogger.js';
+import { TAG_ACTIONS } from '../constants/activityActions.js';
+import * as reportingLogger from '../services/reportingLogger.js';
+import redisService from '../services/redisService.js';
+
+const router = express.Router();
+
+// Get all tags (authenticated users only) - must come BEFORE admin routes
+// Skip if mounted at /api/admin/tags (admin routes will handle it)
+router.get('/', authenticateToken, (req, res, next) => {
+  // If this is mounted at /api/admin/tags, skip to next handler (admin route)
+  if (req.baseUrl === '/api/admin/tags') {
+    return next();
+  }
+  
+  try {
+    const db = req.app.locals.db;
+    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Error fetching tags:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+});
+
+// User tags endpoints (allow any authenticated user to create tags)
+// Skip if mounted at /api/admin/tags (admin routes will handle it)
+router.post('/', authenticateToken, async (req, res, next) => {
+  // If this is mounted at /api/admin/tags, skip to next handler (admin route)
+  if (req.baseUrl === '/api/admin/tags') {
+    return next();
+  }
+  
+  const { tag, description, color } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    const result = wrapQuery(db.prepare(`
+      INSERT INTO tags (tag, description, color) 
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    
+    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-created to Redis (user-created)');
+    await redisService.publish('tag-created', {
+      tag: newTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-created published to Redis');
+    
+    res.json(newTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error creating tag:', error);
+    res.status(500).json({ error: 'Failed to create tag' });
+  }
+});
+
+// Admin tags endpoints (mounted at /api/admin/tags)
+router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    res.json(tags);
+  } catch (error) {
+    console.error('Error fetching admin tags:', error);
+    res.status(500).json({ error: 'Failed to fetch tags' });
+  }
+});
+
+router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { tag, description, color } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    const result = wrapQuery(db.prepare(`
+      INSERT INTO tags (tag, description, color) 
+      VALUES (?, ?, ?)
+    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    
+    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-created to Redis');
+    await redisService.publish('tag-created', {
+      tag: newTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-created published to Redis');
+    
+    res.json(newTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error creating tag:', error);
+    res.status(500).json({ error: 'Failed to create tag' });
+  }
+});
+
+router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { tagId } = req.params;
+  const { tag, description, color } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!tag) {
+    return res.status(400).json({ error: 'Tag name is required' });
+  }
+
+  try {
+    wrapQuery(db.prepare(`
+      UPDATE tags SET tag = ?, description = ?, color = ? WHERE id = ?
+    `), 'UPDATE').run(tag, description || '', color || '#4F46E5', tagId);
+    
+    const updatedTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-updated to Redis');
+    await redisService.publish('tag-updated', {
+      tag: updatedTag,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-updated published to Redis');
+    
+    res.json(updatedTag);
+  } catch (error) {
+    if (error.message.includes('UNIQUE constraint failed')) {
+      return res.status(400).json({ error: 'Tag already exists' });
+    }
+    console.error('Error updating tag:', error);
+    res.status(500).json({ error: 'Failed to update tag' });
+  }
+});
+
+// Get tag usage count (for deletion confirmation)
+router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+  const { tagId } = req.params;
+  const db = req.app.locals.db;
+  
+  try {
+    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
+    res.json({ count: usageCount.count });
+  } catch (error) {
+    console.error('Error fetching tag usage:', error);
+    res.status(500).json({ error: 'Failed to fetch tag usage' });
+  }
+});
+
+router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { tagId } = req.params;
+  const db = req.app.locals.db;
+  
+  try {
+    // Get tag info before deletion for Redis publishing
+    const tagToDelete = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    
+    // Use transaction to ensure both operations succeed or fail together
+    db.transaction(() => {
+      // First remove all task associations
+      wrapQuery(db.prepare('DELETE FROM task_tags WHERE tagId = ?'), 'DELETE').run(tagId);
+      
+      // Then delete the tag
+      wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
+    })();
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing tag-deleted to Redis');
+    await redisService.publish('tag-deleted', {
+      tagId: tagId,
+      tag: tagToDelete,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Tag-deleted published to Redis');
+    
+    res.json({ message: 'Tag deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting tag:', error);
+    res.status(500).json({ error: 'Failed to delete tag' });
+  }
+});
+
+// Note: Task-tag association routes are in index.js under /api/tasks/:taskId/tags
+// They will be extracted to routes/taskRelations.js later
+
+export default router;
+

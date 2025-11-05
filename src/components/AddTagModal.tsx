@@ -29,6 +29,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     
     if (!tagName.trim()) {
       setError('Tag name is required');
@@ -67,20 +68,63 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Capture Esc key to close modal
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isSubmitting) {
+        onClose();
+      }
+      return;
+    }
+    // For Enter key, only stop propagation to prevent bubbling to parent handlers
+    // Let the form's natural submission handle it
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.stopPropagation();
+      // Don't preventDefault - let form submission happen naturally
+    }
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Stop propagation for Enter to prevent parent handlers from catching it
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.stopPropagation();
+      // Let the form's natural submission handle it
+    }
+    // Handle Esc key
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!isSubmitting) {
+        onClose();
+      }
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]" 
+      onClick={onClose}
+      onKeyDown={handleKeyDown}
+    >
+      <div 
+        className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6" 
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+      >
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add New Tag</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            disabled={isSubmitting}
           >
             <X size={20} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Tag Name
@@ -89,6 +133,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
               type="text"
               value={tagName}
               onChange={(e) => setTagName(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
               placeholder="Enter tag name"
               autoFocus

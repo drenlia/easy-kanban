@@ -9,6 +9,100 @@ import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
+// Helper function to fetch a task with all relationships (comments, watchers, collaborators, tags, attachmentCount)
+function fetchTaskWithRelationships(db, taskId) {
+  const task = wrapQuery(
+    db.prepare(`
+      SELECT t.*, 
+             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                  ELSE NULL END as attachmentCount,
+             json_group_array(
+               DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
+                 'id', c.id,
+                 'text', c.text,
+                 'authorId', c.authorId,
+                 'createdAt', c.createdAt,
+                 'updated_at', c.updated_at,
+                 'taskId', c.taskId,
+                 'authorName', comment_author.name,
+                 'authorColor', comment_author.color
+               ) ELSE NULL END
+             ) as comments,
+             json_group_array(
+               DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+                 'id', tag.id,
+                 'tag', tag.tag,
+                 'description', tag.description,
+                 'color', tag.color
+               ) ELSE NULL END
+             ) as tags,
+             json_group_array(
+               DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
+                 'id', watcher.id,
+                 'name', watcher.name,
+                 'color', watcher.color
+               ) ELSE NULL END
+             ) as watchers,
+             json_group_array(
+               DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
+                 'id', collaborator.id,
+                 'name', collaborator.name,
+                 'color', collaborator.color
+               ) ELSE NULL END
+             ) as collaborators
+      FROM tasks t
+      LEFT JOIN attachments a ON a.taskId = t.id AND a.commentId IS NULL
+      LEFT JOIN comments c ON c.taskId = t.id
+      LEFT JOIN members comment_author ON comment_author.id = c.authorId
+      LEFT JOIN task_tags tt ON tt.taskId = t.id
+      LEFT JOIN tags tag ON tag.id = tt.tagId
+      LEFT JOIN watchers w ON w.taskId = t.id
+      LEFT JOIN members watcher ON watcher.id = w.memberId
+      LEFT JOIN collaborators col ON col.taskId = t.id
+      LEFT JOIN members collaborator ON collaborator.id = col.memberId
+      WHERE t.id = ?
+      GROUP BY t.id
+    `),
+    'SELECT'
+  ).get(taskId);
+  
+  if (!task) return null;
+  
+  // Parse JSON arrays and handle null values
+  task.comments = task.comments === '[null]' || !task.comments 
+    ? [] 
+    : JSON.parse(task.comments).filter(Boolean);
+  
+  // Get attachments for each comment
+  for (const comment of task.comments) {
+    const attachments = wrapQuery(db.prepare(`
+      SELECT id, name, url, type, size, created_at as createdAt
+      FROM attachments
+      WHERE commentId = ?
+    `), 'SELECT').all(comment.id);
+    comment.attachments = attachments || [];
+  }
+  
+  task.tags = task.tags === '[null]' || !task.tags 
+    ? [] 
+    : JSON.parse(task.tags).filter(Boolean);
+  task.watchers = task.watchers === '[null]' || !task.watchers 
+    ? [] 
+    : JSON.parse(task.watchers).filter(Boolean);
+  task.collaborators = task.collaborators === '[null]' || !task.collaborators 
+    ? [] 
+    : JSON.parse(task.collaborators).filter(Boolean);
+  
+  // Convert snake_case to camelCase
+  return {
+    ...task,
+    sprintId: task.sprint_id || null,
+    createdAt: task.created_at,
+    updatedAt: task.updated_at
+  };
+}
+
 // Helper function to check for circular dependencies in task relationships
 function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
   // Simple cycle detection:
@@ -539,18 +633,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
     }
     
-    // Fetch the updated task from database to ensure we have all fields (including sprint_id)
-    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    // Fetch the updated task with all relationships (comments, watchers, collaborators, tags)
+    // This ensures the WebSocket event includes complete task data so frontend doesn't need to merge
+    const taskResponse = fetchTaskWithRelationships(db, id);
     
-    // Convert snake_case to camelCase for frontend
-    const taskResponse = {
-      ...updatedTask,
-      sprintId: updatedTask.sprint_id || null,
-      createdAt: updatedTask.created_at,
-      updatedAt: updatedTask.updated_at
-    };
-    
-    // Publish to Redis for real-time updates (use updated task from DB)
+    // Publish to Redis for real-time updates (includes complete task data with relationships)
     const webSocketData = {
       boardId: taskResponse.boardId,
       task: {
@@ -729,18 +816,10 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       });
     }
 
-    // Get the updated task data for WebSocket
-    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // Get the updated task data with all relationships for WebSocket
+    const taskResponse = fetchTaskWithRelationships(db, taskId);
     
-    // Convert snake_case to camelCase for frontend
-    const taskResponse = {
-      ...updatedTask,
-      sprintId: updatedTask.sprint_id || null,
-      createdAt: updatedTask.created_at,
-      updatedAt: updatedTask.updated_at
-    };
-    
-    // Publish to Redis for real-time updates
+    // Publish to Redis for real-time updates (includes complete task data with relationships)
     await redisService.publish('task-updated', {
       boardId: currentTask.boardId,
       task: {
@@ -899,18 +978,11 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       toColumnName: newColumn?.title
     });
     
-    // Get the updated task data for WebSocket
-    const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
-    
-    // Convert snake_case to camelCase for frontend
-    const taskResponse = {
-      ...updatedTask,
-      sprintId: updatedTask.sprint_id || null,
-      createdAt: updatedTask.created_at,
-      updatedAt: updatedTask.updated_at
-    };
+    // Get the updated task data with all relationships for WebSocket
+    const taskResponse = fetchTaskWithRelationships(db, taskId);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
+    // Includes complete task data with relationships
     await redisService.publish('task-updated', {
       boardId: originalBoardId,
       task: {
