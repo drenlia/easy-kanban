@@ -21,8 +21,14 @@ class WebSocketClient {
       return;
     }
 
-    // Check if we're in the middle of redirecting due to invalid token
-    if (window.location.hash === '#login') {
+    // Check if we're on any auth-related page (login, password reset, etc.)
+    const hash = window.location.hash.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
+    if (hash === '#login' || hash.includes('login') || 
+        hash.includes('forgot-password') || hash.includes('reset-password') ||
+        hash.includes('activate-account') ||
+        pathname.includes('login') || pathname.includes('forgot-password') || 
+        pathname.includes('reset-password') || pathname.includes('activate-account')) {
       return;
     }
 
@@ -118,6 +124,17 @@ class WebSocketClient {
     });
 
     this.socket.on('connect_error', (error) => {
+      // Suppress errors during page unload/refresh - these are expected
+      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+        return;
+      }
+      
+      // Suppress "WebSocket is closed before the connection is established" errors
+      // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
+      if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
       console.error('❌ WebSocket connection error:', error);
       this.isConnected = false;
       
@@ -139,6 +156,17 @@ class WebSocketClient {
     });
 
     this.socket.on('reconnect_error', (error) => {
+      // Suppress errors during page unload/refresh
+      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+        return;
+      }
+      
+      // Suppress "WebSocket is closed before the connection is established" errors
+      // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
+      if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
       console.error('❌ WebSocket reconnection error:', error);
       this.reconnectAttempts++;
     });
@@ -203,7 +231,9 @@ class WebSocketClient {
 
   // Re-register all stored event listeners
   private reregisterEventListeners() {
-    if (!this.socket) return;
+    if (!this.socket) {
+      return;
+    }
     
     // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
     // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
@@ -217,10 +247,6 @@ class WebSocketClient {
       callbacks.forEach(callback => {
         this.socket?.on(eventName, callback as any);
       });
-    });
-    
-    // Add debugging for task-updated events specifically
-    this.socket?.on('task-updated', () => {
     });
   }
 
@@ -344,7 +370,22 @@ class WebSocketClient {
   }
 
   offTaskUpdated(callback?: (data: any) => void) {
-    this.socket?.off('task-updated', callback);
+    if (callback) {
+      // Remove from socket
+      this.socket?.off('task-updated', callback);
+      // Remove from eventCallbacks map to prevent re-registration on reconnect
+      const callbacks = this.eventCallbacks.get('task-updated');
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
+        }
+      }
+    } else {
+      // Remove all listeners
+      this.socket?.off('task-updated');
+      this.eventCallbacks.delete('task-updated');
+    }
   }
 
   offTaskDeleted(callback?: (data: any) => void) {
