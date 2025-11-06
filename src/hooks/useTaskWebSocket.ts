@@ -66,42 +66,65 @@ export const useTaskWebSocket = ({
     
     // Always update boards state for task count updates (for all boards)
     setBoards(prevBoards => {
+      // Check if board exists in state
+      const boardExists = prevBoards.some(b => b.id === data.boardId);
+      
+      if (!boardExists) {
+        // Board doesn't exist yet - this can happen if board-created event hasn't been processed yet
+        // In this case, we'll let the board-created handler add it, and this task will be added later
+        // via refreshBoardData or when the board is added
+        console.log(`⚠️ [WebSocket] Task created for board ${data.boardId} that doesn't exist in state yet - will be added when board is created`);
+        return prevBoards;
+      }
+      
       return prevBoards.map(board => {
         if (board.id === data.boardId) {
           const updatedBoard = { ...board };
           const updatedColumns = { ...updatedBoard.columns };
           const targetColumnId = data.task.columnId;
           
-          if (updatedColumns[targetColumnId]) {
-            // Check if task already exists (from optimistic update)
-            const existingTasks = updatedColumns[targetColumnId].tasks;
-            const taskExists = existingTasks.some(t => t.id === data.task.id);
-            
-            if (taskExists) {
-              // Task already exists, update it with server data (includes ticket number)
-              const updatedTasks = existingTasks.map(t => 
-                t.id === data.task.id ? data.task : t
-              );
-              updatedColumns[targetColumnId] = {
-                ...updatedColumns[targetColumnId],
-                tasks: updatedTasks
-              };
-            } else {
-              // Task doesn't exist yet, add it at front and renumber
-              const allTasks = [data.task, ...existingTasks];
-              const updatedTasks = allTasks.map((task, index) => ({
-                ...task,
-                position: index
-              }));
-              
-              updatedColumns[targetColumnId] = {
-                ...updatedColumns[targetColumnId],
-                tasks: updatedTasks
-              };
-            }
-            
-            updatedBoard.columns = updatedColumns;
+          // If column doesn't exist yet, create it (can happen if column-created event hasn't been processed)
+          if (!updatedColumns[targetColumnId]) {
+            console.log(`⚠️ [WebSocket] Task created for column ${targetColumnId} that doesn't exist in state yet - creating column`);
+            updatedColumns[targetColumnId] = {
+              id: targetColumnId,
+              boardId: data.boardId,
+              title: 'Unknown Column', // Will be updated when column-created event arrives
+              tasks: [],
+              position: 0,
+              is_finished: false,
+              is_archived: false
+            };
           }
+          
+          // Check if task already exists (from optimistic update)
+          const existingTasks = updatedColumns[targetColumnId].tasks;
+          const taskExists = existingTasks.some(t => t.id === data.task.id);
+          
+          if (taskExists) {
+            // Task already exists, update it with server data (includes ticket number)
+            const updatedTasks = existingTasks.map(t => 
+              t.id === data.task.id ? data.task : t
+            );
+            updatedColumns[targetColumnId] = {
+              ...updatedColumns[targetColumnId],
+              tasks: updatedTasks
+            };
+          } else {
+            // Task doesn't exist yet, add it at front and renumber
+            const allTasks = [data.task, ...existingTasks];
+            const updatedTasks = allTasks.map((task, index) => ({
+              ...task,
+              position: index
+            }));
+            
+            updatedColumns[targetColumnId] = {
+              ...updatedColumns[targetColumnId],
+              tasks: updatedTasks
+            };
+          }
+          
+          updatedBoard.columns = updatedColumns;
           
           return updatedBoard;
         }
@@ -192,11 +215,45 @@ export const useTaskWebSocket = ({
     // ALWAYS update boards state for system task counter (even if not currently selected board)
     if (data.task && data.boardId) {
       setBoards(prevBoards => {
+        const taskId = data.task.id;
+        const taskBoardId = data.task.boardId; // The board the task is now in
+        const eventBoardId = data.boardId; // The board this event is for
+        
+        // Check if this is a cross-board move (task is in a different board than the event board)
+        const isCrossBoardMove = taskBoardId && taskBoardId !== eventBoardId;
+        
         return prevBoards.map(board => {
-          if (board.id === data.boardId && board.columns) {
+          // Handle source board (where task was removed from) - for cross-board moves
+          if (isCrossBoardMove && board.id === eventBoardId && board.id !== taskBoardId && board.columns) {
+            // Remove the task from all columns in the source board
+            const updatedColumns = { ...board.columns };
+            let taskRemoved = false;
+            
+            Object.keys(updatedColumns).forEach(columnId => {
+              const column = updatedColumns[columnId];
+              const taskIndex = column.tasks?.findIndex((t: any) => t.id === taskId) ?? -1;
+              
+              if (taskIndex !== -1) {
+                taskRemoved = true;
+                updatedColumns[columnId] = {
+                  ...column,
+                  tasks: [
+                    ...column.tasks.slice(0, taskIndex),
+                    ...column.tasks.slice(taskIndex + 1)
+                  ]
+                };
+              }
+            });
+            
+            if (taskRemoved) {
+              return { ...board, columns: updatedColumns };
+            }
+          }
+          
+          // Handle target board (where task is now) - for both same-board and cross-board moves
+          if (board.id === taskBoardId && board.columns) {
             // Update the task in the appropriate column
             const updatedColumns = { ...board.columns };
-            const taskId = data.task.id;
             const newColumnId = data.task.columnId;
             
             // Find and update the task
@@ -252,7 +309,7 @@ export const useTaskWebSocket = ({
             });
             
             // Add to new column if it was moved, at the correct position
-            if (found && updatedColumns[newColumnId] && !updatedColumns[newColumnId].tasks?.some((t: any) => t.id === taskId)) {
+            if (updatedColumns[newColumnId] && !updatedColumns[newColumnId].tasks?.some((t: any) => t.id === taskId)) {
               const targetColumn = updatedColumns[newColumnId];
               const targetPosition = data.task.position ?? (targetColumn.tasks?.length || 0);
               const newTasks = [...(targetColumn.tasks || [])];
@@ -291,6 +348,7 @@ export const useTaskWebSocket = ({
             
             return { ...board, columns: updatedColumns };
           }
+          
           return board;
         });
       });

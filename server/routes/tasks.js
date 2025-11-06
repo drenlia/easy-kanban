@@ -804,7 +804,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     // Log to reporting system - check if column changed
     if (previousColumnId !== columnId) {
       // This is a column move
-      const newColumn = wrapQuery(db.prepare('SELECT title, is_done FROM columns WHERE id = ?'), 'SELECT').get(columnId);
+      const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(columnId);
       const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(previousColumnId);
       
       const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
@@ -967,7 +967,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     );
     
     // Log to reporting system
-    const newColumn = wrapQuery(db.prepare('SELECT title, is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);
+    const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);
     const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(originalColumnId);
     
     const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';

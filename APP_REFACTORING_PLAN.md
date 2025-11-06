@@ -471,6 +471,39 @@ The `src/App.tsx` file is **5920 lines long**. This document outlines a safe, in
 
 ---
 
+## Code Splitting (Performance Optimization)
+
+**Status**: Phase 1 completed ✅
+
+### Phase 1: Route-Based Code Splitting ✅ COMPLETED
+- **Goal**: Reduce login page bundle size by ~70% (from ~2MB to ~600KB)
+- **Approach**: Lazy load heavy pages and components
+- **Files Modified**:
+  - ✅ `src/components/layout/MainLayout.tsx` - Lazy load Admin, Reports, and KanbanPage
+  - ✅ `src/App.tsx` - Lazy load TaskPage and ModalManager
+  - ✅ `src/components/layout/KanbanPage.tsx` - Lazy load GanttViewV2
+  - ✅ `src/components/layout/ModalManager.tsx` - Lazy load TaskDetails, HelpModal, and Profile
+
+**Implementation Notes**:
+- All heavy pages are now lazy-loaded using `React.lazy()`
+- Wrapped in `Suspense` boundaries with loading fallbacks
+- Login page now only loads essential components
+- Components load on-demand:
+  - Admin, Reports, TaskPage, and GanttViewV2 load when navigated to
+  - KanbanPage loads when authenticated user accesses kanban view
+  - ModalManager and its modals (TaskDetails, HelpModal, Profile) load when needed
+- Significant reduction in initial bundle size observed in development
+
+**Results**:
+- ✅ Login page bundle significantly reduced (user confirmed "big improvement")
+- ✅ Initial load time improved
+- ✅ Components load only when needed
+- ✅ Better code organization and maintainability
+
+**See `CODE_SPLITTING_PLAN.md` for detailed implementation plan.**
+
+---
+
 ## Success Criteria
 
 ✅ App.tsx is under 1000 lines  
@@ -483,6 +516,9 @@ The `src/App.tsx` file is **5920 lines long**. This document outlines a safe, in
 
 ---
 
-**Last Updated**: [Date will be updated as refactoring progresses]  
-**Status**: Planning Phase - Not Started
+**Last Updated**: 2025-01-XX  
+**Status**: 
+- ✅ Phase 1-4 Completed (Constants, Utilities, Simple Hooks, Filters, WebSocket Handlers)
+- ✅ Code Splitting Phase 1 Completed (Route-based lazy loading with additional component-level optimizations)
+- ⏳ Phase 5-10 Pending (App.tsx refactoring continuation)
 

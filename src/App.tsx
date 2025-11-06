@@ -1,22 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  TeamMember, 
-  Task, 
-  Column, 
-  Columns, 
-  Board, 
-  PriorityOption, 
-  Tag,
-  QueryLog, 
-  DragPreview 
-} from './types';
+import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
-
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -24,16 +13,26 @@ import ResetPasswordSuccess from './components/ResetPasswordSuccess';
 import ActivateAccount from './components/ActivateAccount';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
-import TaskPage from './components/TaskPage';
-import ModalManager from './components/layout/ModalManager';
-import MiniTaskIcon from './components/MiniTaskIcon';
-import TaskCard from './components/TaskCard';
+import LoadingSpinner from './components/LoadingSpinner';
+
+import { lazyWithRetry } from './utils/lazyWithRetry';
+
+// Lazy load TaskPage to reduce initial bundle size with retry logic
+const TaskPage = lazyWithRetry(() => import('./components/TaskPage'));
+
+// Loading fallback component for lazy-loaded pages
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <LoadingSpinner />
+  </div>
+);
+// Lazy load ModalManager to reduce initial bundle size (only needed when authenticated) with retry logic
+const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManager'));
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
-import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
 import { toast, ToastContainer } from './utils/toast';
@@ -83,6 +82,11 @@ import {
 } from './utils/taskUtils';
 import { moveTaskToBoard } from './api';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
+import { clearCustomCursor } from './utils/cursorUtils';
+import { generateUniqueBoardName } from './utils/boardUtils';
+import { renumberColumns } from './utils/columnUtils';
+import { handleSameColumnReorder, handleCrossColumnMove } from './utils/taskReorderingUtils';
+import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
@@ -112,6 +116,7 @@ export default function App() {
   }, [selectedBoard]);
   const [columns, setColumns] = useState<Columns>({});
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  const [kanbanColumnWidth, setKanbanColumnWidth] = useState<number>(300); // Default 300px
   
   // User Status for permission refresh
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
@@ -803,6 +808,7 @@ export default function App() {
   const boardWebSocket = useBoardWebSocket({
     setSelectedBoard,
     setColumns,
+    setBoards,
     selectedBoardRef,
     refreshBoardDataRef,
   });
@@ -1163,91 +1169,7 @@ export default function App() {
 
   // Invite user handler
   const handleInviteUser = async (email: string) => {
-    try {
-      // Check email server status first
-      const emailStatusResponse = await fetch('/api/admin/email-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      });
-      
-      if (emailStatusResponse.ok) {
-        const emailStatus = await emailStatusResponse.json();
-        if (!emailStatus.available) {
-          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings in the admin panel before inviting users.`);
-        }
-      } else {
-        console.warn('Could not check email status, proceeding with invitation');
-      }
-
-      // Generate names from email (before @ symbol)
-      const emailPrefix = email.split('@')[0];
-      const nameParts = emailPrefix.split(/[._-]/);
-      
-      // Capitalize first letter of each part
-      let firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
-      let lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
-      
-      // Special handling for common email prefixes
-      if (emailPrefix.toLowerCase() === 'info') {
-        firstName = 'Info';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'admin') {
-        firstName = 'Admin';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'support') {
-        firstName = 'Support';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'noreply') {
-        firstName = 'System';
-        lastName = 'User';
-      } else if (nameParts.length === 1) {
-        // If only one part, use it as first name and "User" as last name
-        firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
-        lastName = 'User';
-      }
-      
-      // Generate a temporary password (user will change it during activation)
-      const tempPassword = crypto.randomUUID().substring(0, 12);
-      
-      const result = await createUser({
-        email,
-        password: tempPassword,
-        firstName,
-        lastName,
-        role: 'user'
-      });
-      
-      // Check if email was actually sent
-      if (result.emailSent === false) {
-        throw new Error(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
-      }
-      
-      // Refresh members list to show the new user
-      await handleRefreshData();
-    } catch (error: any) {
-      console.error('Failed to invite user:', error);
-      
-      // Extract more specific error message
-      let errorMessage = 'Failed to send invitation';
-      
-      if (error.response?.data?.error) {
-        const backendError = error.response.data.error;
-        if (backendError.includes('already exists')) {
-          errorMessage = `User with email ${email} already exists`;
-        } else if (backendError.includes('required')) {
-          errorMessage = 'Missing required information. Please try again.';
-        } else if (backendError.includes('email')) {
-          errorMessage = 'Invalid email address format';
-        } else {
-          errorMessage = backendError;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      throw new Error(errorMessage);
-    }
+    return handleInviteUserUtil(email, handleRefreshData);
   };
 
   // ============================================================================
@@ -1541,25 +1463,25 @@ export default function App() {
     
     // Reset linking state (but keep feedback message visible)
     // console.log('🔄 Resetting linking state...');
-    setIsLinkingMode(false);
-    setLinkingSourceTask(null);
-    setLinkingLine(null);
+    taskLinking.setIsLinkingMode(false);
+    taskLinking.setLinkingSourceTask(null);
+    taskLinking.setLinkingLine(null);
     
     // Clear feedback message after 3 seconds
     setTimeout(() => {
-      setLinkingFeedbackMessage(null);
+      taskLinking.setLinkingFeedbackMessage(null);
     }, 3000);
   };
 
   const handleCancelLinking = () => {
-    setIsLinkingMode(false);
-    setLinkingSourceTask(null);
-    setLinkingLine(null);
-    setLinkingFeedbackMessage('Task link cancelled');
+    taskLinking.setIsLinkingMode(false);
+    taskLinking.setLinkingSourceTask(null);
+    taskLinking.setLinkingLine(null);
+    taskLinking.setLinkingFeedbackMessage('Task link cancelled');
     
     // Clear feedback message after 3 seconds
     setTimeout(() => {
-      setLinkingFeedbackMessage(null);
+      taskLinking.setLinkingFeedbackMessage(null);
     }, 3000);
   };
 
@@ -1686,6 +1608,9 @@ export default function App() {
           width: userSpecificPrefs.activityFeed.width,
           height: userSpecificPrefs.activityFeed.height
         });
+        
+        // Load Kanban column width preference
+        setKanbanColumnWidth(userSpecificPrefs.kanbanColumnWidth || 300);
         
         // Load saved filter view if one is remembered
         if (userSpecificPrefs.currentFilterViewId) {
@@ -2121,23 +2046,10 @@ export default function App() {
       // Pause polling to prevent race conditions
       setBoardCreationPause(true);
       
-      // Generate a unique numbered board name
-      const generateUniqueBoardName = (): string => {
-        let counter = 1;
-        let proposedName = `New Board ${counter}`;
-        
-        while (boards.some(board => board.title.toLowerCase() === proposedName.toLowerCase())) {
-          counter++;
-          proposedName = `New Board ${counter}`;
-        }
-        
-        return proposedName;
-      };
-      
       const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
-        title: generateUniqueBoardName(),
+        title: generateUniqueBoardName(boards),
         columns: {}
       };
 
@@ -2755,40 +2667,6 @@ export default function App() {
   const handleTaskDrop = async () => {
   };
 
-  // Show both mouse pointer and square icon with mouse precisely centered
-  const setCustomTaskCursor = (task: Task, members: TeamMember[]) => {
-    // Create a 32x32 SVG with a blue square and a white arrow pointer in the center
-    const svg = `
-      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-        <!-- Blue square background -->
-        <rect width="24" height="24" x="4" y="4" fill="#3B82F6" stroke="#FFFFFF" stroke-width="2" rx="3"/>
-        <!-- White mouse pointer arrow in the exact center -->
-        <path d="M 16 12 L 16 20 L 18 18 L 20 20 L 22 18 L 18 16 L 20 16 Z" fill="#FFFFFF" stroke="#000000" stroke-width="0.5"/>
-      </svg>
-    `;
-    
-    // Convert SVG to data URL
-    const dataURL = `data:image/svg+xml;base64,${btoa(svg)}`;
-    
-    // Set cursor with hotspot at exact center (16,16) where the arrow tip is
-    document.body.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
-    document.documentElement.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
-    
-    dragStartedRef.current = true;
-    // console.log('🎯 Mouse + square cursor set for task:', task.title);
-  };
-  
-  // Clear custom cursor
-  const clearCustomCursor = () => {
-    if (dragStartedRef.current) {
-      // Remove direct styles
-      document.body.style.removeProperty('cursor');
-      document.documentElement.style.removeProperty('cursor');
-      
-      dragStartedRef.current = false;
-      // console.log('🎯 Custom cursor cleared');
-    }
-  };
 
   // Unified task drag handler for both vertical and horizontal moves
   const handleUnifiedTaskDragEnd = (event: DragEndEvent) => {
@@ -2872,7 +2750,7 @@ export default function App() {
             
             if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
               // Use simple array move logic for same-column reordering
-              handleSameColumnReorder(draggedTask, sourceColumnId, newIndex);
+              handleSameColumnReorderWrapper(draggedTask, sourceColumnId, newIndex);
             }
             return; // Exit early for same-column moves
           }
@@ -2930,84 +2808,24 @@ export default function App() {
     // Handle the move
     if (sourceColumnId === targetColumnId) {
       // Same column - reorder
-        handleSameColumnReorder(draggedTask, sourceColumnId, targetIndex);
+        handleSameColumnReorderWrapper(draggedTask, sourceColumnId, targetIndex);
     } else {
       // Different column - move
-        handleCrossColumnMove(draggedTask, sourceColumnId, targetColumnId, targetIndex);
+        handleCrossColumnMoveWrapper(draggedTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
-    // Handle reordering within the same column - update positions and recalculate
-  const handleSameColumnReorder = async (task: Task, columnId: string, newIndex: number) => {
-    const columnTasks = [...(columns[columnId]?.tasks || [])]
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-    const currentIndex = columnTasks.findIndex(t => t.id === task.id);
-
-    console.log('🔄 handleSameColumnReorder called:', {
-      taskId: task.id,
-      taskTitle: task.title,
-      taskPosition: task.position,
+  // Wrapper for handleSameColumnReorder that provides current state
+  const handleSameColumnReorderWrapper = async (task: Task, columnId: string, newIndex: number) => {
+    return handleSameColumnReorder(
+      task,
       columnId,
       newIndex,
-      currentIndex,
-      columnTasksCount: columnTasks.length,
-      columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
-    });
-
-    // Check if reorder is actually needed
-    // BUT: Allow reordering when dropping on another task (even if same position)
-    // This enables proper swapping of tasks at the same position
-    if (currentIndex === newIndex) {
-        console.log('🔄 No reorder needed - currentIndex === newIndex:', currentIndex);
-        return;
-    }
-
-    // Optimistic update - reorder in UI immediately
-    const oldIndex = currentIndex;
-    const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
-    
-    // Recalculate positions for all tasks in the group
-    const tasksWithUpdatedPositions = reorderedTasks.map((t, index) => ({
-      ...t,
-      position: index
-    }));
-    
-    // Set flag to prevent WebSocket interference
-    if (window.setJustUpdatedFromWebSocket) {
-      window.setJustUpdatedFromWebSocket(true);
-    }
-    
-    setColumns(prev => ({
-      ...prev,
-      [columnId]: {
-        ...prev[columnId],
-        tasks: tasksWithUpdatedPositions
-      }
-    }));
-
-    // Send all updated tasks with their new positions to backend
-    try {
-      // Update all tasks with their new positions
-      for (const updatedTask of tasksWithUpdatedPositions) {
-        await updateTask(updatedTask);
-      }
-        
-      // Add cooldown to prevent polling interference
-      setDragCooldown(true);
-      setTimeout(() => {
-        setDragCooldown(false);
-        // Reset WebSocket flag after drag operation completes
-        if (window.setJustUpdatedFromWebSocket) {
-          window.setJustUpdatedFromWebSocket(false);
-        }
-        // Note: We don't refresh immediately to preserve the optimistic update
-        // The next poll will sync the state if needed
-      }, DRAG_COOLDOWN_DURATION);
-    } catch (error) {
-      // console.error('❌ Failed to reorder tasks:', error);
-      await refreshBoardData();
-    }
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData
+    );
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
@@ -3061,114 +2879,28 @@ export default function App() {
     if (sourceColumnId === targetColumnId) {
       // Same column - use reorder logic
       console.log('🎯 Calling handleSameColumnReorder');
-      await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
+      await handleSameColumnReorderWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
       // Different columns - use cross-column move logic
       console.log('🎯 Calling handleCrossColumnMove');
-      await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+      await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
-  // Handle moving task to different column
-  const handleCrossColumnMove = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
-    const sourceColumn = columns[sourceColumnId];
-    const targetColumn = columns[targetColumnId];
-    
-    if (!sourceColumn || !targetColumn) return;
-
-    // Sort target column tasks by position for proper insertion
-    const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-
-    
-
-
-    // Remove from source
-    const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
-    
-
-    
-    // Insert into target at the specified index position
-    const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
-    sortedTargetTasks.splice(targetIndex, 0, updatedTask);
-
-
-
-    // Update positions for both columns - use simple sequential indices
-    // First sort the source tasks by their current position, then assign new sequential positions
-    const sortedSourceTasks = [...sourceTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-    const updatedSourceTasks = sortedSourceTasks.map((task, idx) => ({
-        ...task,
-      position: idx
-    }));
-    
-    const updatedTargetTasks = sortedTargetTasks.map((task, idx) => ({
-      ...task,
-      position: idx
-    }));
-
-
-    
-
-
-    // Update UI optimistically
-    setColumns(prev => ({
-      ...prev,
-      [sourceColumnId]: {
-        ...sourceColumn,
-        tasks: updatedSourceTasks
-      },
-      [targetColumnId]: {
-        ...targetColumn,
-        tasks: updatedTargetTasks
-      }
-    }));
-
-    // Update database - do this sequentially to avoid race conditions
-    try {
-      // Find the moved task in the final updatedTargetTasks array (with correct position)
-      const finalMovedTask = updatedTargetTasks.find(t => t.id === task.id);
-      if (!finalMovedTask) {
-        throw new Error('Could not find moved task in updated target tasks');
-      }
-      
-      // Step 1: Update the moved task to new column and position
-        await updateTask(finalMovedTask);
-        
-      // Step 2: Update all source column tasks (sequential positions)
-      for (const task of updatedSourceTasks) {
-        await updateTask(task);
-      }
-        
-      // Step 3: Update all target column tasks (except the moved one)
-      for (const task of updatedTargetTasks.filter(t => t.id !== finalMovedTask.id)) {
-        await updateTask(task);
-      }
-        
-        
-      // Add cooldown to prevent polling interference
-      setDragCooldown(true);
-      setTimeout(() => {
-        setDragCooldown(false);
-        // Note: We don't refresh immediately to preserve the optimistic update
-        // The next poll will sync the state if needed
-      }, DRAG_COOLDOWN_DURATION);
-    } catch (error) {
-      // console.error('Failed to update cross-column move:', error);
-      // On error, we do want to refresh to get the correct state
-      await refreshBoardData();
-    }
+  // Wrapper for handleCrossColumnMove that provides current state
+  const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
+    return handleCrossColumnMove(
+      task,
+      sourceColumnId,
+      targetColumnId,
+      targetIndex,
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData
+    );
   };
 
-  // Renumber all columns in a board to ensure clean integer positions
-  const renumberColumns = async (boardId: string) => {
-    try {
-      const { data } = await api.post('/columns/renumber', { boardId });
-      return data;
-    } catch (error) {
-      console.error('Failed to renumber columns:', error);
-    }
-  };
 
   const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
     try {
@@ -3267,7 +2999,7 @@ export default function App() {
     
     // Only clear cursor if drag ends (draggedTask becomes null)
     if (!draggedTask && dragStartedRef.current) {
-      clearCustomCursor();
+      clearCustomCursor(dragStartedRef);
     }
   }, [draggedTask]);
 
@@ -3368,9 +3100,16 @@ export default function App() {
     }
   };
 
-  // Calculate grid columns based on number of columns
+  // Calculate grid columns based on number of columns and user's preferred width
   const columnCount = Object.keys(columns).length;
-  const gridStyle = calculateGridStyle(columnCount);
+  const gridStyle = calculateGridStyle(columnCount, kanbanColumnWidth);
+  
+  // Handle column width resize
+  const handleColumnWidthResize = (deltaX: number) => {
+    const newWidth = Math.max(200, Math.min(600, kanbanColumnWidth + deltaX)); // Min 200px, max 600px
+    setKanbanColumnWidth(newWidth);
+    updateCurrentUserPreference('kanbanColumnWidth', newWidth);
+  };
 
   const clearQueryLogs = async () => {
     setQueryLogs([]);
@@ -3669,19 +3408,21 @@ export default function App() {
     return (
       <ThemeProvider>
         <TourProvider currentUser={currentUser}>
-          <TaskPage 
-            currentUser={currentUser}
-            siteSettings={siteSettings}
-            members={members}
-            isPolling={isPolling}
-            lastPollTime={lastPollTime}
-            onLogout={handleLogout}
-            onPageChange={handlePageChange}
-            onRefresh={handleRefreshData}
-            onInviteUser={handleInviteUser}
-            // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
-            // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
-          />
+          <Suspense fallback={<PageLoader />}>
+            <TaskPage 
+              currentUser={currentUser}
+              siteSettings={siteSettings}
+              members={members}
+              isPolling={isPolling}
+              lastPollTime={lastPollTime}
+              onLogout={handleLogout}
+              onPageChange={handlePageChange}
+              onRefresh={handleRefreshData}
+              onInviteUser={handleInviteUser}
+              // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+              // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
+            />
+          </Suspense>
         </TourProvider>
       </ThemeProvider>
     );
@@ -3810,6 +3551,8 @@ export default function App() {
         collisionDetection={collisionDetection}
         boardColumnVisibility={boardColumnVisibility}
         onBoardColumnVisibilityChange={handleBoardColumnVisibilityChange}
+        kanbanColumnWidth={kanbanColumnWidth}
+        onColumnWidthResize={handleColumnWidthResize}
 
         onSelectMember={taskFilters.handleMemberToggle}
         onClearMemberSelections={taskFilters.handleClearMemberSelections}
@@ -3934,31 +3677,33 @@ export default function App() {
         />
       )}
 
-      <ModalManager
-        selectedTask={selectedTask}
-        taskDetailsOptions={taskDetailsOptions}
-                                members={members}
-        onTaskClose={() => handleSelectTask(null)}
-        onTaskUpdate={handleEditTask}
-        showHelpModal={modalState.showHelpModal}
-        onHelpClose={() => modalState.setShowHelpModal(false)}
-        showProfileModal={modalState.showProfileModal}
-        currentUser={currentUser}
-        onProfileClose={() => {
-          modalState.setShowProfileModal(false);
-          modalState.setIsProfileBeingEdited(false); // Reset editing state when modal closes
-        }}
-        onProfileUpdated={handleProfileUpdated}
-        isProfileBeingEdited={modalState.isProfileBeingEdited}
-        onProfileEditingChange={modalState.setIsProfileBeingEdited}
-        onActivityFeedToggle={activityFeed.handleActivityFeedToggle}
-        onAccountDeleted={() => {
-          // Account deleted successfully - handle logout and redirect
-          handleLogout();
-        }}
-        siteSettings={siteSettings}
-        boards={boards}
-      />
+      <Suspense fallback={null}>
+        <ModalManager
+          selectedTask={selectedTask}
+          taskDetailsOptions={taskDetailsOptions}
+                                  members={members}
+          onTaskClose={() => handleSelectTask(null)}
+          onTaskUpdate={handleEditTask}
+          showHelpModal={modalState.showHelpModal}
+          onHelpClose={() => modalState.setShowHelpModal(false)}
+          showProfileModal={modalState.showProfileModal}
+          currentUser={currentUser}
+          onProfileClose={() => {
+            modalState.setShowProfileModal(false);
+            modalState.setIsProfileBeingEdited(false); // Reset editing state when modal closes
+          }}
+          onProfileUpdated={handleProfileUpdated}
+          isProfileBeingEdited={modalState.isProfileBeingEdited}
+          onProfileEditingChange={modalState.setIsProfileBeingEdited}
+          onActivityFeedToggle={activityFeed.handleActivityFeedToggle}
+          onAccountDeleted={() => {
+            // Account deleted successfully - handle logout and redirect
+            handleLogout();
+          }}
+          siteSettings={siteSettings}
+          boards={boards}
+        />
+      </Suspense>
 
       {/* Task Delete Confirmation Popup */}
       <TaskDeleteConfirmation

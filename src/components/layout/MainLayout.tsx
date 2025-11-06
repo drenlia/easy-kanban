@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { 
   CurrentUser, 
   TeamMember, 
@@ -9,9 +9,20 @@ import {
   Tag 
 } from '../../types';
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
-import Admin from '../Admin';
-import KanbanPage from './KanbanPage';
-import Reports from '../Reports';
+import LoadingSpinner from '../LoadingSpinner';
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
+
+// Lazy load heavy pages to reduce initial bundle size with retry logic for network failures
+const Admin = lazyWithRetry(() => import('../Admin'));
+const Reports = lazyWithRetry(() => import('../Reports'));
+const KanbanPage = lazyWithRetry(() => import('./KanbanPage'));
+
+// Loading fallback component for lazy-loaded pages
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <LoadingSpinner />
+  </div>
+);
 
 interface MainLayoutProps {
   currentPage: 'kanban' | 'admin' | 'reports';
@@ -130,6 +141,10 @@ interface MainLayoutProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   getTaskRelationshipType?: (taskId: string) => 'parent' | 'child' | 'related' | null;
+  
+  // Column resizing
+  kanbanColumnWidth?: number;
+  onColumnWidthResize?: (deltaX: number) => void;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
@@ -144,22 +159,24 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   return (
     <div className="flex-1 p-6 bg-gray-50 dark:bg-gray-900">
       <div className="w-4/5 mx-auto">
-        {currentPage === 'admin' ? (
-          <Admin 
-            key={adminRefreshKey}
-            currentUser={currentUser} 
-            onUsersChanged={onUsersChanged}
-            onSettingsChanged={onSettingsChanged}
-          />
-        ) : currentPage === 'reports' ? (
-          <Reports currentUser={currentUser} />
-        ) : (
-          <KanbanPage
-            currentUser={currentUser}
-            selectedTask={selectedTask}
-            {...kanbanProps}
-          />
-        )}
+        <Suspense fallback={<PageLoader />}>
+          {currentPage === 'admin' ? (
+            <Admin 
+              key={adminRefreshKey}
+              currentUser={currentUser} 
+              onUsersChanged={onUsersChanged}
+              onSettingsChanged={onSettingsChanged}
+            />
+          ) : currentPage === 'reports' ? (
+            <Reports currentUser={currentUser} />
+          ) : (
+            <KanbanPage
+              currentUser={currentUser}
+              selectedTask={selectedTask}
+              {...kanbanProps}
+            />
+          )}
+        </Suspense>
       </div>
     </div>
   );

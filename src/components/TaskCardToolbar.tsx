@@ -110,10 +110,9 @@ export default function TaskCardToolbar({
     e.preventDefault();
     e.stopPropagation();
     
-    const rect = e.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const startPos = { x: centerX, y: centerY };
+    // Use the actual mouse position when clicking, not the button center
+    // This prevents false drag detection when clicking the button
+    const startPos = { x: e.clientX, y: e.clientY };
     
     // Prepare for potential drag, but don't start linking yet
     setIsDragPrepared(true);

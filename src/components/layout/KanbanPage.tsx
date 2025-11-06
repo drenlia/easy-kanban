@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { DndContext, DragOverlay, useDroppable } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
@@ -21,7 +21,12 @@ import TaskCard from '../TaskCard';
 import BoardTabs from '../BoardTabs';
 import LoadingSpinner from '../LoadingSpinner';
 import ListView from '../ListView';
-import GanttViewV2 from '../GanttViewV2';
+import ColumnResizeHandle from '../ColumnResizeHandle';
+
+import { lazyWithRetry } from '../../utils/lazyWithRetry';
+
+// Lazy load GanttViewV2 to reduce initial bundle size (only loads when Gantt view is selected) with retry logic
+const GanttViewV2 = lazyWithRetry(() => import('../GanttViewV2'));
 
 
 interface KanbanPageProps {
@@ -140,6 +145,10 @@ interface KanbanPageProps {
   
   // Sprint filtering
   selectedSprintId?: string | null;
+  
+  // Column resizing
+  kanbanColumnWidth?: number;
+  onColumnWidthResize?: (deltaX: number) => void;
 }
 
 const KanbanPage: React.FC<KanbanPageProps> = ({
@@ -168,6 +177,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onClearMemberSelections,
   onSelectAllMembers,
   isAllModeActive,
+  kanbanColumnWidth,
+  onColumnWidthResize,
   includeAssignees,
   includeWatchers,
   includeCollaborators,
@@ -649,25 +660,27 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
               />
             </div>
           ) : viewMode === 'gantt' ? (
-            <GanttViewV2
-              columns={getFullyFilteredColumns}
-              onSelectTask={onSelectTask}
-              selectedTask={selectedTask}
-              taskViewMode={taskViewMode}
-              onUpdateTask={onEditTask}
-              onTaskDragStart={onTaskDragStart}
-              onTaskDragEnd={onTaskDragEnd}
-              onClearDragState={onClearDragState}
-              boardId={selectedBoard}
-              onAddTask={onAddTask}
-              currentUser={currentUser}
-              members={members}
-              onRefreshData={onRefreshBoardData}
-              relationships={boardRelationships}
-              onCopyTask={onCopyTask}
-              onRemoveTask={onRemoveTask}
-              siteSettings={siteSettings}
-            />
+            <Suspense fallback={<div className="flex items-center justify-center h-64"><LoadingSpinner /></div>}>
+              <GanttViewV2
+                columns={getFullyFilteredColumns}
+                onSelectTask={onSelectTask}
+                selectedTask={selectedTask}
+                taskViewMode={taskViewMode}
+                onUpdateTask={onEditTask}
+                onTaskDragStart={onTaskDragStart}
+                onTaskDragEnd={onTaskDragEnd}
+                onClearDragState={onClearDragState}
+                boardId={selectedBoard}
+                onAddTask={onAddTask}
+                currentUser={currentUser}
+                members={members}
+                onRefreshData={onRefreshBoardData}
+                relationships={boardRelationships}
+                onCopyTask={onCopyTask}
+                onRemoveTask={onRemoveTask}
+                siteSettings={siteSettings}
+              />
+            </Suspense>
           ) : (
             <>
               {/* Columns Navigation Container */}
@@ -726,64 +739,71 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                   {Object.values(getFilteredColumnsForDisplay)
                     .filter(column => column && column.id) // Filter out null/undefined columns
                     .sort((a, b) => (a.position || 0) - (b.position || 0))
-                    .map(column => (
-                                          <KanbanColumn
-                      key={column.id}
-                      column={column}
-                      filteredTasks={filteredColumns[column.id]?.tasks || []}
-                      members={members}
-                      currentUser={currentUser}
-                      selectedMembers={selectedMembers}
-                      selectedTask={selectedTask}
-                      draggedTask={draggedTask}
-                      draggedColumn={draggedColumn}
-                      dragPreview={dragPreview}
-                      onAddTask={onAddTask}
-                      columnWarnings={columnWarnings}
-                      onDismissColumnWarning={onDismissColumnWarning}
-                      onRemoveTask={onRemoveTask}
-                      onEditTask={onEditTask}
-                      onCopyTask={onCopyTask}
-                      onEditColumn={onEditColumn}
-                      siteSettings={siteSettings}
-                      onRemoveColumn={onRemoveColumn}
-                      onAddColumn={onAddColumn}
-                      showColumnDeleteConfirm={showColumnDeleteConfirm}
-                      onConfirmColumnDelete={onConfirmColumnDelete}
-                      onCancelColumnDelete={onCancelColumnDelete}
-                      getColumnTaskCount={getColumnTaskCount}
-                      onTaskDragStart={onTaskDragStart}
-                      onTaskDragEnd={() => {}}
-                      onTaskDragOver={onTaskDragOver}
-                      onTaskDrop={onTaskDrop}
-                      onSelectTask={onSelectTask}
-                      isAdmin={true}
-                      taskViewMode={taskViewMode}
-                      availablePriorities={availablePriorities}
-                      availableTags={availableTags}
-                      onTagAdd={onTagAdd}
-                      onTagRemove={onTagRemove}
-                      boards={boards}
-                      columns={columns}
-                      
-                      // Task linking props
-                      isLinkingMode={isLinkingMode}
-                      linkingSourceTask={linkingSourceTask}
-                      onStartLinking={onStartLinking}
-                      onFinishLinking={onFinishLinking}
-                      
-                      // Hover highlighting props
-                      hoveredLinkTask={hoveredLinkTask}
-                      onLinkToolHover={onLinkToolHover}
-                      onLinkToolHoverEnd={onLinkToolHoverEnd}
-                      getTaskRelationshipType={getTaskRelationshipType}
-                      
-                      // Network status
-                      isOnline={isOnline}
-                      
-                      // Sprint filtering
-                      selectedSprintId={selectedSprintId}
-                    />
+                    .map((column, index, array) => (
+                      <React.Fragment key={column.id}>
+                        <div className="relative">
+                          <KanbanColumn
+                            column={column}
+                            filteredTasks={filteredColumns[column.id]?.tasks || []}
+                            members={members}
+                            currentUser={currentUser}
+                            selectedMembers={selectedMembers}
+                            selectedTask={selectedTask}
+                            draggedTask={draggedTask}
+                            draggedColumn={draggedColumn}
+                            dragPreview={dragPreview}
+                            onAddTask={onAddTask}
+                            columnWarnings={columnWarnings}
+                            onDismissColumnWarning={onDismissColumnWarning}
+                            onRemoveTask={onRemoveTask}
+                            onEditTask={onEditTask}
+                            onCopyTask={onCopyTask}
+                            onEditColumn={onEditColumn}
+                            siteSettings={siteSettings}
+                            onRemoveColumn={onRemoveColumn}
+                            onAddColumn={onAddColumn}
+                            showColumnDeleteConfirm={showColumnDeleteConfirm}
+                            onConfirmColumnDelete={onConfirmColumnDelete}
+                            onCancelColumnDelete={onCancelColumnDelete}
+                            getColumnTaskCount={getColumnTaskCount}
+                            onTaskDragStart={onTaskDragStart}
+                            onTaskDragEnd={() => {}}
+                            onTaskDragOver={onTaskDragOver}
+                            onTaskDrop={onTaskDrop}
+                            onSelectTask={onSelectTask}
+                            isAdmin={true}
+                            taskViewMode={taskViewMode}
+                            availablePriorities={availablePriorities}
+                            availableTags={availableTags}
+                            onTagAdd={onTagAdd}
+                            onTagRemove={onTagRemove}
+                            boards={boards}
+                            columns={columns}
+                            
+                            // Task linking props
+                            isLinkingMode={isLinkingMode}
+                            linkingSourceTask={linkingSourceTask}
+                            onStartLinking={onStartLinking}
+                            onFinishLinking={onFinishLinking}
+                            
+                            // Hover highlighting props
+                            hoveredLinkTask={hoveredLinkTask}
+                            onLinkToolHover={onLinkToolHover}
+                            onLinkToolHoverEnd={onLinkToolHoverEnd}
+                            getTaskRelationshipType={getTaskRelationshipType}
+                            
+                            // Network status
+                            isOnline={isOnline}
+                            
+                            // Sprint filtering
+                            selectedSprintId={selectedSprintId}
+                          />
+                          {/* Resize handle between columns (not after the last one) */}
+                          {index < array.length - 1 && onColumnWidthResize && (
+                            <ColumnResizeHandle onResize={onColumnWidthResize} />
+                          )}
+                        </div>
+                      </React.Fragment>
                     ))}
                 </BoardDropArea>
               </SortableContext>
@@ -793,10 +813,11 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 {Object.values(getFilteredColumnsForDisplay)
                   .filter(column => column && column.id) // Filter out null/undefined columns
                   .sort((a, b) => (a.position || 0) - (b.position || 0))
-                  .map(column => (
-                    <KanbanColumn
-                      key={column.id}
-                      column={column}
+                  .map((column, index, array) => (
+                    <React.Fragment key={column.id}>
+                      <div className="relative">
+                        <KanbanColumn
+                          column={column}
                       filteredTasks={filteredColumns[column.id]?.tasks || []}
                       members={members}
                       currentUser={currentUser}
@@ -847,7 +868,16 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       
                       // Network status
                       isOnline={isOnline}
-                    />
+                      
+                      // Sprint filtering
+                      selectedSprintId={selectedSprintId}
+                        />
+                        {/* Resize handle between columns (not after the last one) */}
+                        {index < array.length - 1 && onColumnWidthResize && (
+                          <ColumnResizeHandle onResize={onColumnWidthResize} />
+                        )}
+                      </div>
+                    </React.Fragment>
                   ))}
               </BoardDropArea>
             )}

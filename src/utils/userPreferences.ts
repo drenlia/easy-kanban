@@ -47,6 +47,7 @@ export interface UserPreferences {
   includeSystem: boolean;
   taskDetailsWidth: number;
   ganttTaskColumnWidth: number;
+  kanbanColumnWidth: number; // User-adjustable width for Kanban columns (default: 300px)
   ganttScrollPositions: { [boardId: string]: { date: string; sessionId: string } }; // Per-board scroll positions
   listViewColumnVisibility: ColumnVisibility;
   selectedSprintId: string | null; // Selected sprint for filtering
@@ -151,6 +152,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   includeSystem: false, // Default to not include system user
   taskDetailsWidth: 480, // Default width in pixels (30rem equivalent)
   ganttTaskColumnWidth: 320, // Default Gantt task column width in pixels
+  kanbanColumnWidth: 300, // Default Kanban column width in pixels
   ganttScrollPositions: {}, // Per-board Gantt scroll positions (empty by default)
   selectedSprintId: null, // Default to "All Sprints" (no filter)
   lastReportTab: null, // Default to no last report (will use burndown)
@@ -359,6 +361,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('viewMode', preferences.viewMode),
           saveIfDefined('taskDetailsWidth', preferences.taskDetailsWidth),
           saveIfDefined('ganttTaskColumnWidth', preferences.ganttTaskColumnWidth),
+          saveIfDefined('kanbanColumnWidth', preferences.kanbanColumnWidth),
           
           // App Settings (only save if explicitly set)
           saveIfDefined('taskDeleteConfirm', preferences.appSettings.taskDeleteConfirm),
@@ -516,6 +519,7 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         viewMode: smartMerge(preferences.viewMode, dbSettings.viewMode, defaults.viewMode),
         taskDetailsWidth: smartMerge(preferences.taskDetailsWidth, dbSettings.taskDetailsWidth, defaults.taskDetailsWidth),
         ganttTaskColumnWidth: smartMerge(preferences.ganttTaskColumnWidth, dbSettings.ganttTaskColumnWidth, defaults.ganttTaskColumnWidth),
+        kanbanColumnWidth: smartMerge(preferences.kanbanColumnWidth, dbSettings.kanbanColumnWidth, defaults.kanbanColumnWidth),
         
         // Member Filter Preferences  
         includeAssignees: smartMerge(preferences.includeAssignees, dbSettings.includeAssignees, defaults.includeAssignees),
@@ -613,7 +617,74 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
 ): Promise<void> => {
   const currentPrefs = loadUserPreferences(userId);
   const updatedPrefs = { ...currentPrefs, [key]: value };
-  await saveUserPreferences(updatedPrefs, userId);
+  
+  // Update cookie immediately (synchronous, fast)
+  const cookieName = getUserCookieName(userId);
+  const prefsJson = JSON.stringify(updatedPrefs);
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  
+  // Save ONLY this specific preference to database (single API call instead of 30+)
+  if (userId) {
+    try {
+      // Map preference keys to database setting keys
+      // For nested keys like appSettings, we need to handle them specially
+      let dbKey: string | undefined;
+      let dbValue: any = value;
+      
+      // Handle top-level keys
+      const topLevelKeyMap: Record<string, string> = {
+        'taskViewMode': 'taskViewMode',
+        'viewMode': 'viewMode',
+        'taskDetailsWidth': 'taskDetailsWidth',
+        'ganttTaskColumnWidth': 'ganttTaskColumnWidth',
+        'kanbanColumnWidth': 'kanbanColumnWidth',
+        'isSearchActive': 'isSearchActive',
+        'isAdvancedSearchExpanded': 'isAdvancedSearchExpanded',
+        'lastSelectedBoard': 'lastSelectedBoard',
+        'selectedMembers': 'selectedMembers',
+        'selectedSprintId': 'selectedSprintId',
+        'currentFilterViewId': 'currentFilterViewId',
+        'lastReportTab': 'lastReportTab',
+        'includeAssignees': 'includeAssignees',
+        'includeWatchers': 'includeWatchers',
+        'includeCollaborators': 'includeCollaborators',
+        'includeRequesters': 'includeRequesters',
+        'includeSystem': 'includeSystem',
+        'searchFilters': 'searchFilters',
+        'listViewColumnVisibility': 'listViewColumnVisibility',
+        'ganttScrollPositions': 'ganttScrollPositions',
+      };
+      
+      dbKey = topLevelKeyMap[key as string];
+      
+      // Note: appSettings keys are handled separately via updateActivityFeedPreference pattern
+      // If we need to support appSettings here, we'd need to check the key structure differently
+      
+      if (!dbKey) {
+        // If no mapping found, fall back to saving all preferences (for backwards compatibility)
+        await saveUserPreferences(updatedPrefs, userId);
+        return;
+      }
+      
+      // Special handling for JSON-serialized values
+      if (dbKey === 'selectedMembers' || dbKey === 'listViewColumnVisibility' || dbKey === 'ganttScrollPositions' || dbKey === 'searchFilters') {
+        dbValue = JSON.stringify(value);
+      }
+      
+      // Special case: allow null for selectedSprintId (represents "All Sprints")
+      if (dbKey === 'selectedSprintId' && value === null) {
+        await updateUserSetting(dbKey, null);
+      } else if (value !== null && value !== undefined) {
+        await updateUserSetting(dbKey, dbValue);
+      }
+    } catch (error) {
+      console.warn('Failed to save single preference to database, falling back to full save:', error);
+      // Fallback to saving all preferences if single save fails
+      await saveUserPreferences(updatedPrefs, userId);
+    }
+  }
 };
 
 // Helper function to update activity feed specific settings

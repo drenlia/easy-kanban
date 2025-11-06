@@ -60,14 +60,22 @@ export const customCollisionDetection = (args: any, draggedColumn: Column | null
 
 /**
  * Calculate grid columns based on number of columns
+ * Uses actual column count to prevent wrapping - columns will scroll horizontally
+ * @param columnCount - Number of columns to display
+ * @param columnWidth - Fixed width for each column in pixels (default: 300px)
  */
-export const calculateGridStyle = (columnCount: number): React.CSSProperties => {
-  const gridCols = columnCount <= 4 ? 4 : Math.min(6, columnCount);
+export const calculateGridStyle = (columnCount: number, columnWidth: number = 300): React.CSSProperties => {
+  // Use actual column count (minimum 1 to avoid errors)
+  const gridCols = Math.max(1, columnCount);
+  // Calculate minimum width: (column width + gap) * column count
+  // columnWidth + 24px gap (1.5rem) = (columnWidth + 24) per column
+  const minWidth = gridCols * (columnWidth + 24);
+  
   return {
     display: 'grid',
-    gridTemplateColumns: `repeat(${gridCols}, minmax(300px, 1fr))`,
+    gridTemplateColumns: `repeat(${gridCols}, ${columnWidth}px)`, // Fixed width for all columns
     gap: '1.5rem',
-    width: '100%',
-    minWidth: `${gridCols * 324}px` // Ensure minimum width for scrolling when needed
+    width: 'max-content', // Allow grid to expand beyond viewport
+    minWidth: `${minWidth}px`, // Ensure minimum width for all columns
   };
 };
