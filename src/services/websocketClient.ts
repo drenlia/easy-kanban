@@ -21,8 +21,14 @@ class WebSocketClient {
       return;
     }
 
-    // Check if we're in the middle of redirecting due to invalid token
-    if (window.location.hash === '#login') {
+    // Check if we're on any auth-related page (login, password reset, etc.)
+    const hash = window.location.hash.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase();
+    if (hash === '#login' || hash.includes('login') || 
+        hash.includes('forgot-password') || hash.includes('reset-password') ||
+        hash.includes('activate-account') ||
+        pathname.includes('login') || pathname.includes('forgot-password') || 
+        pathname.includes('reset-password') || pathname.includes('activate-account')) {
       return;
     }
 
@@ -118,6 +124,17 @@ class WebSocketClient {
     });
 
     this.socket.on('connect_error', (error) => {
+      // Suppress errors during page unload/refresh - these are expected
+      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+        return;
+      }
+      
+      // Suppress "WebSocket is closed before the connection is established" errors
+      // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
+      if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
       console.error('❌ WebSocket connection error:', error);
       this.isConnected = false;
       
@@ -139,6 +156,17 @@ class WebSocketClient {
     });
 
     this.socket.on('reconnect_error', (error) => {
+      // Suppress errors during page unload/refresh
+      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+        return;
+      }
+      
+      // Suppress "WebSocket is closed before the connection is established" errors
+      // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
+      if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
       console.error('❌ WebSocket reconnection error:', error);
       this.reconnectAttempts++;
     });
@@ -203,7 +231,9 @@ class WebSocketClient {
 
   // Re-register all stored event listeners
   private reregisterEventListeners() {
-    if (!this.socket) return;
+    if (!this.socket) {
+      return;
+    }
     
     // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
     // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
@@ -217,10 +247,6 @@ class WebSocketClient {
       callbacks.forEach(callback => {
         this.socket?.on(eventName, callback as any);
       });
-    });
-    
-    // Add debugging for task-updated events specifically
-    this.socket?.on('task-updated', () => {
     });
   }
 
@@ -338,89 +364,106 @@ class WebSocketClient {
     }
   }
 
+  // Helper method to remove event listener from both socket and eventCallbacks map
+  private removeEventListener(eventName: string, callback?: Function) {
+    if (callback) {
+      this.socket?.off(eventName, callback as any);
+      const callbacks = this.eventCallbacks.get(eventName);
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
+        }
+      }
+    } else {
+      this.socket?.off(eventName);
+      this.eventCallbacks.delete(eventName);
+    }
+  }
+
   // Remove event listeners
   offTaskCreated(callback?: (data: any) => void) {
-    this.socket?.off('task-created', callback);
+    this.removeEventListener('task-created', callback);
   }
 
   offTaskUpdated(callback?: (data: any) => void) {
-    this.socket?.off('task-updated', callback);
+    this.removeEventListener('task-updated', callback);
   }
 
   offTaskDeleted(callback?: (data: any) => void) {
-    this.socket?.off('task-deleted', callback);
+    this.removeEventListener('task-deleted', callback);
   }
 
   offTaskRelationshipCreated(callback?: (data: any) => void) {
-    this.socket?.off('task-relationship-created', callback);
+    this.removeEventListener('task-relationship-created', callback);
   }
 
   offTaskRelationshipDeleted(callback?: (data: any) => void) {
-    this.socket?.off('task-relationship-deleted', callback);
+    this.removeEventListener('task-relationship-deleted', callback);
   }
 
   offColumnCreated(callback?: (data: any) => void) {
-    this.socket?.off('column-created', callback);
+    this.removeEventListener('column-created', callback);
   }
 
   offColumnUpdated(callback?: (data: any) => void) {
-    this.socket?.off('column-updated', callback);
+    this.removeEventListener('column-updated', callback);
   }
 
   offColumnDeleted(callback?: (data: any) => void) {
-    this.socket?.off('column-deleted', callback);
+    this.removeEventListener('column-deleted', callback);
   }
 
   offColumnReordered(callback?: (data: any) => void) {
-    this.socket?.off('column-reordered', callback);
+    this.removeEventListener('column-reordered', callback);
   }
 
   offBoardCreated(callback?: (data: any) => void) {
-    this.socket?.off('board-created', callback);
+    this.removeEventListener('board-created', callback);
   }
 
   offBoardUpdated(callback?: (data: any) => void) {
-    this.socket?.off('board-updated', callback);
+    this.removeEventListener('board-updated', callback);
   }
 
   offBoardDeleted(callback?: (data: any) => void) {
-    this.socket?.off('board-deleted', callback);
+    this.removeEventListener('board-deleted', callback);
   }
 
   offBoardReordered(callback?: (data: any) => void) {
-    this.socket?.off('board-reordered', callback);
+    this.removeEventListener('board-reordered', callback);
   }
 
   offTaskWatcherAdded(callback?: (data: any) => void) {
-    this.socket?.off('task-watcher-added', callback);
+    this.removeEventListener('task-watcher-added', callback);
   }
 
   offTaskWatcherRemoved(callback?: (data: any) => void) {
-    this.socket?.off('task-watcher-removed', callback);
+    this.removeEventListener('task-watcher-removed', callback);
   }
 
   offTaskCollaboratorAdded(callback?: (data: any) => void) {
-    this.socket?.off('task-collaborator-added', callback);
+    this.removeEventListener('task-collaborator-added', callback);
   }
 
   offTaskCollaboratorRemoved(callback?: (data: any) => void) {
-    this.socket?.off('task-collaborator-removed', callback);
+    this.removeEventListener('task-collaborator-removed', callback);
   }
 
   offMemberUpdated(callback?: (data: any) => void) {
-    this.socket?.off('member-updated', callback);
+    this.removeEventListener('member-updated', callback);
   }
 
   offActivityUpdated(callback?: (data: any) => void) {
-    this.socket?.off('activity-updated', callback);
+    this.removeEventListener('activity-updated', callback);
   }
 
   offMemberCreated(callback?: (data: any) => void) {
-    this.socket?.off('member-created', callback);
+    this.removeEventListener('member-created', callback);
   }
 
   offMemberDeleted(callback?: (data: any) => void) {
-    this.socket?.off('member-deleted', callback);
+    this.removeEventListener('member-deleted', callback);
   }
 
   offUserActivity(callback?: (data: any) => void) {
@@ -433,7 +476,7 @@ class WebSocketClient {
   }
 
   offInstanceStatusUpdated(callback?: (data: any) => void) {
-    this.socket?.off('instance-status-updated', callback);
+    this.removeEventListener('instance-status-updated', callback);
   }
 
   // Version update events
@@ -442,7 +485,7 @@ class WebSocketClient {
   }
 
   offVersionUpdated(callback?: (data: any) => void) {
-    this.socket?.off('version-updated', callback);
+    this.removeEventListener('version-updated', callback);
   }
 
   offWebSocketReady(callback?: () => void) {
@@ -481,7 +524,7 @@ class WebSocketClient {
   }
 
   offFilterCreated(callback?: (data: any) => void) {
-    this.socket?.off('filter-created', callback);
+    this.removeEventListener('filter-created', callback);
   }
 
   onFilterUpdated(callback: (data: any) => void) {
@@ -489,7 +532,7 @@ class WebSocketClient {
   }
 
   offFilterUpdated(callback?: (data: any) => void) {
-    this.socket?.off('filter-updated', callback);
+    this.removeEventListener('filter-updated', callback);
   }
 
   onFilterDeleted(callback: (data: any) => void) {
@@ -497,7 +540,7 @@ class WebSocketClient {
   }
 
   offFilterDeleted(callback?: (data: any) => void) {
-    this.socket?.off('filter-deleted', callback);
+    this.removeEventListener('filter-deleted', callback);
   }
 
   // Comment events
@@ -506,7 +549,7 @@ class WebSocketClient {
   }
 
   offCommentCreated(callback?: (data: any) => void) {
-    this.socket?.off('comment-created', callback);
+    this.removeEventListener('comment-created', callback);
   }
 
   onCommentUpdated(callback: (data: any) => void) {
@@ -514,7 +557,7 @@ class WebSocketClient {
   }
 
   offCommentUpdated(callback?: (data: any) => void) {
-    this.socket?.off('comment-updated', callback);
+    this.removeEventListener('comment-updated', callback);
   }
 
   onCommentDeleted(callback: (data: any) => void) {
@@ -522,7 +565,7 @@ class WebSocketClient {
   }
 
   offCommentDeleted(callback?: (data: any) => void) {
-    this.socket?.off('comment-deleted', callback);
+    this.removeEventListener('comment-deleted', callback);
   }
 
   // Attachment events
@@ -531,7 +574,7 @@ class WebSocketClient {
   }
 
   offAttachmentCreated(callback?: (data: any) => void) {
-    this.socket?.off('attachment-created', callback);
+    this.removeEventListener('attachment-created', callback);
   }
 
   onAttachmentDeleted(callback: (data: any) => void) {
@@ -539,7 +582,7 @@ class WebSocketClient {
   }
 
   offAttachmentDeleted(callback?: (data: any) => void) {
-    this.socket?.off('attachment-deleted', callback);
+    this.removeEventListener('attachment-deleted', callback);
   }
 
   // User profile events
@@ -548,7 +591,7 @@ class WebSocketClient {
   }
 
   offUserProfileUpdated(callback?: (data: any) => void) {
-    this.socket?.off('user-profile-updated', callback);
+    this.removeEventListener('user-profile-updated', callback);
   }
 
   // Tag management events
@@ -557,7 +600,7 @@ class WebSocketClient {
   }
 
   offTagCreated(callback?: (data: any) => void) {
-    this.socket?.off('tag-created', callback);
+    this.removeEventListener('tag-created', callback);
   }
 
   onTagUpdated(callback: (data: any) => void) {
@@ -565,7 +608,7 @@ class WebSocketClient {
   }
 
   offTagUpdated(callback?: (data: any) => void) {
-    this.socket?.off('tag-updated', callback);
+    this.removeEventListener('tag-updated', callback);
   }
 
   onTagDeleted(callback: (data: any) => void) {
@@ -573,7 +616,7 @@ class WebSocketClient {
   }
 
   offTagDeleted(callback?: (data: any) => void) {
-    this.socket?.off('tag-deleted', callback);
+    this.removeEventListener('tag-deleted', callback);
   }
 
   // Priority management events
@@ -582,7 +625,7 @@ class WebSocketClient {
   }
 
   offPriorityCreated(callback?: (data: any) => void) {
-    this.socket?.off('priority-created', callback);
+    this.removeEventListener('priority-created', callback);
   }
 
   onPriorityUpdated(callback: (data: any) => void) {
@@ -590,7 +633,7 @@ class WebSocketClient {
   }
 
   offPriorityUpdated(callback?: (data: any) => void) {
-    this.socket?.off('priority-updated', callback);
+    this.removeEventListener('priority-updated', callback);
   }
 
   onPriorityDeleted(callback: (data: any) => void) {
@@ -598,7 +641,7 @@ class WebSocketClient {
   }
 
   offPriorityDeleted(callback?: (data: any) => void) {
-    this.socket?.off('priority-deleted', callback);
+    this.removeEventListener('priority-deleted', callback);
   }
 
   onPriorityReordered(callback: (data: any) => void) {
@@ -606,7 +649,7 @@ class WebSocketClient {
   }
 
   offPriorityReordered(callback?: (data: any) => void) {
-    this.socket?.off('priority-reordered', callback);
+    this.removeEventListener('priority-reordered', callback);
   }
 
   // Settings update events
@@ -615,7 +658,7 @@ class WebSocketClient {
   }
 
   offSettingsUpdated(callback?: (data: any) => void) {
-    this.socket?.off('settings-updated', callback);
+    this.removeEventListener('settings-updated', callback);
   }
 
   // Task snapshots update events
@@ -624,7 +667,7 @@ class WebSocketClient {
   }
 
   offTaskSnapshotsUpdated(callback?: (data: any) => void) {
-    this.socket?.off('task-snapshots-updated', callback);
+    this.removeEventListener('task-snapshots-updated', callback);
   }
 
   // User management events
@@ -633,7 +676,7 @@ class WebSocketClient {
   }
 
   offUserCreated(callback?: (data: any) => void) {
-    this.socket?.off('user-created', callback);
+    this.removeEventListener('user-created', callback);
   }
 
   onUserUpdated(callback: (data: any) => void) {
@@ -641,7 +684,7 @@ class WebSocketClient {
   }
 
   offUserUpdated(callback?: (data: any) => void) {
-    this.socket?.off('user-updated', callback);
+    this.removeEventListener('user-updated', callback);
   }
 
   onUserRoleUpdated(callback: (data: any) => void) {
@@ -649,7 +692,7 @@ class WebSocketClient {
   }
 
   offUserRoleUpdated(callback?: (data: any) => void) {
-    this.socket?.off('user-role-updated', callback);
+    this.removeEventListener('user-role-updated', callback);
   }
 
   onUserDeleted(callback: (data: any) => void) {
@@ -657,7 +700,7 @@ class WebSocketClient {
   }
 
   offUserDeleted(callback?: (data: any) => void) {
-    this.socket?.off('user-deleted', callback);
+    this.removeEventListener('user-deleted', callback);
   }
 
   // Task tag events
@@ -666,7 +709,7 @@ class WebSocketClient {
   }
 
   offTaskTagAdded(callback?: (data: any) => void) {
-    this.socket?.off('task-tag-added', callback);
+    this.removeEventListener('task-tag-added', callback);
   }
 
   onTaskTagRemoved(callback: (data: any) => void) {
@@ -674,7 +717,7 @@ class WebSocketClient {
   }
 
   offTaskTagRemoved(callback?: (data: any) => void) {
-    this.socket?.off('task-tag-removed', callback);
+    this.removeEventListener('task-tag-removed', callback);
   }
 
   // Connection status methods

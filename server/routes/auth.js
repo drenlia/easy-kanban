@@ -1,12 +1,347 @@
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
+import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 
 const router = express.Router();
+
+// Login endpoint
+router.post('/login', loginLimiter, async (req, res) => {
+  const { email, password } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+  
+  try {
+    // Find user by email
+    const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Check password
+    const isValidPassword = await bcrypt.compare(password, user.password_hash);
+    
+    if (!isValidPassword) {
+      console.log('❌ Login failed - invalid password for:', email);
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    // Get user roles
+    const roles = db.prepare(`
+      SELECT r.name 
+      FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).all(user.id);
+    
+    const userRoles = roles.map(r => r.name);
+    
+    // Clear force_logout flag on successful login
+    db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email, 
+        role: userRoles.includes('admin') ? 'admin' : 'user',
+        roles: userRoles
+      }, 
+      JWT_SECRET, 
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    // Determine the correct avatar URL based on auth provider
+    let avatarUrl = null;
+    if (user.auth_provider === 'google' && user.google_avatar_url) {
+      avatarUrl = user.google_avatar_url;
+    } else if (user.avatar_path) {
+      avatarUrl = user.avatar_path;
+    }
+    
+    // Return user info and token
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        roles: userRoles,
+        avatarUrl: avatarUrl,
+        authProvider: user.auth_provider || 'local',
+        googleAvatarUrl: user.google_avatar_url
+      },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Account activation endpoint
+router.post('/activate-account', activationLimiter, async (req, res) => {
+  const { token, email, newPassword } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!token || !email || !newPassword) {
+    return res.status(400).json({ error: 'Token, email, and new password are required' });
+  }
+  
+  try {
+    // Find the invitation token
+    const invitation = wrapQuery(db.prepare(`
+      SELECT ui.*, u.id as user_id, u.email, u.first_name, u.last_name, u.is_active 
+      FROM user_invitations ui
+      JOIN users u ON ui.user_id = u.id
+      WHERE ui.token = ? AND u.email = ? AND ui.used_at IS NULL
+    `), 'SELECT').get(token, email);
+    
+    if (!invitation) {
+      return res.status(400).json({ error: 'Invalid or expired invitation token' });
+    }
+    
+    // Check if token has expired
+    const tokenExpiry = new Date(invitation.expires_at);
+    if (tokenExpiry < new Date()) {
+      return res.status(400).json({ error: 'Invitation token has expired' });
+    }
+    
+    // Check if user is already active
+    if (invitation.is_active) {
+      return res.status(400).json({ error: 'Account is already active' });
+    }
+    
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    
+    // Activate user and update password
+    wrapQuery(db.prepare(`
+      UPDATE users 
+      SET is_active = 1, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `), 'UPDATE').run(passwordHash, invitation.user_id);
+    
+    // Mark invitation as used
+    wrapQuery(db.prepare(`
+      UPDATE user_invitations 
+      SET used_at = datetime('now')
+      WHERE id = ?
+    `), 'UPDATE').run(invitation.id);
+    
+    // Log activation activity
+    wrapQuery(db.prepare(`
+      INSERT INTO activity (action, details, userId, created_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `), 'INSERT').run(
+      'account_activated',
+      `User ${invitation.first_name} ${invitation.last_name} (${invitation.email}) activated their account`,
+      invitation.user_id
+    );
+    
+    console.log('✅ Account activated successfully for:', invitation.email);
+    
+    res.json({ 
+      message: 'Account activated successfully. You can now log in.',
+      user: {
+        id: invitation.user_id,
+        email: invitation.email,
+        firstName: invitation.first_name,
+        lastName: invitation.last_name
+      }
+    });
+    
+  } catch (error) {
+    console.error('Account activation error:', error);
+    res.status(500).json({ error: 'Failed to activate account' });
+  }
+});
+
+// Register endpoint (admin only)
+router.post('/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
+  const { email, password, firstName, lastName, role } = req.body;
+  const db = req.app.locals.db;
+  
+  if (!email || !password || !firstName || !lastName || !role) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+  
+  try {
+    // Check user limit before creating new user
+    const licenseManager = getLicenseManager(db);
+    try {
+      await licenseManager.checkUserLimit();
+    } catch (limitError) {
+      console.warn('User limit check failed:', limitError.message);
+      return res.status(403).json({ 
+        error: 'User limit reached',
+        message: limitError.message,
+        details: 'Your current plan does not allow creating more users. Please upgrade your plan or contact support.'
+      });
+    }
+    
+    // Check if user already exists
+    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+    
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    // Create user
+    const userId = crypto.randomUUID();
+    wrapQuery(db.prepare(`
+      INSERT INTO users (id, email, password_hash, first_name, last_name) 
+      VALUES (?, ?, ?, ?, ?)
+    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName);
+    
+    // Assign role
+    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    if (roleId) {
+      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    }
+    
+    // Create member for the user with random color
+    const memberId = crypto.randomUUID();
+    const memberColor = getRandomColor(); // Random color from palette
+    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+      .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+    
+    // Generate default avatar with matching background color
+    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor);
+    if (avatarPath) {
+      wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    }
+    
+    res.json({ 
+      message: 'User created successfully',
+      user: { id: userId, email, firstName, lastName, role }
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+// Get current user endpoint
+router.get('/me', authenticateToken, (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Get user roles
+    const roles = db.prepare(`
+      SELECT r.name 
+      FROM roles r 
+      JOIN user_roles ur ON r.id = ur.role_id 
+      WHERE ur.user_id = ?
+    `).all(user.id);
+    
+    const userRoles = roles.map(r => r.name);
+    
+    // Determine the correct avatar URL based on auth provider
+    let avatarUrl = null;
+    if (user.auth_provider === 'google' && user.google_avatar_url) {
+      avatarUrl = user.google_avatar_url;
+    } else if (user.avatar_path) {
+      avatarUrl = user.avatar_path;
+    }
+    
+    // Generate a fresh JWT token with current roles (important for role changes)
+    const token = jwt.sign(
+      { 
+        id: user.id, 
+        email: user.email,
+        role: userRoles.includes('admin') ? 'admin' : 'user',
+        roles: userRoles
+      }, 
+      JWT_SECRET, 
+      { expiresIn: JWT_EXPIRES_IN }
+    );
+    
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        roles: userRoles,
+        avatarUrl: avatarUrl,
+        authProvider: user.auth_provider || 'local',
+        googleAvatarUrl: user.google_avatar_url
+      },
+      token: token // Include fresh token with updated roles
+    });
+    
+  } catch (error) {
+    console.error('Auth/me error:', error);
+    res.status(500).json({ error: 'Failed to get user info' });
+  }
+});
+
+// Check if default admin exists
+router.get('/check-default-admin', (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
+    res.json({ exists: !!defaultAdmin });
+  } catch (error) {
+    console.error('Error checking default admin:', error);
+    res.status(500).json({ error: 'Failed to check default admin' });
+  }
+});
+
+// Check if demo user exists
+router.get('/check-demo-user', (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
+    res.json({ exists: !!demoUser });
+  } catch (error) {
+    console.error('Error checking demo user:', error);
+    res.status(500).json({ error: 'Failed to check demo user' });
+  }
+});
+
+// Get demo credentials
+router.get('/demo-credentials', (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const adminPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
+    const demoPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
+    
+    res.json({
+      admin: {
+        email: 'admin@kanban.local',
+        password: adminPassword || 'admin' // Fallback to default if not found
+      },
+      demo: {
+        email: 'demo@kanban.local',
+        password: demoPassword || 'demo' // Fallback to default if not found
+      }
+    });
+  } catch (error) {
+    console.error('Error getting demo credentials:', error);
+    res.status(500).json({ error: 'Failed to get demo credentials' });
+  }
+});
 
 // Helper function for conditional debug logging
 function debugLog(settingsObj, ...args) {

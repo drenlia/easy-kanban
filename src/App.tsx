@@ -1,22 +1,11 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
-import { 
-  TeamMember, 
-  Task, 
-  Column, 
-  Columns, 
-  Board, 
-  PriorityOption, 
-  Tag,
-  QueryLog, 
-  DragPreview 
-} from './types';
+import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import ResetCountdown from './components/ResetCountdown';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
-
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -24,16 +13,26 @@ import ResetPasswordSuccess from './components/ResetPasswordSuccess';
 import ActivateAccount from './components/ActivateAccount';
 import Header from './components/layout/Header';
 import MainLayout from './components/layout/MainLayout';
-import TaskPage from './components/TaskPage';
-import ModalManager from './components/layout/ModalManager';
-import MiniTaskIcon from './components/MiniTaskIcon';
-import TaskCard from './components/TaskCard';
+import LoadingSpinner from './components/LoadingSpinner';
+
+import { lazyWithRetry } from './utils/lazyWithRetry';
+
+// Lazy load TaskPage to reduce initial bundle size with retry logic
+const TaskPage = lazyWithRetry(() => import('./components/TaskPage'));
+
+// Loading fallback component for lazy-loaded pages
+const PageLoader = () => (
+  <div className="flex items-center justify-center h-64">
+    <LoadingSpinner />
+  </div>
+);
+// Lazy load ModalManager to reduce initial bundle size (only needed when authenticated) with retry logic
+const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManager'));
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
-import Test from './components/Test';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
 import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
 import { toast, ToastContainer } from './utils/toast';
@@ -42,9 +41,21 @@ import { useDebug } from './hooks/useDebug';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useAuth } from './hooks/useAuth';
 import { useDataPolling, UserStatus } from './hooks/useDataPolling';
+import { useActivityFeed } from './hooks/useActivityFeed';
+import { useVersionStatus } from './hooks/useVersionStatus';
+import { useModalState } from './hooks/useModalState';
+import { useTaskLinking } from './hooks/useTaskLinking';
+import { useTaskFilters } from './hooks/useTaskFilters';
+import { useTaskWebSocket } from './hooks/useTaskWebSocket';
+import { useCommentWebSocket } from './hooks/useCommentWebSocket';
+import { useColumnWebSocket } from './hooks/useColumnWebSocket';
+import { useBoardWebSocket } from './hooks/useBoardWebSocket';
+import { useMemberWebSocket } from './hooks/useMemberWebSocket';
+import { useSettingsWebSocket } from './hooks/useSettingsWebSocket';
+import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback } from './utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
 import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
 import { 
@@ -71,13 +82,17 @@ import {
 } from './utils/taskUtils';
 import { moveTaskToBoard } from './api';
 import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUtils';
+import { clearCustomCursor } from './utils/cursorUtils';
+import { generateUniqueBoardName } from './utils/boardUtils';
+import { renumberColumns } from './utils/columnUtils';
+import { handleSameColumnReorder, handleCrossColumnMove } from './utils/taskReorderingUtils';
+import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
 import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
-
-// System user member ID constant
-const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
+import { SYSTEM_MEMBER_ID, WEBSOCKET_THROTTLE_MS } from './constants/appConstants';
+import { checkInstanceStatusOnError, getDefaultPriorityName } from './utils/appHelpers';
 
 // Extend Window interface for WebSocket flags
 declare global {
@@ -101,190 +116,23 @@ export default function App() {
   }, [selectedBoard]);
   const [columns, setColumns] = useState<Columns>({});
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  const [kanbanColumnWidth, setKanbanColumnWidth] = useState<number>(300); // Default 300px
   
-  // Activity Feed state
-  const [showActivityFeed, setShowActivityFeed] = useState<boolean>(false);
-  const [activityFeedMinimized, setActivityFeedMinimized] = useState<boolean>(false);
-  
-  // Auto-refresh toggle state (loaded from user preferences)
-  // const [isAutoRefreshEnabled, setIsAutoRefreshEnabled] = useState<boolean>(true); // Disabled - using real-time updates
-  const [activityFeedPosition, setActivityFeedPosition] = useState<{ x: number; y: number }>({ 
-    x: 10, // Position on left side with 10px margin (matches userPreferences.ts default)
-    y: 66 
-  });
-  const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
-    width: 208,
-    height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400
-  });
-  const [activities, setActivities] = useState<any[]>([]);
-  const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
-  const [clearActivityId, setClearActivityId] = useState<number>(0);
-  
-  // Utility function to check instance status on API failures
-  const checkInstanceStatusOnError = async (error: any) => {
-    if (error?.response?.status === 503 && error?.response?.data?.code === 'INSTANCE_SUSPENDED') {
-      // Update instance status state
-      setInstanceStatus({
-        status: error.response.data.status,
-        message: error.response.data.message,
-        isDismissed: false
-      });
-      return true; // Indicates this was an instance status error
-    }
-    
-    // For any other API error, check if instance is still active
-    if (error?.response?.status >= 500) {
-      try {
-        const response = await api.get('/auth/instance-status');
-        if (!response.data.isActive) {
-          setInstanceStatus({
-            status: response.data.status,
-            message: response.data.message,
-            isDismissed: false
-          });
-        }
-      } catch (statusError) {
-        // If we can't check status, assume it's suspended
-        setInstanceStatus({
-          status: 'suspended',
-          message: 'Unable to determine instance status',
-          isDismissed: false
-        });
-      }
-    }
-    
-    return false; // Not an instance status error
-  };
-
   // User Status for permission refresh
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const userStatusRef = useRef<UserStatus | null>(null);
   
-  // Instance Status Banner State
-  const [instanceStatus, setInstanceStatus] = useState<{
-    status: string;
-    message: string;
-    isDismissed: boolean;
-  }>({
-    status: 'active',
-    message: '',
-    isDismissed: false
-  });
-
-  // Version Update Banner State
-  const [showVersionBanner, setShowVersionBanner] = useState<boolean>(false);
-  const [versionInfo, setVersionInfo] = useState<{
-    currentVersion: string;
-    newVersion: string;
-  }>({
-    currentVersion: '',
-    newVersion: ''
-  });
-
-  // Version detection setup
-  useEffect(() => {
-    const handleVersionChange = (oldVersion: string, newVersion: string) => {
-      console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
-      setVersionInfo({ currentVersion: oldVersion, newVersion });
-      setShowVersionBanner(true);
-    };
-
-    // Register version change listener
-    versionDetection.onVersionChange(handleVersionChange);
-
-    // Clean up listener on unmount
-    return () => {
-      versionDetection.offVersionChange(handleVersionChange);
-    };
-  }, []);
-
-  // Handlers for version banner
-  const handleRefreshVersion = () => {
-    window.location.reload();
-  };
-
-  const handleDismissVersionBanner = () => {
-    setShowVersionBanner(false);
-  };
+  // Initialize extracted hooks
+  const versionStatus = useVersionStatus();
+  const modalState = useModalState();
+  const taskLinking = useTaskLinking();
   
-  // Instance Status Banner Component
-  const InstanceStatusBanner = () => {
-    if (instanceStatus.status === 'active' || instanceStatus.isDismissed) {
-      return null;
-    }
-
-    const getStatusColor = (status: string) => {
-      switch (status) {
-        case 'suspended':
-          return 'bg-yellow-100 border-yellow-500 text-yellow-700';
-        case 'terminated':
-          return 'bg-red-100 border-red-500 text-red-700';
-        case 'failed':
-          return 'bg-red-100 border-red-500 text-red-700';
-        case 'deploying':
-          return 'bg-blue-100 border-blue-500 text-blue-700';
-        default:
-          return 'bg-gray-100 border-gray-500 text-gray-700';
-      }
-    };
-
-    const getStatusIcon = (status: string) => {
-      switch (status) {
-        case 'suspended':
-          return (
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-          );
-        case 'terminated':
-        case 'failed':
-          return (
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-          );
-        case 'deploying':
-          return (
-            <svg className="h-5 w-5 animate-spin" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-            </svg>
-          );
-        default:
-          return (
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-            </svg>
-          );
-      }
-    };
-
-    return (
-      <div className={`fixed top-0 left-0 right-0 z-50 border-l-4 p-4 ${getStatusColor(instanceStatus.status)}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="flex-shrink-0 mr-3">
-              {getStatusIcon(instanceStatus.status)}
-            </div>
-            <div>
-              <p className="text-sm font-medium">
-                <strong>Instance Unavailable</strong>
-              </p>
-              <p className="text-sm mt-1">
-                {instanceStatus.message}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setInstanceStatus(prev => ({ ...prev, isDismissed: true }))}
-            className="flex-shrink-0 ml-4 text-gray-400 hover:text-gray-600"
-          >
-            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    );
+  // Activity Feed hook - initialized after currentUser is available (will be done after useAuth)
+  
+  // Utility function to check instance status on API failures
+  // Wrapped to pass setInstanceStatus to the extracted helper function
+  const handleInstanceStatusError = async (error: any) => {
+    return checkInstanceStatusOnError(error, versionStatus.setInstanceStatus);
   };
   
   // Drag states for BoardTabs integration
@@ -300,7 +148,6 @@ export default function App() {
   
   // Throttle WebSocket updates to prevent performance issues
   const lastWebSocketUpdateRef = useRef<number>(0);
-  const WEBSOCKET_THROTTLE_MS = 50; // Throttle to max 20 updates per second for better performance
   const dragCooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [taskDetailsOptions, setTaskDetailsOptions] = useState<{ scrollToComments?: boolean }>({});
@@ -382,7 +229,7 @@ export default function App() {
       setColumns(updatedColumns);
       
       // Also update filteredColumns to maintain consistency
-      setFilteredColumns(prevFilteredColumns => {
+      taskFilters.setFilteredColumns(prevFilteredColumns => {
         const updatedFilteredColumns = { ...prevFilteredColumns };
         Object.keys(updatedFilteredColumns).forEach(columnId => {
           const column = updatedFilteredColumns[columnId];
@@ -448,31 +295,8 @@ export default function App() {
   } | null>(null);
   // Load user preferences from cookies (will be updated when user is authenticated)
   const [userPrefs] = useState(() => loadUserPreferences());
-  const [selectedMembers, setSelectedMembers] = useState<string[]>(userPrefs.selectedMembers);
-  const [includeAssignees, setIncludeAssignees] = useState(userPrefs.includeAssignees);
-  const [includeWatchers, setIncludeWatchers] = useState(userPrefs.includeWatchers);
-  const [includeCollaborators, setIncludeCollaborators] = useState(userPrefs.includeCollaborators);
-  const [includeRequesters, setIncludeRequesters] = useState(userPrefs.includeRequesters);
-  const [includeSystem, setIncludeSystem] = useState(userPrefs.includeSystem || false);
   
-  // Computed: Check if we're in "All Roles" mode (all main role checkboxes checked)
-  // This is independent of member selection - works anytime
-  const isAllModeActive = useMemo(() => {
-    const allMainCheckboxesChecked = includeAssignees && includeWatchers && 
-      includeCollaborators && includeRequesters;
-    
-    return allMainCheckboxesChecked;
-  }, [includeAssignees, includeWatchers, includeCollaborators, includeRequesters]);
-  const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>(userPrefs.taskViewMode);
-  const [viewMode, setViewMode] = useState<ViewMode>(userPrefs.viewMode);
-  const viewModeRef = useRef<ViewMode>(userPrefs.viewMode);
-  const [isSearchActive, setIsSearchActive] = useState(userPrefs.isSearchActive);
-  const [isAdvancedSearchExpanded, setIsAdvancedSearchExpanded] = useState(userPrefs.isAdvancedSearchExpanded);
-  const [searchFilters, setSearchFilters] = useState(userPrefs.searchFilters);
-  const [selectedSprintId, setSelectedSprintId] = useState<string | null>(userPrefs.selectedSprintId);
-  const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
-  const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
-  const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  // Filter state will be initialized via useTaskFilters hook after updateCurrentUserPreference is defined
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -490,14 +314,14 @@ export default function App() {
     setBoardColumnVisibility(newVisibility);
     
     // Save to user settings for persistence across page reloads
-    updateUserPreference('boardColumnVisibility', newVisibility);
+    updateUserPreference('boardColumnVisibility' as any, newVisibility);
     
     // Save to current filter view if it exists
-    if (currentFilterView) {
+    if (taskFilters.currentFilterView) {
       // Update the view in the database
-      updateSavedFilterView(currentFilterView.id, {
+      updateSavedFilterView(taskFilters.currentFilterView.id, {
         filters: {
-          ...currentFilterView,
+          ...taskFilters.currentFilterView,
           boardColumnFilter: JSON.stringify(newVisibility)
         }
       }).catch(error => {
@@ -507,26 +331,8 @@ export default function App() {
   };
 
   // Load column filter from current filter view or user settings
-  useEffect(() => {
-    if (currentFilterView?.boardColumnFilter) {
-      try {
-        const columnFilter = JSON.parse(currentFilterView.boardColumnFilter);
-        setBoardColumnVisibility(columnFilter);
-      } catch (error) {
-        console.error('Failed to parse boardColumnFilter:', error);
-        // Fall back to user settings if parsing fails
-        const savedVisibility = userPrefs?.boardColumnVisibility || {};
-        setBoardColumnVisibility(savedVisibility);
-      }
-    } else {
-      // Fall back to user settings when no filter view is active
-      const savedVisibility = userPrefs?.boardColumnVisibility || {};
-      setBoardColumnVisibility(savedVisibility);
-    }
-  }, [currentFilterView, userPrefs]);
-  const [showHelpModal, setShowHelpModal] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [isProfileBeingEdited, setIsProfileBeingEdited] = useState(false);
+  // Note: This useEffect will be moved after taskFilters hook initialization
+  // Modal state extracted to useModalState hook (modalState)
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'reports' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
 
@@ -552,16 +358,7 @@ export default function App() {
   const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
   
-  // Task linking state
-  const [isLinkingMode, setIsLinkingMode] = useState(false);
-  const [linkingSourceTask, setLinkingSourceTask] = useState<Task | null>(null);
-  const [linkingLine, setLinkingLine] = useState<{startX: number, startY: number, endX: number, endY: number} | null>(null);
-  const [linkingFeedbackMessage, setLinkingFeedbackMessage] = useState<string | null>(null);
-  
-  // Hover highlighting for relationships
-  const [hoveredLinkTask, setHoveredLinkTask] = useState<Task | null>(null);
-  const [taskRelationships, setTaskRelationships] = useState<{[taskId: string]: any[]}>({});
-  const [boardRelationships, setBoardRelationships] = useState<any[]>([]);
+  // Task linking state extracted to useTaskLinking hook (taskLinking)
   
   // Debug showColumnDeleteConfirm changes
   useEffect(() => {
@@ -573,36 +370,12 @@ export default function App() {
   }, [showColumnDeleteConfirm]);
 
   // Sync selectedMembers when members list changes (e.g., user deletion)
-  useEffect(() => {
-    if (members.length > 0) {
-      const currentMemberIds = new Set(members.map(m => m.id));
-      const validSelectedMembers = selectedMembers.filter(id => currentMemberIds.has(id));
-      
-      // Only sync if there's a difference (remove deleted members)
-      if (validSelectedMembers.length !== selectedMembers.length) {
-        // console.log(`🔄 Syncing selected members: ${selectedMembers.length} → ${validSelectedMembers.length}`);
-        setSelectedMembers(validSelectedMembers);
-        updateCurrentUserPreference('selectedMembers', validSelectedMembers);
-      }
-    }
-  }, [members]); // Only depend on members, not selectedMembers to avoid loops
+  // Note: This useEffect will be moved after taskFilters hook initialization
 
   // Helper function to get default priority name
-  const getDefaultPriorityName = (): string => {
-    // Find priority with initial = true (or 1 from SQLite)
-    const defaultPriority = availablePriorities.find(p => !!p.initial);
-    if (defaultPriority) {
-      return defaultPriority.priority;
-    }
-    
-    // Fallback to lowest ID (first priority created) if no default set
-    const lowestId = availablePriorities.sort((a, b) => a.id - b.id)[0];
-    if (lowestId) {
-      return lowestId.priority;
-    }
-    
-    // Ultimate fallback
-    return 'medium';
+  // Get default priority name using extracted helper function
+  const getDefaultPriority = (): string => {
+    return getDefaultPriorityName(availablePriorities);
   };
 
   // Authentication hook
@@ -626,18 +399,29 @@ export default function App() {
     setBoards([]);
     setColumns({});
     setSelectedBoard(null);
-    setSelectedMembers([]);
+    // Note: selectedMembers will be cleared via taskFilters hook
     },
     onAdminRefresh: () => {
       setAdminRefreshKey(prev => prev + 1);
     },
     onPageChange: setCurrentPage,
     onMembersRefresh: async () => {
-      const loadedMembers = await getMembers(includeSystem);
+      const loadedMembers = await getMembers(taskFilters.includeSystem);
       setMembers(loadedMembers);
     },
   });
   const { loading, withLoading } = useLoadingState();
+  
+  // Initialize Task Filters hook (requires columns, members, boards, and updateCurrentUserPreference)
+  const taskFilters = useTaskFilters({
+    columns,
+    members,
+    boards,
+    updateCurrentUserPreference,
+  });
+  
+  // Initialize Activity Feed hook now that currentUser is available
+  const activityFeed = useActivityFeed(currentUser?.id || null);
 
   // User status update handler with force logout functionality
   const handleUserStatusUpdate = (newUserStatus: UserStatus) => {
@@ -697,7 +481,7 @@ export default function App() {
   
   // Custom hooks
   const showDebug = useDebug();
-  useKeyboardShortcuts(() => setShowHelpModal(true));
+  useKeyboardShortcuts(() => modalState.setShowHelpModal(true));
   
   // Initialize task deletion confirmation hook
   const taskDeleteConfirmation = useTaskDeleteConfirmation({
@@ -788,10 +572,10 @@ export default function App() {
           
           if (savedSprintId) {
             // Simply restore the sprint selection (no date filter manipulation)
-            setSelectedSprintId(savedSprintId);
+            taskFilters.setSelectedSprintId(savedSprintId);
           } else {
             // No saved sprint, make sure state is cleared
-            setSelectedSprintId(null);
+            taskFilters.setSelectedSprintId(null);
           }
         } catch (error) {
           console.error('Failed to restore sprint selection:', error);
@@ -820,81 +604,35 @@ export default function App() {
   //   }
   // }, [isAutoRefreshEnabled, currentUser]);
 
-  // Activity feed toggle handler
-  const handleActivityFeedToggle = (enabled: boolean) => {
-    setShowActivityFeed(enabled);
-  };
-
-  // Activity feed minimized state handler
-  const handleActivityFeedMinimizedChange = (minimized: boolean) => {
-    setActivityFeedMinimized(minimized);
-  };
-
-
-  // Activity feed mark as read handler
-  const handleActivityFeedMarkAsRead = async (activityId: number) => {
-    try {
-      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
-      setLastSeenActivityId(activityId);
-    } catch (error) {
-      // console.error('Failed to mark activities as read:', error);
-    }
-  };
-
-  // Activity feed clear all handler
-  const handleActivityFeedClearAll = async (activityId: number) => {
-    try {
-      // Set both clear point and read point to the same value
-      // This ensures new activities after clear will show as unread
-      await updateActivityFeedPreference('clearActivityId', activityId, currentUser?.id || null);
-      await updateActivityFeedPreference('lastSeenActivityId', activityId, currentUser?.id || null);
-      setClearActivityId(activityId);
-      setLastSeenActivityId(activityId);
-    } catch (error) {
-      // console.error('Failed to clear activities:', error);
-    }
-  };
+  // Activity feed handlers extracted to useActivityFeed hook (activityFeed)
   
+  const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
+    // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
+    taskLinking.setBoardRelationships(newRelationships);
+    taskLinking.setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
+  }, [taskLinking]);
+
+  // Relationships are now loaded in the board selection effect below to avoid duplicate calls
+
   // Stable callback functions to prevent infinite useEffect loops in useDataPolling
   const handleMembersUpdate = useCallback((newMembers: TeamMember[]) => {
-    if (!isProfileBeingEdited) {
+    if (!modalState.isProfileBeingEdited) {
       setMembers(newMembers);
     }
-  }, [isProfileBeingEdited]);
+  }, [modalState.isProfileBeingEdited]);
 
   const handleActivitiesUpdate = useCallback((newActivities: any[]) => {
-    setActivities(newActivities);
-  }, []);
+    activityFeed.setActivities(newActivities);
+  }, [activityFeed]);
 
   const handleSharedFilterViewsUpdate = useCallback((newFilters: SavedFilterView[]) => {
-    setSharedFilterViews(prev => {
+    taskFilters.setSharedFilterViews(prev => {
       // Merge new filters with existing ones, avoiding duplicates
       const existingIds = new Set(prev.map(f => f.id));
       const newFiltersToAdd = newFilters.filter(f => !existingIds.has(f.id));
       return [...prev, ...newFiltersToAdd];
     });
-  }, []);
-
-  const handleRelationshipsUpdate = useCallback((newRelationships: any[]) => {
-    // console.log('🔗 [App] handleRelationshipsUpdate called with:', newRelationships.length, 'relationships');
-    setBoardRelationships(newRelationships);
-    setTaskRelationships({}); // Clear Kanban hover cache to force fresh data
-  }, []);
-
-  // Load relationships initially when board is selected (regardless of auto-refresh status)
-  useEffect(() => {
-    if (selectedBoard && currentPage === 'kanban') {
-      // console.log('🔗 [App] Loading initial relationships for board:', selectedBoard);
-      getBoardTaskRelationships(selectedBoard)
-        .then(relationships => {
-          // console.log('🔗 [App] Initial relationships loaded:', relationships.length);
-          handleRelationshipsUpdate(relationships);
-        })
-        .catch(error => {
-          // console.error('🔗 [App] Failed to load initial relationships:', error);
-        });
-    }
-  }, [selectedBoard, currentPage]);
+  }, [taskFilters.setSharedFilterViews]);
 
   // Data polling for backup/fallback only (WebSocket handles real-time updates)
   // Disable polling when help modal is open or auto-refresh is disabled
@@ -910,17 +648,17 @@ export default function App() {
     currentColumns: columns,
     currentSiteSettings: siteSettings,
     currentPriorities: availablePriorities,
-    currentActivities: activities,
-    currentSharedFilters: sharedFilterViews,
-    currentRelationships: boardRelationships,
-    includeSystem,
+    currentActivities: activityFeed.activities,
+    currentSharedFilters: taskFilters.sharedFilterViews,
+    currentRelationships: taskLinking.boardRelationships,
+    includeSystem: taskFilters.includeSystem,
     onBoardsUpdate: setBoards,
     onMembersUpdate: handleMembersUpdate,
     onColumnsUpdate: setColumns,
     onSiteSettingsUpdate: setSiteSettings,
     onPrioritiesUpdate: setAvailablePriorities,
     onActivitiesUpdate: handleActivitiesUpdate,
-    onSharedFiltersUpdate: setSharedFilterViews,
+    onSharedFiltersUpdate: taskFilters.setSharedFilterViews,
     onRelationshipsUpdate: handleRelationshipsUpdate,
   });
 
@@ -1006,7 +744,7 @@ export default function App() {
       try {
         const response = await api.get('/auth/instance-status');
         if (!response.data.isActive) {
-          setInstanceStatus({
+          versionStatus.setInstanceStatus({
             status: response.data.status,
             message: response.data.message,
             isDismissed: false
@@ -1034,1258 +772,78 @@ export default function App() {
   
   // Track pending task refreshes (to cancel fallback if WebSocket event arrives)
   const pendingTaskRefreshesRef = useRef<Set<string>>(new Set());
+
+  // Initialize WebSocket hooks after all dependencies are available
+  const taskWebSocket = useTaskWebSocket({
+    setBoards,
+    setColumns,
+    setSelectedTask,
+    selectedBoardRef,
+    pendingTaskRefreshesRef,
+    refreshBoardDataRef,
+    taskFilters: {
+      setFilteredColumns: taskFilters.setFilteredColumns,
+      viewModeRef: taskFilters.viewModeRef,
+      shouldIncludeTaskRef: taskFilters.shouldIncludeTaskRef,
+    },
+    taskLinking,
+    currentUser,
+    selectedTask,
+  });
+
+  const commentWebSocket = useCommentWebSocket({
+    setColumns,
+    setSelectedTask,
+    selectedBoardRef,
+    selectedTask,
+  });
+
+  const columnWebSocket = useColumnWebSocket({
+    setBoards,
+    setColumns,
+    selectedBoardRef,
+    currentUser,
+  });
+
+  const boardWebSocket = useBoardWebSocket({
+    setSelectedBoard,
+    setColumns,
+    setBoards,
+    selectedBoardRef,
+    refreshBoardDataRef,
+  });
+
+  const memberWebSocket = useMemberWebSocket({
+    setMembers,
+    setCurrentUser,
+    handleMembersUpdate,
+    handleActivitiesUpdate,
+    handleSharedFilterViewsUpdate,
+    taskFilters: {
+      includeSystem: taskFilters.includeSystem,
+      setSharedFilterViews: taskFilters.setSharedFilterViews,
+    },
+    currentUser,
+  });
+
+  const settingsWebSocket = useSettingsWebSocket({
+    setAvailableTags,
+    setAvailablePriorities,
+    setSiteSettings,
+    versionStatus,
+  });
+
+  const websocketConnection = useWebSocketConnection({
+    setIsOnline,
+    selectedBoardRef,
+    refreshBoardDataRef,
+    hasConnectedOnceRef,
+    wasOfflineRef,
+    activityFeed,
+  });
   
   // Memoize WebSocket event handlers to prevent duplicate registrations
-  const handleWebSocketReady = useCallback(() => {
-    // Listen for WebSocket ready event (simplified since we now use joinBoardWhenReady)
-  }, []);
-
-  const handleReconnect = useCallback(() => {
-    const timestamp = new Date().toISOString();
-    console.log(`✅ [${timestamp}] Socket connected, hasConnectedOnce:`, hasConnectedOnceRef.current, 'wasOffline:', wasOfflineRef.current);
-    
-    // CRITICAL: Always re-join the board room after reconnection
-    // The useEffect for selectedBoard only fires when the board CHANGES, not on reconnection
-    if (selectedBoardRef.current) {
-      console.log(`📋 [${timestamp}] Re-joining board room after reconnection:`, selectedBoardRef.current);
-      websocketClient.joinBoardWhenReady(selectedBoardRef.current);
-    }
-    
-    // Only refresh if this is a RECONNECTION (not the first connection)
-    if (hasConnectedOnceRef.current && wasOfflineRef.current) {
-      // Wait longer for network to stabilize (both WebSocket AND HTTP)
-      // Also add retry logic in case first attempt fails
-      const attemptRefresh = async (retryCount = 0) => {
-        try {
-          const refreshTimestamp = new Date().toISOString();
-          console.log(`🔄 [${refreshTimestamp}] WebSocket reconnected after being offline - refreshing data to sync changes (attempt`, retryCount + 1, ')');
-          console.log(`📊 [${refreshTimestamp}] Current selectedBoard:`, selectedBoardRef.current);
-          if (refreshBoardDataRef.current) {
-            await refreshBoardDataRef.current();
-            
-            // ALSO refresh activities to ensure activity feed is up-to-date
-            // This catches any activity events that were missed during disconnection
-            const loadedActivities = await getActivityFeed(100);
-            setActivities(loadedActivities || []);
-            
-            const successTimestamp = new Date().toISOString();
-            console.log(`✅ [${successTimestamp}] Data refresh successful!`);
-          } else {
-            throw new Error('refreshBoardData not yet initialized');
-          }
-          
-          // IMPORTANT: Don't reset wasOfflineRef immediately!
-          // Keep it true for 3 seconds to ensure connection is stable
-          // This prevents missing WebSocket events during reconnection flapping
-          setTimeout(() => {
-            wasOfflineRef.current = false;
-            const stabilizedTimestamp = new Date().toISOString();
-            console.log(`🔌 [${stabilizedTimestamp}] Connection stabilized, ready for real-time updates`);
-          }, 3000);
-        } catch (err) {
-          console.error('❌ Failed to refresh on reconnect (attempt', retryCount + 1, '):', err);
-          // Retry up to 3 times with exponential backoff
-          if (retryCount < 3) {
-            const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-            console.log('⏳ Retrying in', delay / 1000, 'seconds...');
-            setTimeout(() => attemptRefresh(retryCount + 1), delay);
-          } else {
-            console.error('❌ All refresh attempts failed. Please refresh the page manually.');
-            wasOfflineRef.current = false; // Reset flag to avoid infinite retries
-          }
-        }
-      };
-      
-      // Wait 1.5 seconds for both WebSocket and HTTP to stabilize
-      setTimeout(() => attemptRefresh(), 1500);
-    } else if (hasConnectedOnceRef.current) {
-      const reconnectTimestamp = new Date().toISOString();
-      console.log(`🔌 [${reconnectTimestamp}] Socket reconnected (but no offline period detected)`);
-    } else {
-      // Mark that we've connected for the first time
-      const firstConnectTimestamp = new Date().toISOString();
-      console.log(`🎉 [${firstConnectTimestamp}] First WebSocket connection established`);
-      hasConnectedOnceRef.current = true;
-    }
-  }, [setActivities]); // setActivities is stable from useState
-
-  const handleDisconnect = useCallback(() => {
-    const disconnectTimestamp = new Date().toISOString();
-    console.log(`🔴 [${disconnectTimestamp}] WebSocket disconnected - will refresh data on reconnect`);
-    wasOfflineRef.current = true;
-  }, []);
-
-  const handleBrowserOnline = useCallback(() => {
-    console.log('🌐 Browser detected network is back online - forcing reconnect');
-    setIsOnline(true);
-    wasOfflineRef.current = true; // Mark as offline so we refresh on reconnect
-    websocketClient.connect(); // Force reconnection attempt
-  }, [setIsOnline]);
-
-  const handleBrowserOffline = useCallback(() => {
-    console.log('🌐 Browser detected network went offline');
-    setIsOnline(false);
-    wasOfflineRef.current = true;
-  }, [setIsOnline]);
-
-  // ============================================================================
-  // WEBSOCKET EVENT HANDLERS - Memoized to prevent duplicate registrations
-  // ============================================================================
-  // All handlers use functional setState or refs, so they have minimal dependencies
-  
-  const handleTaskCreated = useCallback((data: any) => {
-      if (!data.task || !data.boardId) return;
-      
-      const timestamp = new Date().toISOString();
-      console.log(`📨 [${timestamp}] [WebSocket] Task created event received:`, {
-        taskId: data.task.id,
-        ticket: data.task.ticket,
-        title: data.task.title,
-        columnId: data.task.columnId,
-        boardId: data.boardId,
-        currentBoard: selectedBoardRef.current
-      });
-      
-      // Cancel fallback refresh if WebSocket event arrived (for the user who created it)
-      if (pendingTaskRefreshesRef.current.has(data.task.id)) {
-        console.log(`📨 [${timestamp}] [WebSocket] Cancelling fallback for task creator`);
-        pendingTaskRefreshesRef.current.delete(data.task.id);
-      }
-      
-      // Always update boards state for task count updates (for all boards)
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns = { ...updatedBoard.columns };
-            const targetColumnId = data.task.columnId;
-            
-            if (updatedColumns[targetColumnId]) {
-              // Check if task already exists (from optimistic update)
-              const existingTasks = updatedColumns[targetColumnId].tasks;
-              const taskExists = existingTasks.some(t => t.id === data.task.id);
-              
-              if (taskExists) {
-                // Task already exists, update it with server data (includes ticket number)
-                const updatedTasks = existingTasks.map(t => 
-                  t.id === data.task.id ? data.task : t
-                );
-                updatedColumns[targetColumnId] = {
-                  ...updatedColumns[targetColumnId],
-                  tasks: updatedTasks
-                };
-              } else {
-                // Task doesn't exist yet, add it at front and renumber
-                const allTasks = [data.task, ...existingTasks];
-                const updatedTasks = allTasks.map((task, index) => ({
-                  ...task,
-                  position: index
-                }));
-                
-                updatedColumns[targetColumnId] = {
-                  ...updatedColumns[targetColumnId],
-                  tasks: updatedTasks
-                };
-              }
-              
-              updatedBoard.columns = updatedColumns;
-            }
-            
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns/filteredColumns if the task is for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        console.log(`📨 [${timestamp}] [WebSocket] Task is for current board, updating columns`);
-        // Optimized: Add the specific task instead of full refresh
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          const targetColumnId = data.task.columnId;
-          console.log(`📨 [${timestamp}] [WebSocket] Target column:`, targetColumnId, 'exists:', !!updatedColumns[targetColumnId]);
-          
-          if (updatedColumns[targetColumnId]) {
-            // Check if task already exists (from optimistic update)
-            const existingTasks = updatedColumns[targetColumnId].tasks;
-            const taskExists = existingTasks.some(t => t.id === data.task.id);
-            console.log(`📨 [${timestamp}] [WebSocket] Task exists:`, taskExists, 'existing count:', existingTasks.length);
-            
-            if (taskExists) {
-              // Task already exists (optimistic update), just update it with server data
-              console.log(`📨 [${timestamp}] [WebSocket] Updating existing task with server data`);
-              const updatedTasks = existingTasks.map(t => 
-                t.id === data.task.id ? data.task : t
-              );
-              updatedColumns[targetColumnId] = {
-                ...updatedColumns[targetColumnId],
-                tasks: updatedTasks
-              };
-            } else {
-              // Task doesn't exist yet, add it at front and renumber
-              console.log(`📨 [${timestamp}] [WebSocket] Adding new task to column`);
-              const allTasks = [data.task, ...existingTasks];
-              const updatedTasks = allTasks.map((task, index) => ({
-                ...task,
-                position: index
-              }));
-              
-              updatedColumns[targetColumnId] = {
-                ...updatedColumns[targetColumnId],
-                tasks: updatedTasks
-              };
-            }
-          } else {
-            console.log(`📨 [${timestamp}] [WebSocket] ⚠️ Target column not found in columns state!`);
-          }
-          return updatedColumns;
-        });
-        
-        // DON'T update filteredColumns here - let the filtering useEffect handle it
-        // This prevents duplicate tasks when the effect runs after columns change
-      } else {
-        console.log(`📨 [${timestamp}] [WebSocket] Task is for different board, skipping columns update`);
-      }
-  }, [setBoards, setColumns]); // setState functions are stable
-
-  const handleTaskUpdated = useCallback((data: any) => {
-      // Get current selectedBoard value from ref to avoid stale closure
-      const currentSelectedBoard = selectedBoardRef.current;
-      // Check if we should process this update
-      const shouldProcess = currentSelectedBoard && data.boardId === currentSelectedBoard && data.task;
-      
-      // ALWAYS update boards state for system task counter (even if not currently selected board)
-      if (data.task && data.boardId) {
-        setBoards(prevBoards => {
-          return prevBoards.map(board => {
-            if (board.id === data.boardId && board.columns) {
-              // Update the task in the appropriate column
-              const updatedColumns = { ...board.columns };
-              const taskId = data.task.id;
-              const newColumnId = data.task.columnId;
-              
-              // Find and update the task
-              let found = false;
-              Object.keys(updatedColumns).forEach(columnId => {
-                const column = updatedColumns[columnId];
-                const taskIndex = column.tasks?.findIndex((t: any) => t.id === taskId) ?? -1;
-                
-                if (taskIndex !== -1) {
-                  found = true;
-                  if (columnId === newColumnId) {
-                    // Same column - update in place
-                    updatedColumns[columnId] = {
-                      ...column,
-                      tasks: [
-                        ...column.tasks.slice(0, taskIndex),
-                        data.task,
-                        ...column.tasks.slice(taskIndex + 1)
-                      ]
-                    };
-                  } else {
-                    // Different column - remove from old
-                    updatedColumns[columnId] = {
-                      ...column,
-                      tasks: [
-                        ...column.tasks.slice(0, taskIndex),
-                        ...column.tasks.slice(taskIndex + 1)
-                      ]
-                    };
-                  }
-                }
-              });
-              
-              // Add to new column if it was moved, at the correct position
-              if (found && updatedColumns[newColumnId] && !updatedColumns[newColumnId].tasks?.some((t: any) => t.id === taskId)) {
-                const targetColumn = updatedColumns[newColumnId];
-                const targetPosition = data.task.position ?? (targetColumn.tasks?.length || 0);
-                const newTasks = [...(targetColumn.tasks || [])];
-                
-                // Insert at the specified position
-                newTasks.splice(targetPosition, 0, data.task);
-                
-                updatedColumns[newColumnId] = {
-                  ...targetColumn,
-                  tasks: newTasks
-                };
-              }
-              
-              return { ...board, columns: updatedColumns };
-            }
-            return board;
-          });
-        });
-      }
-      
-      if (currentSelectedBoard && data.boardId === currentSelectedBoard && data.task) {
-        // Skip entirely if we're in Gantt view - GanttViewV2 handles its own WebSocket events
-        if (viewModeRef.current === 'gantt') {
-          return;
-        }
-        
-        // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-        // This prevents duplicate processing when both App.tsx and GanttViewV2 process the same WebSocket event
-        if (window.justUpdatedFromWebSocket && data.task.updatedBy === currentUser?.id) {
-          return;
-        }
-        
-        // Also skip if this is a Gantt view update (indicated by the justUpdatedFromWebSocket flag)
-        // This prevents the infinite loop where both handlers process the same event
-        if (window.justUpdatedFromWebSocket) {
-          return;
-        }
-        
-        // Handle task updates including cross-column moves and same-column reordering
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          const taskId = data.task.id;
-          const newColumnId = data.task.columnId;
-          
-          
-          // Find which column currently contains this task
-          let currentColumnId = null;
-          Object.keys(updatedColumns).forEach(columnId => {
-            const column = updatedColumns[columnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-            if (taskIndex !== -1) {
-              currentColumnId = columnId;
-            }
-          });
-          
-          if (currentColumnId === newColumnId) {
-            // Same column - update task in place (for reordering)
-            const column = updatedColumns[newColumnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-            if (taskIndex !== -1) {
-              updatedColumns[newColumnId] = {
-                ...column,
-                tasks: [
-                  ...column.tasks.slice(0, taskIndex),
-                  data.task,
-                  ...column.tasks.slice(taskIndex + 1)
-                ]
-              };
-            }
-          } else {
-            // Different column - remove from old column and add to new column
-            
-            // Remove from current column
-            if (currentColumnId) {
-              const currentColumn = updatedColumns[currentColumnId];
-              const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
-              if (taskIndex !== -1) {
-                updatedColumns[currentColumnId] = {
-                  ...currentColumn,
-                  tasks: [
-                    ...currentColumn.tasks.slice(0, taskIndex),
-                    ...currentColumn.tasks.slice(taskIndex + 1)
-                  ]
-                };
-              }
-            }
-            
-            // Add to new column at the correct position
-            if (updatedColumns[newColumnId]) {
-              const targetColumn = updatedColumns[newColumnId];
-              const targetPosition = data.task.position ?? targetColumn.tasks.length;
-              const newTasks = [...targetColumn.tasks];
-              
-              // Insert at the specified position
-              newTasks.splice(targetPosition, 0, data.task);
-              
-              updatedColumns[newColumnId] = {
-                ...targetColumn,
-                tasks: newTasks
-              };
-            } else {
-            }
-          }
-          
-          
-          return updatedColumns;
-        });
-        
-        // Also update filteredColumns to maintain consistency, but respect filters
-        setFilteredColumns(prevFilteredColumns => {
-          const updatedFilteredColumns = { ...prevFilteredColumns };
-          const taskId = data.task.id;
-          const newColumnId = data.task.columnId;
-          
-          // Check if updated task should be visible based on filters (use ref to avoid stale closure)
-          const taskShouldBeVisible = shouldIncludeTaskRef.current(data.task);
-          
-          // Find which column currently contains this task in filteredColumns
-          let currentColumnId = null;
-          Object.keys(updatedFilteredColumns).forEach(columnId => {
-            const column = updatedFilteredColumns[columnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-            if (taskIndex !== -1) {
-              currentColumnId = columnId;
-            }
-          });
-          
-          // Remove from current column in filteredColumns if it exists
-          if (currentColumnId) {
-            const currentColumn = updatedFilteredColumns[currentColumnId];
-            const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
-            if (taskIndex !== -1) {
-              updatedFilteredColumns[currentColumnId] = {
-                ...currentColumn,
-                tasks: [
-                  ...currentColumn.tasks.slice(0, taskIndex),
-                  ...currentColumn.tasks.slice(taskIndex + 1)
-                ]
-              };
-            }
-          }
-          
-          // Only add task if it should be visible based on filters
-          if (taskShouldBeVisible) {
-            if (currentColumnId === newColumnId && currentColumnId !== null) {
-              // Same column - insert at the same position or at end
-              const column = updatedFilteredColumns[newColumnId];
-              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-              if (taskIndex !== -1) {
-                // Task was already removed above, add it back at the same position
-                updatedFilteredColumns[newColumnId] = {
-                  ...column,
-                  tasks: [
-                    ...column.tasks.slice(0, taskIndex),
-                    data.task,
-                    ...column.tasks.slice(taskIndex)
-                  ]
-                };
-              } else {
-                // Task not found, insert at correct position
-                const targetPosition = data.task.position ?? column.tasks.length;
-                const newTasks = [...column.tasks];
-                newTasks.splice(targetPosition, 0, data.task);
-                
-                updatedFilteredColumns[newColumnId] = {
-                  ...column,
-                  tasks: newTasks
-                };
-              }
-            } else {
-              // Different column or new task - add to new column at correct position
-              if (updatedFilteredColumns[newColumnId]) {
-                const targetColumn = updatedFilteredColumns[newColumnId];
-                const targetPosition = data.task.position ?? targetColumn.tasks.length;
-                const newTasks = [...targetColumn.tasks];
-                newTasks.splice(targetPosition, 0, data.task);
-                
-                updatedFilteredColumns[newColumnId] = {
-                  ...targetColumn,
-                  tasks: newTasks
-                };
-              }
-            }
-          }
-          // If task shouldn't be visible, it's already been removed above, so nothing more to do
-          
-          return updatedFilteredColumns;
-        });
-        
-        // Also update the boards state to keep tab counters in sync
-        setBoards(prevBoards => {
-          const updatedBoards = [...prevBoards];
-          const boardIndex = updatedBoards.findIndex(b => b.id === data.boardId);
-          
-          if (boardIndex !== -1) {
-            const updatedBoard = { ...updatedBoards[boardIndex] };
-            const taskId = data.task.id;
-            const newColumnId = data.task.columnId;
-            
-            // Find which column currently contains this task
-            let currentColumnId = null;
-            Object.keys(updatedBoard.columns || {}).forEach(columnId => {
-              const column = updatedBoard.columns[columnId];
-              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-              if (taskIndex !== -1) {
-                currentColumnId = columnId;
-              }
-            });
-            
-            if (currentColumnId === newColumnId) {
-              // Same column - update task in place (for reordering)
-              const column = updatedBoard.columns[newColumnId];
-              const taskIndex = column.tasks.findIndex(t => t.id === taskId);
-              if (taskIndex !== -1) {
-                updatedBoard.columns[newColumnId] = {
-                  ...column,
-                  tasks: [
-                    ...column.tasks.slice(0, taskIndex),
-                    data.task,
-                    ...column.tasks.slice(taskIndex + 1)
-                  ]
-                };
-              }
-            } else {
-              // Different column - remove from old column and add to new column
-              
-              // Remove from current column
-              if (currentColumnId) {
-                const currentColumn = updatedBoard.columns[currentColumnId];
-                const taskIndex = currentColumn.tasks.findIndex(t => t.id === taskId);
-                if (taskIndex !== -1) {
-                  updatedBoard.columns[currentColumnId] = {
-                    ...currentColumn,
-                    tasks: [
-                      ...currentColumn.tasks.slice(0, taskIndex),
-                      ...currentColumn.tasks.slice(taskIndex + 1)
-                    ]
-                  };
-                }
-              }
-              
-              // Add to new column
-              if (updatedBoard.columns[newColumnId]) {
-                updatedBoard.columns[newColumnId] = {
-                  ...updatedBoard.columns[newColumnId],
-                  tasks: [...updatedBoard.columns[newColumnId].tasks, data.task]
-                };
-              }
-            }
-            
-            updatedBoards[boardIndex] = updatedBoard;
-          }
-          
-          return updatedBoards;
-        });
-      } else {
-      }
-  }, [setBoards, setColumns]); // setState functions are stable
-
-  const handleTaskDeleted = useCallback((data: any) => {
-      if (!data.taskId || !data.boardId) return;
-      
-      // Always update boards state for task count updates (for all boards)
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns = { ...updatedBoard.columns };
-            
-            // Find and remove the task from the appropriate column
-            Object.keys(updatedColumns).forEach(columnId => {
-              const column = updatedColumns[columnId];
-              const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-              if (taskIndex !== -1) {
-                // Remove the deleted task
-                const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
-                
-                // Renumber remaining tasks sequentially from 0
-                const renumberedTasks = remainingTasks
-                  .sort((a, b) => (a.position || 0) - (b.position || 0))
-                  .map((task, index) => ({
-                    ...task,
-                    position: index
-                  }));
-                
-                updatedColumns[columnId] = {
-                  ...column,
-                  tasks: renumberedTasks
-                };
-              }
-            });
-            
-            updatedBoard.columns = updatedColumns;
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns/filteredColumns if the task is for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        // Optimized: Remove the specific task and renumber remaining tasks
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          Object.keys(updatedColumns).forEach(columnId => {
-            const column = updatedColumns[columnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-            if (taskIndex !== -1) {
-              // Remove the deleted task
-              const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
-              
-              // Renumber remaining tasks sequentially from 0
-              const renumberedTasks = remainingTasks
-                .sort((a, b) => (a.position || 0) - (b.position || 0))
-                .map((task, index) => ({
-                  ...task,
-                  position: index
-                }));
-              
-              updatedColumns[columnId] = {
-                ...column,
-                tasks: renumberedTasks
-              };
-            }
-          });
-          return updatedColumns;
-        });
-        
-        // Also update filteredColumns to maintain consistency
-        setFilteredColumns(prevFilteredColumns => {
-          const updatedFilteredColumns = { ...prevFilteredColumns };
-          Object.keys(updatedFilteredColumns).forEach(columnId => {
-            const column = updatedFilteredColumns[columnId];
-            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-            if (taskIndex !== -1) {
-              // Remove the deleted task
-              const remainingTasks = column.tasks.filter(task => task.id !== data.taskId);
-              
-              // Renumber remaining tasks sequentially from 0
-              const renumberedTasks = remainingTasks
-                .sort((a, b) => (a.position || 0) - (b.position || 0))
-                .map((task, index) => ({
-                  ...task,
-                  position: index
-                }));
-              
-              updatedFilteredColumns[columnId] = {
-                ...column,
-                tasks: renumberedTasks
-              };
-            }
-          });
-          return updatedFilteredColumns;
-        });
-      }
-  }, [setBoards, setColumns]); // setState functions are stable
-
-  const handleTaskRelationshipCreated = useCallback((data: any) => {
-      // Only refresh if the relationship is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // Load just the relationships instead of full refresh
-        getBoardTaskRelationships(selectedBoardRef.current)
-          .then(relationships => {
-            setBoardRelationships(relationships);
-          })
-          .catch(error => {
-            console.warn('Failed to load relationships:', error);
-            // Fallback to full refresh on error
-            if (refreshBoardDataRef.current) {
-              refreshBoardDataRef.current();
-            }
-          });
-      }
-  }, [setBoardRelationships]);
-
-  const handleTaskRelationshipDeleted = useCallback((data: any) => {
-      // Only refresh if the relationship is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // Load just the relationships instead of full refresh
-        getBoardTaskRelationships(selectedBoardRef.current)
-          .then(relationships => {
-            setBoardRelationships(relationships);
-          })
-          .catch(error => {
-            console.warn('Failed to load relationships:', error);
-            // Fallback to full refresh on error
-            if (refreshBoardDataRef.current) {
-              refreshBoardDataRef.current();
-            }
-          });
-      }
-  }, [setBoardRelationships]);
-
-  const handleColumnUpdated = useCallback((data: any) => {
-      if (!data.column || !data.boardId) return;
-      
-      // Update boards state for all boards
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns = { ...updatedBoard.columns };
-            
-            // Update the column while preserving its tasks
-            if (updatedColumns[data.column.id]) {
-              updatedColumns[data.column.id] = {
-                ...updatedColumns[data.column.id],
-                ...data.column
-              };
-            }
-            
-            updatedBoard.columns = updatedColumns;
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns if it's for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          
-          // Update the column while preserving its tasks
-          if (updatedColumns[data.column.id]) {
-            updatedColumns[data.column.id] = {
-              ...updatedColumns[data.column.id],
-              ...data.column
-            };
-          }
-          
-          return updatedColumns;
-        });
-      }
-  }, [setBoards, setColumns]);
-
-  const handleColumnDeleted = useCallback((data: any) => {
-      if (!data.columnId || !data.boardId) return;
-      
-      // Update boards state for all boards
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns = { ...updatedBoard.columns };
-            
-            // Remove the deleted column
-            delete updatedColumns[data.columnId];
-            
-            updatedBoard.columns = updatedColumns;
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns if it's for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          
-          // Remove the deleted column
-          delete updatedColumns[data.columnId];
-          
-          return updatedColumns;
-        });
-      }
-  }, [setBoards, setColumns]);
-
-  const handleColumnReordered = useCallback((data: any) => {
-      if (!data.boardId || !data.columns) return;
-      
-      // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-      // But allow updates from other users
-      if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
-        return;
-      }
-      
-      // Update boards state for all boards
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns: Columns = {};
-            
-            // Rebuild columns object with updated positions, preserving tasks
-            data.columns.forEach((col: any) => {
-              updatedColumns[col.id] = {
-                ...col,
-                tasks: updatedBoard.columns[col.id]?.tasks || []
-              };
-            });
-            
-            updatedBoard.columns = updatedColumns;
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns if it's for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        setColumns(prevColumns => {
-          const updatedColumns: Columns = {};
-          
-          // Rebuild columns object with updated positions, preserving tasks
-          data.columns.forEach((col: any) => {
-            updatedColumns[col.id] = {
-              ...col,
-              tasks: prevColumns[col.id]?.tasks || []
-            };
-          });
-          
-          return updatedColumns;
-        });
-      }
-  }, [setBoards, setColumns, currentUser?.id]);
-
-  const handleBoardCreated = useCallback((data: any) => {
-      // Refresh boards list to show new board
-      if (refreshBoardDataRef.current) {
-        refreshBoardDataRef.current();
-      }
-  }, []);
-
-  const handleBoardUpdated = useCallback((data: any) => {
-      console.log('🔄 Refreshing board data due to board update...');
-      // Refresh boards list
-      if (refreshBoardDataRef.current) {
-        refreshBoardDataRef.current();
-      }
-  }, []);
-
-  const handleBoardDeleted = useCallback((data: any) => {
-      // If the deleted board was selected, clear selection
-      if (data.boardId === selectedBoardRef.current) {
-        setSelectedBoard(null);
-        setColumns({});
-      }
-      // Refresh boards list
-      if (refreshBoardDataRef.current) {
-        refreshBoardDataRef.current();
-      }
-  }, [setSelectedBoard, setColumns]);
-
-  const handleBoardReordered = useCallback((data: any) => {
-      // Refresh boards list to show new order
-      if (refreshBoardDataRef.current) {
-        refreshBoardDataRef.current();
-      }
-  }, []);
-
-  const handleTaskWatcherAdded = useCallback((data: any) => {
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // For watchers/collaborators, we need to refresh the specific task
-        // This is more efficient than refreshing the entire board
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const handleTaskWatcherRemoved = useCallback((data: any) => {
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // For watchers/collaborators, we need to refresh the specific task
-        // This is more efficient than refreshing the entire board
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const handleTaskCollaboratorAdded = useCallback((data: any) => {
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // For watchers/collaborators, we need to refresh the specific task
-        // This is more efficient than refreshing the entire board
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const handleTaskCollaboratorRemoved = useCallback((data: any) => {
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        // For watchers/collaborators, we need to refresh the specific task
-        // This is more efficient than refreshing the entire board
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const handleColumnCreated = useCallback((data: any) => {
-      if (!data.column || !data.boardId) return;
-      
-      // Update boards state for all boards
-      setBoards(prevBoards => {
-        return prevBoards.map(board => {
-          if (board.id === data.boardId) {
-            const updatedBoard = { ...board };
-            const updatedColumns = { ...updatedBoard.columns };
-            
-            // Add the new column
-            updatedColumns[data.column.id] = {
-              ...data.column,
-              tasks: []
-            };
-            
-            updatedBoard.columns = updatedColumns;
-            return updatedBoard;
-          }
-          return board;
-        });
-      });
-      
-      // Only update columns if it's for the currently selected board
-      if (data.boardId === selectedBoardRef.current) {
-        setColumns(prevColumns => {
-          const updatedColumns = { ...prevColumns };
-          
-          // Add the new column with empty tasks array
-          updatedColumns[data.column.id] = {
-            ...data.column,
-            tasks: []
-          };
-          
-          return updatedColumns;
-        });
-      }
-  }, [setBoards, setColumns]);
-
-  const handleMemberUpdated = useCallback(async (data: any) => {
-      // Update the specific member in the members list
-      if (data.member) {
-        setMembers(prevMembers => {
-          // Check if member exists in current list
-          const memberExists = prevMembers.some(member => member.id === data.member.id);
-          
-          if (memberExists) {
-            // Update existing member
-            return prevMembers.map(member => 
-              member.id === data.member.id ? { ...member, ...data.member } : member
-            );
-          } else {
-            // Member doesn't exist, add it to the list
-            console.log('📨 Adding new member to list:', data.member);
-            return [...prevMembers, data.member];
-          }
-        });
-      } else {
-        // Fallback: refresh entire members list
-        try {
-          const loadedMembers = await getMembers(includeSystem);
-          setMembers(loadedMembers);
-        } catch (error) {
-          console.error('Failed to refresh members after update:', error);
-        }
-      }
-  }, [setMembers, includeSystem]);
-
-  const handleActivityUpdated = useCallback((data: any) => {
-      // Refresh activity feed
-      handleActivitiesUpdate(data.activities || []);
-  }, [handleActivitiesUpdate]);
-
-  const handleMemberCreated = useCallback((data: any) => {
-      // Refresh members list
-      handleMembersUpdate([data.member]);
-  }, [handleMembersUpdate]);
-
-  const handleMemberDeleted = useCallback(async (data: any) => {
-      // Refresh members list from server (don't pass empty array!)
-      try {
-        const loadedMembers = await getMembers(includeSystem);
-        setMembers(loadedMembers);
-      } catch (error) {
-        console.error('Failed to refresh members after deletion:', error);
-      }
-  }, [includeSystem, setMembers]);
-
-  const handleUserProfileUpdated = useCallback(async (data: any) => {
-      // If this is the current user's profile update, refresh currentUser
-      if (data.userId === currentUser?.id) {
-        try {
-          const response = await getCurrentUser();
-          setCurrentUser(response.user);
-        } catch (error) {
-          console.error('Failed to refresh current user after profile update:', error);
-        }
-      }
-      
-      // Refresh members list to update display name and avatar
-      try {
-        const loadedMembers = await getMembers(includeSystem);
-        setMembers(loadedMembers);
-      } catch (error) {
-        console.error('Failed to refresh members after profile update:', error);
-      }
-  }, [currentUser?.id, includeSystem, setCurrentUser, setMembers]);
-
-  const handleFilterCreated = useCallback((data: any) => {
-      // Refresh shared filters list
-      if (data.filter && data.filter.shared) {
-        handleSharedFilterViewsUpdate([data.filter]);
-      }
-  }, [handleSharedFilterViewsUpdate]);
-
-  const handleFilterUpdated = useCallback((data: any) => {
-      // Handle filter sharing/unsharing
-      if (data.filter) {
-        if (data.filter.shared) {
-          // Filter was shared or updated - add/update it
-          handleSharedFilterViewsUpdate([data.filter]);
-        } else {
-          // Filter was unshared - remove it from the list
-          setSharedFilterViews(prev => prev.filter(f => f.id !== data.filter.id));
-        }
-      }
-  }, [handleSharedFilterViewsUpdate, setSharedFilterViews]);
-
-  const handleFilterDeleted = useCallback((data: any) => {
-      console.log('📨 Filter deleted via WebSocket:', data);
-      // Remove from shared filters list
-      if (data.filterId) {
-        const filterIdToDelete = parseInt(data.filterId, 10);
-        setSharedFilterViews(prev => prev.filter(f => f.id !== filterIdToDelete));
-      }
-  }, [setSharedFilterViews]);
-
-  // Tag management event handlers
-  const handleTagCreated = useCallback(async (data: any) => {
-      console.log('📨 Tag created via WebSocket:', data);
-      try {
-        const tags = await getTags();
-        setAvailableTags(tags);
-        console.log('📨 Tags refreshed after creation');
-      } catch (error) {
-        console.error('Failed to refresh tags after creation:', error);
-      }
-  }, [setAvailableTags]);
-
-  const handleTagUpdated = useCallback(async (data: any) => {
-      console.log('📨 Tag updated via WebSocket:', data);
-      try {
-        const tags = await getTags();
-        setAvailableTags(tags);
-        console.log('📨 Tags refreshed after update');
-      } catch (error) {
-        console.error('Failed to refresh tags after update:', error);
-      }
-  }, [setAvailableTags]);
-
-  const handleTagDeleted = useCallback(async (data: any) => {
-      console.log('📨 Tag deleted via WebSocket:', data);
-      try {
-        const tags = await getTags();
-        setAvailableTags(tags);
-        console.log('📨 Tags refreshed after deletion');
-      } catch (error) {
-        console.error('Failed to refresh tags after deletion:', error);
-      }
-  }, [setAvailableTags]);
-
-  // Priority management event handlers
-  const handlePriorityCreated = useCallback(async (data: any) => {
-      console.log('📨 Priority created via WebSocket:', data);
-      try {
-        const priorities = await getPriorities();
-        setAvailablePriorities(priorities);
-        console.log('📨 Priorities refreshed after creation');
-      } catch (error) {
-        console.error('Failed to refresh priorities after creation:', error);
-      }
-  }, [setAvailablePriorities]);
-
-  const handlePriorityUpdated = useCallback(async (data: any) => {
-      console.log('📨 Priority updated via WebSocket:', data);
-      try {
-        const priorities = await getPriorities();
-        setAvailablePriorities(priorities);
-        console.log('📨 Priorities refreshed after update');
-      } catch (error) {
-        console.error('Failed to refresh priorities after update:', error);
-      }
-  }, [setAvailablePriorities]);
-
-  const handlePriorityDeleted = useCallback(async (data: any) => {
-      console.log('📨 Priority deleted via WebSocket:', data);
-      try {
-        const priorities = await getPriorities();
-        setAvailablePriorities(priorities);
-        console.log('📨 Priorities refreshed after deletion');
-      } catch (error) {
-        console.error('Failed to refresh priorities after deletion:', error);
-      }
-  }, [setAvailablePriorities]);
-
-  const handlePriorityReordered = useCallback(async (data: any) => {
-      console.log('📨 Priority reordered via WebSocket:', data);
-      try {
-        const priorities = await getPriorities();
-        setAvailablePriorities(priorities);
-        console.log('📨 Priorities refreshed after reorder');
-      } catch (error) {
-        console.error('Failed to refresh priorities after reorder:', error);
-      }
-  }, [setAvailablePriorities]);
-
-  // Settings update event handler
-  const handleSettingsUpdated = useCallback(async (data: any) => {
-      try {
-        // Update the specific setting directly from WebSocket data instead of fetching all settings
-        if (data.key && data.value !== undefined) {
-          setSiteSettings(prev => ({
-            ...prev,
-            [data.key]: data.value
-          }));
-        } else {
-          // Fallback to fetching all settings if WebSocket data is incomplete
-          const settings = await getSettings();
-          setSiteSettings(settings);
-          console.log('📨 Settings refreshed after update');
-        }
-      } catch (error) {
-        console.error('Failed to refresh settings after update:', error);
-      }
-  }, [setSiteSettings]);
-
-  // Task tag event handlers
-  const handleTaskTagAdded = useCallback((data: any) => {
-      console.log('📨 Task tag added via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const handleTaskTagRemoved = useCallback((data: any) => {
-      console.log('📨 Task tag removed via WebSocket:', data);
-      // Only refresh if the task is for the current board
-      if (data.boardId === selectedBoardRef.current) {
-        if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
-        }
-      }
-  }, []);
-
-  const getStatusMessage = (status: string) => {
-      switch (status) {
-        case 'active':
-          return 'This instance is running normally.';
-        case 'suspended':
-          return 'This instance has been temporarily suspended. Please contact support for assistance.';
-        case 'terminated':
-          return 'This instance has been terminated. Please contact support for assistance.';
-        case 'failed':
-          return 'This instance has failed. Please contact support for assistance.';
-        case 'deploying':
-          return 'This instance is currently being deployed. Please try again in a few minutes.';
-        default:
-          return 'This instance is currently unavailable. Please contact support.';
-      }
-  };
-
-  const handleInstanceStatusUpdated = useCallback((data: any) => {
-      console.log('📨 Instance status updated via WebSocket:', data);
-      setInstanceStatus({
-        status: data.status,
-        message: getStatusMessage(data.status),
-        isDismissed: false
-      });
-  }, [setInstanceStatus]);
-
-  // Version update handler
-  const handleVersionUpdated = useCallback((data: any) => {
-      console.log('📦 Version updated via WebSocket:', data);
-      if (data.version) {
-        versionDetection.checkVersion(data.version);
-      }
-  }, []);
-
-  // Comment event handlers
-  const handleCommentCreated = useCallback((data: any) => {
-      if (!data.comment || !data.boardId || !data.taskId) return;
-      
-      // Find the task in the current board and add the comment
-      setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
-        
-        // Find the task across all columns
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
-          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-          
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
-            
-            // Add the new comment if it doesn't already exist
-            const comments = task.comments || [];
-            if (!comments.find(c => c.id === data.comment.id)) {
-              task.comments = [...comments, data.comment];
-              updatedTasks[taskIndex] = task;
-              updatedColumns[columnId] = {
-                ...column,
-                tasks: updatedTasks
-              };
-            }
-          }
-        });
-        
-        return updatedColumns;
-      });
-  }, [setColumns]);
-
-  const handleCommentUpdated = useCallback((data: any) => {
-      if (!data.comment || !data.boardId || !data.taskId) return;
-      
-      // Find the task and update the comment
-      setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
-        
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
-          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-          
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
-            
-            // Update the comment
-            const comments = task.comments || [];
-            const commentIndex = comments.findIndex(c => c.id === data.comment.id);
-            
-            if (commentIndex !== -1) {
-              task.comments = [
-                ...comments.slice(0, commentIndex),
-                data.comment,
-                ...comments.slice(commentIndex + 1)
-              ];
-              updatedTasks[taskIndex] = task;
-              updatedColumns[columnId] = {
-                ...column,
-                tasks: updatedTasks
-              };
-            }
-          }
-        });
-        
-        return updatedColumns;
-      });
-  }, [setColumns]);
-
-  const handleCommentDeleted = useCallback((data: any) => {
-      if (!data.commentId || !data.boardId || !data.taskId) return;
-      
-      // Find the task and remove the comment
-      setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
-        
-        Object.keys(updatedColumns).forEach(columnId => {
-          const column = updatedColumns[columnId];
-          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
-          
-          if (taskIndex !== -1) {
-            const updatedTasks = [...column.tasks];
-            const task = { ...updatedTasks[taskIndex] };
-            
-            // Remove the comment
-            const comments = task.comments || [];
-            task.comments = comments.filter(c => c.id !== data.commentId);
-            updatedTasks[taskIndex] = task;
-            updatedColumns[columnId] = {
-              ...column,
-              tasks: updatedTasks
-            };
-          }
-        });
-        
-        return updatedColumns;
-      });
-  }, [setColumns]);
+  // NOTE: Handlers are now provided by the hooks above
 
   // ============================================================================
   // WEBSOCKET CONNECTION EFFECT
@@ -2298,134 +856,436 @@ export default function App() {
     }
 
     // Register handlers BEFORE connecting
-    websocketClient.onWebSocketReady(handleWebSocketReady);
-    websocketClient.onConnect(handleReconnect);
-    websocketClient.onDisconnect(handleDisconnect);
+    websocketClient.onWebSocketReady(websocketConnection.handleWebSocketReady);
+    websocketClient.onConnect(websocketConnection.handleReconnect);
+    websocketClient.onDisconnect(websocketConnection.handleDisconnect);
 
     // Listen to browser online/offline events
-    window.addEventListener('online', handleBrowserOnline);
-    window.addEventListener('offline', handleBrowserOffline);
+    window.addEventListener('online', websocketConnection.handleBrowserOnline);
+    window.addEventListener('offline', websocketConnection.handleBrowserOffline);
 
     // Connect to WebSocket only when we have a valid token
     websocketClient.connect();
     
     // Register all event listeners
-    websocketClient.onTaskCreated(handleTaskCreated);
-    websocketClient.onTaskUpdated(handleTaskUpdated);
-    websocketClient.onTaskDeleted(handleTaskDeleted);
-    websocketClient.onTaskRelationshipCreated(handleTaskRelationshipCreated);
-    websocketClient.onTaskRelationshipDeleted(handleTaskRelationshipDeleted);
-    websocketClient.onColumnUpdated(handleColumnUpdated);
-    websocketClient.onColumnDeleted(handleColumnDeleted);
-    websocketClient.onColumnReordered(handleColumnReordered);
-    websocketClient.onBoardCreated(handleBoardCreated);
-    websocketClient.onBoardUpdated(handleBoardUpdated);
-    websocketClient.onBoardDeleted(handleBoardDeleted);
-    websocketClient.onBoardReordered(handleBoardReordered);
-    websocketClient.onColumnCreated(handleColumnCreated);
-    websocketClient.onTaskWatcherAdded(handleTaskWatcherAdded);
-    websocketClient.onTaskWatcherRemoved(handleTaskWatcherRemoved);
-    websocketClient.onTaskCollaboratorAdded(handleTaskCollaboratorAdded);
-    websocketClient.onTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
-    websocketClient.onMemberUpdated(handleMemberUpdated);
-    websocketClient.onMemberCreated(handleMemberCreated);
-    websocketClient.onMemberDeleted(handleMemberDeleted);
-    websocketClient.onUserProfileUpdated(handleUserProfileUpdated);
-    websocketClient.onActivityUpdated(handleActivityUpdated);
-    websocketClient.onFilterCreated(handleFilterCreated);
-    websocketClient.onFilterUpdated(handleFilterUpdated);
-    websocketClient.onFilterDeleted(handleFilterDeleted);
-    websocketClient.onTagCreated(handleTagCreated);
-    websocketClient.onTagUpdated(handleTagUpdated);
-    websocketClient.onTagDeleted(handleTagDeleted);
-    websocketClient.onPriorityCreated(handlePriorityCreated);
-    websocketClient.onPriorityUpdated(handlePriorityUpdated);
-    websocketClient.onPriorityDeleted(handlePriorityDeleted);
-    websocketClient.onPriorityReordered(handlePriorityReordered);
-    websocketClient.onSettingsUpdated(handleSettingsUpdated);
-    websocketClient.onTaskTagAdded(handleTaskTagAdded);
-    websocketClient.onTaskTagRemoved(handleTaskTagRemoved);
-    websocketClient.onInstanceStatusUpdated(handleInstanceStatusUpdated);
-    websocketClient.onVersionUpdated(handleVersionUpdated);
-    websocketClient.onCommentCreated(handleCommentCreated);
-    websocketClient.onCommentUpdated(handleCommentUpdated);
-    websocketClient.onCommentDeleted(handleCommentDeleted);
+    websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
+    websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
+    websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+    websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+    websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
+    websocketClient.onColumnDeleted(columnWebSocket.handleColumnDeleted);
+    websocketClient.onColumnReordered(columnWebSocket.handleColumnReordered);
+    websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
+    websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
+    websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
+    websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
+    websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
+    websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+    websocketClient.onTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+    websocketClient.onTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+    websocketClient.onTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+    websocketClient.onMemberUpdated(memberWebSocket.handleMemberUpdated);
+    websocketClient.onMemberCreated(memberWebSocket.handleMemberCreated);
+    websocketClient.onMemberDeleted(memberWebSocket.handleMemberDeleted);
+    websocketClient.onUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+    websocketClient.onActivityUpdated(memberWebSocket.handleActivityUpdated);
+    websocketClient.onFilterCreated(memberWebSocket.handleFilterCreated);
+    websocketClient.onFilterUpdated(memberWebSocket.handleFilterUpdated);
+    websocketClient.onFilterDeleted(memberWebSocket.handleFilterDeleted);
+    websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
+    websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
+    websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
+    websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
+    websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+    websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
+    websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+    websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+    websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+    websocketClient.onInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+    websocketClient.onVersionUpdated(settingsWebSocket.handleVersionUpdated);
+    websocketClient.onCommentCreated(commentWebSocket.handleCommentCreated);
+    websocketClient.onCommentUpdated(commentWebSocket.handleCommentUpdated);
+    websocketClient.onCommentDeleted(commentWebSocket.handleCommentDeleted);
 
     return () => {
       // Clean up event listeners
-      websocketClient.offTaskCreated(handleTaskCreated);
-      websocketClient.offTaskUpdated(handleTaskUpdated);
-      websocketClient.offTaskDeleted(handleTaskDeleted);
-      websocketClient.offTaskRelationshipCreated(handleTaskRelationshipCreated);
-      websocketClient.offTaskRelationshipDeleted(handleTaskRelationshipDeleted);
-      websocketClient.offColumnUpdated(handleColumnUpdated);
-      websocketClient.offColumnDeleted(handleColumnDeleted);
-      websocketClient.offColumnReordered(handleColumnReordered);
-      websocketClient.offBoardCreated(handleBoardCreated);
-      websocketClient.offBoardUpdated(handleBoardUpdated);
-      websocketClient.offBoardDeleted(handleBoardDeleted);
-      websocketClient.offBoardReordered(handleBoardReordered);
-      websocketClient.offColumnCreated(handleColumnCreated);
-      websocketClient.offTaskWatcherAdded(handleTaskWatcherAdded);
-      websocketClient.offTaskWatcherRemoved(handleTaskWatcherRemoved);
-      websocketClient.offTaskCollaboratorAdded(handleTaskCollaboratorAdded);
-      websocketClient.offTaskCollaboratorRemoved(handleTaskCollaboratorRemoved);
-      websocketClient.offMemberUpdated(handleMemberUpdated);
-      websocketClient.offMemberCreated(handleMemberCreated);
-      websocketClient.offMemberDeleted(handleMemberDeleted);
-      websocketClient.offUserProfileUpdated(handleUserProfileUpdated);
-      websocketClient.offActivityUpdated(handleActivityUpdated);
-      websocketClient.offFilterCreated(handleFilterCreated);
-      websocketClient.offFilterUpdated(handleFilterUpdated);
-      websocketClient.offFilterDeleted(handleFilterDeleted);
-      websocketClient.offTagCreated(handleTagCreated);
-      websocketClient.offTagUpdated(handleTagUpdated);
-      websocketClient.offTagDeleted(handleTagDeleted);
-      websocketClient.offPriorityCreated(handlePriorityCreated);
-      websocketClient.offPriorityUpdated(handlePriorityUpdated);
-      websocketClient.offPriorityDeleted(handlePriorityDeleted);
-      websocketClient.offPriorityReordered(handlePriorityReordered);
-      websocketClient.offSettingsUpdated(handleSettingsUpdated);
-      websocketClient.offTaskTagAdded(handleTaskTagAdded);
-      websocketClient.offTaskTagRemoved(handleTaskTagRemoved);
-      websocketClient.offInstanceStatusUpdated(handleInstanceStatusUpdated);
-      websocketClient.offVersionUpdated(handleVersionUpdated);
-      websocketClient.offCommentCreated(handleCommentCreated);
-      websocketClient.offCommentUpdated(handleCommentUpdated);
-      websocketClient.offCommentDeleted(handleCommentDeleted);
-      websocketClient.offWebSocketReady(handleWebSocketReady);
-      websocketClient.offConnect(handleReconnect);
-      websocketClient.offDisconnect(handleDisconnect);
-      window.removeEventListener('online', handleBrowserOnline);
-      window.removeEventListener('offline', handleBrowserOffline);
+      websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
+      websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
+      websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+      websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+      websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
+      websocketClient.offColumnDeleted(columnWebSocket.handleColumnDeleted);
+      websocketClient.offColumnReordered(columnWebSocket.handleColumnReordered);
+      websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
+      websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
+      websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
+      websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
+      websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
+      websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+      websocketClient.offTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+      websocketClient.offTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+      websocketClient.offTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+      websocketClient.offMemberUpdated(memberWebSocket.handleMemberUpdated);
+      websocketClient.offMemberCreated(memberWebSocket.handleMemberCreated);
+      websocketClient.offMemberDeleted(memberWebSocket.handleMemberDeleted);
+      websocketClient.offUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+      websocketClient.offActivityUpdated(memberWebSocket.handleActivityUpdated);
+      websocketClient.offFilterCreated(memberWebSocket.handleFilterCreated);
+      websocketClient.offFilterUpdated(memberWebSocket.handleFilterUpdated);
+      websocketClient.offFilterDeleted(memberWebSocket.handleFilterDeleted);
+      websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
+      websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
+      websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
+      websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
+      websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+      websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
+      websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+      websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+      websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+      websocketClient.offInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+      websocketClient.offVersionUpdated(settingsWebSocket.handleVersionUpdated);
+      websocketClient.offCommentCreated(commentWebSocket.handleCommentCreated);
+      websocketClient.offCommentUpdated(commentWebSocket.handleCommentUpdated);
+      websocketClient.offCommentDeleted(commentWebSocket.handleCommentDeleted);
+      websocketClient.offWebSocketReady(websocketConnection.handleWebSocketReady);
+      websocketClient.offConnect(websocketConnection.handleReconnect);
+      websocketClient.offDisconnect(websocketConnection.handleDisconnect);
+      window.removeEventListener('online', websocketConnection.handleBrowserOnline);
+      window.removeEventListener('offline', websocketConnection.handleBrowserOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]); // Only depend on isAuthenticated - handlers are memoized with useCallback in hooks
+
+  // Join board when selectedBoard changes
+  useEffect(() => {
+    if (selectedBoard) {
+      websocketClient.joinBoardWhenReady(selectedBoard);
+    }
+  }, [selectedBoard]);
+
+  // Restore selected task from preferences when tasks are loaded
+  useEffect(() => {
+    // Load fresh preferences to get the most up-to-date selectedTaskId
+    const freshPrefs = loadUserPreferences();
+    const savedTaskId = freshPrefs.selectedTaskId;
+    
+    if (savedTaskId && !selectedTask && Object.keys(columns).length > 0) {
+      // Find the task in all columns
+      for (const column of Object.values(columns)) {
+        const foundTask = column.tasks.find(task => task.id === savedTaskId);
+        if (foundTask) {
+          setSelectedTask(foundTask);
+          break;
+        }
+      }
+    }
+  }, [columns, selectedTask]);
+
+  // ============================================================================
+  // WEBSOCKET CONNECTION EFFECT
+  // ============================================================================
+  // Register all memoized handlers and connect
+  
+  useEffect(() => {
+    if (!isAuthenticated || !localStorage.getItem('authToken')) {
+      return;
+    }
+
+    // Register handlers BEFORE connecting
+    websocketClient.onWebSocketReady(websocketConnection.handleWebSocketReady);
+    websocketClient.onConnect(websocketConnection.handleReconnect);
+    websocketClient.onDisconnect(websocketConnection.handleDisconnect);
+
+    // Register all WebSocket event handlers
+    websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
+    websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
+    websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+    websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+    websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
+    websocketClient.onColumnDeleted(columnWebSocket.handleColumnDeleted);
+    websocketClient.onColumnReordered(columnWebSocket.handleColumnReordered);
+    websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
+    websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
+    websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
+    websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
+    websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
+    websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+    websocketClient.onTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+    websocketClient.onTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+    websocketClient.onTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+    websocketClient.onMemberUpdated(memberWebSocket.handleMemberUpdated);
+    websocketClient.onMemberCreated(memberWebSocket.handleMemberCreated);
+    websocketClient.onMemberDeleted(memberWebSocket.handleMemberDeleted);
+    websocketClient.onUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+    websocketClient.onActivityUpdated(memberWebSocket.handleActivityUpdated);
+    websocketClient.onFilterCreated(memberWebSocket.handleFilterCreated);
+    websocketClient.onFilterUpdated(memberWebSocket.handleFilterUpdated);
+    websocketClient.onFilterDeleted(memberWebSocket.handleFilterDeleted);
+    websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
+    websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
+    websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
+    websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
+    websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+    websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
+    websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+    websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+    websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+    websocketClient.onInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+    websocketClient.onVersionUpdated(settingsWebSocket.handleVersionUpdated);
+    websocketClient.onCommentCreated(commentWebSocket.handleCommentCreated);
+    websocketClient.onCommentUpdated(commentWebSocket.handleCommentUpdated);
+    websocketClient.onCommentDeleted(commentWebSocket.handleCommentDeleted);
+
+    // Register browser online/offline handlers
+    window.addEventListener('online', websocketConnection.handleBrowserOnline);
+    window.addEventListener('offline', websocketConnection.handleBrowserOffline);
+
+    // Connect to WebSocket
+    websocketClient.connect();
+
+    // Cleanup function
+    return () => {
+      // Unregister all WebSocket event handlers
+      websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
+      websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
+      websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+      websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+      websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
+      websocketClient.offColumnDeleted(columnWebSocket.handleColumnDeleted);
+      websocketClient.offColumnReordered(columnWebSocket.handleColumnReordered);
+      websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
+      websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
+      websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
+      websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
+      websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
+      websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+      websocketClient.offTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+      websocketClient.offTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+      websocketClient.offTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+      websocketClient.offMemberUpdated(memberWebSocket.handleMemberUpdated);
+      websocketClient.offMemberCreated(memberWebSocket.handleMemberCreated);
+      websocketClient.offMemberDeleted(memberWebSocket.handleMemberDeleted);
+      websocketClient.offUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+      websocketClient.offActivityUpdated(memberWebSocket.handleActivityUpdated);
+      websocketClient.offFilterCreated(memberWebSocket.handleFilterCreated);
+      websocketClient.offFilterUpdated(memberWebSocket.handleFilterUpdated);
+      websocketClient.offFilterDeleted(memberWebSocket.handleFilterDeleted);
+      websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
+      websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
+      websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
+      websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
+      websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+      websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
+      websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+      websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+      websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+      websocketClient.offInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+      websocketClient.offVersionUpdated(settingsWebSocket.handleVersionUpdated);
+      websocketClient.offCommentCreated(commentWebSocket.handleCommentCreated);
+      websocketClient.offCommentUpdated(commentWebSocket.handleCommentUpdated);
+      websocketClient.offCommentDeleted(commentWebSocket.handleCommentDeleted);
+      websocketClient.offWebSocketReady(websocketConnection.handleWebSocketReady);
+      websocketClient.offConnect(websocketConnection.handleReconnect);
+      websocketClient.offDisconnect(websocketConnection.handleDisconnect);
+      window.removeEventListener('online', websocketConnection.handleBrowserOnline);
+      window.removeEventListener('offline', websocketConnection.handleBrowserOffline);
     };
   }, [
     isAuthenticated,
-    // Connection handlers
-    handleWebSocketReady, handleReconnect, handleDisconnect, handleBrowserOnline, handleBrowserOffline,
-    // Task handlers
-    handleTaskCreated, handleTaskUpdated, handleTaskDeleted, 
-    handleTaskRelationshipCreated, handleTaskRelationshipDeleted,
-    handleTaskWatcherAdded, handleTaskWatcherRemoved,
-    handleTaskCollaboratorAdded, handleTaskCollaboratorRemoved,
-    handleTaskTagAdded, handleTaskTagRemoved,
-    // Column handlers
-    handleColumnUpdated, handleColumnDeleted, handleColumnReordered, handleColumnCreated,
-    // Board handlers
-    handleBoardCreated, handleBoardUpdated, handleBoardDeleted, handleBoardReordered,
-    // Member handlers
-    handleMemberUpdated, handleMemberCreated, handleMemberDeleted, handleUserProfileUpdated,
-    // Filter handlers
-    handleFilterCreated, handleFilterUpdated, handleFilterDeleted,
-    // Tag handlers
-    handleTagCreated, handleTagUpdated, handleTagDeleted,
-    // Priority handlers
-    handlePriorityCreated, handlePriorityUpdated, handlePriorityDeleted, handlePriorityReordered,
-    // Settings and status handlers
-    handleSettingsUpdated, handleInstanceStatusUpdated, handleVersionUpdated, handleActivityUpdated,
-    // Comment handlers
-    handleCommentCreated, handleCommentUpdated, handleCommentDeleted
-  ]); // All memoized handlers included to prevent duplicates
+    // WebSocket hooks (handlers are memoized within hooks)
+    taskWebSocket,
+    commentWebSocket,
+    columnWebSocket,
+    boardWebSocket,
+    memberWebSocket,
+    settingsWebSocket,
+    websocketConnection
+  ]);
+
+  // Join board when selectedBoard changes
+  useEffect(() => {
+    if (selectedBoard) {
+      websocketClient.joinBoardWhenReady(selectedBoard);
+    }
+  }, [selectedBoard]);
+
+  // Restore selected task from preferences when tasks are loaded
+  useEffect(() => {
+    // Load fresh preferences to get the most up-to-date selectedTaskId
+    const freshPrefs = loadUserPreferences();
+    const savedTaskId = freshPrefs.selectedTaskId;
+    
+    if (savedTaskId && !selectedTask && Object.keys(columns).length > 0) {
+      // Find the task in all columns
+      for (const column of Object.values(columns)) {
+        const foundTask = column.tasks.find(task => task.id === savedTaskId);
+        if (foundTask) {
+          setSelectedTask(foundTask);
+          break;
+        }
+      }
+    }
+  }, [columns, selectedTask]);
+
+  // Update selectedTask when columns data is refreshed (for auto-refresh comments)
+  useEffect(() => {
+    if (selectedTask && Object.keys(columns).length > 0) {
+      // Find the updated version of the selected task in the refreshed data
+      for (const column of Object.values(columns)) {
+        const updatedTask = column.tasks.find(task => task.id === selectedTask.id);
+        if (updatedTask) {
+          // Only update if the task data has actually changed
+          if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
+            setSelectedTask(updatedTask);
+          }
+          break;
+        }
+      }
+    }
+  }, [columns]); // Remove selectedTask from deps to avoid infinite loops
+
+  // Handle board selection with URL hash persistence and user preference saving
+  const handleBoardSelection = (boardId: string) => {
+    setSelectedBoard(boardId);
+    window.location.hash = boardId;
+    // Save the selected board to user preferences for future sessions
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
+  };
+
+  // Clear filteredColumns when board changes to prevent stale data in pills
+  useEffect(() => {
+    if (selectedBoard) {
+      taskFilters.setFilteredColumns({}); // Clear immediately to prevent stale pill counts
+    }
+  }, [selectedBoard]);
+
+  // Invite user handler
+  const handleInviteUser = async (email: string) => {
+    return handleInviteUserUtil(email, handleRefreshData);
+  };
+
+  // ============================================================================
+  // WEBSOCKET CONNECTION EFFECT
+  // ============================================================================
+  // Register all memoized handlers and connect
+  
+  useEffect(() => {
+    if (!isAuthenticated || !localStorage.getItem('authToken')) {
+      return;
+    }
+
+    // Register handlers BEFORE connecting
+    websocketClient.onWebSocketReady(websocketConnection.handleWebSocketReady);
+    websocketClient.onConnect(websocketConnection.handleReconnect);
+    websocketClient.onDisconnect(websocketConnection.handleDisconnect);
+
+    // Listen to browser online/offline events
+    window.addEventListener('online', websocketConnection.handleBrowserOnline);
+    window.addEventListener('offline', websocketConnection.handleBrowserOffline);
+
+    // Connect to WebSocket only when we have a valid token
+    websocketClient.connect();
+    
+    // Register all event listeners
+    websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
+    websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
+    websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+    websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+    websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
+    websocketClient.onColumnDeleted(columnWebSocket.handleColumnDeleted);
+    websocketClient.onColumnReordered(columnWebSocket.handleColumnReordered);
+    websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
+    websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
+    websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
+    websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
+    websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
+    websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+    websocketClient.onTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+    websocketClient.onTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+    websocketClient.onTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+    websocketClient.onMemberUpdated(memberWebSocket.handleMemberUpdated);
+    websocketClient.onMemberCreated(memberWebSocket.handleMemberCreated);
+    websocketClient.onMemberDeleted(memberWebSocket.handleMemberDeleted);
+    websocketClient.onUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+    websocketClient.onActivityUpdated(memberWebSocket.handleActivityUpdated);
+    websocketClient.onFilterCreated(memberWebSocket.handleFilterCreated);
+    websocketClient.onFilterUpdated(memberWebSocket.handleFilterUpdated);
+    websocketClient.onFilterDeleted(memberWebSocket.handleFilterDeleted);
+    websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
+    websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
+    websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
+    websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
+    websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+    websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+    websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
+    websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+    websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+    websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+    websocketClient.onInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+    websocketClient.onVersionUpdated(settingsWebSocket.handleVersionUpdated);
+    websocketClient.onCommentCreated(commentWebSocket.handleCommentCreated);
+    websocketClient.onCommentUpdated(commentWebSocket.handleCommentUpdated);
+    websocketClient.onCommentDeleted(commentWebSocket.handleCommentDeleted);
+
+    return () => {
+      // Clean up event listeners
+      websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
+      websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
+      websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
+      websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
+      websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
+      websocketClient.offColumnDeleted(columnWebSocket.handleColumnDeleted);
+      websocketClient.offColumnReordered(columnWebSocket.handleColumnReordered);
+      websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
+      websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
+      websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
+      websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
+      websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
+      websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
+      websocketClient.offTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
+      websocketClient.offTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
+      websocketClient.offTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
+      websocketClient.offMemberUpdated(memberWebSocket.handleMemberUpdated);
+      websocketClient.offMemberCreated(memberWebSocket.handleMemberCreated);
+      websocketClient.offMemberDeleted(memberWebSocket.handleMemberDeleted);
+      websocketClient.offUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
+      websocketClient.offActivityUpdated(memberWebSocket.handleActivityUpdated);
+      websocketClient.offFilterCreated(memberWebSocket.handleFilterCreated);
+      websocketClient.offFilterUpdated(memberWebSocket.handleFilterUpdated);
+      websocketClient.offFilterDeleted(memberWebSocket.handleFilterDeleted);
+      websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
+      websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
+      websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
+      websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
+      websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
+      websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
+      websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
+      websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
+      websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
+      websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
+      websocketClient.offInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
+      websocketClient.offVersionUpdated(settingsWebSocket.handleVersionUpdated);
+      websocketClient.offCommentCreated(commentWebSocket.handleCommentCreated);
+      websocketClient.offCommentUpdated(commentWebSocket.handleCommentUpdated);
+      websocketClient.offCommentDeleted(commentWebSocket.handleCommentDeleted);
+      websocketClient.offWebSocketReady(websocketConnection.handleWebSocketReady);
+      websocketClient.offConnect(websocketConnection.handleReconnect);
+      websocketClient.offDisconnect(websocketConnection.handleDisconnect);
+      window.removeEventListener('online', websocketConnection.handleBrowserOnline);
+      window.removeEventListener('offline', websocketConnection.handleBrowserOffline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]); // Only depend on isAuthenticated - handlers are memoized with useCallback in hooks
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -2476,112 +1336,6 @@ export default function App() {
 
   // Mock socket object for compatibility with existing UI (removed unused variable)
 
-
-
-  // Handle board selection with URL hash persistence and user preference saving
-  const handleBoardSelection = (boardId: string) => {
-    setSelectedBoard(boardId);
-    window.location.hash = boardId;
-    // Save the selected board to user preferences for future sessions
-    updateCurrentUserPreference('lastSelectedBoard', boardId);
-  };
-
-  // Clear filteredColumns when board changes to prevent stale data in pills
-  useEffect(() => {
-    if (selectedBoard) {
-      setFilteredColumns({}); // Clear immediately to prevent stale pill counts
-    }
-  }, [selectedBoard]);
-
-  // Invite user handler
-  const handleInviteUser = async (email: string) => {
-    try {
-      // Check email server status first
-      const emailStatusResponse = await fetch('/api/admin/email-status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      });
-      
-      if (emailStatusResponse.ok) {
-        const emailStatus = await emailStatusResponse.json();
-        if (!emailStatus.available) {
-          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings in the admin panel before inviting users.`);
-        }
-      } else {
-        console.warn('Could not check email status, proceeding with invitation');
-      }
-
-      // Generate names from email (before @ symbol)
-      const emailPrefix = email.split('@')[0];
-      const nameParts = emailPrefix.split(/[._-]/);
-      
-      // Capitalize first letter of each part
-      let firstName = nameParts[0] ? nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1) : 'User';
-      let lastName = nameParts[1] ? nameParts[1].charAt(0).toUpperCase() + nameParts[1].slice(1) : 'User';
-      
-      // Special handling for common email prefixes
-      if (emailPrefix.toLowerCase() === 'info') {
-        firstName = 'Info';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'admin') {
-        firstName = 'Admin';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'support') {
-        firstName = 'Support';
-        lastName = 'User';
-      } else if (emailPrefix.toLowerCase() === 'noreply') {
-        firstName = 'System';
-        lastName = 'User';
-      } else if (nameParts.length === 1) {
-        // If only one part, use it as first name and "User" as last name
-        firstName = nameParts[0].charAt(0).toUpperCase() + nameParts[0].slice(1);
-        lastName = 'User';
-      }
-      
-      // Generate a temporary password (user will change it during activation)
-      const tempPassword = crypto.randomUUID().substring(0, 12);
-      
-      const result = await createUser({
-        email,
-        password: tempPassword,
-        firstName,
-        lastName,
-        role: 'user'
-      });
-      
-      // Check if email was actually sent
-      if (result.emailSent === false) {
-        throw new Error(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
-      }
-      
-      // Refresh members list to show the new user
-      await handleRefreshData();
-    } catch (error: any) {
-      console.error('Failed to invite user:', error);
-      
-      // Extract more specific error message
-      let errorMessage = 'Failed to send invitation';
-      
-      if (error.response?.data?.error) {
-        const backendError = error.response.data.error;
-        if (backendError.includes('already exists')) {
-          errorMessage = `User with email ${email} already exists`;
-        } else if (backendError.includes('required')) {
-          errorMessage = 'Missing required information. Please try again.';
-        } else if (backendError.includes('email')) {
-          errorMessage = 'Invalid email address format';
-        } else {
-          errorMessage = backendError;
-        }
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      
-      throw new Error(errorMessage);
-    }
-  };
-
   // Header event handlers
   const handlePageChange = (page: 'kanban' | 'admin' | 'reports' | 'test') => {
     setCurrentPage(page);
@@ -2613,9 +1367,9 @@ export default function App() {
     //   taskId: task.id,
     //   startPosition
     // });
-    setIsLinkingMode(true);
-    setLinkingSourceTask(task);
-    setLinkingLine({
+    taskLinking.setIsLinkingMode(true);
+    taskLinking.setLinkingSourceTask(task);
+    taskLinking.setLinkingLine({
       startX: startPosition.x,
       startY: startPosition.y,
       endX: startPosition.x,
@@ -2625,9 +1379,9 @@ export default function App() {
   };
 
   const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
-    if (linkingLine) {
-      setLinkingLine({
-        ...linkingLine,
+    if (taskLinking.linkingLine) {
+      taskLinking.setLinkingLine({
+        ...taskLinking.linkingLine,
         endX: endPosition.x,
         endY: endPosition.y
       });
@@ -2641,7 +1395,7 @@ export default function App() {
     //   relationshipType 
     // });
     
-    if (linkingSourceTask && targetTask && linkingSourceTask.id !== targetTask.id) {
+    if (taskLinking.linkingSourceTask && targetTask && taskLinking.linkingSourceTask.id !== targetTask.id) {
       try {
         // console.log('🚀 Making API call to create relationship...');
         const token = localStorage.getItem('authToken');
@@ -2650,7 +1404,7 @@ export default function App() {
           headers.Authorization = `Bearer ${token}`;
         }
         
-        const response = await fetch(`/api/tasks/${linkingSourceTask.id}/relationships`, {
+        const response = await fetch(`/api/tasks/${taskLinking.linkingSourceTask.id}/relationships`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -2689,12 +1443,12 @@ export default function App() {
         // console.log(`✅ Created ${relationshipType} relationship: ${linkingSourceTask.ticket} → ${targetTask.ticket}`);
         
         // Set success feedback message
-        setLinkingFeedbackMessage(`${linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
+        taskLinking.setLinkingFeedbackMessage(`${taskLinking.linkingSourceTask.ticket} now ${relationshipType} of ${targetTask.ticket}`);
       } catch (error) {
         // console.error('❌ Error creating task relationship:', error);
         // Set specific error feedback message
         const errorMessage = error instanceof Error ? error.message : 'Failed to create task relationship';
-        setLinkingFeedbackMessage(errorMessage);
+        taskLinking.setLinkingFeedbackMessage(errorMessage);
       }
     } else {
       // console.log('⚠️ Relationship creation skipped:', {
@@ -2704,30 +1458,30 @@ export default function App() {
       // });
       
       // Set cancellation feedback message
-      setLinkingFeedbackMessage('Task link cancelled');
+      taskLinking.setLinkingFeedbackMessage('Task link cancelled');
     }
     
     // Reset linking state (but keep feedback message visible)
     // console.log('🔄 Resetting linking state...');
-    setIsLinkingMode(false);
-    setLinkingSourceTask(null);
-    setLinkingLine(null);
+    taskLinking.setIsLinkingMode(false);
+    taskLinking.setLinkingSourceTask(null);
+    taskLinking.setLinkingLine(null);
     
     // Clear feedback message after 3 seconds
     setTimeout(() => {
-      setLinkingFeedbackMessage(null);
+      taskLinking.setLinkingFeedbackMessage(null);
     }, 3000);
   };
 
   const handleCancelLinking = () => {
-    setIsLinkingMode(false);
-    setLinkingSourceTask(null);
-    setLinkingLine(null);
-    setLinkingFeedbackMessage('Task link cancelled');
+    taskLinking.setIsLinkingMode(false);
+    taskLinking.setLinkingSourceTask(null);
+    taskLinking.setLinkingLine(null);
+    taskLinking.setLinkingFeedbackMessage('Task link cancelled');
     
     // Clear feedback message after 3 seconds
     setTimeout(() => {
-      setLinkingFeedbackMessage(null);
+      taskLinking.setLinkingFeedbackMessage(null);
     }, 3000);
   };
 
@@ -2737,13 +1491,13 @@ export default function App() {
   // - Purple: Child tasks (tasks that depend on this one)  
   // - Yellow: Related tasks (loosely connected tasks)
   const handleLinkToolHover = async (task: Task) => {
-    setHoveredLinkTask(task);
+    taskLinking.setHoveredLinkTask(task);
     
     // Load relationships for this task if not already loaded
-    if (!taskRelationships[task.id]) {
+    if (!taskLinking.taskRelationships[task.id]) {
       try {
         const relationships = await api.get(`/tasks/${task.id}/relationships`);
-        setTaskRelationships(prev => ({
+        taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => ({
           ...prev,
           [task.id]: relationships.data || []
         }));
@@ -2754,19 +1508,19 @@ export default function App() {
   };
 
   const handleLinkToolHoverEnd = () => {
-    setHoveredLinkTask(null);
+    taskLinking.setHoveredLinkTask(null);
   };
 
   // Helper function to check if a task is related to the hovered task
   const getTaskRelationshipType = (taskId: string): 'parent' | 'child' | 'related' | null => {
-    if (!hoveredLinkTask || !taskRelationships[hoveredLinkTask.id]) return null;
+    if (!taskLinking.hoveredLinkTask || !taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id]) return null;
     
-    const relationships = taskRelationships[hoveredLinkTask.id];
+    const relationships = taskLinking.taskRelationships[taskLinking.hoveredLinkTask.id];
     
     // Check if the task is a parent of the hovered task
     const parentRel = relationships.find(rel => 
       rel.relationship === 'child' && 
-      rel.task_id === hoveredLinkTask.id && 
+      taskLinking.hoveredLinkTask && rel.task_id === taskLinking.hoveredLinkTask.id && 
       rel.to_task_id === taskId
     );
     if (parentRel) return 'parent';
@@ -2774,7 +1528,7 @@ export default function App() {
     // Check if the task is a child of the hovered task
     const childRel = relationships.find(rel => 
       rel.relationship === 'parent' && 
-      rel.task_id === hoveredLinkTask.id && 
+      taskLinking.hoveredLinkTask && rel.task_id === taskLinking.hoveredLinkTask.id && 
       rel.to_task_id === taskId
     );
     if (childRel) return 'child';
@@ -2782,8 +1536,9 @@ export default function App() {
     // Check if the task has a 'related' relationship
     const relatedRel = relationships.find(rel => 
       rel.relationship === 'related' && 
-      ((rel.task_id === hoveredLinkTask.id && rel.to_task_id === taskId) ||
-       (rel.task_id === taskId && rel.to_task_id === hoveredLinkTask.id))
+      taskLinking.hoveredLinkTask &&
+      ((rel.task_id === taskLinking.hoveredLinkTask.id && rel.to_task_id === taskId) ||
+       (rel.task_id === taskId && rel.to_task_id === taskLinking.hoveredLinkTask.id))
     );
     if (relatedRel) return 'related';
     
@@ -2826,37 +1581,40 @@ export default function App() {
         const userSpecificPrefs = await loadUserPreferencesAsync(currentUser.id);
         
         // Update all preference-based state with user-specific values
-        setSelectedMembers(userSpecificPrefs.selectedMembers);
-        setIncludeAssignees(userSpecificPrefs.includeAssignees);
-        setIncludeWatchers(userSpecificPrefs.includeWatchers);
-        setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
-        setIncludeRequesters(userSpecificPrefs.includeRequesters);
-        setIncludeSystem(userSpecificPrefs.includeSystem);
-        setTaskViewMode(userSpecificPrefs.taskViewMode);
-        setViewMode(userSpecificPrefs.viewMode);
-        viewModeRef.current = userSpecificPrefs.viewMode;
-        setIsSearchActive(userSpecificPrefs.isSearchActive);
-        setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
-        setSearchFilters(userSpecificPrefs.searchFilters);
-        setSelectedSprintId(userSpecificPrefs.selectedSprintId); // Load sprint selection from DB
+        taskFilters.setSelectedMembers(userSpecificPrefs.selectedMembers);
+        taskFilters.setIncludeAssignees(userSpecificPrefs.includeAssignees);
+        taskFilters.setIncludeWatchers(userSpecificPrefs.includeWatchers);
+        taskFilters.setIncludeCollaborators(userSpecificPrefs.includeCollaborators);
+        taskFilters.setIncludeRequesters(userSpecificPrefs.includeRequesters);
+        taskFilters.setIncludeSystem(userSpecificPrefs.includeSystem);
+        taskFilters.setTaskViewMode(userSpecificPrefs.taskViewMode);
+        taskFilters.setViewMode(userSpecificPrefs.viewMode);
+        taskFilters.viewModeRef.current = userSpecificPrefs.viewMode;
+        taskFilters.setIsSearchActive(userSpecificPrefs.isSearchActive);
+        taskFilters.setIsAdvancedSearchExpanded(userSpecificPrefs.isAdvancedSearchExpanded);
+        taskFilters.setSearchFilters(userSpecificPrefs.searchFilters);
+        taskFilters.setSelectedSprintId(userSpecificPrefs.selectedSprintId); // Load sprint selection from DB
         
         // Activity Feed Settings (from the same getUserSettings call above)
         const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false';
-        setShowActivityFeed(userSpecificPrefs.activityFeed.showActivityFeed !== undefined 
+        activityFeed.setShowActivityFeed(userSpecificPrefs.activityFeed.showActivityFeed !== undefined 
           ? userSpecificPrefs.activityFeed.showActivityFeed 
           : defaultFromSystem);
-        setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
-        setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
-        setClearActivityId(userSpecificPrefs.activityFeed.clearActivityId);
-        setActivityFeedPosition(userSpecificPrefs.activityFeed.position);
-        setActivityFeedDimensions({
+        activityFeed.setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
+        activityFeed.setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
+        activityFeed.setClearActivityId(userSpecificPrefs.activityFeed.clearActivityId);
+        activityFeed.setActivityFeedPosition(userSpecificPrefs.activityFeed.position);
+        activityFeed.setActivityFeedDimensions({
           width: userSpecificPrefs.activityFeed.width,
           height: userSpecificPrefs.activityFeed.height
         });
         
+        // Load Kanban column width preference
+        setKanbanColumnWidth(userSpecificPrefs.kanbanColumnWidth || 300);
+        
         // Load saved filter view if one is remembered
         if (userSpecificPrefs.currentFilterViewId) {
-          loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
+          taskFilters.loadSavedFilterView(userSpecificPrefs.currentFilterViewId);
         }
         
         // Set initial selected board with preference fallback - only if not already set
@@ -3069,7 +1827,7 @@ export default function App() {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
           const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse, loadedActivities] = await Promise.all([
-            getMembers(includeSystem),
+            getMembers(taskFilters.includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
@@ -3085,7 +1843,7 @@ export default function App() {
           setAvailablePriorities(loadedPriorities || []);
           setAvailableTags(loadedTags || []);
           setSystemSettings(settingsResponse.data || {});
-          setActivities(loadedActivities || []);
+          activityFeed.setActivities(loadedActivities || []);
           
           // CRITICAL FIX: If no board is selected yet, immediately select one and load its columns
           // This prevents the blank board race condition on initial load/refresh
@@ -3147,7 +1905,7 @@ export default function App() {
     
     const reloadMembers = async () => {
       try {
-        const loadedMembers = await getMembers(includeSystem);
+        const loadedMembers = await getMembers(taskFilters.includeSystem);
         setMembers(loadedMembers);
       } catch (error) {
         console.error('Failed to reload members:', error);
@@ -3155,7 +1913,7 @@ export default function App() {
     };
     
     reloadMembers();
-  }, [includeSystem, isAuthenticated, currentUser?.id]);
+  }, [taskFilters.includeSystem, isAuthenticated, currentUser?.id]);
 
   // Track board switching state to prevent task count flashing
   const [isSwitchingBoard, setIsSwitchingBoard] = useState(false);
@@ -3175,40 +1933,33 @@ export default function App() {
         const newColumns = JSON.parse(JSON.stringify(boardInState.columns));
         setColumns(newColumns);
         setIsSwitchingBoard(false);
-        
-        // Still load relationships
-        getBoardTaskRelationships(selectedBoard)
-          .then(relationships => {
-            setBoardRelationships(relationships);
-          })
-          .catch(error => {
-            console.warn('Failed to load relationships:', error);
-            setBoardRelationships([]);
-          });
       } else {
-        // Board data not loaded yet, fetch it
+        // Board data not loaded yet, fetch it (refreshBoardData will load relationships)
         refreshBoardData().finally(() => {
           // Clear switching state after data is loaded
           setIsSwitchingBoard(false);
         });
-        
-        // Load relationships when switching boards
+      }
+      
+      // Load relationships once for the selected board (only if on kanban page)
+      if (currentPage === 'kanban') {
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
-            setBoardRelationships(relationships);
+            taskLinking.setBoardRelationships(relationships);
           })
           .catch(error => {
             console.warn('Failed to load relationships:', error);
-            setBoardRelationships([]);
+            taskLinking.setBoardRelationships([]);
           });
       }
     } else {
       // Clear columns when no board is selected
       setColumns({});
-      setBoardRelationships([]);
+      taskLinking.setBoardRelationships([]);
       setIsSwitchingBoard(false);
     }
-  }, [selectedBoard, boards]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBoard, currentPage]); // Depend on currentPage to reload relationships when switching to kanban
 
   // Watch for copied task to trigger animation
   useEffect(() => {
@@ -3246,19 +1997,12 @@ export default function App() {
             const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
             setColumns(newColumns);
             
-            // Also load relationships for the selected board
-            try {
-              const relationships = await getBoardTaskRelationships(selectedBoard);
-              setBoardRelationships(relationships);
-            } catch (error) {
-              console.warn('Failed to load relationships:', error);
-              setBoardRelationships([]);
-            }
+            // Relationships are loaded by the board selection effect above, no need to load here
           } else {
             // Selected board no longer exists, clear selection
             setSelectedBoard(null);
             setColumns({});
-            setBoardRelationships([]);
+            taskLinking.setBoardRelationships([]);
           }
         }
       }
@@ -3302,23 +2046,10 @@ export default function App() {
       // Pause polling to prevent race conditions
       setBoardCreationPause(true);
       
-      // Generate a unique numbered board name
-      const generateUniqueBoardName = (): string => {
-        let counter = 1;
-        let proposedName = `New Board ${counter}`;
-        
-        while (boards.some(board => board.title.toLowerCase() === proposedName.toLowerCase())) {
-          counter++;
-          proposedName = `New Board ${counter}`;
-        }
-        
-        return proposedName;
-      };
-      
       const boardId = generateUUID();
       const newBoard: Board = {
         id: boardId,
-        title: generateUniqueBoardName(),
+        title: generateUniqueBoardName(boards),
         columns: {}
       };
 
@@ -3389,7 +2120,7 @@ export default function App() {
         }
         
         toast.error(title, message, 5000);
-      } else if (await checkInstanceStatusOnError(error)) {
+      } else if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       }
     }
@@ -3490,7 +2221,7 @@ export default function App() {
       effort: 1,
       columnId,
       position: 0, // Backend will handle positioning
-      priority: getDefaultPriorityName(), // Use frontend default priority
+      priority: getDefaultPriority(), // Use frontend default priority
       requesterId: currentUserMember.id,
       boardId: selectedBoard,
       comments: []
@@ -3577,19 +2308,19 @@ export default function App() {
       }, 1000);
       
       // Check if the new task would be filtered out and show warning
-      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, searchFilters, isSearchActive);
+      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, taskFilters.searchFilters, taskFilters.isSearchActive);
       const wouldBeFilteredByMembers = (() => {
         // Check if task matches member filtering criteria
-        if (!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+        if (!taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
           return false; // No member filters active
         }
         
         // If no members selected, treat as "all members" (task will be shown)
-        const showAllMembers = selectedMembers.length === 0;
-        const memberIds = new Set(selectedMembers);
+        const showAllMembers = taskFilters.selectedMembers.length === 0;
+        const memberIds = new Set(taskFilters.selectedMembers);
         let hasMatchingMember = false;
         
-        if (includeAssignees) {
+        if (taskFilters.includeAssignees) {
           if (showAllMembers) {
             // All tasks with assignees are shown
             if (newTask.memberId) hasMatchingMember = true;
@@ -3599,7 +2330,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeRequesters) {
+        if (!hasMatchingMember && taskFilters.includeRequesters) {
           if (showAllMembers) {
             // All tasks with requesters are shown
             if (newTask.requesterId) hasMatchingMember = true;
@@ -3609,7 +2340,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeWatchers && newTask.watchers && Array.isArray(newTask.watchers)) {
+        if (!hasMatchingMember && taskFilters.includeWatchers && newTask.watchers && Array.isArray(newTask.watchers)) {
           if (showAllMembers) {
             // All tasks with watchers are shown
             if (newTask.watchers.length > 0) hasMatchingMember = true;
@@ -3619,7 +2350,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators)) {
+        if (!hasMatchingMember && taskFilters.includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators)) {
           if (showAllMembers) {
             // All tasks with collaborators are shown
             if (newTask.collaborators.length > 0) hasMatchingMember = true;
@@ -3678,7 +2409,7 @@ export default function App() {
         }
         
         toast.error(title, message, 5000);
-      } else if (await checkInstanceStatusOnError(error)) {
+      } else if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       } else {
         await refreshBoardData();
@@ -3690,6 +2421,7 @@ export default function App() {
     
     // Optimistic update
     const previousColumns = { ...columns };
+    const previousSelectedTask = selectedTask;
     
     // Update UI immediately
     setColumns(prev => {
@@ -3728,6 +2460,11 @@ export default function App() {
       return updatedColumns;
     });
     
+    // Update selectedTask if this is the selected task
+    if (selectedTask && selectedTask.id === task.id) {
+      setSelectedTask(task);
+    }
+    
     try {
       await withLoading('tasks', async () => {
         await updateTask(task);
@@ -3737,14 +2474,17 @@ export default function App() {
       console.error('❌ [App] Failed to update task:', error);
       
       // Check if it's an instance unavailable error
-      if (await checkInstanceStatusOnError(error)) {
+      if (await handleInstanceStatusError(error)) {
         return; // Don't rollback if instance is suspended
       }
       
       // Rollback on error
       setColumns(previousColumns);
+      if (previousSelectedTask) {
+        setSelectedTask(previousSelectedTask);
+      }
     }
-  }, [withLoading, fetchQueryLogs]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask]);
 
   const handleCopyTask = async (task: Task) => {
     // Find the original task's position in the sorted list
@@ -3811,7 +2551,7 @@ export default function App() {
       setTaskCreationPause(false);
       
       // Check if it's an instance unavailable error
-      if (await checkInstanceStatusOnError(error)) {
+      if (await handleInstanceStatusError(error)) {
         // Instance status error handled by utility function
       }
     }
@@ -3927,40 +2667,6 @@ export default function App() {
   const handleTaskDrop = async () => {
   };
 
-  // Show both mouse pointer and square icon with mouse precisely centered
-  const setCustomTaskCursor = (task: Task, members: TeamMember[]) => {
-    // Create a 32x32 SVG with a blue square and a white arrow pointer in the center
-    const svg = `
-      <svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
-        <!-- Blue square background -->
-        <rect width="24" height="24" x="4" y="4" fill="#3B82F6" stroke="#FFFFFF" stroke-width="2" rx="3"/>
-        <!-- White mouse pointer arrow in the exact center -->
-        <path d="M 16 12 L 16 20 L 18 18 L 20 20 L 22 18 L 18 16 L 20 16 Z" fill="#FFFFFF" stroke="#000000" stroke-width="0.5"/>
-      </svg>
-    `;
-    
-    // Convert SVG to data URL
-    const dataURL = `data:image/svg+xml;base64,${btoa(svg)}`;
-    
-    // Set cursor with hotspot at exact center (16,16) where the arrow tip is
-    document.body.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
-    document.documentElement.style.setProperty('cursor', `url("${dataURL}") 16 16, grab`, 'important');
-    
-    dragStartedRef.current = true;
-    // console.log('🎯 Mouse + square cursor set for task:', task.title);
-  };
-  
-  // Clear custom cursor
-  const clearCustomCursor = () => {
-    if (dragStartedRef.current) {
-      // Remove direct styles
-      document.body.style.removeProperty('cursor');
-      document.documentElement.style.removeProperty('cursor');
-      
-      dragStartedRef.current = false;
-      // console.log('🎯 Custom cursor cleared');
-    }
-  };
 
   // Unified task drag handler for both vertical and horizontal moves
   const handleUnifiedTaskDragEnd = (event: DragEndEvent) => {
@@ -4044,7 +2750,7 @@ export default function App() {
             
             if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
               // Use simple array move logic for same-column reordering
-              handleSameColumnReorder(draggedTask, sourceColumnId, newIndex);
+              handleSameColumnReorderWrapper(draggedTask, sourceColumnId, newIndex);
             }
             return; // Exit early for same-column moves
           }
@@ -4102,84 +2808,24 @@ export default function App() {
     // Handle the move
     if (sourceColumnId === targetColumnId) {
       // Same column - reorder
-        handleSameColumnReorder(draggedTask, sourceColumnId, targetIndex);
+        handleSameColumnReorderWrapper(draggedTask, sourceColumnId, targetIndex);
     } else {
       // Different column - move
-        handleCrossColumnMove(draggedTask, sourceColumnId, targetColumnId, targetIndex);
+        handleCrossColumnMoveWrapper(draggedTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
-    // Handle reordering within the same column - update positions and recalculate
-  const handleSameColumnReorder = async (task: Task, columnId: string, newIndex: number) => {
-    const columnTasks = [...(columns[columnId]?.tasks || [])]
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-    const currentIndex = columnTasks.findIndex(t => t.id === task.id);
-
-    console.log('🔄 handleSameColumnReorder called:', {
-      taskId: task.id,
-      taskTitle: task.title,
-      taskPosition: task.position,
+  // Wrapper for handleSameColumnReorder that provides current state
+  const handleSameColumnReorderWrapper = async (task: Task, columnId: string, newIndex: number) => {
+    return handleSameColumnReorder(
+      task,
       columnId,
       newIndex,
-      currentIndex,
-      columnTasksCount: columnTasks.length,
-      columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
-    });
-
-    // Check if reorder is actually needed
-    // BUT: Allow reordering when dropping on another task (even if same position)
-    // This enables proper swapping of tasks at the same position
-    if (currentIndex === newIndex) {
-        console.log('🔄 No reorder needed - currentIndex === newIndex:', currentIndex);
-        return;
-    }
-
-    // Optimistic update - reorder in UI immediately
-    const oldIndex = currentIndex;
-    const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
-    
-    // Recalculate positions for all tasks in the group
-    const tasksWithUpdatedPositions = reorderedTasks.map((t, index) => ({
-      ...t,
-      position: index
-    }));
-    
-    // Set flag to prevent WebSocket interference
-    if (window.setJustUpdatedFromWebSocket) {
-      window.setJustUpdatedFromWebSocket(true);
-    }
-    
-    setColumns(prev => ({
-      ...prev,
-      [columnId]: {
-        ...prev[columnId],
-        tasks: tasksWithUpdatedPositions
-      }
-    }));
-
-    // Send all updated tasks with their new positions to backend
-    try {
-      // Update all tasks with their new positions
-      for (const updatedTask of tasksWithUpdatedPositions) {
-        await updateTask(updatedTask);
-      }
-        
-      // Add cooldown to prevent polling interference
-      setDragCooldown(true);
-      setTimeout(() => {
-        setDragCooldown(false);
-        // Reset WebSocket flag after drag operation completes
-        if (window.setJustUpdatedFromWebSocket) {
-          window.setJustUpdatedFromWebSocket(false);
-        }
-        // Note: We don't refresh immediately to preserve the optimistic update
-        // The next poll will sync the state if needed
-      }, DRAG_COOLDOWN_DURATION);
-    } catch (error) {
-      // console.error('❌ Failed to reorder tasks:', error);
-      await refreshBoardData();
-    }
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData
+    );
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
@@ -4233,114 +2879,28 @@ export default function App() {
     if (sourceColumnId === targetColumnId) {
       // Same column - use reorder logic
       console.log('🎯 Calling handleSameColumnReorder');
-      await handleSameColumnReorder(sourceTask, sourceColumnId, targetIndex);
+      await handleSameColumnReorderWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
       // Different columns - use cross-column move logic
       console.log('🎯 Calling handleCrossColumnMove');
-      await handleCrossColumnMove(sourceTask, sourceColumnId, targetColumnId, targetIndex);
+      await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
 
-  // Handle moving task to different column
-  const handleCrossColumnMove = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
-    const sourceColumn = columns[sourceColumnId];
-    const targetColumn = columns[targetColumnId];
-    
-    if (!sourceColumn || !targetColumn) return;
-
-    // Sort target column tasks by position for proper insertion
-    const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-
-    
-
-
-    // Remove from source
-    const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
-    
-
-    
-    // Insert into target at the specified index position
-    const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
-    sortedTargetTasks.splice(targetIndex, 0, updatedTask);
-
-
-
-    // Update positions for both columns - use simple sequential indices
-    // First sort the source tasks by their current position, then assign new sequential positions
-    const sortedSourceTasks = [...sourceTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-    const updatedSourceTasks = sortedSourceTasks.map((task, idx) => ({
-        ...task,
-      position: idx
-    }));
-    
-    const updatedTargetTasks = sortedTargetTasks.map((task, idx) => ({
-      ...task,
-      position: idx
-    }));
-
-
-    
-
-
-    // Update UI optimistically
-    setColumns(prev => ({
-      ...prev,
-      [sourceColumnId]: {
-        ...sourceColumn,
-        tasks: updatedSourceTasks
-      },
-      [targetColumnId]: {
-        ...targetColumn,
-        tasks: updatedTargetTasks
-      }
-    }));
-
-    // Update database - do this sequentially to avoid race conditions
-    try {
-      // Find the moved task in the final updatedTargetTasks array (with correct position)
-      const finalMovedTask = updatedTargetTasks.find(t => t.id === task.id);
-      if (!finalMovedTask) {
-        throw new Error('Could not find moved task in updated target tasks');
-      }
-      
-      // Step 1: Update the moved task to new column and position
-        await updateTask(finalMovedTask);
-        
-      // Step 2: Update all source column tasks (sequential positions)
-      for (const task of updatedSourceTasks) {
-        await updateTask(task);
-      }
-        
-      // Step 3: Update all target column tasks (except the moved one)
-      for (const task of updatedTargetTasks.filter(t => t.id !== finalMovedTask.id)) {
-        await updateTask(task);
-      }
-        
-        
-      // Add cooldown to prevent polling interference
-      setDragCooldown(true);
-      setTimeout(() => {
-        setDragCooldown(false);
-        // Note: We don't refresh immediately to preserve the optimistic update
-        // The next poll will sync the state if needed
-      }, DRAG_COOLDOWN_DURATION);
-    } catch (error) {
-      // console.error('Failed to update cross-column move:', error);
-      // On error, we do want to refresh to get the correct state
-      await refreshBoardData();
-    }
+  // Wrapper for handleCrossColumnMove that provides current state
+  const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
+    return handleCrossColumnMove(
+      task,
+      sourceColumnId,
+      targetColumnId,
+      targetIndex,
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData
+    );
   };
 
-  // Renumber all columns in a board to ensure clean integer positions
-  const renumberColumns = async (boardId: string) => {
-    try {
-      const { data } = await api.post('/columns/renumber', { boardId });
-      return data;
-    } catch (error) {
-      console.error('Failed to renumber columns:', error);
-    }
-  };
 
   const handleEditColumn = async (columnId: string, title: string, is_finished?: boolean, is_archived?: boolean) => {
     try {
@@ -4439,7 +2999,7 @@ export default function App() {
     
     // Only clear cursor if drag ends (draggedTask becomes null)
     if (!draggedTask && dragStartedRef.current) {
-      clearCustomCursor();
+      clearCustomCursor(dragStartedRef);
     }
   }, [draggedTask]);
 
@@ -4540,9 +3100,16 @@ export default function App() {
     }
   };
 
-  // Calculate grid columns based on number of columns
+  // Calculate grid columns based on number of columns and user's preferred width
   const columnCount = Object.keys(columns).length;
-  const gridStyle = calculateGridStyle(columnCount);
+  const gridStyle = calculateGridStyle(columnCount, kanbanColumnWidth);
+  
+  // Handle column width resize
+  const handleColumnWidthResize = (deltaX: number) => {
+    const newWidth = Math.max(200, Math.min(600, kanbanColumnWidth + deltaX)); // Min 200px, max 600px
+    setKanbanColumnWidth(newWidth);
+    updateCurrentUserPreference('kanbanColumnWidth', newWidth);
+  };
 
   const clearQueryLogs = async () => {
     setQueryLogs([]);
@@ -4552,114 +3119,21 @@ export default function App() {
 
   const handleToggleTaskViewMode = () => {
     const modes: TaskViewMode[] = ['compact', 'shrink', 'expand'];
-    const currentIndex = modes.indexOf(taskViewMode);
+    const currentIndex = modes.indexOf(taskFilters.taskViewMode);
     const nextIndex = (currentIndex + 1) % modes.length;
     const newMode = modes[nextIndex];
     
-    setTaskViewMode(newMode);
+    taskFilters.setTaskViewMode(newMode);
     updateCurrentUserPreference('taskViewMode', newMode);
   };
 
   const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode);
-    viewModeRef.current = mode;
+    taskFilters.setViewMode(mode);
+    taskFilters.viewModeRef.current = mode;
     updateCurrentUserPreference('viewMode', mode);
   };
 
-  const handleToggleSearch = () => {
-    const newValue = !isSearchActive;
-    setIsSearchActive(newValue);
-    updateCurrentUserPreference('isSearchActive', newValue);
-  };
-
-  const handleSearchFiltersChange = (newFilters: typeof searchFilters) => {
-    setSearchFilters(newFilters);
-    updateCurrentUserPreference('searchFilters', newFilters);
-    
-    // If date filters are cleared and a sprint was selected, reset sprint selector to "All Sprints"
-    if (!newFilters.dateFrom && !newFilters.dateTo && selectedSprintId) {
-      setSelectedSprintId(null);
-      updateCurrentUserPreference('selectedSprintId', null);
-    }
-    
-    // Clear current filter view when manually changing filters
-    if (currentFilterView) {
-      setCurrentFilterView(null);
-      updateCurrentUserPreference('currentFilterViewId', null);
-    }
-  };
-
-  // Handle sprint selection
-  const handleSprintChange = (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => {
-    // Update selected sprint ID in state and preferences
-    // sprint.id can be: null (All Sprints), 'backlog' (Backlog), or an actual sprint ID
-    const newSprintId = sprint?.id || null;
-    setSelectedSprintId(newSprintId);
-    updateCurrentUserPreference('selectedSprintId', newSprintId);
-    
-    // Sprint filtering is now purely based on sprint_id:
-    // - "All Sprints" (null) = show all tasks regardless of sprint_id
-    // - "Backlog" ('backlog') = show only tasks with sprint_id = NULL
-    // - Specific sprint = show only tasks with sprint_id = sprint.id
-    // 
-    // Date filters remain independent for date-based searching
-    
-    // Clear current filter view when sprint changes
-    if (currentFilterView) {
-      setCurrentFilterView(null);
-      updateCurrentUserPreference('currentFilterViewId', null);
-    }
-  };
-
-  // Load a saved filter view by ID
-  const loadSavedFilterView = async (viewId: number) => {
-    try {
-      const view = await getSavedFilterView(viewId);
-      setCurrentFilterView(view);
-      
-      // Convert and apply the filter
-      const searchFilters = {
-        text: view.textFilter || '',
-        dateFrom: view.dateFromFilter || '',
-        dateTo: view.dateToFilter || '',
-        dueDateFrom: view.dueDateFromFilter || '',
-        dueDateTo: view.dueDateToFilter || '',
-        selectedMembers: view.memberFilters || [],
-        selectedPriorities: view.priorityFilters || [],
-        selectedTags: view.tagFilters || [],
-        projectId: view.projectFilter || '',
-        taskId: view.taskFilter || '',
-      };
-      setSearchFilters(searchFilters);
-    } catch (error) {
-      // console.error('Failed to load saved filter view:', error);
-      // Clear the invalid preference
-      updateCurrentUserPreference('currentFilterViewId', null);
-    }
-  };
-
-  const handleFilterViewChange = (view: SavedFilterView | null) => {
-    setCurrentFilterView(view);
-    // Save the current filter view ID to user preferences
-    updateCurrentUserPreference('currentFilterViewId', view?.id || null);
-  };
-
-  // Handle member toggle selection
-  const handleMemberToggle = (memberId: string) => {
-    const newSelectedMembers = selectedMembers.includes(memberId) 
-      ? selectedMembers.filter(id => id !== memberId)
-      : [...selectedMembers, memberId];
-    
-    setSelectedMembers(newSelectedMembers);
-    updateCurrentUserPreference('selectedMembers', newSelectedMembers);
-  };
-
-  // Handle clearing all member selections (show all members)
-  const handleClearMemberSelections = () => {
-    // Clear to empty array = show all members
-    setSelectedMembers([]);
-    updateCurrentUserPreference('selectedMembers', []);
-  };
+  // Filter handlers are now in useTaskFilters hook (taskFilters.*)
 
   // Handle selecting all members
   // Handle dismissing column warnings
@@ -4670,329 +3144,11 @@ export default function App() {
     });
   };
 
-  const handleSelectAllMembers = () => {
-    if (isAllModeActive) {
-      // Currently in "All Roles" mode, switch to "Assignees Only" mode
-      setIncludeAssignees(true);
-      setIncludeWatchers(false);
-      setIncludeCollaborators(false);
-      setIncludeRequesters(false);
-      setIncludeSystem(false);
-      
-      updateCurrentUserPreference('includeAssignees', true);
-      updateCurrentUserPreference('includeWatchers', false);
-      updateCurrentUserPreference('includeCollaborators', false);
-      updateCurrentUserPreference('includeRequesters', false);
-      updateCurrentUserPreference('includeSystem', false);
-    } else {
-      // Not in "All Roles" mode, switch to "All Roles" mode
-      setIncludeAssignees(true);
-      setIncludeWatchers(true);
-      setIncludeCollaborators(true);
-      setIncludeRequesters(true);
-      // Note: System checkbox is left unchanged (admin-only)
-      
-      updateCurrentUserPreference('includeAssignees', true);
-      updateCurrentUserPreference('includeWatchers', true);
-      updateCurrentUserPreference('includeCollaborators', true);
-      updateCurrentUserPreference('includeRequesters', true);
-    }
-  };
-
-  // Handle toggling filter options
-  const handleToggleAssignees = (include: boolean) => {
-    setIncludeAssignees(include);
-    updateCurrentUserPreference('includeAssignees', include);
-  };
-
-  const handleToggleWatchers = (include: boolean) => {
-    setIncludeWatchers(include);
-    updateCurrentUserPreference('includeWatchers', include);
-  };
-
-  const handleToggleCollaborators = (include: boolean) => {
-    setIncludeCollaborators(include);
-    updateCurrentUserPreference('includeCollaborators', include);
-  };
-
-  const handleToggleRequesters = (include: boolean) => {
-    setIncludeRequesters(include);
-    updateCurrentUserPreference('includeRequesters', include);
-  };
-
-  const handleToggleSystem = async (include: boolean) => {
-    // console.log(`🔄 Toggling system user: ${include}`);
-    setIncludeSystem(include);
-    updateCurrentUserPreference('includeSystem', include);
-    
-    // Handle SYSTEM user selection logic without reloading members
-    if (include) {
-      // Checkbox ON: Auto-select SYSTEM user if not already selected
-      setSelectedMembers(prev => {
-        if (!prev.includes(SYSTEM_MEMBER_ID)) {
-          const newSelection = [...prev, SYSTEM_MEMBER_ID];
-          // console.log(`✅ Auto-selecting SYSTEM user`);
-          updateCurrentUserPreference('selectedMembers', newSelection);
-          return newSelection;
-        }
-        return prev;
-      });
-    } else {
-      // Checkbox OFF: Auto-deselect SYSTEM user
-      setSelectedMembers(prev => {
-        const newSelection = prev.filter(id => id !== SYSTEM_MEMBER_ID);
-        // console.log(`❌ Auto-deselecting SYSTEM user`);
-        updateCurrentUserPreference('selectedMembers', newSelection);
-        return newSelection;
-      });
-    }
-    
-    // Let the data polling system handle the members refresh naturally
-    // This prevents the jarring immediate reload and flash
-  };
-
-  // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)
-  const shouldIncludeTask = useCallback((task: Task): boolean => {
-    // Sprint filtering (applied first, before other filters)
-    // Pure sprint_id matching - no date-based fallback
-    if (selectedSprintId !== null) {
-      if (selectedSprintId === 'backlog') {
-        // Show only tasks NOT assigned to any sprint (backlog)
-        if (task.sprintId !== null && task.sprintId !== undefined) {
-          return false;
-        }
-      } else {
-        // Show only tasks with matching sprint_id (explicit assignment)
-        if (task.sprintId !== selectedSprintId) {
-          return false;
-        }
-      }
-    }
-    // If selectedSprintId is null, show all tasks (no sprint filtering)
-
-    // If no other filters active, include all tasks (that passed sprint filter)
-    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
-    if (!isFiltering) return true;
-
-    // Apply search filters (text, dates, priorities, tags, etc.)
-    if (isSearchActive) {
-      const effectiveFilters = {
-        ...searchFilters,
-        selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
-      };
-      
-      // Create filters without member filtering if we have checkboxes enabled
-      const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
-        ...effectiveFilters,
-        selectedMembers: [] // Skip member filtering in search, we'll handle it separately
-      } : effectiveFilters;
-      
-      // Use the filterTasks utility with a single task
-      const filtered = filterTasks([task], searchOnlyFilters, isSearchActive, members, boards);
-      if (filtered.length === 0) return false; // Task didn't pass search filters
-    }
-
-    // Apply member filtering (synchronous checks only: assignees and requesters)
-    // Note: Watchers/collaborators are async and will be handled by the useEffect
-    if (selectedMembers.length > 0) {
-      let includeTask = false;
-      
-      // Check assignees
-      if (includeAssignees && selectedMembers.includes(task.memberId || '')) {
-        includeTask = true;
-      }
-      
-      // Check requesters
-      if (!includeTask && includeRequesters && task.requesterId && selectedMembers.includes(task.requesterId)) {
-        includeTask = true;
-      }
-      
-      // Check watchers (synchronous using cached data)
-      if (!includeTask && includeWatchers) {
-        const watchers = task.watchers || [];
-        if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
-          includeTask = true;
-        }
-      }
-      
-      // Check collaborators (synchronous using cached data)
-      if (!includeTask && includeCollaborators) {
-        const collaborators = task.collaborators || [];
-        if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
-          includeTask = true;
-        }
-      }
-      
-      return includeTask;
-    }
-
-    return true;
-  }, [isSearchActive, searchFilters, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, members, boards, selectedSprintId]);
-
-  // Store shouldIncludeTask in a ref to avoid stale closures in WebSocket handlers
-  const shouldIncludeTaskRef = useRef(shouldIncludeTask);
-  useEffect(() => {
-    shouldIncludeTaskRef.current = shouldIncludeTask;
-  }, [shouldIncludeTask]);
-
-  // Enhanced filtering effect with watchers/collaborators/requesters support
-  // NOTE: Now uses cached data (task.watchers/task.collaborators) instead of API calls for performance
-  useEffect(() => {
-    const performFiltering = () => {
-      // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
-      const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
-      
-
-      
-      if (!isFiltering) {
-        setFilteredColumns(columns);
-        return;
-      }
-
-      // Create custom filtering function that includes watchers/collaborators/requesters (synchronous)
-      const customFilterTasks = (tasks: any[]) => {
-        // If no checkboxes enabled, return all tasks (no filtering)
-        if (!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
-          return tasks;
-        }
-        
-        // If no members selected, treat as "all members" (empty array = show all)
-        const showAllMembers = selectedMembers.length === 0;
-        
-        const filteredTasks = [];
-        
-        for (const task of tasks) {
-          let includeTask = false;
-          
-          // Check if task is assigned to selected members (or any member if showAllMembers)
-          if (includeAssignees) {
-            if (showAllMembers) {
-              // Show all tasks with assignees (any member)
-              if (task.memberId) {
-                includeTask = true;
-              }
-            } else {
-              // Show only tasks assigned to selected members
-              if (task.memberId && selectedMembers.includes(task.memberId)) {
-                includeTask = true;
-              }
-            }
-          }
-          
-          // Check watchers if checkbox is enabled (use cached data)
-          if (!includeTask && includeWatchers) {
-            const watchers = task.watchers || [];
-            if (watchers.length > 0) {
-              if (showAllMembers) {
-                // Show all tasks with watchers
-                includeTask = true;
-              } else {
-                // Show only tasks watched by selected members
-                if (watchers.some((watcher: any) => selectedMembers.includes(watcher.id))) {
-                  includeTask = true;
-                }
-              }
-            }
-          }
-          
-          // Check collaborators if checkbox is enabled (use cached data)
-          if (!includeTask && includeCollaborators) {
-            const collaborators = task.collaborators || [];
-            if (collaborators.length > 0) {
-              if (showAllMembers) {
-                // Show all tasks with collaborators
-                includeTask = true;
-              } else {
-                // Show only tasks with selected members as collaborators
-                if (collaborators.some((collaborator: any) => selectedMembers.includes(collaborator.id))) {
-                  includeTask = true;
-                }
-              }
-            }
-          }
-          
-          // Check requesters if checkbox is enabled
-          if (!includeTask && includeRequesters) {
-            if (showAllMembers) {
-              // Show all tasks with requesters
-              if (task.requesterId) {
-                includeTask = true;
-              }
-            } else {
-              // Show only tasks requested by selected members
-              if (task.requesterId && selectedMembers.includes(task.requesterId)) {
-                includeTask = true;
-              }
-            }
-          }
-          
-          if (includeTask) {
-            filteredTasks.push(task);
-          }
-        }
-        
-        return filteredTasks;
-      };
-
-      // Create effective filters with member filtering 
-      const effectiveFilters = {
-        ...searchFilters,
-        selectedMembers: selectedMembers.length > 0 ? selectedMembers : searchFilters.selectedMembers
-      };
-
-
-
-      
-      const filteredColumns: any = {};
-      
-      for (const [columnId, column] of Object.entries(columns)) {
-        let columnTasks = column.tasks;
-
-        // FIRST: Apply sprint filtering (if a sprint is selected)
-        // Pure sprint_id matching - no date-based fallback
-        if (selectedSprintId !== null) {
-          if (selectedSprintId === 'backlog') {
-            // Show only tasks NOT assigned to any sprint (backlog)
-            columnTasks = columnTasks.filter(task => !task.sprintId);
-          } else {
-            // Show only tasks with matching sprint_id (explicit assignment)
-            columnTasks = columnTasks.filter(task => task.sprintId === selectedSprintId);
-          }
-        }
-        
-        // SECOND: Apply search filters, but skip member filtering if we have checkboxes enabled
-        if (isSearchActive) {
-          // Create filters without member filtering if we have checkboxes enabled
-          const searchOnlyFilters = (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) ? {
-            ...effectiveFilters,
-            selectedMembers: [] // Skip member filtering in search, we'll handle it in custom filter
-          } : effectiveFilters;
-          
-          columnTasks = filterTasks(columnTasks, searchOnlyFilters, isSearchActive, members, boards);
-        }
-        
-        // THIRD: Apply our custom member filtering with assignees/watchers/collaborators/requesters
-        // Run member filtering if at least one filter type is enabled (works with 0 or more members selected)
-        if (includeAssignees || includeWatchers || includeCollaborators || includeRequesters) {
-          columnTasks = customFilterTasks(columnTasks);
-        }
-        
-        filteredColumns[columnId] = {
-          ...column,
-          tasks: columnTasks
-        };
-      }
-      
-      setFilteredColumns(filteredColumns);
-      
-    };
-
-    performFiltering();
-  }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId]);
+  // Filter handlers, shouldIncludeTask, and filtering useEffect are now in useTaskFilters hook (taskFilters.*)
 
   // Use filtered columns state
   const hasColumnFilters = selectedBoard ? (boardColumnVisibility[selectedBoard] && boardColumnVisibility[selectedBoard].length < Object.keys(columns).length) : false;
-  const activeFilters = hasActiveFilters(searchFilters, isSearchActive) || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters || hasColumnFilters;
+  const activeFilters = hasActiveFilters(taskFilters.searchFilters, taskFilters.isSearchActive) || taskFilters.selectedMembers.length > 0 || taskFilters.includeAssignees || taskFilters.includeWatchers || taskFilters.includeCollaborators || taskFilters.includeRequesters || hasColumnFilters;
   const getTaskCountForBoard = (board: Board) => {
     // During board switching, return the last calculated count to prevent flashing
     if (isSwitchingBoard && lastTaskCountsRef.current[board.id] !== undefined) {
@@ -5015,11 +3171,11 @@ export default function App() {
       });
       
       // Then apply search filtering to the visible columns
-      if (filteredColumns && Object.keys(filteredColumns).length > 0) {
+      if (taskFilters.filteredColumns && Object.keys(taskFilters.filteredColumns).length > 0) {
         // Additional validation: check if filteredColumns contain columns that belong to this board
         const currentBoardData = boards.find(b => b.id === selectedBoard);
         const currentBoardColumnIds = currentBoardData ? Object.keys(currentBoardData.columns || {}) : [];
-        const filteredColumnIds = Object.keys(filteredColumns);
+        const filteredColumnIds = Object.keys(taskFilters.filteredColumns);
         
         // Only use filteredColumns if they match the current board's column structure
         const isValidForCurrentBoard = currentBoardColumnIds.length > 0 && 
@@ -5029,7 +3185,7 @@ export default function App() {
         if (isValidForCurrentBoard) {
           // Apply search filtering to visible columns only (excluding archived)
           let totalCount = 0;
-          Object.values(filteredColumns).forEach(column => {
+          Object.values(taskFilters.filteredColumns).forEach(column => {
             if (visibleColumnIds.includes(column.id) && !column.is_archived) {
               totalCount += column.tasks.length;
             }
@@ -5039,16 +3195,16 @@ export default function App() {
       }
       
       // If filteredColumns wasn't used (or wasn't valid), apply filters manually
-      if (taskCount === 0 || !filteredColumns || Object.keys(filteredColumns).length === 0) {
+      if (taskCount === 0 || !taskFilters.filteredColumns || Object.keys(taskFilters.filteredColumns).length === 0) {
         let totalCount = 0;
         Object.values(columnFilteredColumns).forEach(column => {
           // Apply sprint filtering if active
           let columnTasks = column.tasks;
-          if (selectedSprintId !== null) {
-            if (selectedSprintId === 'backlog') {
+          if (taskFilters.selectedSprintId !== null) {
+            if (taskFilters.selectedSprintId === 'backlog') {
               columnTasks = columnTasks.filter(task => !task.sprintId);
             } else {
-              columnTasks = columnTasks.filter(task => task.sprintId === selectedSprintId);
+              columnTasks = columnTasks.filter(task => task.sprintId === taskFilters.selectedSprintId);
             }
           }
           totalCount += columnTasks.length;
@@ -5058,7 +3214,7 @@ export default function App() {
     }
     
     // For other boards, apply the same filtering logic used in performFiltering
-    const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters || selectedSprintId !== null;
+    const isFiltering = taskFilters.isSearchActive || taskFilters.selectedMembers.length > 0 || taskFilters.includeAssignees || taskFilters.includeWatchers || taskFilters.includeCollaborators || taskFilters.includeRequesters || taskFilters.selectedSprintId !== null;
     
     if (!isFiltering) {
       // No filters active - return total count (excluding archived columns)
@@ -5074,17 +3230,17 @@ export default function App() {
     }
     
     // Apply search filters using the utility function
-    let searchFilteredCount = getFilteredTaskCountForBoard(board, searchFilters, isSearchActive, members, boards);
+    let searchFilteredCount = getFilteredTaskCountForBoard(board, taskFilters.searchFilters, taskFilters.isSearchActive, members, boards);
     
     // If no member filtering is needed (no members selected AND no member-specific checkboxes enabled)
     // OR if we're only doing search filtering (text, dates, tags, project/task identifiers)
-    const hasMemberFiltering = selectedMembers.length > 0 || 
-      (includeAssignees && selectedMembers.length > 0) || 
-      (includeWatchers && selectedMembers.length > 0) || 
-      (includeCollaborators && selectedMembers.length > 0) || 
-      (includeRequesters && selectedMembers.length > 0);
+    const hasMemberFiltering = taskFilters.selectedMembers.length > 0 || 
+      (taskFilters.includeAssignees && taskFilters.selectedMembers.length > 0) || 
+      (taskFilters.includeWatchers && taskFilters.selectedMembers.length > 0) || 
+      (taskFilters.includeCollaborators && taskFilters.selectedMembers.length > 0) || 
+      (taskFilters.includeRequesters && taskFilters.selectedMembers.length > 0);
     
-    if (!hasMemberFiltering && selectedSprintId === null) {
+    if (!hasMemberFiltering && taskFilters.selectedSprintId === null) {
       taskCount = searchFilteredCount;
     }
     
@@ -5101,37 +3257,37 @@ export default function App() {
         if (!task) return false;
         
         // FIRST: Apply sprint filtering (if a sprint is selected)
-        if (selectedSprintId !== null) {
-          if (selectedSprintId === 'backlog') {
+        if (taskFilters.selectedSprintId !== null) {
+          if (taskFilters.selectedSprintId === 'backlog') {
             // Show only tasks NOT assigned to any sprint (backlog)
             if (task.sprintId !== null && task.sprintId !== undefined) {
               return false;
             }
           } else {
             // Show only tasks with matching sprint_id (explicit assignment)
-            if (task.sprintId !== selectedSprintId) {
+            if (task.sprintId !== taskFilters.selectedSprintId) {
               return false;
             }
           }
         }
         
         // SECOND: Apply search filters using the same logic as performFiltering
-        if (isSearchActive) {
-          const searchFiltered = filterTasks([task], searchFilters, isSearchActive, members, boards);
+        if (taskFilters.isSearchActive) {
+          const searchFiltered = filterTasks([task], taskFilters.searchFilters, taskFilters.isSearchActive, members, boards);
           if (searchFiltered.length === 0) return false;
         }
         
         // Then apply member filtering
-        if (selectedMembers.length === 0 && !includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters) {
+        if (taskFilters.selectedMembers.length === 0 && !taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
           return true;
         }
         
         // If no members selected, treat as "all members" (empty array = show all)
-        const showAllMembers = selectedMembers.length === 0;
-        const memberIds = new Set(selectedMembers);
+        const showAllMembers = taskFilters.selectedMembers.length === 0;
+        const memberIds = new Set(taskFilters.selectedMembers);
         let hasMatchingMember = false;
         
-        if (includeAssignees) {
+        if (taskFilters.includeAssignees) {
           if (showAllMembers) {
             // Show all tasks with assignees (any member)
             if (task.memberId) hasMatchingMember = true;
@@ -5141,7 +3297,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeRequesters) {
+        if (!hasMatchingMember && taskFilters.includeRequesters) {
           if (showAllMembers) {
             // Show all tasks with requesters
             if (task.requesterId) hasMatchingMember = true;
@@ -5151,7 +3307,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeWatchers && task.watchers && Array.isArray(task.watchers)) {
+        if (!hasMatchingMember && taskFilters.includeWatchers && task.watchers && Array.isArray(task.watchers)) {
           if (showAllMembers) {
             // Show all tasks with watchers
             if (task.watchers.length > 0) hasMatchingMember = true;
@@ -5161,7 +3317,7 @@ export default function App() {
           }
         }
         
-        if (!hasMatchingMember && includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
+        if (!hasMatchingMember && taskFilters.includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
           if (showAllMembers) {
             // Show all tasks with collaborators
             if (task.collaborators.length > 0) hasMatchingMember = true;
@@ -5252,19 +3408,21 @@ export default function App() {
     return (
       <ThemeProvider>
         <TourProvider currentUser={currentUser}>
-          <TaskPage 
-            currentUser={currentUser}
-            siteSettings={siteSettings}
-            members={members}
-            isPolling={isPolling}
-            lastPollTime={lastPollTime}
-            onLogout={handleLogout}
-            onPageChange={handlePageChange}
-            onRefresh={handleRefreshData}
-            onInviteUser={handleInviteUser}
-            // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
-            // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
-          />
+          <Suspense fallback={<PageLoader />}>
+            <TaskPage 
+              currentUser={currentUser}
+              siteSettings={siteSettings}
+              members={members}
+              isPolling={isPolling}
+              lastPollTime={lastPollTime}
+              onLogout={handleLogout}
+              onPageChange={handlePageChange}
+              onRefresh={handleRefreshData}
+              onInviteUser={handleInviteUser}
+              // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
+              // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
+            />
+          </Suspense>
         </TourProvider>
       </ThemeProvider>
     );
@@ -5310,7 +3468,7 @@ export default function App() {
       {/* New Enhanced Drag & Drop System */}
       <SimpleDragDropManager
         currentBoardId={selectedBoard || ''}
-        columns={filteredColumns}
+        columns={taskFilters.filteredColumns}
         boards={boards}
         isOnline={isOnline}
         onTaskMove={handleMoveTaskToColumn}
@@ -5338,23 +3496,23 @@ export default function App() {
         // isPolling={isPolling} // Removed - using real-time WebSocket updates
         // lastPollTime={lastPollTime} // Removed - using real-time WebSocket updates
         members={members}
-        onProfileClick={() => setShowProfileModal(true)}
+        onProfileClick={() => modalState.setShowProfileModal(true)}
         onLogout={handleLogout}
         onPageChange={handlePageChange}
           onRefresh={handleRefreshData}
           // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
           // onToggleAutoRefresh={handleToggleAutoRefresh} // Disabled - using real-time updates
-        onHelpClick={() => setShowHelpModal(true)}
+        onHelpClick={() => modalState.setShowHelpModal(true)}
         onInviteUser={handleInviteUser}
-        selectedSprintId={selectedSprintId}
-        onSprintChange={handleSprintChange}
+        selectedSprintId={taskFilters.selectedSprintId}
+        onSprintChange={taskFilters.handleSprintChange}
         boards={boards}
       />
 
       {/* Network Status Indicator */}
       <NetworkStatusIndicator isOnline={isOnline} />
 
-      <div className={instanceStatus.status !== 'active' && !instanceStatus.isDismissed ? 'pt-20' : ''}>
+      <div className={versionStatus.instanceStatus.status !== 'active' && !versionStatus.instanceStatus.isDismissed ? 'pt-20' : ''}>
         <MainLayout
         currentPage={currentPage}
         currentUser={currentUser} 
@@ -5362,10 +3520,10 @@ export default function App() {
         adminRefreshKey={adminRefreshKey}
         siteSettings={siteSettings}
         isOnline={isOnline}
-        selectedSprintId={selectedSprintId}
+        selectedSprintId={taskFilters.selectedSprintId}
               onUsersChanged={async () => {
                 try {
-                  const loadedMembers = await getMembers(includeSystem);
+                  const loadedMembers = await getMembers(taskFilters.includeSystem);
                   setMembers(loadedMembers);
                 } catch (error) {
                   // console.error('❌ Failed to refresh members:', error);
@@ -5377,45 +3535,47 @@ export default function App() {
         boards={boards}
         selectedBoard={selectedBoard}
         columns={columns}
-                    selectedMembers={selectedMembers}
+                    selectedMembers={taskFilters.selectedMembers}
         draggedTask={draggedTask}
         draggedColumn={draggedColumn}
         dragPreview={dragPreview}
                       availablePriorities={availablePriorities}
         availableTags={availableTags}
-        taskViewMode={taskViewMode}
-        isSearchActive={isSearchActive}
-        searchFilters={searchFilters}
-        filteredColumns={filteredColumns}
+        taskViewMode={taskFilters.taskViewMode}
+        isSearchActive={taskFilters.isSearchActive}
+        searchFilters={taskFilters.searchFilters}
+        filteredColumns={taskFilters.filteredColumns}
         activeFilters={activeFilters}
         gridStyle={gridStyle}
         sensors={sensors}
         collisionDetection={collisionDetection}
         boardColumnVisibility={boardColumnVisibility}
         onBoardColumnVisibilityChange={handleBoardColumnVisibilityChange}
+        kanbanColumnWidth={kanbanColumnWidth}
+        onColumnWidthResize={handleColumnWidthResize}
 
-        onSelectMember={handleMemberToggle}
-        onClearMemberSelections={handleClearMemberSelections}
-        onSelectAllMembers={handleSelectAllMembers}
-        isAllModeActive={isAllModeActive}
-        includeAssignees={includeAssignees}
-        includeWatchers={includeWatchers}
-        includeCollaborators={includeCollaborators}
-        includeRequesters={includeRequesters}
-        includeSystem={includeSystem}
-        onToggleAssignees={handleToggleAssignees}
-        onToggleWatchers={handleToggleWatchers}
-        onToggleCollaborators={handleToggleCollaborators}
-        onToggleRequesters={handleToggleRequesters}
-        onToggleSystem={handleToggleSystem}
+        onSelectMember={taskFilters.handleMemberToggle}
+        onClearMemberSelections={taskFilters.handleClearMemberSelections}
+        onSelectAllMembers={taskFilters.handleSelectAllMembers}
+        isAllModeActive={taskFilters.isAllModeActive}
+        includeAssignees={taskFilters.includeAssignees}
+        includeWatchers={taskFilters.includeWatchers}
+        includeCollaborators={taskFilters.includeCollaborators}
+        includeRequesters={taskFilters.includeRequesters}
+        includeSystem={taskFilters.includeSystem}
+        onToggleAssignees={taskFilters.handleToggleAssignees}
+        onToggleWatchers={taskFilters.handleToggleWatchers}
+        onToggleCollaborators={taskFilters.handleToggleCollaborators}
+        onToggleRequesters={taskFilters.handleToggleRequesters}
+        onToggleSystem={taskFilters.handleToggleSystem}
         onToggleTaskViewMode={handleToggleTaskViewMode}
-        viewMode={viewMode}
+        viewMode={taskFilters.viewMode}
         onViewModeChange={handleViewModeChange}
-        onToggleSearch={handleToggleSearch}
-        onSearchFiltersChange={handleSearchFiltersChange}
-        currentFilterView={currentFilterView}
-        sharedFilterViews={sharedFilterViews}
-        onFilterViewChange={handleFilterViewChange}
+        onToggleSearch={taskFilters.handleToggleSearch}
+        onSearchFiltersChange={taskFilters.handleSearchFiltersChange}
+        currentFilterView={taskFilters.currentFilterView}
+        sharedFilterViews={taskFilters.sharedFilterViews}
+        onFilterViewChange={taskFilters.handleFilterViewChange}
                     onSelectBoard={handleBoardSelection}
                     onAddBoard={handleAddBoard}
                     onEditBoard={handleEditBoard}
@@ -5486,62 +3646,64 @@ export default function App() {
                                     onTaskExitMiniMode={handleTaskExitMiniMode}
                                     
                                     // Task linking props
-                                    isLinkingMode={isLinkingMode}
-                                    linkingSourceTask={linkingSourceTask}
-                                    linkingLine={linkingLine}
+                                    isLinkingMode={taskLinking.isLinkingMode}
+                                    linkingSourceTask={taskLinking.linkingSourceTask}
+                                    linkingLine={taskLinking.linkingLine}
                                     onStartLinking={handleStartLinking}
                                     onUpdateLinkingLine={handleUpdateLinkingLine}
                                     onFinishLinking={handleFinishLinking}
                                     onCancelLinking={handleCancelLinking}
                                     
                                     // Hover highlighting props
-                                    hoveredLinkTask={hoveredLinkTask}
+                                    hoveredLinkTask={taskLinking.hoveredLinkTask}
                                     onLinkToolHover={handleLinkToolHover}
                                     onLinkToolHoverEnd={handleLinkToolHoverEnd}
                                     getTaskRelationshipType={getTaskRelationshipType}
                                     
                                     // Auto-synced relationships
-                                    boardRelationships={boardRelationships}
+                                    boardRelationships={taskLinking.boardRelationships}
         />
       </div>
 
-      <InstanceStatusBanner />
+      {versionStatus.InstanceStatusBanner()}
       
       {/* Version Update Banner */}
-      {showVersionBanner && (
+      {versionStatus.showVersionBanner && (
         <VersionUpdateBanner
-          currentVersion={versionInfo.currentVersion}
-          newVersion={versionInfo.newVersion}
-          onRefresh={handleRefreshVersion}
-          onDismiss={handleDismissVersionBanner}
+          currentVersion={versionStatus.versionInfo.currentVersion}
+          newVersion={versionStatus.versionInfo.newVersion}
+          onRefresh={versionStatus.handleRefreshVersion}
+          onDismiss={versionStatus.handleDismissVersionBanner}
         />
       )}
 
-      <ModalManager
-        selectedTask={selectedTask}
-        taskDetailsOptions={taskDetailsOptions}
-                                members={members}
-        onTaskClose={() => handleSelectTask(null)}
-        onTaskUpdate={handleEditTask}
-        showHelpModal={showHelpModal}
-        onHelpClose={() => setShowHelpModal(false)}
-        showProfileModal={showProfileModal}
-        currentUser={currentUser}
-        onProfileClose={() => {
-          setShowProfileModal(false);
-          setIsProfileBeingEdited(false); // Reset editing state when modal closes
-        }}
-        onProfileUpdated={handleProfileUpdated}
-        isProfileBeingEdited={isProfileBeingEdited}
-        onProfileEditingChange={setIsProfileBeingEdited}
-        onActivityFeedToggle={handleActivityFeedToggle}
-        onAccountDeleted={() => {
-          // Account deleted successfully - handle logout and redirect
-          handleLogout();
-        }}
-        siteSettings={siteSettings}
-        boards={boards}
-      />
+      <Suspense fallback={null}>
+        <ModalManager
+          selectedTask={selectedTask}
+          taskDetailsOptions={taskDetailsOptions}
+                                  members={members}
+          onTaskClose={() => handleSelectTask(null)}
+          onTaskUpdate={handleEditTask}
+          showHelpModal={modalState.showHelpModal}
+          onHelpClose={() => modalState.setShowHelpModal(false)}
+          showProfileModal={modalState.showProfileModal}
+          currentUser={currentUser}
+          onProfileClose={() => {
+            modalState.setShowProfileModal(false);
+            modalState.setIsProfileBeingEdited(false); // Reset editing state when modal closes
+          }}
+          onProfileUpdated={handleProfileUpdated}
+          isProfileBeingEdited={modalState.isProfileBeingEdited}
+          onProfileEditingChange={modalState.setIsProfileBeingEdited}
+          onActivityFeedToggle={activityFeed.handleActivityFeedToggle}
+          onAccountDeleted={() => {
+            // Account deleted successfully - handle logout and redirect
+            handleLogout();
+          }}
+          siteSettings={siteSettings}
+          boards={boards}
+        />
+      </Suspense>
 
       {/* Task Delete Confirmation Popup */}
       <TaskDeleteConfirmation
@@ -5570,28 +3732,28 @@ export default function App() {
 
       {/* Activity Feed */}
       <ActivityFeed
-        isVisible={showActivityFeed}
-        onClose={() => setShowActivityFeed(false)}
-        isMinimized={activityFeedMinimized}
-        onMinimizedChange={handleActivityFeedMinimizedChange}
-        activities={activities}
-        lastSeenActivityId={lastSeenActivityId}
-        clearActivityId={clearActivityId}
-        onMarkAsRead={handleActivityFeedMarkAsRead}
-        onClearAll={handleActivityFeedClearAll}
-        position={activityFeedPosition}
-        onPositionChange={setActivityFeedPosition}
-        dimensions={activityFeedDimensions}
-        onDimensionsChange={setActivityFeedDimensions}
+        isVisible={activityFeed.showActivityFeed}
+        onClose={() => activityFeed.setShowActivityFeed(false)}
+        isMinimized={activityFeed.activityFeedMinimized}
+        onMinimizedChange={activityFeed.handleActivityFeedMinimizedChange}
+        activities={activityFeed.activities}
+        lastSeenActivityId={activityFeed.lastSeenActivityId}
+        clearActivityId={activityFeed.clearActivityId}
+        onMarkAsRead={activityFeed.handleActivityFeedMarkAsRead}
+        onClearAll={activityFeed.handleActivityFeedClearAll}
+        position={activityFeed.activityFeedPosition}
+        onPositionChange={activityFeed.setActivityFeedPosition}
+        dimensions={activityFeed.activityFeedDimensions}
+        onDimensionsChange={activityFeed.setActivityFeedDimensions}
         userId={currentUser?.id || null}
       />
 
       {/* Task Linking Overlay */}
       <TaskLinkingOverlay
-        isLinkingMode={isLinkingMode}
-        linkingSourceTask={linkingSourceTask}
-        linkingLine={linkingLine}
-        feedbackMessage={linkingFeedbackMessage}
+        isLinkingMode={taskLinking.isLinkingMode}
+        linkingSourceTask={taskLinking.linkingSourceTask}
+        linkingLine={taskLinking.linkingLine}
+        feedbackMessage={taskLinking.linkingFeedbackMessage}
         onUpdateLinkingLine={handleUpdateLinkingLine}
         onFinishLinking={handleFinishLinking}
         onCancelLinking={handleCancelLinking}

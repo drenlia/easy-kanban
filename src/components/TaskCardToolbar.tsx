@@ -91,6 +91,7 @@ export default function TaskCardToolbar({
   const [showAddTagModal, setShowAddTagModal] = useState(false);
   const [tagDropdownPosition, setTagDropdownPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const quickTagButtonRef = useRef<HTMLButtonElement>(null);
+  const quickTagDropdownRef = useRef<HTMLDivElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
   
   // Determine if toolbar should be visible
@@ -109,10 +110,9 @@ export default function TaskCardToolbar({
     e.preventDefault();
     e.stopPropagation();
     
-    const rect = e.currentTarget.getBoundingClientRect();
-    const centerX = rect.left + rect.width / 2;
-    const centerY = rect.top + rect.height / 2;
-    const startPos = { x: centerX, y: centerY };
+    // Use the actual mouse position when clicking, not the button center
+    // This prevents false drag detection when clicking the button
+    const startPos = { x: e.clientX, y: e.clientY };
     
     // Prepare for potential drag, but don't start linking yet
     setIsDragPrepared(true);
@@ -253,16 +253,34 @@ export default function TaskCardToolbar({
 
   // Close quick tag dropdown when clicking outside
   useEffect(() => {
+    if (!showQuickTagDropdown) return;
+
     const handleClickOutside = (event: MouseEvent) => {
-      if (quickTagButtonRef.current && !quickTagButtonRef.current.contains(event.target as Node)) {
-        setShowQuickTagDropdown(false);
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      
+      // Check if click is inside the portal dropdown (using both data attribute and ref)
+      const tagDropdown = target.closest('[data-tag-dropdown]');
+      if (tagDropdown || (quickTagDropdownRef.current && quickTagDropdownRef.current.contains(target))) {
+        return; // Click is inside dropdown, don't close
       }
+      
+      // Check if click is on the button itself - if so, let the toggle handle it
+      if (quickTagButtonRef.current && quickTagButtonRef.current.contains(target)) {
+        // The button's onClick will toggle, so we don't need to close here
+        return;
+      }
+      
+      // Click is outside both button and dropdown, close it
+      setShowQuickTagDropdown(false);
     };
 
-    if (showQuickTagDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    // Use mousedown (not click) to catch events before stopPropagation can interfere
+    document.addEventListener('mousedown', handleClickOutside);
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
   }, [showQuickTagDropdown]);
 
   // Close member dropdown when clicking outside
@@ -458,6 +476,8 @@ export default function TaskCardToolbar({
       {/* Portal-rendered quick tag dropdown */}
       {showQuickTagDropdown && createPortal(
         <div 
+          ref={quickTagDropdownRef}
+          data-tag-dropdown
           className="fixed w-[200px] bg-white border border-gray-200 rounded-md shadow-lg z-[9999] max-h-[400px] overflow-y-auto"
           style={{
             left: `${tagDropdownPosition.left}px`,

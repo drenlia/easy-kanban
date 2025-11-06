@@ -886,15 +886,12 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         comments: [...(editedTask.comments || []), savedComment]
       };
 
-      // Save updated task to server and get fresh data
-      const savedTask = await updateTask(updatedTask);
-
-      // Update local state with server data
-      setEditedTask(savedTask);
+      // Update local state immediately (don't call updateTask - comments are handled separately)
+      setEditedTask(updatedTask);
       
       // Update parent component to refresh TaskCard
       if (onUpdate) {
-        await onUpdate(savedTask);
+        onUpdate(updatedTask);
       }
 
     } catch (error) {
