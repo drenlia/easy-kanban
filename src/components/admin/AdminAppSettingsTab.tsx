@@ -116,11 +116,44 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     return JSON.stringify(settings) !== JSON.stringify(editingSettings);
   };
 
+  const handleAppLanguageChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      APP_LANGUAGE: value
+    });
+    
+    // Auto-save the app language change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          APP_LANGUAGE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save app language:', error);
+      }
+    }, 100);
+  };
+
   const handleTaskDeleteConfirmChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
       TASK_DELETE_CONFIRM: value
     });
+    
+    // Auto-save the task delete confirm change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          TASK_DELETE_CONFIRM: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save task delete confirm:', error);
+      }
+    }, 100);
   };
 
   const handleShowActivityFeedChange = (value: string) => {
@@ -128,6 +161,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       SHOW_ACTIVITY_FEED: value
     });
+    
+    // Auto-save the activity feed visibility change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          SHOW_ACTIVITY_FEED: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed visibility:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultViewModeChange = (value: string) => {
@@ -135,6 +181,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_VIEW_MODE: value
     });
+    
+    // Auto-save the default view mode change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_VIEW_MODE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save default view mode:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultTaskViewModeChange = (value: string) => {
@@ -142,6 +201,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_TASK_VIEW_MODE: value
     });
+    
+    // Auto-save the default task view mode change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_TASK_VIEW_MODE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save default task view mode:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedPositionChange = (value: string) => {
@@ -149,6 +221,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_POSITION: value
     });
+    
+    // Auto-save the activity feed position change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_POSITION: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed position:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedWidthChange = (value: string) => {
@@ -156,6 +241,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_WIDTH: value
     });
+    
+    // Auto-save the activity feed width change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_WIDTH: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed width:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedHeightChange = (value: string) => {
@@ -163,6 +261,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_HEIGHT: value
     });
+    
+    // Auto-save the activity feed height change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_HEIGHT: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed height:', error);
+      }
+    }, 100);
   };
 
   const handleNotificationDelayChange = (value: string) => {
@@ -324,6 +435,28 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 </div>
 
             <div className="px-6 py-4 space-y-6">
+              {/* Default Application Language Setting */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                    {t('appSettings.defaultApplicationLanguage')}
+                  </label>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t('appSettings.defaultApplicationLanguageDescription')}
+                  </p>
+                </div>
+                <div className="ml-6 flex-shrink-0">
+                  <select
+                    value={editingSettings.APP_LANGUAGE || 'EN'}
+                    onChange={(e) => handleAppLanguageChange(e.target.value)}
+                    className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="EN">English</option>
+                    <option value="FR">Français</option>
+                  </select>
+                </div>
+              </div>
+
               {/* Task Delete Confirmation Setting */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">

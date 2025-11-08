@@ -466,7 +466,8 @@ const initializeDefaultData = (db) => {
       // Project and task identification settings
       ['DEFAULT_PROJ_PREFIX', 'PROJ-'], // Default project prefix
       ['DEFAULT_TASK_PREFIX', 'TASK-'], // Default task prefix
-      ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done", "Completed", "Finished"]'], // Default finished column names
+      ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done","Terminé","Completed","Complété", "Finished","Fini"]'], // Default finished column names
+      ['APP_LANGUAGE', 'EN'], // Default application language (EN or FR)
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes

@@ -173,7 +173,8 @@ class NotificationService {
     const templateData = {
       ...data,
       siteName: siteSettings.SITE_NAME || 'Easy Kanban',
-      siteUrl: siteSettings.SITE_URL || 'http://localhost:3000'
+      siteUrl: siteSettings.SITE_URL || 'http://localhost:3000',
+      db: this.db
     };
     
     switch (notificationType) {

@@ -121,9 +121,11 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
   const { userId } = req.params;
   const { email, firstName, lastName, isActive } = req.body;
   const db = req.app.locals.db;
+  const { getTranslator } = await import('../utils/i18n.js');
+  const t = getTranslator(db);
   
   if (!email || !firstName || !lastName) {
-    return res.status(400).json({ error: 'Email, first name, and last name are required' });
+    return res.status(400).json({ error: t('errors.emailFirstNameLastNameRequired') });
   }
 
   try {

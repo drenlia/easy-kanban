@@ -6,6 +6,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import { getContainerMemoryInfo } from '../utils/containerMemory.js';
 import { manualTriggers } from '../jobs/scheduler.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -54,11 +55,12 @@ router.post('/jobs/snapshot', authenticateToken, requireRole(['admin']), async (
 router.post('/jobs/achievements', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const t = getTranslator(db);
     console.log('🔧 Admin triggered: Achievement check');
     const result = await manualTriggers.triggerAchievementCheck(db);
     res.json({
       success: true,
-      message: 'Achievement check completed',
+      message: t('system.achievementCheckCompleted'),
       ...result
     });
   } catch (error) {
@@ -74,12 +76,13 @@ router.post('/jobs/achievements', authenticateToken, requireRole(['admin']), asy
 router.post('/jobs/cleanup', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const t = getTranslator(db);
     const { retentionDays } = req.body;
     console.log(`🔧 Admin triggered: Snapshot cleanup (${retentionDays || 730} days)`);
     const result = await manualTriggers.triggerCleanup(db, retentionDays);
     res.json({
       success: true,
-      message: 'Cleanup completed successfully',
+      message: t('system.cleanupCompletedSuccessfully'),
       ...result
     });
   } catch (error) {
@@ -354,8 +357,9 @@ router.post('/test-email', authenticateToken, requireRole(['admin']), async (req
     
     // Check if demo mode is enabled
     if (process.env.DEMO_ENABLED === 'true') {
+      const t = getTranslator(db);
       return res.status(400).json({ 
-        error: 'Email testing disabled in demo mode',
+        error: t('system.emailTestingDisabledDemoMode'),
         details: 'Email functionality is disabled in demo environments to prevent sending emails',
         demoMode: true
       });

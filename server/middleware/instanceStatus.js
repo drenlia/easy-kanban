@@ -1,4 +1,5 @@
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getTranslator } from '../utils/i18n.js';
 
 /**
  * Middleware to check instance status before processing requests
@@ -36,7 +37,8 @@ export const checkInstanceStatus = (db) => {
 
       // Allow access only if status is active
       if (status !== 'active') {
-        const statusMessage = getStatusMessage(status);
+        const t = getTranslator(db);
+        const statusMessage = getStatusMessage(status, t);
         
         // Return JSON error for API requests
         if (req.path.startsWith('/api/')) {
@@ -67,19 +69,21 @@ export const checkInstanceStatus = (db) => {
 
 /**
  * Get user-friendly message for instance status
+ * @param {string} status - Instance status
+ * @param {Function} t - Translation function (optional, defaults to English)
  */
-const getStatusMessage = (status) => {
+const getStatusMessage = (status, t = (key) => key) => {
   switch (status) {
     case 'suspended':
-      return 'This instance has been temporarily suspended. Please contact support for assistance.';
+      return t('instanceStatus.suspended');
     case 'terminated':
-      return 'This instance has been terminated. Please contact support for assistance.';
+      return t('instanceStatus.terminated');
     case 'failed':
-      return 'This instance failed to deploy properly. Please contact support for assistance.';
+      return t('instanceStatus.failed');
     case 'deploying':
-      return 'This instance is currently being deployed. Please try again in a few minutes.';
+      return t('instanceStatus.deploying');
     default:
-      return 'This instance is currently unavailable. Please contact support.';
+      return t('instanceStatus.unavailable');
   }
 };
 
