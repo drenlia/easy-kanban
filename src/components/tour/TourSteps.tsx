@@ -1,4 +1,5 @@
 import { Step } from 'react-joyride';
+import i18n from '../../i18n/config';
 
 export interface TourStepsConfig {
   userSteps: Step[];
@@ -9,13 +10,13 @@ export const getTourSteps = (): TourStepsConfig => {
   const userSteps: Step[] = [
     {
       target: 'body', // Use body as fallback for testing
-      content: 'Welcome to Easy Kanban! This is your main navigation area where you can switch between different boards.',
+      content: i18n.t('tour.steps.welcome', { ns: 'common' }),
       placement: 'center',
       disableBeacon: true,
     },
     {
       target: '[data-tour-id="board-tabs"]',
-      content: 'These are your board tabs. Click on any tab to switch between different project boards.',
+      content: i18n.t('tour.steps.boardTabs', { ns: 'common' }),
       placement: 'bottom',
       offset: 20,
       disableBeacon: false,
@@ -23,37 +24,37 @@ export const getTourSteps = (): TourStepsConfig => {
     },
     {
       target: '[data-tour-id="kanban-columns"]',
-      content: 'This is your Kanban board! Tasks are organized in columns. You can drag and drop tasks between columns to update their status.',
+      content: i18n.t('tour.steps.kanbanColumns', { ns: 'common' }),
       placement: 'top',
     },
     {
       target: '[data-tour-id="add-task-button"]',
-      content: 'Click the "+" button on any column to add a new task. This is the main way to create new work items.',
+      content: i18n.t('tour.steps.addTaskButton', { ns: 'common' }),
       placement: 'top',
     },
     {
       target: '[data-tour-id="search-filter"]',
-      content: 'Use the search and filter tools to find specific tasks. You can filter by assignee, tags, priority, and more.',
+      content: i18n.t('tour.steps.searchFilter', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="view-mode-toggle"]',
-      content: 'Switch between different view modes: Kanban (default), List view, or Gantt chart to see your tasks in different ways.',
+      content: i18n.t('tour.steps.viewModeToggle', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="team-members"]',
-      content: 'Filter tasks by team members. Click on member avatars to show only their tasks, or use the "All" button to see everyone.',
+      content: i18n.t('tour.steps.teamMembers', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="profile-menu"]',
-      content: 'Click on your profile to access settings, view your profile, or logout.',
+      content: i18n.t('tour.steps.profileMenu', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="help-button"]',
-      content: 'Need help? Click the help button (or press F1) anytime to open the help guide.',
+      content: i18n.t('tour.steps.helpButton', { ns: 'common' }),
       placement: 'bottom',
     },
   ];
@@ -63,13 +64,13 @@ export const getTourSteps = (): TourStepsConfig => {
     ...userSteps,
     {
       target: '[data-tour-id="add-board-button"]',
-      content: 'As an admin, you can create new boards by clicking this "+" button. Boards help organize different projects or teams.',
+      content: i18n.t('tour.steps.addBoardButton', { ns: 'common' }),
       placement: 'bottom',
       offset: 20,
     },
     {
       target: '[data-tour-id="admin-tab"]',
-      content: '🚨 IMPORTANT: Click the Admin button to continue the tour! The next steps will show you admin features. If you click "Next" without clicking Admin, you\'ll miss important admin functionality.',
+      content: i18n.t('tour.steps.adminTab', { ns: 'common' }),
       placement: 'bottom',
       spotlightClicks: true,
       disableBeacon: false,
@@ -77,52 +78,52 @@ export const getTourSteps = (): TourStepsConfig => {
     },
     {
       target: '[data-tour-id="admin-users"]',
-      content: 'In the admin panel, manage team members, create new users, and assign roles.',
+      content: i18n.t('tour.steps.adminUsers', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-boards"]',
-      content: 'Create, rename, and delete boards. Organize your workspace with multiple project boards.',
+      content: i18n.t('tour.steps.adminBoards', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-columns"]',
-      content: 'Customize your workflow by creating, renaming, and reordering columns. Set up your process stages.',
+      content: i18n.t('tour.steps.adminColumns', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-settings"]',
-      content: 'Configure site settings, email server, SSO, and other system preferences.',
+      content: i18n.t('tour.steps.adminSettings', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-tags"]',
-      content: 'Create and manage tags to categorize and organize your tasks effectively.',
+      content: i18n.t('tour.steps.adminTags', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-priorities"]',
-      content: 'Set up priority levels for your tasks to help team members understand urgency.',
+      content: i18n.t('tour.steps.adminPriorities', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-app-settings"]',
-      content: 'Configure application settings, user preferences, and system behavior in the App Settings tab.',
+      content: i18n.t('tour.steps.adminAppSettings', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-project-settings"]',
-      content: 'Manage project-specific settings, workflows, and custom configurations in Project Settings.',
+      content: i18n.t('tour.steps.adminProjectSettings', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="admin-licensing"]',
-      content: 'View and manage your license information, usage limits, and subscription details.',
+      content: i18n.t('tour.steps.adminLicensing', { ns: 'common' }),
       placement: 'bottom',
     },
     {
       target: '[data-tour-id="system-usage-panel"]',
-      content: 'This system usage panel shows real-time resource monitoring: RAM usage, CPU usage, and disk space. It helps you monitor your instance performance and resource consumption.',
+      content: i18n.t('tour.steps.systemUsagePanel', { ns: 'common' }),
       placement: 'left',
     },
   ];

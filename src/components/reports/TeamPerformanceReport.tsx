@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Users, Calendar, RefreshCw, Trophy, CheckCircle2, MessageSquare, UserPlus, Printer, ChevronDown, Search, X } from 'lucide-react';
 import DateRangeSelector from './DateRangeSelector';
 import { getBoards } from '../../api';
@@ -45,6 +46,7 @@ interface TeamPerformanceReportProps {
 }
 
 const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFilters, onFiltersChange }) => {
+  const { t } = useTranslation('common');
   const [startDate, setStartDate] = useState(initialFilters?.startDate || '');
   const [endDate, setEndDate] = useState(initialFilters?.endDate || '');
   const [boardId, setBoardId] = useState(initialFilters?.boardId || '');
@@ -150,7 +152,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
 
   const fetchPerformanceData = async () => {
     if (!startDate || !endDate) {
-      setError('Please select both start and end dates');
+      setError(t('reports.teamPerformance.selectBothDates'));
       return;
     }
 
@@ -170,13 +172,13 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch team performance data');
+        throw new Error(t('reports.teamPerformance.failedToFetch'));
       }
 
       const data = await response.json();
       setPerformanceData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -334,19 +336,19 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Users className="w-7 h-7 text-indigo-500" />
-            Team Performance
+            {t('reports.teamPerformance.title')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            View team activity and productivity metrics
+            {t('reports.teamPerformance.description')}
           </p>
         </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
-          title="Print report"
+          title={t('reports.taskList.printReport')}
         >
           <Printer className="w-4 h-4" />
-          Print
+          {t('reports.taskList.print')}
         </button>
       </div>
 
@@ -355,7 +357,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Select Period</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">{t('reports.teamPerformance.selectPeriod')}</h3>
           </div>
           {startDate && endDate && (
             <button
@@ -364,7 +366,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('reports.taskList.refresh')}
             </button>
           )}
         </div>
@@ -378,7 +380,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
 
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Board Filter (Optional)
+            {t('reports.taskList.boardFilter')}
           </label>
           <div className="relative">
             <button
@@ -387,7 +389,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
             >
               <span className={boardId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
-                {boardId ? boards.find(b => b.id === boardId)?.title || 'All Boards' : 'All Boards'}
+                {boardId ? boards.find(b => b.id === boardId)?.title || t('reports.taskList.allBoards') : t('reports.taskList.allBoards')}
               </span>
               <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showBoardDropdown ? 'rotate-180' : ''}`} />
             </button>
@@ -411,7 +413,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                         value={boardSearchTerm}
                         onChange={(e) => setBoardSearchTerm(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Search boards..."
+                        placeholder={t('reports.taskList.searchBoards')}
                         className="w-full pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -449,7 +451,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                         !boardId ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 font-medium' : 'text-gray-900 dark:text-white'
                       }`}
                     >
-                      All Boards
+                      {t('reports.taskList.allBoards')}
                     </button>
 
                     {/* Individual Boards */}
@@ -482,7 +484,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                     {/* No Results */}
                     {boardSearchTerm && filteredBoards.length === 0 && (
                       <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                        No boards found
+                        {t('reports.taskList.noBoardsFound')}
                       </div>
                     )}
                   </div>
@@ -515,7 +517,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
-                <div className="text-sm text-gray-600 dark:text-gray-400">Team Members</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">{t('reports.teamPerformance.teamMembers')}</div>
               </div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {performanceData.summary.totalUsers}
@@ -524,7 +526,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
             <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400" />
-                <div className="text-sm text-gray-600 dark:text-gray-400">Tasks Completed</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">{t('reports.teamPerformance.tasksCompleted')}</div>
               </div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {performanceData.summary.totalTasksCompleted}
@@ -533,7 +535,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
             <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <Trophy className="w-5 h-5 text-purple-600 dark:text-purple-400" />
-                <div className="text-sm text-gray-600 dark:text-gray-400">Total Effort</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">{t('reports.teamPerformance.totalEffort')}</div>
               </div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {performanceData.summary.totalEffortCompleted}
@@ -542,7 +544,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
             <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <MessageSquare className="w-5 h-5 text-orange-600 dark:text-orange-400" />
-                <div className="text-sm text-gray-600 dark:text-gray-400">Comments</div>
+                <div className="text-sm text-gray-600 dark:text-gray-400">{t('reports.teamPerformance.comments')}</div>
               </div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {performanceData.summary.totalComments}
@@ -558,25 +560,25 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                   <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
                     <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Team Member
+                        {t('reports.teamPerformance.tableHeaders.teamMember')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Created
+                        {t('reports.teamPerformance.tableHeaders.created')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Completed
+                        {t('reports.teamPerformance.tableHeaders.completed')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Effort
+                        {t('reports.teamPerformance.tableHeaders.effort')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Comments
+                        {t('reports.teamPerformance.tableHeaders.comments')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Collaborations
+                        {t('reports.teamPerformance.tableHeaders.collaborations')}
                       </th>
                       <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Points
+                        {t('reports.teamPerformance.tableHeaders.points')}
                       </th>
                     </tr>
                   </thead>
@@ -584,7 +586,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                     {performanceData.users.map((user) => (
                       <tr key={user.user_id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                          {user.user_name || 'Unknown'}
+                          {user.user_name || t('reports.teamPerformance.unknown')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400 text-right">
                           {user.tasks_created}
@@ -610,7 +612,7 @@ const TeamPerformanceReport: React.FC<TeamPerformanceReportProps> = ({ initialFi
                 </table>
               ) : (
                 <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                  No activity data found for the selected period
+                  {t('reports.teamPerformance.noActivityData')}
                 </div>
               )}
             </div>

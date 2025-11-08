@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface Settings {
   SITE_NAME?: string;
@@ -24,6 +25,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   successMessage,
   error,
 }) => {
+  const { t } = useTranslation('admin');
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
@@ -31,29 +33,29 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Site Settings</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('siteSettings.title')}</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          Configure basic site information that appears throughout the application.
+          {t('siteSettings.description')}
         </p>
       </div>
       
       <div className="space-y-6">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Site Name
+            {t('siteSettings.siteName')}
           </label>
           <input
             type="text"
             value={editingSettings.SITE_NAME || ''}
             onChange={(e) => handleInputChange('SITE_NAME', e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-            placeholder="Enter site name"
+            placeholder={t('siteSettings.enterSiteName')}
           />
         </div>
         
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Site URL
+            {t('siteSettings.siteUrl')}
           </label>
           <input
             type="url"
@@ -66,7 +68,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
         
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Website URL (Customer Portal)
+            {t('siteSettings.websiteUrl')}
           </label>
           <input
             type="url"
@@ -76,7 +78,7 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
             placeholder="https://customer-portal.example.com"
           />
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            URL to your customer portal for subscription management
+            {t('siteSettings.websiteUrlDescription')}
           </p>
         </div>
         
@@ -116,13 +118,13 @@ const AdminSiteSettingsTab: React.FC<AdminSiteSettingsTabProps> = ({
             onClick={() => onSave()}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
-            Save Changes
+            {t('siteSettings.saveChanges')}
           </button>
           <button
             onClick={onCancel}
             className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
           >
-            Cancel
+            {t('siteSettings.cancel')}
           </button>
         </div>
       </div>

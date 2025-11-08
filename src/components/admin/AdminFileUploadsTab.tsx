@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Save, RefreshCw } from 'lucide-react';
 
 interface AdminFileUploadsTabProps {
@@ -24,6 +25,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   successMessage,
   error,
 }) => {
+  const { t } = useTranslation('admin');
   const [isSaving, setIsSaving] = useState(false);
   const [isTogglingLimits, setIsTogglingLimits] = useState(false);
   const [fileTypes, setFileTypes] = useState<FileTypeConfig>({});
@@ -33,69 +35,69 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   // Define all possible file types with their descriptions
   const fileTypeCategories = [
     {
-      name: 'Images',
+      name: t('fileUploads.categories.images'),
       types: [
-        { mime: 'image/jpeg', label: 'JPEG Images', ext: '.jpg, .jpeg' },
-        { mime: 'image/png', label: 'PNG Images', ext: '.png' },
-        { mime: 'image/gif', label: 'GIF Images', ext: '.gif' },
-        { mime: 'image/webp', label: 'WebP Images', ext: '.webp' },
-        { mime: 'image/svg+xml', label: 'SVG Images', ext: '.svg' },
-        { mime: 'image/bmp', label: 'BMP Images', ext: '.bmp' },
-        { mime: 'image/tiff', label: 'TIFF Images', ext: '.tiff, .tif' },
-        { mime: 'image/ico', label: 'Icon Files', ext: '.ico' },
-        { mime: 'image/heic', label: 'HEIC Images (Apple)', ext: '.heic' },
-        { mime: 'image/heif', label: 'HEIF Images', ext: '.heif' },
-        { mime: 'image/avif', label: 'AVIF Images', ext: '.avif' }
+        { mime: 'image/jpeg', label: t('fileUploads.types.jpegImages'), ext: '.jpg, .jpeg' },
+        { mime: 'image/png', label: t('fileUploads.types.pngImages'), ext: '.png' },
+        { mime: 'image/gif', label: t('fileUploads.types.gifImages'), ext: '.gif' },
+        { mime: 'image/webp', label: t('fileUploads.types.webpImages'), ext: '.webp' },
+        { mime: 'image/svg+xml', label: t('fileUploads.types.svgImages'), ext: '.svg' },
+        { mime: 'image/bmp', label: t('fileUploads.types.bmpImages'), ext: '.bmp' },
+        { mime: 'image/tiff', label: t('fileUploads.types.tiffImages'), ext: '.tiff, .tif' },
+        { mime: 'image/ico', label: t('fileUploads.types.iconFiles'), ext: '.ico' },
+        { mime: 'image/heic', label: t('fileUploads.types.heicImages'), ext: '.heic' },
+        { mime: 'image/heif', label: t('fileUploads.types.heifImages'), ext: '.heif' },
+        { mime: 'image/avif', label: t('fileUploads.types.avifImages'), ext: '.avif' }
       ]
     },
     {
-      name: 'Videos',
+      name: t('fileUploads.categories.videos'),
       types: [
-        { mime: 'video/mp4', label: 'MP4 Videos', ext: '.mp4' },
-        { mime: 'video/webm', label: 'WebM Videos', ext: '.webm' },
-        { mime: 'video/ogg', label: 'Ogg Videos', ext: '.ogv' },
-        { mime: 'video/quicktime', label: 'QuickTime Videos', ext: '.mov' },
-        { mime: 'video/x-msvideo', label: 'AVI Videos', ext: '.avi' },
-        { mime: 'video/x-ms-wmv', label: 'WMV Videos', ext: '.wmv' },
-        { mime: 'video/x-matroska', label: 'MKV Videos', ext: '.mkv' },
-        { mime: 'video/mpeg', label: 'MPEG Videos', ext: '.mpeg, .mpg' },
-        { mime: 'video/3gpp', label: '3GP Videos (Mobile)', ext: '.3gp' }
+        { mime: 'video/mp4', label: t('fileUploads.types.mp4Videos'), ext: '.mp4' },
+        { mime: 'video/webm', label: t('fileUploads.types.webmVideos'), ext: '.webm' },
+        { mime: 'video/ogg', label: t('fileUploads.types.oggVideos'), ext: '.ogv' },
+        { mime: 'video/quicktime', label: t('fileUploads.types.quicktimeVideos'), ext: '.mov' },
+        { mime: 'video/x-msvideo', label: t('fileUploads.types.aviVideos'), ext: '.avi' },
+        { mime: 'video/x-ms-wmv', label: t('fileUploads.types.wmvVideos'), ext: '.wmv' },
+        { mime: 'video/x-matroska', label: t('fileUploads.types.mkvVideos'), ext: '.mkv' },
+        { mime: 'video/mpeg', label: t('fileUploads.types.mpegVideos'), ext: '.mpeg, .mpg' },
+        { mime: 'video/3gpp', label: t('fileUploads.types.3gpVideos'), ext: '.3gp' }
       ]
     },
     {
-      name: 'Documents',
+      name: t('fileUploads.categories.documents'),
       types: [
-        { mime: 'application/pdf', label: 'PDF Documents', ext: '.pdf' },
-        { mime: 'text/plain', label: 'Text Files', ext: '.txt' },
-        { mime: 'text/csv', label: 'CSV Files', ext: '.csv' }
+        { mime: 'application/pdf', label: t('fileUploads.types.pdfDocuments'), ext: '.pdf' },
+        { mime: 'text/plain', label: t('fileUploads.types.textFiles'), ext: '.txt' },
+        { mime: 'text/csv', label: t('fileUploads.types.csvFiles'), ext: '.csv' }
       ]
     },
     {
-      name: 'Office Documents',
+      name: t('fileUploads.categories.officeDocuments'),
       types: [
-        { mime: 'application/msword', label: 'Word Documents (Legacy)', ext: '.doc' },
-        { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: 'Word Documents', ext: '.docx' },
-        { mime: 'application/vnd.ms-excel', label: 'Excel Spreadsheets (Legacy)', ext: '.xls' },
-        { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: 'Excel Spreadsheets', ext: '.xlsx' },
-        { mime: 'application/vnd.ms-powerpoint', label: 'PowerPoint Presentations (Legacy)', ext: '.ppt' },
-        { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', label: 'PowerPoint Presentations', ext: '.pptx' }
+        { mime: 'application/msword', label: t('fileUploads.types.wordDocumentsLegacy'), ext: '.doc' },
+        { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: t('fileUploads.types.wordDocuments'), ext: '.docx' },
+        { mime: 'application/vnd.ms-excel', label: t('fileUploads.types.excelSpreadsheetsLegacy'), ext: '.xls' },
+        { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', label: t('fileUploads.types.excelSpreadsheets'), ext: '.xlsx' },
+        { mime: 'application/vnd.ms-powerpoint', label: t('fileUploads.types.powerPointPresentationsLegacy'), ext: '.ppt' },
+        { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', label: t('fileUploads.types.powerPointPresentations'), ext: '.pptx' }
       ]
     },
     {
-      name: 'Archives',
+      name: t('fileUploads.categories.archives'),
       types: [
-        { mime: 'application/zip', label: 'ZIP Archives', ext: '.zip' },
-        { mime: 'application/x-rar-compressed', label: 'RAR Archives', ext: '.rar' },
-        { mime: 'application/x-7z-compressed', label: '7-Zip Archives', ext: '.7z' }
+        { mime: 'application/zip', label: t('fileUploads.types.zipArchives'), ext: '.zip' },
+        { mime: 'application/x-rar-compressed', label: t('fileUploads.types.rarArchives'), ext: '.rar' },
+        { mime: 'application/x-7z-compressed', label: t('fileUploads.types.7zipArchives'), ext: '.7z' }
       ]
     },
     {
-      name: 'Code Files',
+      name: t('fileUploads.categories.codeFiles'),
       types: [
-        { mime: 'text/javascript', label: 'JavaScript Files', ext: '.js' },
-        { mime: 'text/css', label: 'CSS Files', ext: '.css' },
-        { mime: 'text/html', label: 'HTML Files', ext: '.html' },
-        { mime: 'application/json', label: 'JSON Files', ext: '.json' }
+        { mime: 'text/javascript', label: t('fileUploads.types.javascriptFiles'), ext: '.js' },
+        { mime: 'text/css', label: t('fileUploads.types.cssFiles'), ext: '.css' },
+        { mime: 'text/html', label: t('fileUploads.types.htmlFiles'), ext: '.html' },
+        { mime: 'application/json', label: t('fileUploads.types.jsonFiles'), ext: '.json' }
       ]
     }
   ];
@@ -287,9 +289,9 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">File Upload Settings</h2>
+        <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">{t('fileUploads.title')}</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Configure file upload restrictions and security settings. These settings control what types of files users can upload and their maximum size.
+          {t('fileUploads.description')}
         </p>
       </div>
 
@@ -333,11 +335,10 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
           <div className="flex items-start justify-between pb-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex-1">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                Enforce Upload Restrictions
+                {t('fileUploads.enforceUploadRestrictions')}
               </label>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                When enabled, file uploads will be restricted by size and type settings below. 
-                When disabled, all file uploads will be allowed regardless of these settings.
+                {t('fileUploads.enforceUploadRestrictionsDescription')}
               </p>
             </div>
             <div className="ml-6 flex-shrink-0">
@@ -369,10 +370,10 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
           <div className="flex items-start justify-between">
             <div className="flex-1">
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                Maximum File Size
+                {t('fileUploads.maximumFileSize')}
               </label>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Set the maximum file size allowed for uploads. Larger files will be rejected.
+                {t('fileUploads.maximumFileSizeDescription')}
               </p>
             </div>
             <div className="ml-6 flex-shrink-0">
@@ -385,7 +386,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
                   onChange={(e) => handleMaxFileSizeChange(parseInt(e.target.value) || 1)}
                   className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 />
-                <span className="text-sm text-gray-500 dark:text-gray-400">MB</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{t('fileUploads.mb')}</span>
               </div>
             </div>
           </div>
@@ -395,10 +396,10 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
             <div className="flex items-center justify-between mb-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                  Allowed File Types
+                  {t('fileUploads.allowedFileTypes')}
                 </label>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Select which file types are allowed for upload. Unchecked types will be rejected.
+                  {t('fileUploads.allowedFileTypesDescription')}
                 </p>
               </div>
               <div className="flex space-x-2">
@@ -407,14 +408,14 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
                   onClick={() => toggleAllFileTypes(true)}
                   className="px-3 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
                 >
-                  Allow All
+                  {t('fileUploads.allowAll')}
                 </button>
                 <button
                   type="button"
                   onClick={() => toggleAllFileTypes(false)}
                   className="px-3 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
                 >
-                  Block All
+                  {t('fileUploads.blockAll')}
                 </button>
               </div>
             </div>
@@ -459,7 +460,7 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
             onClick={onCancel}
             className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-md shadow-sm hover:bg-gray-50 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            Cancel
+            {t('fileUploads.cancel')}
           </button>
           <button
             type="button"
@@ -470,12 +471,12 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
             {isSaving ? (
               <>
                 <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                Saving...
+                {t('fileUploads.saving')}
               </>
             ) : (
               <>
                 <Save className="w-4 h-4 mr-2" />
-                Save Changes
+                {t('fileUploads.saveChanges')}
               </>
             )}
           </button>

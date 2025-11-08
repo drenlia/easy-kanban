@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface GanttTask {
   id: string;
@@ -24,6 +25,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
   onTaskSelect,
   className = ''
 }) => {
+  const { t } = useTranslation('common');
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -110,7 +112,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
       ? ` (${task.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${task.endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
       : task.startDate 
         ? ` (${task.startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
-        : ' (No dates)';
+        : ` (${t('gantt.noDates')})`;
     
     return `${task.ticket}: ${task.title}${dateInfo}`;
   };
@@ -140,7 +142,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
           }}
           onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
-          placeholder="🔍 Jump to task..."
+          placeholder={t('gantt.jumpToTaskPlaceholder')}
           className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm"
         />
         
@@ -165,7 +167,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
               {/* Search Results Header */}
               {searchTerm && (
                 <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-                  {filteredTasks.length} task{filteredTasks.length !== 1 ? 's' : ''} found
+                  {t('gantt.tasksFound', { count: filteredTasks.length })}
                 </div>
               )}
               
@@ -215,13 +217,13 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
             <div className="px-3 py-4 text-sm text-gray-500 text-center">
               {searchTerm ? (
                 <>
-                  <div>No tasks found for "{searchTerm}"</div>
-                  <div className="text-xs mt-1">Try searching by ticket number, title, or status</div>
+                  <div>{t('gantt.noTasksFoundFor', { searchTerm })}</div>
+                  <div className="text-xs mt-1">{t('gantt.trySearchingBy')}</div>
                 </>
               ) : (
                 <>
-                  <div>No tasks available</div>
-                  <div className="text-xs mt-1">Create tasks with dates to see them here</div>
+                  <div>{t('gantt.noTasksAvailable')}</div>
+                  <div className="text-xs mt-1">{t('gantt.createTasksWithDates')}</div>
                 </>
               )}
             </div>
@@ -230,7 +232,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
           {/* Keyboard Hints */}
           {filteredTasks.length > 0 && (
             <div className="px-3 py-2 text-xs text-gray-400 bg-gray-50 border-t border-gray-100">
-              Use ↑↓ to navigate, Enter to select, Esc to close
+              {t('gantt.keyboardHints')}
             </div>
           )}
         </div>

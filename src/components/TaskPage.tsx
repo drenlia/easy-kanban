@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTaskDetails } from '../hooks/useTaskDetails';
 import { Task, TeamMember, CurrentUser, Attachment } from '../types';
 import { ArrowLeft, Save, Clock, User, Calendar, AlertCircle, Tag, Users, Paperclip, Edit2, X, ChevronDown, ChevronUp, GitBranch } from 'lucide-react';
@@ -42,6 +43,7 @@ export default function TaskPage({
   // isAutoRefreshEnabled, // Disabled - using real-time updates
   // onToggleAutoRefresh // Disabled - using real-time updates
 }: TaskPageProps) {
+  const { t } = useTranslation('tasks');
   const [task, setTask] = useState<Task | null>(null);
   const [boards, setBoards] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -135,7 +137,7 @@ export default function TaskPage({
   useEffect(() => {
     const loadPageData = async () => {
       if (!taskId) {
-        setError('Invalid task ID');
+        setError(t('taskPage.invalidTaskId'));
         setIsLoading(false);
         return;
       }
@@ -169,7 +171,7 @@ export default function TaskPage({
 
         if (!taskData) {
           console.log('❌ [TaskPage] No task data received');
-          setError('Task not found');
+          setError(t('taskPage.taskNotFound'));
           return;
         }
 
@@ -185,7 +187,7 @@ export default function TaskPage({
           url: error.config?.url,
           data: error.response?.data
         });
-        setError(`Failed to load task data: ${error.response?.status || error.message}`);
+        setError(t('taskPage.failedToLoad', { status: error.response?.status || error.message }));
       } finally {
         setIsLoading(false);
       }
@@ -784,7 +786,7 @@ export default function TaskPage({
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading task...</p>
+          <p className="text-gray-600">{t('taskPage.loading')}</p>
         </div>
       </div>
     );
@@ -795,13 +797,13 @@ export default function TaskPage({
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Task Not Found</h1>
-          <p className="text-gray-600 mb-4">{error || 'The requested task could not be found.'}</p>
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('taskPage.taskNotFoundTitle')}</h1>
+          <p className="text-gray-600 mb-4">{error || t('taskPage.taskNotFoundMessage')}</p>
           <button
             onClick={handleBack}
             className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
           >
-            Back to Board
+            {t('taskPage.backToBoard')}
           </button>
         </div>
       </div>
@@ -814,7 +816,7 @@ export default function TaskPage({
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading task...</p>
+          <p className="text-gray-600">{t('taskPage.loading')}</p>
         </div>
       </div>
     );
@@ -854,7 +856,7 @@ export default function TaskPage({
                 className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
               >
                 <ArrowLeft className="h-5 w-5 mr-1" />
-                Back to Board
+                {t('taskPage.backToBoard')}
               </button>
               <div className="h-6 border-l border-gray-300"></div>
               <div>
@@ -870,18 +872,18 @@ export default function TaskPage({
               {hasChanges && (
                 <span className="text-sm text-amber-600 flex items-center">
                   <Clock className="h-4 w-4 mr-1" />
-                  Unsaved changes
+                  {t('taskPage.unsavedChanges')}
                 </span>
               )}
               {isSaving && (
                 <span className="text-sm text-blue-600 flex items-center">
                   <Save className="h-4 w-4 mr-1 animate-spin" />
-                  Saving...
+                  {t('taskPage.saving')}
                 </span>
               )}
               {lastSaved && !hasChanges && !isSaving && (
                 <span className="text-sm text-green-600">
-                  Saved {lastSaved.toLocaleTimeString()}
+                  {t('taskPage.saved', { time: lastSaved.toLocaleTimeString() })}
                 </span>
               )}
             </div>
@@ -898,19 +900,19 @@ export default function TaskPage({
             
             {/* Title */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Task Title</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">{t('taskPage.taskTitle')}</label>
               <input
                 type="text"
                 value={editedTask.title}
                 onChange={(e) => handleTaskUpdate({ title: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-lg font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                placeholder="Enter task title..."
+                placeholder={t('placeholders.enterTitle')}
               />
             </div>
 
             {/* Description */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-4">Description</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-4">{t('labels.description')}</label>
               <TextEditor
                 onSubmit={async () => {
                   // Save pending attachments when submit is triggered
@@ -921,7 +923,7 @@ export default function TaskPage({
                 onAttachmentDelete={handleAttachmentDelete}
                 onImageRemovalNeeded={handleImageRemoval}
                 initialContent={editedTask.description || ''}
-                placeholder="Enter task description..."
+                placeholder={t('placeholders.enterDescription')}
                 minHeight="120px"
                 showSubmitButtons={false}
                 showAttachments={true}
@@ -946,7 +948,7 @@ export default function TaskPage({
               {uploadError && (
                 <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
                   <div className="text-sm text-red-600 dark:text-red-400">
-                    Upload error: {uploadError}
+                    {t('taskPage.uploadError', { error: uploadError })}
                   </div>
                 </div>
               )}
@@ -957,7 +959,7 @@ export default function TaskPage({
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-4 flex items-center">
                   <Paperclip className="h-4 w-4 mr-2" />
-                  Attachments ({displayAttachments.length})
+                  {t('taskPage.attachments', { count: displayAttachments.length })}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {displayAttachments.map((attachment) => (
@@ -966,7 +968,7 @@ export default function TaskPage({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{attachment.name}</p>
                         <p className="text-xs text-gray-500">
-                          {attachment.size ? `${Math.round(attachment.size / 1024)} KB` : 'Unknown size'}
+                          {attachment.size ? `${Math.round(attachment.size / 1024)} KB` : t('taskPage.unknownSize')}
                         </p>
                       </div>
                       <div className="flex items-center space-x-2">
@@ -976,13 +978,13 @@ export default function TaskPage({
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm"
                         >
-                          View
+                          {t('taskPage.view')}
                         </a>
                         <button
                           onClick={() => handleAttachmentDelete(attachment.id)}
                           className="text-red-600 hover:text-red-800 text-sm"
                         >
-                          Delete
+                          {t('taskPage.delete')}
                         </button>
                       </div>
                     </div>
@@ -995,14 +997,14 @@ export default function TaskPage({
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6">
               <h3 className="text-sm font-medium text-gray-700 mb-4 flex items-center">
                 <Users className="h-4 w-4 mr-2" />
-                Comments ({(editedTask.comments || []).filter(comment => 
+                {t('taskPage.comments', { count: (editedTask.comments || []).filter(comment => 
                   comment && 
                   comment.id && 
                   comment.text && 
                   comment.text.trim() !== '' && 
                   comment.authorId && 
                   comment.createdAt
-                ).length})
+                ).length })}
               </h3>
               {/* Add Comment Section */}
               <div className="mb-6">
@@ -1018,10 +1020,10 @@ export default function TaskPage({
                     // The TextEditor handles clearing its own content and attachments
                     // No additional action needed here
                   }}
-                  placeholder="Add a comment..."
+                  placeholder={t('taskPage.addCommentPlaceholder')}
                   showAttachments={true}
-                  submitButtonText="Add Comment"
-                  cancelButtonText="Cancel"
+                  submitButtonText={t('taskPage.addComment')}
+                  cancelButtonText={t('buttons.cancel', { ns: 'common' })}
                   attachmentContext="comment"
                   allowImagePaste={true}
                   allowImageDelete={true}
@@ -1076,14 +1078,14 @@ export default function TaskPage({
                             <button
                               onClick={() => handleEditComment(comment)}
                               className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
-                              title="Edit comment"
+                              title={t('taskPage.editComment')}
                             >
                               <Edit2 size={14} />
                             </button>
                             <button
                               onClick={() => handleDeleteCommentClick(comment.id)}
                               className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
-                              title="Delete comment"
+                              title={t('taskPage.deleteComment')}
                             >
                               <X size={14} />
                             </button>
@@ -1095,12 +1097,12 @@ export default function TaskPage({
                           initialContent={editingCommentText}
                           onSubmit={handleSaveEditComment}
                           onCancel={handleCancelEditComment}
-                          placeholder="Edit comment..."
+                          placeholder={t('taskPage.editCommentPlaceholder')}
                           minHeight="80px"
                           showToolbar={true}
                           showSubmitButtons={true}
-                          submitButtonText="Save Changes"
-                          cancelButtonText="Cancel"
+                          submitButtonText={t('taskPage.saveChanges')}
+                          cancelButtonText={t('buttons.cancel', { ns: 'common' })}
                           className="border rounded"
                           showAttachments={true}
                           attachmentContext="comment"
@@ -1177,7 +1179,7 @@ export default function TaskPage({
                 })}
                 
                 {(!editedTask.comments || editedTask.comments.length === 0) && (
-                  <p className="text-sm text-gray-500 text-center py-4">No comments yet</p>
+                  <p className="text-sm text-gray-500 text-center py-4">{t('taskPage.noComments')}</p>
                 )}
               </div>
             </div>
@@ -1190,7 +1192,7 @@ export default function TaskPage({
               >
                 <h3 className="text-sm font-medium text-gray-700 flex items-center">
                   <GitBranch className="h-4 w-4 mr-2" />
-                  Task Flow Chart
+                  {t('taskPage.taskFlowChart')}
                 </h3>
                 {collapsedSections.taskFlow ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
@@ -1220,7 +1222,7 @@ export default function TaskPage({
               >
                 <h3 className="text-sm font-medium text-gray-700 flex items-center">
                   <User className="h-4 w-4 mr-2" />
-                  Assignment
+                  {t('taskPage.assignment')}
                 </h3>
                 {collapsedSections.assignment ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
@@ -1232,7 +1234,7 @@ export default function TaskPage({
                 <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Assigned To</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.assignedTo')}</label>
                   <select
                     value={editedTask.memberId}
                     onChange={(e) => handleTaskUpdate({ memberId: e.target.value })}
@@ -1247,7 +1249,7 @@ export default function TaskPage({
                 </div>
                 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Requested By</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.requestedBy')}</label>
                   <select
                     value={editedTask.requesterId}
                     onChange={(e) => handleTaskUpdate({ requesterId: e.target.value })}
@@ -1263,7 +1265,7 @@ export default function TaskPage({
                 
                 {/* Watchers */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Watchers</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.watchers')}</label>
                   <div className="space-y-2">
                     <div className="flex flex-wrap gap-1">
                       {taskWatchers.map((watcher) => (
@@ -1301,7 +1303,7 @@ export default function TaskPage({
                       }}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="">Add watcher...</option>
+                      <option value="">{t('taskPage.addWatcher')}</option>
                       {members
                         .filter(member => !taskWatchers.some(w => w.id === member.id))
                         .map((member) => (
@@ -1315,7 +1317,7 @@ export default function TaskPage({
 
                 {/* Collaborators */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Collaborators</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.collaborators')}</label>
                   <div className="space-y-2">
                     <div className="flex flex-wrap gap-1">
                       {taskCollaborators.map((collaborator) => (
@@ -1353,7 +1355,7 @@ export default function TaskPage({
                       }}
                       className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="">Add collaborator...</option>
+                      <option value="">{t('taskPage.addCollaborator')}</option>
                       {members
                         .filter(member => !taskCollaborators.some(c => c.id === member.id))
                         .map((member) => (
@@ -1377,7 +1379,7 @@ export default function TaskPage({
               >
                 <h3 className="text-sm font-medium text-gray-700 flex items-center">
                   <Calendar className="h-4 w-4 mr-2" />
-                  Schedule & Priority
+                  {t('taskPage.scheduleAndPriority')}
                 </h3>
                 {collapsedSections.schedule ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
@@ -1389,7 +1391,7 @@ export default function TaskPage({
                 <div className="px-6 pb-6">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Priority</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.priority')}</label>
                   <select
                     value={editedTask.priorityId || ''}
                     onChange={(e) => {
@@ -1402,7 +1404,7 @@ export default function TaskPage({
                     }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="">No Priority</option>
+                    <option value="">{t('taskPage.noPriority')}</option>
                     {availablePriorities.map((priority) => (
                       <option key={priority.id} value={priority.id}>
                         {priority.priority}
@@ -1412,7 +1414,7 @@ export default function TaskPage({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Start Date</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.startDate')}</label>
                   <input
                     type="date"
                     value={editedTask.startDate || ''}
@@ -1422,7 +1424,7 @@ export default function TaskPage({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Due Date</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.dueDate')}</label>
                   <input
                     type="date"
                     value={editedTask.dueDate || ''}
@@ -1432,7 +1434,7 @@ export default function TaskPage({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Effort (hours)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.effort')}</label>
                   <input
                     type="number"
                     min="0"
@@ -1456,7 +1458,7 @@ export default function TaskPage({
               >
                 <h3 className="text-sm font-medium text-gray-700 flex items-center">
                   <Tag className="h-4 w-4 mr-2" />
-                  Tags
+                  {t('labels.tags')}
                 </h3>
                 {collapsedSections.tags ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
@@ -1494,7 +1496,7 @@ export default function TaskPage({
                     </span>
                   ))}
                   {taskTags.length === 0 && (
-                    <p className="text-sm text-gray-500">No tags assigned</p>
+                    <p className="text-sm text-gray-500">{t('taskPage.noTagsAssigned')}</p>
                   )}
                 </div>
                 {availableTags.length > 0 && (
@@ -1511,7 +1513,7 @@ export default function TaskPage({
                     }}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
                   >
-                    <option value="">Add tag...</option>
+                    <option value="">{t('taskPage.addTag')}</option>
                     {availableTags
                       .filter(tag => !taskTags.some(t => t.id === tag.id))
                       .map((tag) => (
@@ -1534,7 +1536,7 @@ export default function TaskPage({
               >
                 <h3 className="text-sm font-medium text-gray-700 flex items-center">
                   <Users className="h-4 w-4 mr-2" />
-                  Task Association
+                  {t('taskPage.taskAssociation')}
                 </h3>
                 {collapsedSections.associations ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
@@ -1549,7 +1551,7 @@ export default function TaskPage({
                   {/* Parent Field - Left Side */}
                   {parentTask && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Parent:</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.parent')}:</label>
                       <span 
                         onClick={() => {
                           const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
@@ -1572,7 +1574,7 @@ export default function TaskPage({
                   
                   {/* Children Field - Right Side */}
                   <div className={parentTask ? '' : 'col-span-2'}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Child(ren):</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.children')}:</label>
                     
                     {/* Selected Children Display */}
                     {childTasks.length > 0 && (
@@ -1603,7 +1605,7 @@ export default function TaskPage({
                               type="button"
                               onClick={() => handleRemoveChildTask(child.id)}
                               className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                              title="Remove child task"
+                              title={t('taskPage.removeChildTask')}
                             >
                               ×
                             </button>
@@ -1620,7 +1622,7 @@ export default function TaskPage({
                         className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
                       >
                         <span className="text-gray-700 dark:text-gray-200">
-                          Add child task...
+                          {t('taskPage.addChildTask')}
                         </span>
                         <ChevronDown size={16} className={`transform transition-transform ${showChildrenDropdown ? 'rotate-180' : ''}`} />
                       </button>
@@ -1631,7 +1633,7 @@ export default function TaskPage({
                           <div className="p-2 border-b border-gray-200">
                             <input
                               type="text"
-                              placeholder="Search tasks by number or title..."
+                              placeholder={t('taskPage.searchTasks')}
                               value={childrenSearchTerm}
                               onChange={(e) => setChildrenSearchTerm(e.target.value)}
                               className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -1655,7 +1657,7 @@ export default function TaskPage({
                               ))
                             ) : (
                               <div className="px-3 py-2 text-sm text-gray-500">
-                                {childrenSearchTerm ? 'No tasks found matching your search' : 'No available tasks'}
+                                {childrenSearchTerm ? t('taskPage.noTasksFound') : t('taskPage.noAvailableTasks')}
                               </div>
                             )}
                           </div>
@@ -1676,7 +1678,7 @@ export default function TaskPage({
                 className={`p-6 cursor-pointer flex items-center justify-between ${collapsedSections.taskInfo ? 'pb-3' : 'pb-0'}`}
                 onClick={() => toggleSection('taskInfo')}
               >
-                <h3 className="text-sm font-medium text-gray-700">Task Information</h3>
+                <h3 className="text-sm font-medium text-gray-700">{t('taskPage.taskInformation')}</h3>
                 {collapsedSections.taskInfo ? (
                   <ChevronDown className="h-4 w-4 text-gray-400 hover:text-gray-600" />
                 ) : (
@@ -1687,32 +1689,32 @@ export default function TaskPage({
                 <div className="px-6 pb-6">
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Task ID:</span>
+                  <span className="text-gray-600">{t('taskPage.taskId')}:</span>
                   <span className="font-mono text-gray-900">{taskId}</span>
                 </div>
                 {getProjectIdentifier() && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Project:</span>
+                    <span className="text-gray-600">{t('taskPage.project')}:</span>
                     <span className="font-mono text-gray-900">{getProjectIdentifier()}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Status:</span>
-                  <span className="capitalize text-gray-900">{editedTask.status || 'Unknown'}</span>
+                  <span className="text-gray-600">{t('taskPage.status')}:</span>
+                  <span className="capitalize text-gray-900">{editedTask.status || t('taskPage.unknown')}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Created:</span>
+                  <span className="text-gray-600">{t('labels.created')}:</span>
                   <span className="text-gray-900">
                     {editedTask.created_at ? new Date(editedTask.created_at).toLocaleDateString() : 
-                     editedTask.createdAt ? new Date(editedTask.createdAt).toLocaleDateString() : 'Unknown'}
+                     editedTask.createdAt ? new Date(editedTask.createdAt).toLocaleDateString() : t('taskPage.unknown')}
                   </span>
                 </div>
                 {(editedTask.updated_at || editedTask.updatedAt) && (
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Updated:</span>
+                    <span className="text-gray-600">{t('labels.updated')}:</span>
                     <span className="text-gray-900">
                       {editedTask.updated_at ? new Date(editedTask.updated_at).toLocaleDateString() :
-                       editedTask.updatedAt ? new Date(editedTask.updatedAt).toLocaleDateString() : 'Unknown'}
+                       editedTask.updatedAt ? new Date(editedTask.updatedAt).toLocaleDateString() : t('taskPage.unknown')}
                     </span>
                   </div>
                 )}

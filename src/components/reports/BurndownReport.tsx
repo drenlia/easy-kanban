@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TrendingUp, Calendar, Info, RefreshCw, ChevronDown, Search, X, ZoomOut, Printer } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceArea, ReferenceLine } from 'recharts';
 import DateRangeSelector from './DateRangeSelector';
@@ -50,6 +51,7 @@ interface Board {
 }
 
 const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFiltersChange }) => {
+  const { t } = useTranslation('common');
   const [startDate, setStartDate] = useState(initialFilters?.startDate || '');
   const [endDate, setEndDate] = useState(initialFilters?.endDate || '');
   const [boardId, setBoardId] = useState(initialFilters?.boardId || '');
@@ -169,7 +171,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
 
   const fetchBurndownData = async () => {
     if (!startDate || !endDate) {
-      setError('Please select both start and end dates');
+      setError(t('reports.burndown.selectBothDates'));
       return;
     }
 
@@ -192,13 +194,13 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch burndown data');
+        throw new Error(t('reports.burndown.failedToFetch'));
       }
 
       const data = await response.json();
       setBurndownData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -569,19 +571,19 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <TrendingUp className="w-7 h-7 text-blue-500" />
-            Burndown Chart
+            {t('reports.burndown.title')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Track planned vs actual task completion over time
+            {t('reports.burndown.description')}
           </p>
         </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
-          title="Print report"
+          title={t('reports.taskList.printReport')}
         >
           <Printer className="w-4 h-4" />
-          Print
+          {t('reports.taskList.print')}
         </button>
       </div>
 
@@ -590,7 +592,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Select Period</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">{t('reports.teamPerformance.selectPeriod')}</h3>
           </div>
           {startDate && endDate && (
             <button
@@ -599,7 +601,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('reports.taskList.refresh')}
             </button>
           )}
         </div>
@@ -613,7 +615,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
 
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Board Filter (Optional)
+            {t('reports.taskList.boardFilter')}
           </label>
           <div className="relative">
             <button
@@ -622,7 +624,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
             >
               <span className={boardId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
-                {boardId ? boards.find(b => b.id === boardId)?.title || 'All Boards' : 'All Boards'}
+                {boardId ? boards.find(b => b.id === boardId)?.title || t('reports.taskList.allBoards') : t('reports.taskList.allBoards')}
               </span>
               <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showBoardDropdown ? 'rotate-180' : ''}`} />
             </button>
@@ -646,7 +648,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                         value={boardSearchTerm}
                         onChange={(e) => setBoardSearchTerm(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Search boards..."
+                        placeholder={t('reports.taskList.searchBoards')}
                         className="w-full pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -684,7 +686,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                         !boardId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-900 dark:text-white'
                       }`}
                     >
-                      All Boards
+                      {t('reports.taskList.allBoards')}
                     </button>
 
                     {/* Individual Boards */}
@@ -717,7 +719,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                     {/* No Results */}
                     {boardSearchTerm && filteredBoards.length === 0 && (
                       <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                        No boards found
+                        {t('reports.taskList.noBoardsFound')}
                       </div>
                     )}
                   </div>
@@ -748,19 +750,19 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
           {/* Summary Metrics */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Tasks</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.burndown.totalTasks')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {burndownData.metrics.totalTasks}
               </div>
             </div>
             <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Effort</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.burndown.totalEffort')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {burndownData.metrics.totalEffort}
               </div>
             </div>
             <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Period Days</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.burndown.periodDays')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {burndownData.metrics.totalDays}
               </div>
@@ -772,7 +774,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
             <div className="mt-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  Burndown Chart - Tasks Remaining
+                  {t('reports.burndown.chartTitle')}
                 </h3>
                 {zoomState && (
                   <button
@@ -780,7 +782,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                     className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors"
                   >
                     <ZoomOut className="w-4 h-4" />
-                    Reset Zoom
+                    {t('reports.burndown.resetZoom')}
                   </button>
                 )}
               </div>
@@ -816,7 +818,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                       strokeDasharray="3 3"
                       className="text-red-500 dark:text-red-400"
                       label={{ 
-                        value: 'Today', 
+                        value: t('reports.burndown.today'), 
                         position: 'top',
                         fill: 'currentColor',
                         className: 'text-red-600 dark:text-red-400 text-xs font-semibold'
@@ -835,7 +837,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                   <YAxis 
                     stroke="currentColor" 
                     className="text-gray-600 dark:text-gray-400"
-                    label={{ value: 'Tasks Remaining', angle: -90, position: 'insideLeft' }}
+                    label={{ value: t('reports.burndown.tasksRemaining'), angle: -90, position: 'insideLeft' }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -859,7 +861,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                     stroke="#9CA3AF" 
                     strokeWidth={3}
                     strokeDasharray="5 5" 
-                    name="Ideal (Working Days)"
+                    name={t('reports.burndown.idealWorkingDays')}
                     dot={false}
                     isAnimationActive={false}
                   />
@@ -871,7 +873,7 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                       dataKey="remaining" 
                       stroke="#3B82F6" 
                       strokeWidth={3}
-                      name="Actual Remaining"
+                      name={t('reports.burndown.actualRemaining')}
                       dot={false}
                       isAnimationActive={false}
                     />
@@ -918,34 +920,34 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
                 <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-0.5 border-t-2 border-dashed border-gray-400"></div>
-                    <span>Ideal burndown (working days only)</span>
+                    <span>{t('reports.burndown.idealBurndownLegend')}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="w-4 h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                    <span>Weekends</span>
+                    <span>{t('reports.burndown.weekends')}</span>
                   </div>
                   {isTodayInRange && (
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-0.5 border-t-2 border-dashed border-red-500 dark:border-red-400"></div>
-                      <span className="text-red-600 dark:text-red-400 font-medium">Today</span>
+                      <span className="text-red-600 dark:text-red-400 font-medium">{t('reports.burndown.today')}</span>
                     </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
                   {!boardId && burndownData.boards && burndownData.boards.length > 1 && (
                     <div className="italic">
-                      💡 Click on legend items to show/hide board lines
+                      💡 {t('reports.burndown.legendHint')}
                     </div>
                   )}
                   <div className="italic">
-                    🔍 Click and drag on the chart to zoom into a specific date range
+                    🔍 {t('reports.burndown.zoomHint')}
                   </div>
                 </div>
               </div>
             </div>
           ) : (
             <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              No data available for the selected period
+              {t('reports.burndown.noDataAvailable')}
             </div>
           )}
         </div>
@@ -957,14 +959,13 @@ const BurndownReport: React.FC<BurndownReportProps> = ({ initialFilters, onFilte
           <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5" />
           <div>
             <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">
-              About Burndown Charts
+              {t('reports.burndown.aboutTitle')}
             </h4>
             <p className="text-sm text-blue-800 dark:text-blue-200 mb-2">
-              Burndown charts show the planned vs actual progress for a sprint or time period.
-              Daily snapshots are created at midnight to track task completion.
+              {t('reports.burndown.aboutDescription')}
             </p>
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>Note:</strong> Snapshots are created daily at midnight UTC. Select a date range to view historical burndown data.
+              <strong>{t('reports.burndown.note')}:</strong> {t('reports.burndown.noteDescription')}
             </p>
           </div>
         </div>

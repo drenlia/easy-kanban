@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
 
 interface ReportingSettings {
@@ -21,6 +22,7 @@ interface ReportingSettings {
 }
 
 const AdminReportingTab: React.FC = () => {
+  const { t } = useTranslation('admin');
   const [settings, setSettings] = useState<ReportingSettings>({
     REPORTS_ENABLED: 'true',
     REPORTS_GAMIFICATION_ENABLED: 'true',
@@ -102,7 +104,7 @@ const AdminReportingTab: React.FC = () => {
           ...prev,
           REPORTS_VISIBLE_TO: newValue
         }));
-        setMessage({ type: 'success', text: 'Visibility setting saved!' });
+        setMessage({ type: 'success', text: t('reporting.visibilitySettingSaved') });
         setTimeout(() => setMessage(null), 2000);
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -117,7 +119,7 @@ const AdminReportingTab: React.FC = () => {
       }));
       setMessage({
         type: 'error',
-        text: error instanceof Error ? error.message : 'Failed to save visibility setting.'
+        text: error instanceof Error ? error.message : t('reporting.failedToSaveVisibilitySetting')
       });
       setTimeout(() => setMessage(null), 3000);
     }
@@ -146,12 +148,12 @@ const AdminReportingTab: React.FC = () => {
       }
 
       setOriginalSettings(settings);
-      setMessage({ type: 'success', text: 'Reporting settings saved successfully!' });
+      setMessage({ type: 'success', text: t('reporting.settingsSavedSuccessfully') });
       setTimeout(() => setMessage(null), 3000);
     } catch (error) {
       setMessage({ 
         type: 'error', 
-        text: error instanceof Error ? error.message : 'Failed to save reporting settings' 
+        text: error instanceof Error ? error.message : t('reporting.failedToSaveSettings') 
       });
     } finally {
       setSaving(false);
@@ -185,7 +187,7 @@ const AdminReportingTab: React.FC = () => {
           ...prev,
           [key]: newValue
         }));
-        setMessage({ type: 'success', text: 'Setting saved successfully!' });
+        setMessage({ type: 'success', text: t('reporting.settingSavedSuccessfully') });
         setTimeout(() => setMessage(null), 2000);
       } else {
         const errorData = await response.json().catch(() => ({}));
@@ -200,7 +202,7 @@ const AdminReportingTab: React.FC = () => {
       }));
       setMessage({ 
         type: 'error', 
-        text: error instanceof Error ? error.message : 'Failed to save setting. Please try again.' 
+        text: error instanceof Error ? error.message : t('reporting.failedToSaveSetting') 
       });
       setTimeout(() => setMessage(null), 3000);
     }
@@ -223,7 +225,7 @@ const AdminReportingTab: React.FC = () => {
         const result = await response.json();
         setMessage({ 
           type: 'success', 
-          text: `Snapshot complete! ${result.snapshotCount || 0} tasks captured in ${result.duration || 0}ms` 
+          text: t('reporting.snapshotComplete', { count: result.snapshotCount || 0, duration: result.duration || 0 }) 
         });
         setTimeout(() => setMessage(null), 5000);
       } else {
@@ -232,7 +234,7 @@ const AdminReportingTab: React.FC = () => {
     } catch (error) {
       setMessage({ 
         type: 'error', 
-        text: error instanceof Error ? error.message : 'Failed to trigger snapshot' 
+        text: error instanceof Error ? error.message : t('reporting.failedToTriggerSnapshot') 
       });
       setTimeout(() => setMessage(null), 3000);
     } finally {
@@ -247,10 +249,10 @@ const AdminReportingTab: React.FC = () => {
       {/* Header */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Reports & Analytics Settings
+          {t('reporting.title')}
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mt-1">
-          Configure reporting features, gamification, and data retention
+          {t('reporting.description')}
         </p>
       </div>
 
@@ -270,15 +272,15 @@ const AdminReportingTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Settings className="w-5 h-5" />
-          Module Configuration
+          {t('reporting.moduleConfiguration')}
         </h3>
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-gray-900 dark:text-white">Enable Reports Module</div>
+              <div className="font-medium text-gray-900 dark:text-white">{t('reporting.enableReportsModule')}</div>
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Master toggle for all reporting features
+                {t('reporting.enableReportsModuleDescription')}
               </div>
             </div>
             <button
@@ -299,13 +301,13 @@ const AdminReportingTab: React.FC = () => {
             <div>
               <div className="font-medium text-gray-900 dark:text-white flex items-center gap-2">
                 <Trophy className="w-4 h-4 text-yellow-500" />
-                Enable Gamification
+                {t('reporting.enableGamification')}
               </div>
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Points, rankings, achievements, and badges
+                {t('reporting.enableGamificationDescription')}
               </div>
               <div className="text-xs text-yellow-600 dark:text-yellow-400 mt-1 font-medium">
-                ⚠️ Disabling hides "My Stats" and "Leaderboard" tabs
+                {t('reporting.disablingGamificationWarning')}
               </div>
             </div>
             <button
@@ -327,9 +329,9 @@ const AdminReportingTab: React.FC = () => {
 
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-gray-900 dark:text-white">Enable Leaderboard</div>
+              <div className="font-medium text-gray-900 dark:text-white">{t('reporting.enableLeaderboard')}</div>
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Team rankings and competition (requires Gamification)
+                {t('reporting.enableLeaderboardDescription')}
               </div>
             </div>
             <button
@@ -353,9 +355,9 @@ const AdminReportingTab: React.FC = () => {
 
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-medium text-gray-900 dark:text-white">Enable Achievements</div>
+              <div className="font-medium text-gray-900 dark:text-white">{t('reporting.enableAchievements')}</div>
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Badge rewards section in "My Stats" report
+                {t('reporting.enableAchievementsDescription')}
               </div>
             </div>
             <button
@@ -383,12 +385,12 @@ const AdminReportingTab: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Eye className="w-5 h-5" />
-          Visibility & Access
+          {t('reporting.visibilityAndAccess')}
         </h3>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Reports Visibility & Access
+            {t('reporting.reportsVisibilityAndAccess')}
           </label>
           <select
             value={settings.REPORTS_VISIBLE_TO}
@@ -396,11 +398,11 @@ const AdminReportingTab: React.FC = () => {
             disabled={settings.REPORTS_ENABLED === 'false'}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <option value="all">All Users (Default)</option>
-            <option value="admin">Admins Only</option>
+            <option value="all">{t('reporting.allUsers')}</option>
+            <option value="admin">{t('reporting.adminsOnly')}</option>
           </select>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Control who can access the Reports module (auto-saved)
+            {t('reporting.reportsVisibilityDescription')}
           </p>
         </div>
       </div>
@@ -409,13 +411,13 @@ const AdminReportingTab: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <Database className="w-5 h-5" />
-          Data Management
+          {t('reporting.dataManagement')}
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Snapshot Frequency
+              {t('reporting.snapshotFrequency')}
             </label>
             <select
               value={settings.REPORTS_SNAPSHOT_FREQUENCY}
@@ -423,15 +425,15 @@ const AdminReportingTab: React.FC = () => {
               disabled={settings.REPORTS_ENABLED === 'false'}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="daily">Daily (Midnight UTC)</option>
-              <option value="weekly">Weekly (Sunday)</option>
-              <option value="manual">Manual Only</option>
+              <option value="daily">{t('reporting.daily')}</option>
+              <option value="weekly">{t('reporting.weekly')}</option>
+              <option value="manual">{t('reporting.manualOnly')}</option>
             </select>
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Data Retention (Days)
+              {t('reporting.dataRetentionDays')}
             </label>
             <select
               value={settings.REPORTS_RETENTION_DAYS}
@@ -439,12 +441,12 @@ const AdminReportingTab: React.FC = () => {
               disabled={settings.REPORTS_ENABLED === 'false'}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <option value="90">90 days</option>
-              <option value="180">6 months</option>
-              <option value="365">1 year</option>
-              <option value="730">2 years</option>
-              <option value="1825">5 years</option>
-              <option value="unlimited">Unlimited</option>
+              <option value="90">{t('reporting.days90')}</option>
+              <option value="180">{t('reporting.months6')}</option>
+              <option value="365">{t('reporting.year1')}</option>
+              <option value="730">{t('reporting.years2')}</option>
+              <option value="1825">{t('reporting.years5')}</option>
+              <option value="unlimited">{t('reporting.unlimited')}</option>
             </select>
           </div>
         </div>
@@ -453,9 +455,9 @@ const AdminReportingTab: React.FC = () => {
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="text-sm font-medium text-gray-900 dark:text-white">Manual Snapshot</h4>
+              <h4 className="text-sm font-medium text-gray-900 dark:text-white">{t('reporting.manualSnapshot')}</h4>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Capture current state of all tasks immediately
+                {t('reporting.manualSnapshotDescription')}
               </p>
             </div>
             <button
@@ -466,21 +468,19 @@ const AdminReportingTab: React.FC = () => {
               {refreshing ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  Capturing...
+                  {t('reporting.capturing')}
                 </>
               ) : (
                 <>
                   <Database className="w-4 h-4" />
-                  Refresh Now
+                  {t('reporting.refreshNow')}
                 </>
               )}
             </button>
           </div>
           <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mt-3">
             <p className="text-xs text-yellow-800 dark:text-yellow-200">
-              <strong>Impact:</strong> Frequent snapshots are safe and won't affect performance. 
-              Each snapshot takes ~100-500ms and creates one record per task. 
-              Use this to test reports or after making significant task changes.
+              <strong>{t('reporting.impact')}:</strong> {t('reporting.impactDescription')}
             </p>
           </div>
         </div>
@@ -490,20 +490,20 @@ const AdminReportingTab: React.FC = () => {
       <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
           <TrendingUp className="w-5 h-5" />
-          Points Configuration
+          {t('reporting.pointsConfiguration')}
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[
-            { key: 'REPORTS_POINTS_TASK_CREATED', label: 'Task Created' },
-            { key: 'REPORTS_POINTS_TASK_COMPLETED', label: 'Task Completed' },
-            { key: 'REPORTS_POINTS_TASK_MOVED', label: 'Task Moved' },
-            { key: 'REPORTS_POINTS_TASK_UPDATED', label: 'Task Updated' },
-            { key: 'REPORTS_POINTS_COMMENT_ADDED', label: 'Comment Added' },
-            { key: 'REPORTS_POINTS_WATCHER_ADDED', label: 'Watcher Added' },
-            { key: 'REPORTS_POINTS_COLLABORATOR_ADDED', label: 'Collaborator Added' },
-            { key: 'REPORTS_POINTS_TAG_ADDED', label: 'Tag Added' },
-            { key: 'REPORTS_POINTS_EFFORT_MULTIPLIER', label: 'Effort Multiplier' },
+            { key: 'REPORTS_POINTS_TASK_CREATED', label: t('reporting.points.taskCreated') },
+            { key: 'REPORTS_POINTS_TASK_COMPLETED', label: t('reporting.points.taskCompleted') },
+            { key: 'REPORTS_POINTS_TASK_MOVED', label: t('reporting.points.taskMoved') },
+            { key: 'REPORTS_POINTS_TASK_UPDATED', label: t('reporting.points.taskUpdated') },
+            { key: 'REPORTS_POINTS_COMMENT_ADDED', label: t('reporting.points.commentAdded') },
+            { key: 'REPORTS_POINTS_WATCHER_ADDED', label: t('reporting.points.watcherAdded') },
+            { key: 'REPORTS_POINTS_COLLABORATOR_ADDED', label: t('reporting.points.collaboratorAdded') },
+            { key: 'REPORTS_POINTS_TAG_ADDED', label: t('reporting.points.tagAdded') },
+            { key: 'REPORTS_POINTS_EFFORT_MULTIPLIER', label: t('reporting.points.effortMultiplier') },
           ].map(({ key, label }) => (
             <div key={key}>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -530,7 +530,7 @@ const AdminReportingTab: React.FC = () => {
           className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           disabled={saving || !hasChanges}
         >
-          Reset
+          {t('reporting.reset')}
         </button>
         <button
           onClick={handleSave}
@@ -540,12 +540,12 @@ const AdminReportingTab: React.FC = () => {
           {saving ? (
             <>
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              Saving...
+              {t('reporting.saving')}
             </>
           ) : (
             <>
               <Save className="w-4 h-4" />
-              Save Changes
+              {t('reporting.saveChanges')}
             </>
           )}
         </button>

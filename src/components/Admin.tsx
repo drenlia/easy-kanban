@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getSystemInfo } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
@@ -80,6 +81,7 @@ interface SystemInfo {
 }
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
+  const { t } = useTranslation('admin');
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to default
     const fullHash = window.location.hash;
@@ -502,7 +504,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       );
       setHasDefaultAdmin(defaultAdminExists);
     } catch (err) {
-      setError('Failed to load admin data');
+      setError(t('failedToLoadAdminData'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -515,7 +517,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       await api.put(`/admin/users/${userId}/role`, { role });
       await loadData(); // Reload users
     } catch (err) {
-      setError(`Failed to ${action} user`);
+      setError(action === 'promote' ? t('failedToPromoteUser') : t('failedToDemoteUser'));
       console.error(err);
     }
   };
@@ -523,7 +525,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleDeleteUser = async (userId: string) => {
     // Prevent users from deleting themselves
     if (userId === currentUser?.id) {
-      setError('You cannot delete your own account');
+      setError(t('cannotDeleteOwnAccount'));
       return;
     }
 
@@ -549,7 +551,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       setShowDeleteConfirm(null);
     } catch (err) {
-      setError('Failed to delete user');
+      setError(t('failedToDeleteUser'));
       console.error(err);
     }
   };
@@ -578,10 +580,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const updatedTags = await getTags();
       setTags(updatedTags);
       setShowDeleteTagConfirm(null);
-      setTabMessage('tags', 'success', 'Tag and all associations deleted successfully');
+      setTabMessage('tags', 'success', t('tagDeletedSuccessfully'));
       setTimeout(() => setTabMessage('tags', 'success', null), 5000);
     } catch (error: any) {
-      setTabMessage('tags', 'error', error.response?.data?.error || 'Failed to delete tag');
+      setTabMessage('tags', 'error', error.response?.data?.error || t('failedToDeleteTag'));
     }
   };
 
@@ -593,7 +595,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await createTag(tagData);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setTabMessage('tags', 'success', 'Tag created successfully');
+    setTabMessage('tags', 'success', t('tagCreatedSuccessfully'));
     setTimeout(() => setTabMessage('tags', 'success', null), 5000);
   };
 
@@ -601,7 +603,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await updateTag(tagId, updates);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setTabMessage('tags', 'success', 'Tag updated successfully');
+    setTabMessage('tags', 'success', t('tagUpdatedSuccessfully'));
     setTimeout(() => setTabMessage('tags', 'success', null), 5000);
   };
 
@@ -609,7 +611,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await createPriority(priorityData);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setTabMessage('priorities', 'success', 'Priority created successfully');
+    setTabMessage('priorities', 'success', t('priorityCreatedSuccessfully'));
     setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
   };
 
@@ -617,7 +619,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await updatePriority(Number(priorityId), updates);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setTabMessage('priorities', 'success', 'Priority updated successfully');
+    setTabMessage('priorities', 'success', t('priorityUpdatedSuccessfully'));
     setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
   };
 
@@ -644,9 +646,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Show success message with reassignment info if applicable
       const reassignedCount = response?.data?.reassignedTasks || 0;
-      let successMessage = 'Priority deleted successfully';
+      let successMessage = t('priorityDeletedSuccessfully');
       if (reassignedCount > 0) {
-        successMessage += ` (${reassignedCount} task${reassignedCount !== 1 ? 's' : ''} reassigned to default priority)`;
+        successMessage += ` (${t('tasksReassignedToDefault', { count: reassignedCount })})`;
       }
       
       setTabMessage('priorities', 'success', successMessage);
@@ -655,7 +657,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       console.error('Failed to delete priority:', error);
       
       // Extract specific error message from backend response
-      let errorMessage = 'Failed to delete priority';
+      let errorMessage = t('failedToDeletePriority');
       
       if (error.response?.data?.error) {
         errorMessage = error.response.data.error;
@@ -675,7 +677,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     setPriorities(reorderedPriorities);
     try {
       await reorderPriorities(reorderedPriorities);
-      setSuccessMessage('Priorities reordered successfully');
+      setSuccessMessage(t('prioritiesReorderedSuccessfully'));
       
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
@@ -683,7 +685,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       // Revert on error
       const currentPriorities = await getPriorities();
       setPriorities(currentPriorities);
-      setError(error.response?.data?.error || 'Failed to reorder priorities');
+      setError(error.response?.data?.error || t('failedToReorderPriorities'));
     }
   };
 
@@ -692,13 +694,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       await setDefaultPriority(Number(priorityId));
       const updatedPriorities = await getPriorities();
       setPriorities(updatedPriorities);
-      setSuccessMessage('Default priority updated successfully');
+      setSuccessMessage(t('defaultPriorityUpdatedSuccessfully'));
       
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
       console.error('Failed to set default priority:', error);
-      setError(error?.response?.data?.error || 'Failed to set default priority');
+      setError(error?.response?.data?.error || t('failedToSetDefaultPriority'));
     }
   };
 
@@ -719,7 +721,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     } catch (error) {
       console.error('Failed to remove user avatar:', error);
-      setError('Failed to remove avatar');
+      setError(t('failedToRemoveAvatar'));
     }
   };
 
@@ -773,16 +775,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         }
         
         // Show success message on current tab only
-        setTabMessage(activeTab, 'success', '✅ Settings saved successfully! Changes are applied immediately.');
+        setTabMessage(activeTab, 'success', t('settingsSavedSuccessfully'));
         
         // Clear success message after 5 seconds
         setTimeout(() => setTabMessage(activeTab, 'success', null), 5000);
       } else {
-        setTabMessage(activeTab, 'success', 'ℹ️ No changes to save');
+        setTabMessage(activeTab, 'success', t('noChangesToSave'));
         setTimeout(() => setTabMessage(activeTab, 'success', null), 3000);
       }
     } catch (err) {
-      setTabMessage(activeTab, 'error', 'Failed to save settings');
+      setTabMessage(activeTab, 'error', t('failedToSaveSettings'));
       console.error(err);
     }
   };
@@ -804,11 +806,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       
       // Show brief success message for auto-save
-      setSuccessMessage(`✅ ${key} setting saved automatically!`);
+      setSuccessMessage(t('settingSavedAutomatically', { key }));
       setTimeout(() => setSuccessMessage(null), 3000);
       
     } catch (err) {
-      setError(`Failed to save ${key} setting`);
+      setError(t('failedToSaveSetting', { key }));
       console.error(err);
       throw err; // Re-throw so the component can handle the error
     }
@@ -817,10 +819,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleReloadOAuth = async () => {
     try {
       await api.post('/auth/reload-oauth');
-      setSuccessMessage('✅ OAuth configuration reloaded successfully!');
+      setSuccessMessage(t('oauthReloadedSuccessfully'));
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
-      setError('Failed to reload OAuth configuration');
+      setError(t('failedToReloadOAuth'));
       console.error(err);
     }
   };
@@ -838,7 +840,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         if (emailStatusResponse.ok) {
           const emailStatus = await emailStatusResponse.json();
           if (!emailStatus.available) {
-            throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before creating users.`);
+            throw new Error(t('emailServerNotAvailable', { error: emailStatus.error }));
           }
         } else {
           console.warn('Could not check email status, proceeding with user creation');
@@ -849,7 +851,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Check if email was actually sent (only relevant if isActive is false)
       if (!userData.isActive && result.emailSent === false) {
-        setError(`User created successfully, but invitation email could not be sent: ${result.emailError || 'Email service unavailable'}. The user will need to be manually activated.`);
+        setError(t('userCreatedButEmailFailed', { error: result.emailError || t('emailServiceUnavailable') }));
       } else {
         setError(null);
       }
@@ -861,7 +863,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      setError(error.message || 'Failed to create user');
+      setError(error.message || t('failedToCreateUser'));
       throw error; // Re-throw so the UI can handle it
     }
   };
@@ -880,19 +882,19 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       if (emailStatusResponse.ok) {
         const emailStatus = await emailStatusResponse.json();
         if (!emailStatus.available) {
-          throw new Error(`Email server is not available: ${emailStatus.error}. Please configure email settings before resending invitations.`);
+          throw new Error(t('emailServerNotAvailableForResend', { error: emailStatus.error }));
         }
       } else {
         console.warn('Could not check email status, proceeding with resend');
       }
 
       const result = await resendUserInvitation(userId);
-      setSuccessMessage(`Invitation email sent successfully to ${result.email}`);
+      setSuccessMessage(t('invitationEmailSent', { email: result.email }));
       // Clear success message after 3 seconds
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
-      const errorMessage = err.response?.data?.error || err.message || 'Failed to send invitation email';
+      const errorMessage = err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
       setError(errorMessage);
     }
   };
@@ -930,7 +932,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setError(null);
     } catch (err: any) {
       console.error('❌ Failed to save user:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to update user';
+      const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
       setError(errorMessage);
       throw err; // Re-throw so the calling component can handle it
     }
@@ -1011,13 +1013,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">Access Denied</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-6">You don't have permission to access this page.</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">{t('accessDenied')}</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-6">{t('noPermissionToAccess')}</p>
           <a
             href="/"
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
           >
-            ← Go back home
+            ← {t('goBackHome')}
           </a>
         </div>
       </div>
@@ -1029,7 +1031,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Loading admin panel...</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('loadingAdminPanel')}</p>
         </div>
       </div>
     );
@@ -1039,9 +1041,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     <div className="bg-gray-50 dark:bg-gray-900 py-6 px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Admin Panel</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{t('adminPanel')}</h1>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Manage users, site settings, and authentication configuration
+            {t('adminPanelDescription')}
           </p>
         </div>
 
@@ -1056,10 +1058,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">Security Warning</h3>
+                <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">{t('securityWarning')}</h3>
                 <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                  The default admin account (admin@example.com) still exists. This is a security risk. 
-                  Please create a new admin user first, then delete this default account.
+                  {t('defaultAdminAccountWarning')}
                 </p>
               </div>
             </div>
@@ -1080,17 +1081,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 }`}
                 data-tour-id={`admin-${tab}`}
               >
-                {tab === 'users' && 'Users'}
-                {tab === 'site-settings' && 'Site Settings'}
-                {tab === 'sso' && 'Single Sign-On'}
-                {tab === 'mail-server' && 'Mail Server'}
-                {tab === 'tags' && 'Tags'}
-                {tab === 'priorities' && 'Priorities'}
-                {tab === 'app-settings' && 'App Settings'}
-                {tab === 'project-settings' && 'Project Settings'}
-                {tab === 'sprint-settings' && 'Sprint Settings'}
-                {tab === 'reporting' && 'Reporting'}
-                {tab === 'licensing' && 'Licensing'}
+                {tab === 'users' && t('tabs.users')}
+                {tab === 'site-settings' && t('tabs.siteSettings')}
+                {tab === 'sso' && t('tabs.sso')}
+                {tab === 'mail-server' && t('tabs.mailServer')}
+                {tab === 'tags' && t('tabs.tags')}
+                {tab === 'priorities' && t('tabs.priorities')}
+                {tab === 'app-settings' && t('tabs.appSettings')}
+                {tab === 'project-settings' && t('tabs.projectSettings')}
+                {tab === 'sprint-settings' && t('tabs.sprintSettings')}
+                {tab === 'reporting' && t('tabs.reporting')}
+                {tab === 'licensing' && t('tabs.licensing')}
               </button>
             ))}
           </nav>

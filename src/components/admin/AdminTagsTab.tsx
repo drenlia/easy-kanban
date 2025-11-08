@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
 
@@ -62,6 +63,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
   showDeleteTagConfirm,
   tagUsageCounts,
 }) => {
+  const { t } = useTranslation('admin');
   const [showAddTagForm, setShowAddTagForm] = useState(false);
   const [showEditTagForm, setShowEditTagForm] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
@@ -70,7 +72,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
   
   // Refs for delete button positioning
   const deleteButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
-  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, tagId: number} | null>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, tagId: number, maxHeight?: number} | null>(null);
 
   // Handle click outside to close delete confirmation
   useEffect(() => {
@@ -97,10 +99,49 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
     const button = deleteButtonRefs.current[tagId];
     if (button) {
       const rect = button.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      
+      // Estimate dialog height based on whether tasks use this tag
+      const tag = tags.find(t => t.id === tagId);
+      const estimatedDialogHeight = tag && tagUsageCounts[tag.id] > 0 ? 100 : 80;
+      const dialogWidth = 200;
+      
+      // Check if there's enough space below
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      // Position above if not enough space below, but enough space above
+      let top: number;
+      if (spaceBelow < estimatedDialogHeight && spaceAbove > estimatedDialogHeight) {
+        // Position above the button
+        top = rect.top - estimatedDialogHeight - 5;
+      } else {
+        // Position below the button (default)
+        top = rect.bottom + 5;
+      }
+      
+      // Ensure dialog doesn't go off the right edge
+      let left = rect.right - dialogWidth;
+      if (left + dialogWidth > viewportWidth) {
+        left = viewportWidth - dialogWidth - 10; // 10px margin from edge
+      }
+      
+      // Ensure dialog doesn't go off the left edge
+      if (left < 10) {
+        left = 10; // 10px margin from edge
+      }
+      
+      // Calculate max height based on position
+      const maxHeight = top < rect.top
+        ? Math.min(top - 10, 300) // If above, use space from top
+        : Math.min(viewportHeight - top - 20, 300); // If below, use space to bottom
+      
       setDeleteButtonPosition({
-        top: rect.bottom + window.scrollY + 8,
-        left: rect.right + window.scrollX - 200, // Position to the left of the button
-        tagId: tagId
+        top,
+        left,
+        tagId: tagId,
+        maxHeight
       });
     }
     onDeleteTag(tagId);
@@ -144,16 +185,16 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="mb-6">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Tags Management</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('tags.title')}</h2>
               <p className="text-gray-600 dark:text-gray-400">
-                Create and manage tags for organizing tasks. Tags can have custom colors and descriptions.
+                {t('tags.description')}
               </p>
             </div>
             <button
               onClick={() => setShowAddTagForm(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              Add Tag
+              {t('tags.addTag')}
             </button>
           </div>
         </div>
@@ -163,10 +204,10 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Actions</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Tag</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Preview</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.actions')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.tag')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{t('tags.tableHeaders.description')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('tags.tableHeaders.preview')}</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -181,7 +222,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                             setShowEditTagForm(true);
                           }}
                           className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
-                          title="Edit tag"
+                          title={t('tags.editTag')}
                         >
                           <Edit size={16} />
                         </button>
@@ -190,7 +231,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                             ref={(el) => { deleteButtonRefs.current[tag.id] = el; }}
                             onClick={(e) => handleDeleteClick(tag.id, e)}
                             className="p-1.5 rounded transition-colors text-red-600 hover:text-red-900 hover:bg-red-50"
-                            title="Delete tag"
+                            title={t('tags.deleteTag')}
                             data-tag-id={tag.id}
                           >
                             <Trash2 size={16} />
@@ -232,7 +273,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
               ) : (
                 <tr>
                   <td colSpan={4} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    {loading ? 'Loading tags...' : 'No tags found'}
+                    {loading ? t('tags.loadingTags') : t('tags.noTagsFound')}
                   </td>
                 </tr>
               )}
@@ -246,31 +287,31 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Add New Tag</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">{t('tags.addNewTag')}</h3>
               <form onSubmit={handleAddTag}>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tag Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.tagName')}</label>
                   <input
                     type="text"
                     value={newTag.tag}
                     onChange={(e) => setNewTag(prev => ({ ...prev, tag: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter tag name"
+                    placeholder={t('tags.enterTagName')}
                     required
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.descriptionOptional')}</label>
                   <textarea
                     value={newTag.description}
                     onChange={(e) => setNewTag(prev => ({ ...prev, description: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter tag description"
+                    placeholder={t('tags.enterTagDescription')}
                     rows={3}
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.color')}</label>
                   <input
                     type="color"
                     value={newTag.color}
@@ -284,7 +325,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                     disabled={isSubmitting}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Creating...' : 'Create Tag'}
+                    {isSubmitting ? t('tags.creating') : t('tags.createTag')}
                   </button>
                   <button
                     type="button"
@@ -294,7 +335,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                     }}
                     className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                   >
-                    Cancel
+                    {t('tags.cancel')}
                   </button>
                 </div>
               </form>
@@ -308,31 +349,31 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Edit Tag</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">{t('tags.editTagTitle')}</h3>
               <form onSubmit={handleEditTag}>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Tag Name</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.tagName')}</label>
                   <input
                     type="text"
                     value={editingTag.tag}
                     onChange={(e) => setEditingTag(prev => prev ? { ...prev, tag: e.target.value } : null)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter tag name"
+                    placeholder={t('tags.enterTagName')}
                     required
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Description (Optional)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.descriptionOptional')}</label>
                   <textarea
                     value={editingTag.description || ''}
                     onChange={(e) => setEditingTag(prev => prev ? { ...prev, description: e.target.value } : null)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Enter tag description"
+                    placeholder={t('tags.enterTagDescription')}
                     rows={3}
                   />
                 </div>
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Color</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('tags.color')}</label>
                   <input
                     type="color"
                     value={editingTag.color}
@@ -346,7 +387,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                     disabled={isSubmitting}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                   >
-                    {isSubmitting ? 'Updating...' : 'Update Tag'}
+                    {isSubmitting ? t('tags.updating') : t('tags.updateTag')}
                   </button>
                   <button
                     type="button"
@@ -356,7 +397,7 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
                     }}
                     className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                   >
-                    Cancel
+                    {t('tags.cancel')}
                   </button>
                 </div>
               </form>
@@ -371,7 +412,9 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
           className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
           style={{
             top: `${deleteButtonPosition.top}px`,
-            left: `${deleteButtonPosition.left}px`
+            left: `${deleteButtonPosition.left}px`,
+            maxHeight: deleteButtonPosition.maxHeight ? `${deleteButtonPosition.maxHeight}px` : '300px',
+            overflowY: 'auto'
           }}
         >
           <div className="text-sm text-gray-700 mb-2">
@@ -382,12 +425,12 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
               if (tagUsageCounts[tag.id] > 0) {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete tag?</div>
+                    <div className="font-medium mb-1">{t('tags.deleteTag')}</div>
                     <div className="text-xs text-gray-700">
                       <span className="text-red-600 font-medium">
-                        {tagUsageCounts[tag.id]} task{tagUsageCounts[tag.id] !== 1 ? 's' : ''}
+                        {t('tags.tasksWillLoseTag', { count: tagUsageCounts[tag.id] })}
                       </span>{' '}
-                      will lose this tag:{' '}
+                      {t('tags.willLoseThisTag')}{' '}
                       <span className="font-medium">{tag.tag}</span>
                     </div>
                   </>
@@ -395,9 +438,9 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
               } else {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete tag?</div>
+                    <div className="font-medium mb-1">{t('tags.deleteTag')}</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400">
-                      No tasks will be affected for{' '}
+                      {t('tags.noTasksAffected')}{' '}
                       <span className="font-medium">{tag.tag}</span>
                     </div>
                   </>
@@ -410,13 +453,13 @@ const AdminTagsTab: React.FC<AdminTagsTabProps> = ({
               onClick={() => onConfirmDeleteTag(showDeleteTagConfirm)}
               className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
-              Yes
+              {t('tags.yes')}
             </button>
             <button
               onClick={onCancelDeleteTag}
               className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
             >
-              No
+              {t('tags.no')}
             </button>
           </div>
         </div>,

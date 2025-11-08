@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Task, TeamMember, Comment, Attachment, Tag, PriorityOption, CurrentUser } from '../types';
 import { X, Paperclip, ChevronDown, Check, Edit2, Plus } from 'lucide-react';
 import DOMPurify from 'dompurify';
@@ -25,6 +26,7 @@ interface TaskDetailsProps {
 }
 
 export default function TaskDetails({ task, members, currentUser, onClose, onUpdate, siteSettings, boards, scrollToComments }: TaskDetailsProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const userPrefs = loadUserPreferences();
   const [width, setWidth] = useState(userPrefs.taskDetailsWidth);
   
@@ -1353,7 +1355,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                Description
+                {t('labels.description')}
               </label>
               <TextEditor
                 onSubmit={async () => {
@@ -1367,7 +1369,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 onAttachmentDelete={handleAttachmentDelete}
                 onImageRemovalNeeded={handleImageRemoval}
                 initialContent={editedTask.description}
-                placeholder="Enter task description..."
+                placeholder={t('placeholders.enterDescription')}
                 minHeight="120px"
                 showSubmitButtons={false}
                 showAttachments={true}
@@ -1393,7 +1395,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               {uploadError && (
                 <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
                   <div className="text-sm text-red-600 dark:text-red-400">
-                    Upload error: {uploadError}
+                    {t('errors.uploadError')}: {uploadError}
                   </div>
                 </div>
               )}
@@ -1403,7 +1405,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Assigned To
+                  {t('labels.assignedTo')}
                 </label>
                 <select
                   value={validMemberId}
@@ -1421,7 +1423,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Requester
+                  {t('labels.requester')}
                 </label>
                 <select
                   value={validRequesterId}
@@ -1443,7 +1445,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               {/* Watchers Section */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Watchers
+                  {t('labels.watchers')}
                 </label>
                 <div className="relative" ref={watchersDropdownRef}>
                   <button
@@ -1454,7 +1456,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     disabled={isSubmitting}
                   >
                     <span className="text-gray-700 dark:text-gray-200 truncate">
-                      {taskWatchers.length === 0 ? 'Select watchers...' : `${taskWatchers.length} watcher${taskWatchers.length !== 1 ? 's' : ''}`}
+                      {taskWatchers.length === 0 
+                        ? t('labels.selectWatchers') 
+                        : `${taskWatchers.length} ${taskWatchers.length !== 1 ? t('watcher.plural') : t('watcher.singular')}`}
                     </span>
                     <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
                   </button>
@@ -1502,7 +1506,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             toggleWatcher(member);
                           }}
                           className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                          title="Remove watcher"
+                          title={t('remove.watcher')}
                         >
                           ×
                         </button>
@@ -1515,7 +1519,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
               {/* Collaborators Section */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Collaborators
+                  {t('labels.collaborators')}
                 </label>
                 <div className="relative" ref={collaboratorsDropdownRef}>
                   <button
@@ -1526,7 +1530,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     disabled={isSubmitting}
                   >
                     <span className="text-gray-700 dark:text-gray-200 truncate">
-                      {taskCollaborators.length === 0 ? 'Select collaborators...' : `${taskCollaborators.length} collaborator${taskCollaborators.length !== 1 ? 's' : ''}`}
+                      {taskCollaborators.length === 0 
+                        ? t('labels.selectCollaborators') 
+                        : `${taskCollaborators.length} ${taskCollaborators.length !== 1 ? t('collaborator.plural') : t('collaborator.singular')}`}
                     </span>
                     <ChevronDown className="w-4 h-4 flex-shrink-0 ml-2" />
                   </button>
@@ -1574,7 +1580,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             toggleCollaborator(member);
                           }}
                           className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                          title="Remove collaborator"
+                          title={t('remove.collaborator')}
                         >
                           ×
                         </button>
@@ -1588,7 +1594,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Start Date
+                  {t('labels.startDate')}
                 </label>
                 <input
                   type="date"
@@ -1602,7 +1608,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Due Date
+                  {t('labels.dueDate')}
                 </label>
                 <input
                   type="date"
@@ -1616,7 +1622,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Effort (hours)
+                  {t('labels.effort')}
                 </label>
                 <input
                   type="number"
@@ -1630,7 +1636,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Priority
+                  {t('labels.priority')}
                 </label>
                 <select
                   value={editedTask.priority}
@@ -1649,7 +1655,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
             {/* Tags Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tags</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{t('labels.tags')}</label>
               <div className="relative" ref={tagsDropdownRef}>
                 <button
                   ref={tagsButtonRef}
@@ -1659,8 +1665,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 >
                   <span className="text-gray-700 dark:text-gray-200">
                     {taskTags.length === 0 
-                      ? 'Select tags...' 
-                      : `${taskTags.length} tag${taskTags.length !== 1 ? 's' : ''} selected`
+                      ? t('labels.selectTags')
+                      : `${taskTags.length} ${taskTags.length !== 1 ? t('tag.plural') : t('tag.singular')} ${t('tag.selected')}`
                     }
                   </span>
                   <ChevronDown size={14} className="text-gray-400" />
@@ -1681,13 +1687,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center gap-2 text-sm border-b border-gray-200 dark:border-gray-700 text-blue-600 dark:text-blue-400 font-medium sticky top-0 bg-white dark:bg-gray-800"
                     >
                       <Plus size={14} />
-                      <span>Add New Tag</span>
+                      <span>{t('labels.addNewTag')}</span>
                     </div>
                     
                     {isLoadingTags ? (
-                      <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
+                      <div className="px-3 py-2 text-sm text-gray-500">{t('labels.loadingTags')}</div>
                     ) : availableTags.length === 0 ? (
-                      <div className="px-3 py-2 text-sm text-gray-500">No tags available</div>
+                      <div className="px-3 py-2 text-sm text-gray-500">{t('labels.noTagsAvailable')}</div>
                     ) : (
                       availableTags.map(tag => (
                         <div
@@ -1750,7 +1756,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 {/* Parent Field - Left Side */}
                 {parentTask && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Parent:</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{t('relationships.parent')}</label>
                     <span 
                       onClick={() => {
                         const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
@@ -1764,7 +1770,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         window.location.hash = hashPart;
                       }}
                       className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
-                      title={`Go to parent task ${parentTask.ticket}`}
+                      title={`${t('relationships.goToParent')} ${parentTask.ticket}`}
                     >
                       {parentTask.ticket}
                     </span>
@@ -1773,7 +1779,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 
                 {/* Children Field - Right Side */}
                 <div className={parentTask ? '' : 'col-span-2'}>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Child(ren):</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">{t('relationships.children')}</label>
                   
                   {/* Selected Children Display */}
                   {childTasks.length > 0 && (
@@ -1796,7 +1802,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                                 window.location.hash = hashPart;
                               }}
                               className="text-blue-800 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
-                              title={`Go to child task ${child.ticket}`}
+                              title={`${t('relationships.goToChild')} ${child.ticket}`}
                             >
                               {child.ticket}
                             </span>
@@ -1804,7 +1810,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             type="button"
                             onClick={() => handleRemoveChildTask(child.id)}
                             className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                            title="Remove child task"
+                            title={t('relationships.removeChild')}
                           >
                             ×
                           </button>
@@ -1821,7 +1827,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                       className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent flex items-center justify-between text-gray-900 dark:text-gray-100"
                     >
                       <span className="text-gray-700 dark:text-gray-200">
-                        Add child task...
+                        {t('relationships.addChildTask')}
                       </span>
                       <ChevronDown size={16} className={`transform transition-transform ${showChildrenDropdown ? 'rotate-180' : ''}`} />
                     </button>
@@ -1832,7 +1838,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         <div className="p-2 border-b border-gray-200">
                           <input
                             type="text"
-                            placeholder="Search tasks by number or title..."
+                            placeholder={t('relationships.searchTasks')}
                             value={childrenSearchTerm}
                             onChange={(e) => setChildrenSearchTerm(e.target.value)}
                             className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -1893,10 +1899,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 // The TextEditor handles clearing its own content and attachments
                 // No additional action needed here
               }}
-              placeholder="Add a comment..."
+              placeholder={t('comments.addComment')}
               showAttachments={true}
-              submitButtonText="Add Comment"
-              cancelButtonText="Cancel"
+              submitButtonText={t('actions.addComment')}
+              cancelButtonText={t('buttons.cancel', { ns: 'common' })}
               toolbarOptions={{
                 bold: true,
                 italic: true,
@@ -1954,7 +1960,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           onClick={() => handleEditComment(comment)}
                           disabled={isSubmitting}
                           className="p-1 text-gray-400 hover:text-blue-500 hover:bg-gray-100 rounded-full transition-colors"
-                          title="Edit comment"
+                          title={t('comments.editCommentTitle')}
                         >
                           <Edit2 size={16} />
                         </button>
@@ -1962,7 +1968,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           onClick={() => handleDeleteComment(comment.id)}
                           disabled={isSubmitting}
                           className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 rounded-full transition-colors"
-                          title="Delete comment"
+                          title={t('comments.deleteCommentTitle')}
                         >
                           <X size={16} />
                         </button>
@@ -1977,10 +1983,10 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                         await handleSaveEditCommentWithContent(content);
                       }}
                       onCancel={handleCancelEditComment}
-                      placeholder="Edit comment..."
+                      placeholder={t('comments.editComment')}
                       showAttachments={true}
-                      submitButtonText="Save Changes"
-                      cancelButtonText="Cancel"
+                      submitButtonText={t('comments.saveChanges')}
+                      cancelButtonText={t('buttons.cancel', { ns: 'common' })}
                       existingAttachments={attachments}
                       onAttachmentDelete={async (attachmentId: string) => {
                         try {

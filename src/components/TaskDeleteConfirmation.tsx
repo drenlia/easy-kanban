@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Task } from '../types';
 
@@ -19,6 +20,7 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
   isDeleting = false,
   position
 }) => {
+  const { t } = useTranslation(['tasks', 'common']);
   if (!isOpen || !task || !position) return null;
 
   return createPortal(
@@ -30,7 +32,7 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
       }}
     >
       <div className="text-sm text-gray-700 mb-3">
-        Are you sure?
+        {t('deleteConfirmation.areYouSure')}
       </div>
       <div className="flex space-x-2 justify-end">
         <button
@@ -38,14 +40,14 @@ const TaskDeleteConfirmation: React.FC<TaskDeleteConfirmationProps> = ({
           disabled={isDeleting}
           className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors disabled:opacity-50"
         >
-          No
+          {t('buttons.no', { ns: 'common' })}
         </button>
         <button
           onClick={onConfirm}
           disabled={isDeleting}
           className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors disabled:opacity-50"
         >
-          {isDeleting ? 'Deleting...' : 'Yes'}
+          {isDeleting ? t('deleteConfirmation.deleting') : t('buttons.yes', { ns: 'common' })}
         </button>
       </div>
     </div>,

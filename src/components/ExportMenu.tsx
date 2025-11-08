@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Download, FileText, Table, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Board, TeamMember, Tag } from '../types';
 import * as XLSX from 'xlsx';
 import { 
@@ -27,6 +28,7 @@ export default function ExportMenu({
   availableTags, 
   isAdmin 
 }: ExportMenuProps) {
+  const { t } = useTranslation('common');
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [sprints, setSprints] = useState<Array<{ id: string; name: string }>>([]);
@@ -108,7 +110,7 @@ export default function ExportMenu({
       setIsOpen(false);
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Export failed. Please try again.');
+      alert(t('export.failed'));
     } finally {
       setIsExporting(false);
     }
@@ -185,7 +187,7 @@ export default function ExportMenu({
         onClick={() => setIsOpen(!isOpen)}
         disabled={isExporting}
         className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity disabled:opacity-50"
-        title="Export Data"
+        title={t('export.title')}
       >
         <Download size={14} />
       </button>
@@ -196,7 +198,7 @@ export default function ExportMenu({
           <div className="py-1">
             {/* CSV Options */}
             <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              CSV Export
+              {t('export.csvExport')}
             </div>
             <button
               onClick={() => handleExport({ format: 'csv', scope: 'current' })}
@@ -204,7 +206,7 @@ export default function ExportMenu({
               className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50"
             >
               <FileText size={14} />
-              Current Board
+              {t('export.currentBoard')}
             </button>
             <button
               onClick={() => handleExport({ format: 'csv', scope: 'all' })}
@@ -212,7 +214,7 @@ export default function ExportMenu({
               className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50"
             >
               <FileText size={14} />
-              All Boards
+              {t('export.allBoards')}
             </button>
 
             {/* Divider */}
@@ -220,7 +222,7 @@ export default function ExportMenu({
 
             {/* XLSX Options */}
             <div className="px-3 py-2 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Excel Export
+              {t('export.excelExport')}
             </div>
             <button
               onClick={() => handleExport({ format: 'xlsx', scope: 'current' })}
@@ -228,7 +230,7 @@ export default function ExportMenu({
               className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50"
             >
               <Table size={14} />
-              Current Board
+              {t('export.currentBoard')}
             </button>
             <button
               onClick={() => handleExport({ format: 'xlsx', scope: 'all' })}
@@ -236,7 +238,7 @@ export default function ExportMenu({
               className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 flex items-center gap-2 disabled:opacity-50"
             >
               <Table size={14} />
-              All Boards
+              {t('export.allBoards')}
             </button>
           </div>
         </div>

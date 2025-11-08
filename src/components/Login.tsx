@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { login } from '../api';
 import { Copy, Check } from 'lucide-react';
 
@@ -11,10 +12,25 @@ interface LoginProps {
 }
 
 export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
+  const { t, i18n } = useTranslation('auth');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Get current language for toggle
+  // Note: i18next LanguageDetector automatically detects browser language on initial load
+  // and saves it to localStorage. The language is already set when this component mounts.
+  const currentLanguage = i18n.language || 'en';
+  
+  // Handle language toggle on login page
+  // For non-authenticated users: Changes language and saves to localStorage only
+  // This has no effect until user logs in - then App.tsx will read localStorage and save to DB
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    await i18n.changeLanguage(newLanguage);
+    // i18next automatically saves to localStorage, which will be used when user logs in
+  };
   const [googleOAuthEnabled, setGoogleOAuthEnabled] = useState(false);
   const [copiedItem, setCopiedItem] = useState<string | null>(null);
   const [adminCredentials, setAdminCredentials] = useState<{
@@ -117,10 +133,10 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   useEffect(() => {
     const tokenExpired = sessionStorage.getItem('tokenExpiredRedirect');
     if (tokenExpired === 'true') {
-      setError('Your session has expired. Please log in again.');
+      setError(t('login.sessionExpired'));
       sessionStorage.removeItem('tokenExpiredRedirect');
     }
-  }, []);
+  }, [t]);
 
   // Check for OAuth errors in URL parameters
   useEffect(() => {
@@ -128,23 +144,23 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     const errorParam = urlParams.get('error');
     
     if (errorParam) {
-      let errorMessage = 'Login failed. Please try again.';
+      let errorMessage = t('login.loginFailed');
       
       switch (errorParam) {
         case 'account_deactivated':
-          errorMessage = 'Your account has been deactivated. Please contact an administrator.';
+          errorMessage = t('login.accountDeactivated');
           break;
         case 'user_not_invited':
-          errorMessage = 'Access denied. You must be invited to use this system.';
+          errorMessage = t('login.accessDenied');
           break;
         case 'oauth_failed':
-          errorMessage = 'Authentication failed. Please try again.';
+          errorMessage = t('login.oauthFailed');
           break;
         case 'oauth_not_configured':
-          errorMessage = 'Google sign-in is not properly configured. Please contact an administrator.';
+          errorMessage = t('login.oauthNotConfigured');
           break;
         case 'oauth_userinfo_failed':
-          errorMessage = 'Failed to retrieve user information from Google. Please try again.';
+          errorMessage = t('login.oauthUserinfoFailed');
           break;
       }
       
@@ -186,7 +202,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
       const response = await login(email, password);
       onLogin(response.user, response.token);
     } catch (error: any) {
-      setError(error.response?.data?.error || 'Login failed. Please try again.');
+      setError(error.response?.data?.error || t('login.loginFailed'));
     } finally {
       setIsLoading(false);
     }
@@ -225,7 +241,18 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative">
+      {/* Language Toggle - Top Right */}
+      <div className="absolute top-4 right-4">
+        <button
+          onClick={handleLanguageToggle}
+          className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+          title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+        >
+          {currentLanguage === 'en' ? 'FR' : 'EN'}
+        </button>
+      </div>
+      
       <div className="max-w-md w-full space-y-8">
         <div>
           <div className="mx-auto h-12 w-12 bg-blue-600 rounded-full flex items-center justify-center">
@@ -234,10 +261,10 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
             </svg>
           </div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900 dark:text-gray-100">
-            Sign in to your account
+            {t('login.signInToAccount')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600 dark:text-gray-400">
-            Welcome to Easy Kanban
+            {t('login.welcome')}
           </p>
         </div>
         
@@ -252,15 +279,14 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
               </div>
               <div className="ml-3">
                 <h3 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                  System Temporarily Unavailable
+                  {t('login.systemUnavailable')}
                 </h3>
                 <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
                   <p>
-                    The system is currently starting up or undergoing maintenance. 
-                    Please check back in a few moments.
+                    {t('login.systemUnavailableMessage')}
                   </p>
                   <p className="mt-2">
-                    If the issue persists, please contact your system administrator.
+                    {t('login.systemUnavailableContact')}
                   </p>
                 </div>
                 <div className="mt-4">
@@ -272,7 +298,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                     <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
-                    Retry Connection
+                    {t('login.retryConnection')}
                   </button>
                 </div>
               </div>
@@ -292,7 +318,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
               </div>
               <div className="ml-3">
                 <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                  Connecting to server...
+                  {t('login.connectingToServer')}
                 </p>
               </div>
             </div>
@@ -303,7 +329,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
           <div className="rounded-md shadow-sm -space-y-px bg-white dark:bg-gray-800 p-6 rounded-lg">
             <div>
               <label htmlFor="email" className="sr-only">
-                Email address
+                {t('login.emailAddress')}
               </label>
               <input
                 id="email"
@@ -312,14 +338,14 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                 autoComplete="email"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Email address"
+                placeholder={t('login.emailAddress')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </div>
             <div>
               <label htmlFor="password" className="sr-only">
-                Password
+                {t('login.password')}
               </label>
               <input
                 id="password"
@@ -328,7 +354,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                 autoComplete="current-password"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
+                placeholder={t('login.password')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -350,7 +376,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
               }}
               className="text-sm text-gray-500 hover:text-gray-700 underline"
             >
-              Clear Session & Reload
+              {t('login.clearSession')}
             </button>
           </div>
 
@@ -370,7 +396,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               ) : null}
-              {isLoading ? 'Signing in...' : 'Sign in'}
+              {isLoading ? t('login.loading') : t('login.submit')}
             </button>
             
             {/* Google Sign-In Button - Only show if OAuth is configured */}
@@ -387,7 +413,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                Sign in with Google
+                {t('login.signInWithGoogle')}
               </button>
             )}
           </div>
@@ -400,14 +426,14 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                 onClick={onForgotPassword}
                 className="text-sm text-blue-600 hover:text-blue-500 underline"
               >
-                Forgot your password?
+                {t('login.forgotYourPassword')}
               </button>
             </div>
           )}
 
           {isDemoMode && hasDefaultAdmin && adminCredentials && (
             <div className="text-center text-sm text-gray-600">
-              <p className="font-semibold mb-2">Demo Credentials:</p>
+              <p className="font-semibold mb-2">{t('login.demoCredentials')}</p>
               <div className="space-y-2">
                 <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
                   <p className="text-xs font-medium text-blue-800 mb-2">Admin Account</p>
@@ -417,7 +443,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                       <button
                         onClick={() => copyToClipboard(adminCredentials.email, 'admin-email')}
                         className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                        title="Copy email"
+                        title={t('login.copyEmail')}
                       >
                         {copiedItem === 'admin-email' ? (
                           <Check className="w-3 h-3 text-green-600" />
@@ -431,7 +457,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
                       <button
                         onClick={() => copyToClipboard(adminCredentials.password, 'admin-password')}
                         className="ml-2 p-1 hover:bg-blue-100 rounded transition-colors"
-                        title="Copy password"
+                        title={t('login.copyPassword')}
                       >
                         {copiedItem === 'admin-password' ? (
                           <Check className="w-3 h-3 text-green-600" />

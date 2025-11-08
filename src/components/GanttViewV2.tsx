@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect, startTransition } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DndContext, DragEndEvent, DragStartEvent, DragOverEvent, DragOverlay, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core';
 import { restrictToHorizontalAxis } from '@dnd-kit/modifiers';
 import { Task, Columns } from '../types';
@@ -80,6 +81,7 @@ const GanttViewV2 = ({
   onRemoveTask,
   siteSettings
 }: GanttViewV2Props) => {
+  const { t } = useTranslation('common');
   // State
   const [priorities, setPriorities] = useState<any[]>([]);
   const [activeDragItem, setActiveDragItem] = useState<any>(null);
@@ -1344,20 +1346,20 @@ const GanttViewV2 = ({
       
       // Handle specific error cases with user-friendly messages
       const status = error?.response?.status;
-      const errorMessage = error?.response?.data?.message || error?.message || 'Unknown error';
+      const errorMessage = error?.response?.data?.message || error?.message || t('gantt.unknownError', { ns: 'common' });
       
       if (status === 409) {
         // Duplicate relationship or circular dependency
-        alert(`Cannot create relationship: ${errorMessage}`);
+        alert(`${t('gantt.cannotCreateRelationship', { ns: 'common' })}: ${errorMessage}`);
       } else if (status === 400) {
         // Invalid relationship type or self-relationship
-        alert(`Invalid relationship: ${errorMessage}`);
+        alert(`${t('gantt.invalidRelationship', { ns: 'common' })}: ${errorMessage}`);
       } else if (status === 404) {
         // Task not found
-        alert(`Task not found: ${errorMessage}`);
+        alert(`${t('gantt.taskNotFound', { ns: 'common' })}: ${errorMessage}`);
       } else {
         // Other errors
-        alert(`Failed to create relationship: ${errorMessage}`);
+        alert(`${t('gantt.failedToCreateRelationship', { ns: 'common' })}: ${errorMessage}`);
       }
     }
   }, [localRelationships, onRefreshData]);
@@ -1385,7 +1387,8 @@ const GanttViewV2 = ({
       }
       
       // Show user-friendly error message
-      alert(`Failed to delete relationship: ${(error as any)?.response?.data?.message || (error as any)?.message || 'Unknown error'}`);
+      const errorMessage = (error as any)?.response?.data?.message || (error as any)?.message || t('gantt.unknownError', { ns: 'common' });
+      alert(`${t('gantt.failedToDeleteRelationship', { ns: 'common' })}: ${errorMessage}`);
     }
   }, [localRelationships]);
 
@@ -1816,7 +1819,12 @@ const GanttViewV2 = ({
       <div className="sticky top-16 z-50 bg-white dark:bg-gray-800">
         <GanttHeader
           dateRange={dateRange}
-          formatDate={(date: Date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          formatDate={(date: Date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          }}
           ganttTasks={ganttTasks}
           scrollToToday={() => navigateToDate(new Date(), 'center')}
           scrollEarlier={() => navigateToDate(new Date(dateRange[0].date.getTime() - 30 * 24 * 60 * 60 * 1000), 'end')}
@@ -1850,7 +1858,7 @@ const GanttViewV2 = ({
             <div className="h-14 flex flex-col">
               <div className="h-6 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600"></div>
               <div className="h-8 flex items-center justify-between px-4 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                <span className="font-semibold text-sm">Tasks</span>
+                <span className="font-semibold text-sm">{t('gantt.tasks', { ns: 'common' })}</span>
                 {/* Navigation controls */}
                 <div className="flex items-center gap-1">
                   {/* Jump to earliest task */}
@@ -1867,7 +1875,7 @@ const GanttViewV2 = ({
                     }}
                     disabled={ganttTasks.length === 0}
                     className="p-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Jump to earliest task"
+                    title={t('gantt.jumpToEarliestTask')}
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
@@ -1896,7 +1904,7 @@ const GanttViewV2 = ({
                       }
                     }}
                     className="p-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-                    title="Scroll to earlier dates"
+                    title={t('gantt.scrollToEarlierDates')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1910,7 +1918,7 @@ const GanttViewV2 = ({
                     }}
                     className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
                   >
-                    Today
+                    {t('gantt.today')}
                   </button>
                   
                   {/* Later button */}
@@ -1932,7 +1940,7 @@ const GanttViewV2 = ({
                       }
                     }}
                     className="p-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100"
-                    title="Scroll to later dates"
+                    title={t('gantt.scrollToLaterDates')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1953,7 +1961,7 @@ const GanttViewV2 = ({
                     }}
                     disabled={ganttTasks.length === 0}
                     className="p-1 text-xs text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Jump to latest task"
+                    title={t('gantt.jumpToLatestTask')}
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
@@ -1968,7 +1976,7 @@ const GanttViewV2 = ({
                         : 'bg-gray-300 dark:bg-gray-500 hover:bg-gray-400 dark:hover:bg-gray-400'
                     }`}
                     onMouseDown={handleResizeStart}
-                    title="Drag to resize task column"
+                    title={t('gantt.dragToResizeColumn', { ns: 'common' })}
                   />
                   
                 </div>
@@ -2139,9 +2147,9 @@ const GanttViewV2 = ({
         }}
       >
         <div className="p-2">
-          <div className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Select a task to jump to:</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">{t('gantt.selectTaskToJump')}</div>
           {ganttTasks.length === 0 ? (
-            <div className="text-xs text-gray-500 dark:text-gray-400 py-2">No tasks available</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 py-2">{t('gantt.noTasksAvailable')}</div>
           ) : (
             ganttTasks
               .filter(task => task.startDate)
@@ -2186,15 +2194,15 @@ const GanttViewV2 = ({
     <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-800">
       <div className="flex items-center gap-6 text-xs text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-2">
-          <span className="text-blue-600 dark:text-blue-400 font-semibold">Today</span>
+          <span className="text-blue-600 dark:text-blue-400 font-semibold">{t('gantt.today')}</span>
           <div className="w-4 h-3 bg-blue-100 dark:bg-blue-900 border border-blue-200 dark:border-blue-700"></div>
         </div>
         <div className="flex items-center gap-2">
-          <span>Weekends</span>
+          <span>{t('gantt.weekends')}</span>
           <div className="w-4 h-3 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600"></div>
         </div>
         <div className="flex items-center gap-4">
-          <span>Priority:</span>
+          <span>{t('gantt.priority')}:</span>
           {priorities.map((priority) => (
             <div key={priority.id} className="flex items-center gap-1">
               <div 

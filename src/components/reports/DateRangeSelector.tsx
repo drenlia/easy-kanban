@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronDown } from 'lucide-react';
 
 interface PlanningPeriod {
@@ -22,6 +23,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
   onStartDateChange,
   onEndDateChange
 }) => {
+  const { t } = useTranslation('common');
   const [sprints, setSprints] = useState<PlanningPeriod[]>([]);
   const [loadingSprints, setLoadingSprints] = useState(true);
   const [showSprintDropdown, setShowSprintDropdown] = useState(false);
@@ -118,32 +120,32 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
       {/* Preset Buttons */}
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Quick Select
+          {t('reports.dateRangeSelector.quickSelect')}
         </label>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setPresetRange('month-to-date')}
             className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors"
           >
-            Month to Date
+            {t('reports.dateRangeSelector.monthToDate')}
           </button>
           <button
             onClick={() => setPresetRange('last-month')}
             className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors"
           >
-            Last Month
+            {t('reports.dateRangeSelector.lastMonth')}
           </button>
           <button
             onClick={() => setPresetRange('year-to-date')}
             className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors"
           >
-            Year to Date
+            {t('reports.dateRangeSelector.yearToDate')}
           </button>
           <button
             onClick={() => setPresetRange('last-year')}
             className="px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors"
           >
-            Last Year
+            {t('reports.dateRangeSelector.lastYear')}
           </button>
           
           {/* Sprint-based buttons */}
@@ -154,7 +156,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                   onClick={() => setPresetRange('this-sprint')}
                   className="px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg font-medium transition-colors"
                 >
-                  This Sprint
+                  {t('reports.dateRangeSelector.thisSprint')}
                 </button>
               )}
               {hasPastSprints && (
@@ -162,7 +164,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                   onClick={() => setPresetRange('last-sprint')}
                   className="px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg font-medium transition-colors"
                 >
-                  Last Sprint
+                  {t('reports.dateRangeSelector.lastSprint')}
                 </button>
               )}
               
@@ -172,7 +174,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                   onClick={() => setShowSprintDropdown(!showSprintDropdown)}
                   className="px-3 py-1.5 text-sm bg-green-100 hover:bg-green-200 dark:bg-green-900/30 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-lg font-medium transition-colors flex items-center gap-1"
                 >
-                  Choose Sprint
+                  {t('reports.dateRangeSelector.chooseSprint')}
                   <ChevronDown className={`w-4 h-4 transition-transform ${showSprintDropdown ? 'rotate-180' : ''}`} />
                 </button>
                 
@@ -198,7 +200,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
                             </span>
                             {sprint.is_active && (
                               <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
-                                Active
+                                {t('reports.dateRangeSelector.active')}
                               </span>
                             )}
                           </div>
@@ -220,7 +222,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Start Date
+            {t('reports.dateRangeSelector.startDate')}
           </label>
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -235,7 +237,7 @@ const DateRangeSelector: React.FC<DateRangeSelectorProps> = ({
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            End Date
+            {t('reports.dateRangeSelector.endDate')}
           </label>
           <div className="relative">
             <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />

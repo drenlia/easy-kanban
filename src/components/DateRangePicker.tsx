@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { parseLocalDate, formatToYYYYMMDD } from '../utils/dateUtils';
 
 interface DateRangePickerProps {
@@ -18,6 +19,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   onClose,
   position
 }) => {
+  const { t } = useTranslation('common');
   const [tempStartDate, setTempStartDate] = useState<string>(startDate || '');
   const [tempEndDate, setTempEndDate] = useState<string>(endDate || '');
   const [selectedStart, setSelectedStart] = useState<Date | null>(
@@ -276,8 +278,29 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   };
 
   const calendarDays = generateCalendarDays();
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = [
+    t('dateRangePicker.months.january'),
+    t('dateRangePicker.months.february'),
+    t('dateRangePicker.months.march'),
+    t('dateRangePicker.months.april'),
+    t('dateRangePicker.months.may'),
+    t('dateRangePicker.months.june'),
+    t('dateRangePicker.months.july'),
+    t('dateRangePicker.months.august'),
+    t('dateRangePicker.months.september'),
+    t('dateRangePicker.months.october'),
+    t('dateRangePicker.months.november'),
+    t('dateRangePicker.months.december')
+  ];
+  const dayNames = [
+    t('dateRangePicker.days.sun'),
+    t('dateRangePicker.days.mon'),
+    t('dateRangePicker.days.tue'),
+    t('dateRangePicker.days.wed'),
+    t('dateRangePicker.days.thu'),
+    t('dateRangePicker.days.fri'),
+    t('dateRangePicker.days.sat')
+  ];
 
   return createPortal(
     <div
@@ -294,7 +317,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     >
       {/* Header with close button */}
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">Select Date Range</h3>
+        <h3 className="text-xs font-semibold text-gray-900 dark:text-gray-100">{t('dateRangePicker.title')}</h3>
         <button
           onClick={onClose}
           className="p-0.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
@@ -307,7 +330,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       <div className="grid grid-cols-2 gap-1.5 mb-2">
         <div>
           <label className="block text-[10px] font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-            Start Date
+            {t('dateRangePicker.startDate')}
           </label>
           <input
             type="text"
@@ -326,7 +349,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         </div>
         <div>
           <label className="block text-[10px] font-medium text-gray-700 dark:text-gray-300 mb-0.5">
-            End Date
+            {t('dateRangePicker.endDate')}
           </label>
           <input
             type="text"
@@ -420,21 +443,21 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           onClick={handleClear}
           className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
         >
-          Clear
+          {t('dateRangePicker.clear')}
         </button>
         <div className="flex gap-1.5">
           <button
             onClick={onClose}
             className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
           >
-            Cancel
+            {t('dateRangePicker.cancel')}
           </button>
           <button
             onClick={handleApply}
             disabled={!tempStartDate}
             className="px-2 py-1 text-[10px] font-medium bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Apply
+            {t('dateRangePicker.apply')}
           </button>
         </div>
       </div>

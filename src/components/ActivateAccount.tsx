@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { login } from '../api';
 
@@ -11,6 +12,7 @@ interface ActivateAccountProps {
 }
 
 export default function ActivateAccount({ token, email, onBackToLogin, onAutoLogin, isLoading: isLoadingProps }: ActivateAccountProps) {
+  const { t } = useTranslation('auth');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -62,7 +64,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
     
     if (!token || !email) {
       setTokenValid(false);
-      setError('Missing activation token or email');
+      setError(t('activateAccount.missingTokenOrEmail'));
       return;
     }
     
@@ -73,7 +75,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
         setTokenValid(true);
       } catch (error) {
         setTokenValid(false);
-        setError('Failed to verify activation token');
+        setError(t('activateAccount.failedToVerifyToken'));
       }
     };
 
@@ -82,7 +84,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
 
   const handleGoogleSignIn = async () => {
     if (!googleOAuthEnabled) {
-      setError('Google OAuth is not configured. Please contact an administrator.');
+      setError(t('activateAccount.googleOAuthNotConfigured'));
       return;
     }
 
@@ -102,7 +104,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
         throw new Error('Failed to get Google OAuth URL');
       }
     } catch (error: any) {
-      setError('Google sign-in failed. Please try again.');
+      setError(t('activateAccount.googleSignInFailed'));
       setIsLoading(false);
     }
   };
@@ -113,12 +115,12 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
 
     // Validation
     if (password.length < 6) {
-      setError('Password must be at least 6 characters long');
+      setError(t('activateAccount.passwordTooShort'));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('activateAccount.passwordsDoNotMatch'));
       return;
     }
 
@@ -157,10 +159,10 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
           }, 3000);
         }
       } else {
-        setError(data.error || 'Failed to activate account');
+        setError(data.error || t('activateAccount.failedToActivate'));
       }
     } catch (error) {
-      setError('Network error. Please try again.');
+      setError(t('activateAccount.networkError'));
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +174,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md w-full text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Verifying activation token...</p>
+          <p className="mt-4 text-gray-600">{t('activateAccount.verifyingToken')}</p>
         </div>
       </div>
     );
@@ -188,9 +190,9 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </div>
-          <h2 className="mt-6 text-2xl font-bold text-gray-900">Invalid Activation Link</h2>
+          <h2 className="mt-6 text-2xl font-bold text-gray-900">{t('activateAccount.invalidLink')}</h2>
           <p className="mt-2 text-gray-600">
-            This activation link is invalid or has expired.
+            {t('activateAccount.linkExpired')}
           </p>
           {error && (
             <p className="mt-2 text-sm text-red-600">{error}</p>
@@ -200,7 +202,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
             className="mt-6 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Login
+            {t('activateAccount.backToLogin')}
           </button>
         </div>
       </div>
@@ -213,9 +215,9 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading...</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">{t('activateAccount.loading')}</h2>
           <p className="text-gray-600">
-            Processing activation link...
+            {t('activateAccount.processingLink')}
           </p>
         </div>
       </div>
@@ -230,9 +232,9 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
           <div className="mx-auto h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
             <CheckCircle className="h-8 w-8 text-green-600" />
           </div>
-          <h2 className="mt-6 text-2xl font-bold text-gray-900">Account Activated!</h2>
+          <h2 className="mt-6 text-2xl font-bold text-gray-900">{t('activateAccount.accountActivated')}</h2>
           <p className="mt-2 text-gray-600">
-            Your account has been successfully activated. You're being logged in automatically...
+            {t('activateAccount.activationSuccess')}
           </p>
           <div className="mt-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
@@ -253,13 +255,13 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
             </svg>
           </div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Activate Your Account
+            {t('activateAccount.title')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Welcome! Please set a password to activate your account.
+            {t('activateAccount.description')}
           </p>
           <p className="mt-1 text-center text-sm text-gray-500">
-            Account: {decodeURIComponent(email)}
+            {t('activateAccount.accountLabel', { email: decodeURIComponent(email) })}
           </p>
         </div>
         
@@ -268,7 +270,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                New Password
+                {t('activateAccount.newPassword')}
               </label>
               <div className="relative">
                 <input
@@ -277,7 +279,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
                   type={showPassword ? "text" : "password"}
                   required
                   className="appearance-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                  placeholder="Enter your new password"
+                  placeholder={t('activateAccount.newPasswordPlaceholder')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
@@ -298,7 +300,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
             {/* Confirm Password Field */}
             <div>
               <label htmlFor="confirm-password" className="block text-sm font-medium text-gray-700 mb-1">
-                Confirm Password
+                {t('activateAccount.confirmPassword')}
               </label>
               <div className="relative">
                 <input
@@ -307,7 +309,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
                   type={showConfirmPassword ? "text" : "password"}
                   required
                   className="appearance-none relative block w-full px-3 py-2 pr-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                  placeholder="Confirm your new password"
+                  placeholder={t('activateAccount.confirmPasswordPlaceholder')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                 />
@@ -328,7 +330,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
 
           {/* Password Requirements */}
           <div className="text-xs text-gray-500">
-            Password must be at least 6 characters long.
+            {t('activateAccount.passwordRequirement')}
           </div>
 
           {error && (
@@ -351,7 +353,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
               ) : null}
-              {isLoading ? 'Activating Account...' : 'Activate Account'}
+              {isLoading ? t('activateAccount.activating') : t('activateAccount.submit')}
             </button>
           </div>
         </form>
@@ -364,7 +366,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
                 <div className="w-full border-t border-gray-300" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-gray-50 text-gray-500">Or</span>
+                <span className="px-2 bg-gray-50 text-gray-500">{t('activateAccount.or')}</span>
               </div>
             </div>
 
@@ -381,7 +383,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                {isLoading ? 'Connecting...' : 'Continue with Google'}
+                {isLoading ? t('activateAccount.connecting') : t('activateAccount.continueWithGoogle')}
               </button>
             </div>
           </div>
@@ -394,7 +396,7 @@ export default function ActivateAccount({ token, email, onBackToLogin, onAutoLog
             className="inline-flex items-center text-sm text-blue-600 hover:text-blue-500"
           >
             <ArrowLeft className="mr-1 h-4 w-4" />
-            Back to Login
+            {t('activateAccount.backToLogin')}
           </button>
         </div>
       </div>

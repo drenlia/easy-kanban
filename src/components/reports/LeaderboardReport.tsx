@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Trophy, Medal, Award } from 'lucide-react';
 
 interface LeaderboardEntry {
@@ -22,6 +23,7 @@ interface LeaderboardData {
 }
 
 const LeaderboardReport: React.FC = () => {
+  const { t } = useTranslation('common');
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,13 +66,13 @@ const LeaderboardReport: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch leaderboard');
+        throw new Error(t('reports.leaderboard.failedToFetch'));
       }
 
       const result = await response.json();
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -103,19 +105,19 @@ const LeaderboardReport: React.FC = () => {
   };
 
   const months = [
-    { value: null, label: 'All Months' },
-    { value: 1, label: 'January' },
-    { value: 2, label: 'February' },
-    { value: 3, label: 'March' },
-    { value: 4, label: 'April' },
-    { value: 5, label: 'May' },
-    { value: 6, label: 'June' },
-    { value: 7, label: 'July' },
-    { value: 8, label: 'August' },
-    { value: 9, label: 'September' },
-    { value: 10, label: 'October' },
-    { value: 11, label: 'November' },
-    { value: 12, label: 'December' },
+    { value: null, label: t('reports.leaderboard.allMonths') },
+    { value: 1, label: t('reports.leaderboard.months.january') },
+    { value: 2, label: t('reports.leaderboard.months.february') },
+    { value: 3, label: t('reports.leaderboard.months.march') },
+    { value: 4, label: t('reports.leaderboard.months.april') },
+    { value: 5, label: t('reports.leaderboard.months.may') },
+    { value: 6, label: t('reports.leaderboard.months.june') },
+    { value: 7, label: t('reports.leaderboard.months.july') },
+    { value: 8, label: t('reports.leaderboard.months.august') },
+    { value: 9, label: t('reports.leaderboard.months.september') },
+    { value: 10, label: t('reports.leaderboard.months.october') },
+    { value: 11, label: t('reports.leaderboard.months.november') },
+    { value: 12, label: t('reports.leaderboard.months.december') },
   ];
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i);
@@ -131,7 +133,7 @@ const LeaderboardReport: React.FC = () => {
   if (error || !data) {
     return (
       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-        <p className="text-red-800 dark:text-red-200">{error || 'Failed to load leaderboard'}</p>
+        <p className="text-red-800 dark:text-red-200">{error || t('reports.leaderboard.failedToLoad')}</p>
       </div>
     );
   }
@@ -143,12 +145,12 @@ const LeaderboardReport: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Trophy className="w-7 h-7 text-yellow-500" />
-            Team Leaderboard
+            {t('reports.leaderboard.title')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
             {data.period.month 
               ? `${months.find(m => m.value === data.period.month)?.label} ${data.period.year}`
-              : data.period.year === 'all-time' ? 'All Time' : `Year ${data.period.year}`
+              : data.period.year === 'all-time' ? t('reports.leaderboard.allTime') : t('reports.leaderboard.year', { year: data.period.year })
             }
           </p>
         </div>
@@ -159,7 +161,7 @@ const LeaderboardReport: React.FC = () => {
             onChange={(e) => setSelectedYear(e.target.value ? parseInt(e.target.value) : new Date().getFullYear())}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
           >
-            <option value="">All Time</option>
+            <option value="">{t('reports.leaderboard.allTime')}</option>
             {years.map(year => (
               <option key={year} value={year}>{year}</option>
             ))}
@@ -183,11 +185,11 @@ const LeaderboardReport: React.FC = () => {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <div className="flex items-center justify-between text-sm">
             <span className="text-blue-800 dark:text-blue-200">
-              Showing <strong>{data.leaderboard.length}</strong> of <strong>{data.totalMembers}</strong> team members
+              {t('reports.leaderboard.showingMembers', { showing: data.leaderboard.length, total: data.totalMembers })}
             </span>
             {data.totalMembers > data.leaderboard.length && (
               <span className="text-blue-600 dark:text-blue-400 text-xs">
-                {data.totalMembers - data.leaderboard.length} members have no activity yet
+                {t('reports.leaderboard.noActivityMembers', { count: data.totalMembers - data.leaderboard.length })}
               </span>
             )}
           </div>
@@ -199,7 +201,7 @@ const LeaderboardReport: React.FC = () => {
         {data.leaderboard.length === 0 ? (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-12 text-center">
             <Trophy className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-600 dark:text-gray-400">No data available for this period</p>
+            <p className="text-gray-600 dark:text-gray-400">{t('reports.leaderboard.noDataAvailable')}</p>
           </div>
         ) : (
           data.leaderboard.map((entry) => (
@@ -222,11 +224,11 @@ const LeaderboardReport: React.FC = () => {
                   {entry.user_name}
                 </div>
                 <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400 mt-1">
-                  <span>{entry.tasks_completed} tasks completed</span>
+                  <span>{t('reports.leaderboard.tasksCompleted', { count: entry.tasks_completed })}</span>
                   <span>•</span>
-                  <span>{entry.total_effort_completed} effort</span>
+                  <span>{t('reports.leaderboard.effort', { count: entry.total_effort_completed })}</span>
                   <span>•</span>
-                  <span>{entry.comments_added} comments</span>
+                  <span>{t('reports.leaderboard.comments', { count: entry.comments_added })}</span>
                 </div>
               </div>
 
@@ -235,7 +237,7 @@ const LeaderboardReport: React.FC = () => {
                 <div className="text-2xl font-bold text-gray-900 dark:text-white">
                   {entry.total_points.toLocaleString()}
                 </div>
-                <div className="text-xs text-gray-500 dark:text-gray-400">points</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{t('reports.leaderboard.points')}</div>
               </div>
             </div>
           ))

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '../i18n/config';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -146,12 +148,12 @@ export default function TextEditor({
   initialContent = '',
   isEditing = false,
   showAttachments = false,
-  placeholder = 'Start typing...',
+  placeholder,
   minHeight = '100px',
   showToolbar = true,
   showSubmitButtons = true,
-  submitButtonText = 'Submit',
-  cancelButtonText = 'Cancel',
+  submitButtonText,
+  cancelButtonText,
   toolbarOptions = defaultToolbarOptions,
   variant = 'full',
   className = '',
@@ -167,6 +169,7 @@ export default function TextEditor({
   allowImageResize = true,
   imageDisplayMode = 'full'
 }: TextEditorProps) {
+  const { t } = useTranslation('common');
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
@@ -413,13 +416,13 @@ export default function TextEditor({
               popup.style.cssText = 'top: 100%; left: 0; min-width: 200px; margin-top: 4px;';
               
               const borderOptions = [
-                { label: 'No Border', value: 'none' },
-                { label: 'Thin Black', value: '1px solid #000' },
-                { label: 'Thick Black', value: '3px solid #000' },
-                { label: 'Thin Gray', value: '1px solid #666' },
-                { label: 'Thin Blue', value: '2px solid #3b82f6' },
-                { label: 'Dashed Gray', value: '2px dashed #666' },
-                { label: 'Dotted Blue', value: '2px dotted #3b82f6' }
+                { label: i18n.t('textEditor.borderNoBorder', { ns: 'common' }), value: 'none' },
+                { label: i18n.t('textEditor.borderThinBlack', { ns: 'common' }), value: '1px solid #000' },
+                { label: i18n.t('textEditor.borderThickBlack', { ns: 'common' }), value: '3px solid #000' },
+                { label: i18n.t('textEditor.borderThinGray', { ns: 'common' }), value: '1px solid #666' },
+                { label: i18n.t('textEditor.borderThinBlue', { ns: 'common' }), value: '2px solid #3b82f6' },
+                { label: i18n.t('textEditor.borderDashedGray', { ns: 'common' }), value: '2px dashed #666' },
+                { label: i18n.t('textEditor.borderDottedBlue', { ns: 'common' }), value: '2px dotted #3b82f6' }
               ];
               
               borderOptions.forEach(option => {
@@ -634,7 +637,7 @@ export default function TextEditor({
       attributes: {
         class: `text-editor-prosemirror prose prose-sm max-w-none focus:outline-none ${compact ? 'px-2 py-1' : 'px-3 py-2'} ${editorClassName}`,
         style: `min-height: ${compact ? '60px' : minHeight}; word-break: break-word; overflow-wrap: break-word;`,
-        placeholder: placeholder
+        placeholder: placeholder || t('textEditor.placeholder')
       },
       handleClick: (view, pos, event) => {
         // Check if Ctrl (Windows/Linux) or Cmd (Mac) is pressed
@@ -1258,7 +1261,7 @@ export default function TextEditor({
                 type="button"
                 onClick={() => setShowHeadingDropdown(!showHeadingDropdown)}
                 className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-1 px-2`}
-                title="Heading"
+                title={t('textEditor.heading')}
               >
                 <span className="text-xs font-semibold min-w-[24px]">
                   {editor.isActive('heading', { level: 1}) ? 'H1' :
@@ -1346,7 +1349,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('bold') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title="Bold"
+              title={t('textEditor.bold')}
             >
               <Bold size={iconSize} />
             </button>
@@ -1359,7 +1362,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('italic') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title="Italic"
+              title={t('textEditor.italic')}
             >
               <Italic size={iconSize} />
             </button>
@@ -1372,7 +1375,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('underline') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title="Underline"
+              title={t('textEditor.underline')}
             >
               <UnderlineIcon size={iconSize} />
             </button>
@@ -1386,7 +1389,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('strike') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title="Strikethrough"
+              title={t('textEditor.strikethrough')}
             >
               <Strikethrough size={iconSize} />
             </button>
@@ -1401,7 +1404,7 @@ export default function TextEditor({
                 className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                   editor.isActive('bulletList') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Bullet List"
+                title={t('textEditor.bulletList')}
               >
                 <List size={16} />
               </button>
@@ -1411,7 +1414,7 @@ export default function TextEditor({
                 className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                   editor.isActive('orderedList') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Numbered List"
+                title={t('textEditor.numberedList')}
               >
                 <ListOrdered size={16} />
               </button>
@@ -1426,7 +1429,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('codeBlock') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title="Code Block"
+              title={t('textEditor.codeBlock')}
             >
               <span className="text-xs font-mono font-bold">&lt;&gt;</span>
             </button>
@@ -1523,7 +1526,7 @@ export default function TextEditor({
               className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                 editor.isActive('link') ? 'bg-gray-200 dark:bg-gray-600' : ''
               }`}
-              title={editor?.isActive('link') ? 'Edit Link' : 'Add Link'}
+              title={editor?.isActive('link') ? t('textEditor.editLink') : t('textEditor.addLink')}
             >
               <Link2 size={iconSize} />
             </button>
@@ -1540,7 +1543,7 @@ export default function TextEditor({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
-              title="Add Attachment"
+              title={t('textEditor.addAttachment')}
             >
               <Paperclip size={16} />
             </button>
@@ -1555,7 +1558,7 @@ export default function TextEditor({
                 className={`${buttonClass} rounded hover:bg-gray-200 dark:hover:bg-gray-600 flex items-center gap-1 ${
                   editor.isActive('table') ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Table"
+                title={t('textEditor.table')}
               >
                 <TableIcon size={iconSize} />
                 <ChevronDown size={12} />
@@ -1703,7 +1706,7 @@ export default function TextEditor({
                 className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                   editor.isActive({ textAlign: 'left' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Align Left"
+                title={t('textEditor.alignLeft')}
               >
                 <AlignLeft size={16} />
               </button>
@@ -1713,7 +1716,7 @@ export default function TextEditor({
                 className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                   editor.isActive({ textAlign: 'center' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Align Center"
+                title={t('textEditor.alignCenter')}
               >
                 <AlignCenter size={16} />
               </button>
@@ -1723,7 +1726,7 @@ export default function TextEditor({
                 className={`p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-600 ${
                   editor.isActive({ textAlign: 'right' }) ? 'bg-gray-200 dark:bg-gray-600' : ''
                 }`}
-                title="Align Right"
+                title={t('textEditor.alignRight')}
               >
                 <AlignRight size={16} />
               </button>
@@ -1855,7 +1858,7 @@ export default function TextEditor({
                     }
                   }}
                   className="ml-auto text-gray-500 hover:text-gray-700"
-                  title={attachment.isNew ? "Remove attachment" : "Delete attachment"}
+                  title={attachment.isNew ? t('textEditor.removeAttachment') : t('textEditor.deleteAttachment')}
                 >
                   <X size={14} />
                 </button>
@@ -1874,7 +1877,7 @@ export default function TextEditor({
               onClick={handleCancel}
               className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 transition-colors"
             >
-              {cancelButtonText}
+              {cancelButtonText || t('buttons.cancel')}
             </button>
           )}
           <button
@@ -1883,7 +1886,7 @@ export default function TextEditor({
             className="px-4 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 transition-colors flex items-center gap-1"
           >
             <Check size={14} />
-            {submitButtonText}
+            {submitButtonText || t('textEditor.submit')}
           </button>
         </div>
       )}
@@ -1908,16 +1911,16 @@ export default function TextEditor({
           >
             <h3 className="text-lg font-medium mb-3">
               {isEditingExistingLink 
-                ? 'Edit Link' 
+                ? t('textEditor.editLink') 
                 : hasSelectedText 
-                  ? 'Add Link to Selected Text' 
-                  : 'Add Link'
+                  ? t('textEditor.addLinkToSelectedText') 
+                  : t('textEditor.addLink')
               }
             </h3>
             <div>
               <div className="mb-3">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  URL
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t('textEditor.url')}
                 </label>
                 <input
                   type="url"
@@ -1931,14 +1934,14 @@ export default function TextEditor({
                     }
                   }}
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                  placeholder="https://example.com"
+                  placeholder={t('textEditor.urlPlaceholder')}
                   autoFocus
                 />
               </div>
               {!hasSelectedText && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Link Text (optional)
+                    {t('textEditor.linkTextOptional')}
                   </label>
                   <input
                     type="text"
@@ -1952,13 +1955,13 @@ export default function TextEditor({
                       }
                     }}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Link text"
+                    placeholder={t('textEditor.linkTextPlaceholder')}
                   />
                 </div>
               )}
               {hasSelectedText && (
                 <div className="mb-4 p-2 bg-gray-50 rounded border">
-                  <span className="text-sm text-gray-600">Selected text: </span>
+                  <span className="text-sm text-gray-600">{t('textEditor.selectedText')} </span>
                   <span className="text-sm font-medium">&ldquo;{linkText}&rdquo;</span>
                 </div>
               )}
@@ -1970,7 +1973,7 @@ export default function TextEditor({
                     onChange={(e) => setOpenInNewWindow(e.target.checked)}
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span className="text-gray-700">Open in new window</span>
+                  <span className="text-gray-700">{t('textEditor.openInNewWindow')}</span>
                 </label>
               </div>
               <div className="flex justify-between">
@@ -1992,7 +1995,7 @@ export default function TextEditor({
                       }}
                       className="px-3 py-1 text-sm text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
                     >
-                      Remove Link
+                      {t('textEditor.removeLink')}
                     </button>
                   )}
                 </div>
@@ -2010,7 +2013,7 @@ export default function TextEditor({
                     }}
                     className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
                   >
-                    Cancel
+                    {t('buttons.cancel')}
                   </button>
                   <button
                     type="button"
@@ -2021,7 +2024,7 @@ export default function TextEditor({
                     }}
                     className="px-4 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
                   >
-                    {isEditingExistingLink ? 'Update Link' : 'Add Link'}
+                    {isEditingExistingLink ? t('textEditor.updateLink') : t('textEditor.addLink')}
                   </button>
                 </div>
               </div>

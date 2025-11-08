@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { X, Send } from 'lucide-react';
 
@@ -20,6 +21,7 @@ export default function AddCommentModal({
   onSubmit,
   editingComment
 }: AddCommentModalProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [commentText, setCommentText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -89,12 +91,12 @@ export default function AddCommentModal({
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            {editingComment ? 'Edit Comment' : 'Add Comment'}
+            {editingComment ? t('addCommentModal.editComment') : t('addCommentModal.addComment')}
           </h3>
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-            title="Close"
+            title={t('addCommentModal.close')}
           >
             <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
@@ -103,14 +105,14 @@ export default function AddCommentModal({
         {/* Task Title */}
         <div className="mb-4">
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {editingComment ? 'Editing comment on:' : 'Adding comment to:'} <span className="font-medium text-gray-800 dark:text-gray-100">{taskTitle}</span>
+            {editingComment ? t('addCommentModal.editingCommentOn') : t('addCommentModal.addingCommentTo')} <span className="font-medium text-gray-800 dark:text-gray-100">{taskTitle}</span>
           </p>
         </div>
 
         {/* Comment Input */}
         <div className="mb-4">
           <label htmlFor="comment-text" className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">
-            Comment
+            {t('addCommentModal.comment')}
           </label>
           <textarea
             id="comment-text"
@@ -118,15 +120,15 @@ export default function AddCommentModal({
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type your comment here..."
+            placeholder={t('addCommentModal.typeYourCommentHere')}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
             rows={4}
             disabled={isSubmitting}
           />
           <div className="mt-2 text-xs text-gray-500">
-            Press <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Enter</kbd> to submit, 
-            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Shift+Enter</kbd> for new line, 
-            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Esc</kbd> to cancel
+            {t('addCommentModal.pressEnterToSubmit')} <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs">Enter</kbd> {t('addCommentModal.toSubmit')}, 
+            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Shift+Enter</kbd> {t('addCommentModal.forNewLine')}, 
+            <kbd className="px-1 py-0.5 bg-gray-100 rounded text-xs ml-1">Esc</kbd> {t('addCommentModal.toCancel')}
           </div>
         </div>
 
@@ -137,7 +139,7 @@ export default function AddCommentModal({
             className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
             disabled={isSubmitting}
           >
-            Cancel
+            {t('buttons.cancel', { ns: 'common' })}
           </button>
           <button
             onClick={handleSubmit}
@@ -147,12 +149,12 @@ export default function AddCommentModal({
             {isSubmitting ? (
               <>
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                {editingComment ? 'Updating...' : 'Adding...'}
+                {editingComment ? t('addCommentModal.updating') : t('addCommentModal.adding')}
               </>
             ) : (
               <>
                 <Send size={16} />
-                {editingComment ? 'Update Comment' : 'Add Comment'}
+                {editingComment ? t('addCommentModal.updateComment') : t('addCommentModal.addComment')}
               </>
             )}
           </button>

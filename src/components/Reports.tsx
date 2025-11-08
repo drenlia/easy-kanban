@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { BarChart3, Trophy, TrendingUp, Users, List } from 'lucide-react';
 import UserStatsReport from './reports/UserStatsReport';
 import LeaderboardReport from './reports/LeaderboardReport';
@@ -23,6 +24,7 @@ interface ReportsProps {
 }
 
 const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
+  const { t } = useTranslation('common');
   const [activeTab, setActiveTab] = useState<ReportTab>(() => {
     // Priority 1: Get tab from URL hash
     const fullHash = window.location.hash;
@@ -232,10 +234,10 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
         <div className="text-center max-w-md px-6">
           <BarChart3 className="w-20 h-20 text-gray-400 mx-auto mb-6" />
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-            Access Denied
+            {t('reports.accessDenied')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mb-8">
-            Reports module is currently disabled by an administrator.
+            {t('reports.moduleDisabled')}
           </p>
           <button
             onClick={() => window.location.hash = 'kanban'}
@@ -244,7 +246,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Go back home
+            {t('reports.goBackHome')}
           </button>
         </div>
       </div>
@@ -259,10 +261,10 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
         <div className="text-center max-w-md px-6">
           <BarChart3 className="w-20 h-20 text-gray-400 mx-auto mb-6" />
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
-            Access Denied
+            {t('reports.accessDenied')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mb-8">
-            Reports are currently restricted to administrators only.
+            {t('reports.restrictedToAdmins')}
           </p>
           <button
             onClick={() => window.location.hash = 'kanban'}
@@ -271,7 +273,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Go back home
+            {t('reports.goBackHome')}
           </button>
         </div>
       </div>
@@ -296,13 +298,13 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   const gamificationEnabled = settings.REPORTS_GAMIFICATION_ENABLED === 'true';
   const allTabs = [
     // My Stats: Shows points - only visible if gamification enabled
-    { id: 'stats' as ReportTab, label: 'My Stats', icon: BarChart3, enabled: gamificationEnabled },
+    { id: 'stats' as ReportTab, label: t('reports.tabs.myStats'), icon: BarChart3, enabled: gamificationEnabled },
     // Leaderboard: Shows rankings - only visible if gamification AND leaderboard enabled
-    { id: 'leaderboard' as ReportTab, label: 'Leaderboard', icon: Trophy, enabled: gamificationEnabled && settings.REPORTS_LEADERBOARD_ENABLED === 'true' },
+    { id: 'leaderboard' as ReportTab, label: t('reports.tabs.leaderboard'), icon: Trophy, enabled: gamificationEnabled && settings.REPORTS_LEADERBOARD_ENABLED === 'true' },
     // Non-gamification reports (always visible)
-    { id: 'burndown' as ReportTab, label: 'Burndown', icon: TrendingUp, enabled: true },
-    { id: 'team' as ReportTab, label: 'Team Performance', icon: Users, enabled: true },
-    { id: 'tasks' as ReportTab, label: 'Task List', icon: List, enabled: true },
+    { id: 'burndown' as ReportTab, label: t('reports.tabs.burndown'), icon: TrendingUp, enabled: true },
+    { id: 'team' as ReportTab, label: t('reports.tabs.teamPerformance'), icon: Users, enabled: true },
+    { id: 'tasks' as ReportTab, label: t('reports.tabs.taskList'), icon: List, enabled: true },
   ];
 
   const tabs = allTabs.filter(tab => tab.enabled);
@@ -316,7 +318,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
       <div className="reports-header bg-white dark:bg-gray-800 py-4 border-b border-gray-200 dark:border-gray-700">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
           <BarChart3 className="w-7 h-7" />
-          Reports & Analytics
+          {t('reports.title')}
         </h1>
       </div>
 

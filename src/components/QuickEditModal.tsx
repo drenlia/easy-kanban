@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, ChevronDown, Check, Plus } from 'lucide-react';
 import { Task, Priority, TeamMember, Tag, PriorityOption } from '../types';
 import { getAllTags, getTaskTags, addTagToTask, removeTagFromTask, getAllPriorities, getTaskWatchers, addWatcherToTask, removeWatcherFromTask, getTaskCollaborators, addCollaboratorToTask, removeCollaboratorFromTask, fetchTaskAttachments, deleteAttachment } from '../api';
@@ -18,6 +19,7 @@ interface QuickEditModalProps {
 }
 
 export default function QuickEditModal({ task, members, onClose, onSave, siteSettings }: QuickEditModalProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [editedTask, setEditedTask] = useState(task);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [taskTags, setTaskTags] = useState<Tag[]>([]);
@@ -425,7 +427,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-[691px] max-h-[90vh] flex flex-col">
         <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Quick Edit Task</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('quickEditModal.title')}</h3>
           <button
             type="button"
             onClick={onClose}
@@ -445,7 +447,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           {/* Title */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Title
+              {t('labels.title', { ns: 'common' })}
             </label>
             <input
               type="text"
@@ -459,7 +461,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           {/* Description - using TextEditor for rich text */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description
+              {t('labels.description')}
             </label>
             <TextEditor
               onSubmit={async () => {
@@ -471,7 +473,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
               onAttachmentsChange={handleAttachmentsChange}
               onAttachmentDelete={handleAttachmentDelete}
               initialContent={editedTask.description}
-              placeholder="Enter task description..."
+              placeholder={t('placeholders.enterDescription')}
               minHeight="150px"
               showSubmitButtons={false}
               showAttachments={true}
@@ -497,7 +499,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           {/* Watchers Section */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Watchers
+              {t('labels.watchers')}
             </label>
             <div className="relative" ref={watchersDropdownRef}>
               <button
@@ -507,7 +509,10 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                 className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
               >
                 <span className="text-gray-700 dark:text-gray-200">
-                  {taskWatchers.length === 0 ? 'Select watchers...' : `${taskWatchers.length} watcher${taskWatchers.length !== 1 ? 's' : ''} selected`}
+                  {taskWatchers.length === 0 
+                    ? t('labels.selectWatchers')
+                    : `${taskWatchers.length} ${taskWatchers.length !== 1 ? t('watcher.plural') : t('watcher.singular')} ${t('tag.selected')}`
+                  }
                 </span>
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -560,7 +565,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                         toggleWatcher(member);
                       }}
                       className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                      title="Remove watcher"
+                      title={t('remove.watcher')}
                     >
                       ×
                     </button>
@@ -573,7 +578,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           {/* Collaborators Section */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Collaborators
+              {t('labels.collaborators')}
             </label>
             <div className="relative" ref={collaboratorsDropdownRef}>
               <button
@@ -583,7 +588,10 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                 className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-600"
               >
                 <span className="text-gray-700 dark:text-gray-200">
-                  {taskCollaborators.length === 0 ? 'Select collaborators...' : `${taskCollaborators.length} collaborator${taskCollaborators.length !== 1 ? 's' : ''} selected`}
+                  {taskCollaborators.length === 0 
+                    ? t('labels.selectCollaborators')
+                    : `${taskCollaborators.length} ${taskCollaborators.length !== 1 ? t('collaborator.plural') : t('collaborator.singular')} ${t('tag.selected')}`
+                  }
                 </span>
                 <ChevronDown className="w-4 h-4" />
               </button>
@@ -636,7 +644,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                         toggleCollaborator(member);
                       }}
                       className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                      title="Remove collaborator"
+                      title={t('remove.collaborator')}
                     >
                       ×
                     </button>
@@ -650,7 +658,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Start Date
+                {t('labels.startDate')}
               </label>
               <input
                 type="date"
@@ -661,7 +669,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Due Date
+                {t('labels.dueDate')}
               </label>
               <input
                 type="date"
@@ -676,7 +684,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Assigned To
+                {t('labels.assignedTo')}
               </label>
               <select
                 value={editedTask.memberId}
@@ -692,7 +700,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Effort (hours)
+                {t('labels.effort')}
               </label>
               <input
                 type="number"
@@ -706,7 +714,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
 
           {/* Tags Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('labels.tags')}</label>
             <div className="relative" ref={tagsDropdownRef}>
               <button
                 ref={tagsButtonRef}
@@ -716,8 +724,8 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
               >
                 <span className="text-gray-700 dark:text-gray-200">
                   {taskTags.length === 0 
-                    ? 'Select tags...' 
-                    : `${taskTags.length} tag${taskTags.length !== 1 ? 's' : ''} selected`
+                    ? t('labels.selectTags')
+                    : `${taskTags.length} ${taskTags.length !== 1 ? t('tag.plural') : t('tag.singular')} ${t('tag.selected')}`
                   }
                 </span>
                 <ChevronDown size={14} className="text-gray-400" />
@@ -738,13 +746,13 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                     className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer flex items-center gap-2 text-sm border-b border-gray-200 dark:border-gray-700 text-blue-600 dark:text-blue-400 font-medium sticky top-0 bg-white dark:bg-gray-800"
                   >
                     <Plus size={14} />
-                    <span>Add New Tag</span>
+                    <span>{t('labels.addNewTag')}</span>
                   </div>
                   
                   {isLoadingTags ? (
-                    <div className="px-3 py-2 text-sm text-gray-500">Loading tags...</div>
+                    <div className="px-3 py-2 text-sm text-gray-500">{t('labels.loadingTags')}</div>
                   ) : availableTags.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-gray-500">No tags available</div>
+                    <div className="px-3 py-2 text-sm text-gray-500">{t('labels.noTagsAvailable')}</div>
                   ) : (
                     availableTags.map(tag => (
                       <div
@@ -790,7 +798,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                         toggleTag(tag);
                       }}
                       className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
-                      title="Remove tag"
+                      title={t('remove.tag')}
                     >
                       ×
                     </button>
@@ -803,7 +811,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Priority
+              {t('labels.priority')}
             </label>
             <select
               value={editedTask.priority}
@@ -823,7 +831,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
         {uploadError && (
           <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
             <div className="text-sm text-red-600 dark:text-red-400">
-              Upload error: {uploadError}
+              {t('errors.uploadError')}: {uploadError}
             </div>
           </div>
         )}
@@ -834,7 +842,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
             onClick={onClose}
             className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md"
           >
-            Cancel
+            {t('buttons.cancel', { ns: 'common' })}
           </button>
           <button
             type="submit"
@@ -845,7 +853,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                 : 'bg-blue-500 text-white hover:bg-blue-600'
             }`}
           >
-            {isUploadingAttachments ? 'Uploading...' : 'Save Changes'}
+            {isUploadingAttachments ? t('column.saving') : t('comments.saveChanges')}
           </button>
         </div>
       </form>

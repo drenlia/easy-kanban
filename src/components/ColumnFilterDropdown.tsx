@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Columns, Check, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ColumnFilterDropdownProps {
   columns: Columns;
@@ -14,6 +15,7 @@ const ColumnFilterDropdown: React.FC<ColumnFilterDropdownProps> = ({
   onColumnsChange,
   selectedBoard
 }) => {
+  const { t } = useTranslation('common');
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -64,10 +66,10 @@ const ColumnFilterDropdown: React.FC<ColumnFilterDropdownProps> = ({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
-        title="Filter columns"
+        title={t('columnFilterDropdown.filterColumns')}
       >
         <Columns size={14} />
-        <span className="hidden sm:inline">Columns</span>
+        <span className="hidden sm:inline">{t('columnFilterDropdown.columns')}</span>
         <ChevronDown size={12} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
         {someVisible && (
           <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
@@ -80,19 +82,19 @@ const ColumnFilterDropdown: React.FC<ColumnFilterDropdownProps> = ({
         <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg z-[60] min-w-[200px] max-h-60 overflow-y-auto">
           <div className="p-2 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Column Visibility</span>
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">{t('columnFilterDropdown.columnVisibility')}</span>
               <div className="flex gap-1">
                 <button
                   onClick={handleSelectAll}
                   className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded"
                 >
-                  All
+                  {t('columnFilterDropdown.all')}
                 </button>
                 <button
                   onClick={handleSelectNone}
                   className="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded"
                 >
-                  None
+                  {t('columnFilterDropdown.none')}
                 </button>
               </div>
             </div>
@@ -123,10 +125,10 @@ const ColumnFilterDropdown: React.FC<ColumnFilterDropdownProps> = ({
                   </div>
                   <span className={`truncate ${isArchived ? 'text-gray-500 dark:text-gray-400 italic' : 'text-gray-700 dark:text-gray-300'}`}>
                     {column.title}
-                    {isArchived && ' (Archive)'}
+                    {isArchived && t('columnFilterDropdown.archive')}
                   </span>
                   {isDisabled && (
-                    <span className="text-xs text-gray-400 ml-auto">(required)</span>
+                    <span className="text-xs text-gray-400 ml-auto">{t('columnFilterDropdown.required')}</span>
                   )}
                 </button>
               );

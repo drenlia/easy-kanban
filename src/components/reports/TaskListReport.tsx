@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { List, Calendar, RefreshCw, FileText, Tag as TagIcon, User, AlertCircle, Printer, ChevronDown, Search, X } from 'lucide-react';
 import DateRangeSelector from './DateRangeSelector';
 import { getBoards } from '../../api';
@@ -60,6 +61,7 @@ interface TaskListReportProps {
 }
 
 const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFiltersChange }) => {
+  const { t } = useTranslation('common');
   const [startDate, setStartDate] = useState(initialFilters?.startDate || '');
   const [endDate, setEndDate] = useState(initialFilters?.endDate || '');
   const [status, setStatus] = useState(initialFilters?.status || '');
@@ -166,7 +168,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
 
   const fetchTaskList = async () => {
     if (!startDate || !endDate) {
-      setError('Please select both start and end dates');
+      setError(t('reports.taskList.selectBothDates'));
       return;
     }
 
@@ -187,13 +189,13 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch task list');
+        throw new Error(t('reports.taskList.failedToFetch'));
       }
 
       const data = await response.json();
       setTaskData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -388,19 +390,19 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <List className="w-7 h-7 text-green-500" />
-            Task List Report
+            {t('reports.taskList.title')}
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">
-            Comprehensive list of tasks with detailed information
+            {t('reports.taskList.description')}
           </p>
         </div>
         <button
           onClick={handlePrint}
           className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
-          title="Print report"
+          title={t('reports.taskList.printReport')}
         >
           <Printer className="w-4 h-4" />
-          Print
+          {t('reports.taskList.print')}
         </button>
       </div>
 
@@ -409,7 +411,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-            <h3 className="font-semibold text-gray-900 dark:text-white">Filters</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">{t('reports.taskList.filters')}</h3>
           </div>
           {startDate && endDate && (
             <button
@@ -418,7 +420,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
               className="flex items-center gap-2 px-3 py-1.5 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-lg font-medium transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('reports.taskList.refresh')}
             </button>
           )}
         </div>
@@ -432,7 +434,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
 
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Board Filter (Optional)
+            {t('reports.taskList.boardFilter')}
           </label>
           <div className="relative">
             <button
@@ -441,7 +443,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-left flex items-center justify-between hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
             >
               <span className={boardId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'}>
-                {boardId ? boards.find(b => b.id === boardId)?.title || 'All Boards' : 'All Boards'}
+                {boardId ? boards.find(b => b.id === boardId)?.title || t('reports.taskList.allBoards') : t('reports.taskList.allBoards')}
               </span>
               <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showBoardDropdown ? 'rotate-180' : ''}`} />
             </button>
@@ -465,7 +467,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                         value={boardSearchTerm}
                         onChange={(e) => setBoardSearchTerm(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Search boards..."
+                        placeholder={t('reports.taskList.searchBoards')}
                         className="w-full pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -503,7 +505,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                         !boardId ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 font-medium' : 'text-gray-900 dark:text-white'
                       }`}
                     >
-                      All Boards
+                      {t('reports.taskList.allBoards')}
                     </button>
 
                     {/* Individual Boards */}
@@ -536,7 +538,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                     {/* No Results */}
                     {boardSearchTerm && filteredBoards.length === 0 && (
                       <div className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">
-                        No boards found
+                        {t('reports.taskList.noBoardsFound')}
                       </div>
                     )}
                   </div>
@@ -548,16 +550,16 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
 
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Status Filter
+            {t('reports.taskList.statusFilter')}
           </label>
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
           >
-            <option value="">All Tasks</option>
-            <option value="completed">Completed Only</option>
-            <option value="active">Active Only</option>
+            <option value="">{t('reports.taskList.allTasks')}</option>
+            <option value="completed">{t('reports.taskList.completedOnly')}</option>
+            <option value="active">{t('reports.taskList.activeOnly')}</option>
           </select>
         </div>
       </div>
@@ -582,25 +584,25 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
           {/* Summary Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Tasks</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.taskList.totalTasks')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {taskData.metrics.totalTasks}
               </div>
             </div>
             <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Completed</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.taskList.completed')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {taskData.metrics.completedTasks}
               </div>
             </div>
             <div className="bg-orange-50 dark:bg-orange-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Active</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.taskList.active')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {taskData.metrics.activeTasks}
               </div>
             </div>
             <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
-              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Effort</div>
+              <div className="text-sm text-gray-600 dark:text-gray-400 mb-1">{t('reports.taskList.totalEffort')}</div>
               <div className="text-2xl font-bold text-gray-900 dark:text-white">
                 {taskData.metrics.totalEffort}
               </div>
@@ -615,22 +617,22 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                   <thead className="bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Task
+                        {t('reports.taskList.tableHeaders.task')}
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Board
+                        {t('reports.taskList.tableHeaders.board')}
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Status
+                        {t('reports.taskList.tableHeaders.status')}
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Assignee
+                        {t('reports.taskList.tableHeaders.assignee')}
                       </th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Effort
+                        {t('reports.taskList.tableHeaders.effort')}
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Tags
+                        {t('reports.taskList.tableHeaders.tags')}
                       </th>
                     </tr>
                   </thead>
@@ -642,7 +644,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                             {task.task_ticket ? `${task.task_ticket}: ` : ''}{task.task_title}
                           </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">
-                            Created: {new Date(task.created_at).toLocaleDateString()}
+                            {t('reports.taskList.created')}: {new Date(task.created_at).toLocaleDateString()}
                           </div>
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
@@ -685,7 +687,7 @@ const TaskListReport: React.FC<TaskListReportProps> = ({ initialFilters, onFilte
                 </table>
               ) : (
                 <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                  No tasks found for the selected period and filters
+                  {t('reports.taskList.noTasksFound')}
                 </div>
               )}
             </div>

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
 interface AddTagModalProps {
@@ -22,6 +23,7 @@ const PRESET_COLORS = [
 ];
 
 export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [tagName, setTagName] = useState('');
   const [selectedColor, setSelectedColor] = useState(PRESET_COLORS[0]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -32,7 +34,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
     e.stopPropagation();
     
     if (!tagName.trim()) {
-      setError('Tag name is required');
+      setError(t('addTagModal.tagNameRequired'));
       return;
     }
 
@@ -55,14 +57,14 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error || 'Failed to create tag');
+        throw new Error(data.error || t('addTagModal.failedToCreate'));
       }
 
       const newTag = await response.json();
       onTagCreated(newTag);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to create tag');
+      setError(err.message || t('addTagModal.failedToCreate'));
     } finally {
       setIsSubmitting(false);
     }
@@ -114,7 +116,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Add New Tag</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('addTagModal.title')}</h2>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -127,7 +129,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
         <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Tag Name
+              {t('addTagModal.tagName')}
             </label>
             <input
               type="text"
@@ -135,7 +137,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
               onChange={(e) => setTagName(e.target.value)}
               onKeyDown={handleInputKeyDown}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
-              placeholder="Enter tag name"
+              placeholder={t('addTagModal.enterTagName')}
               autoFocus
               disabled={isSubmitting}
             />
@@ -143,7 +145,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
 
           <div className="mb-6">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Color
+              {t('addTagModal.color')}
             </label>
             <div className="grid grid-cols-6 gap-2">
               {PRESET_COLORS.map((color) => (
@@ -175,7 +177,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
               disabled={isSubmitting || !tagName.trim()}
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              {isSubmitting ? 'Creating...' : 'Create Tag'}
+              {isSubmitting ? t('addTagModal.creating') : t('addTagModal.createTag')}
             </button>
             <button
               type="button"
@@ -183,7 +185,7 @@ export default function AddTagModal({ onClose, onTagCreated }: AddTagModalProps)
               disabled={isSubmitting}
               className="flex-1 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-md font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
-              Cancel
+              {t('buttons.cancel', { ns: 'common' })}
             </button>
           </div>
         </form>

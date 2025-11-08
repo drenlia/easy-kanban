@@ -1,5 +1,5 @@
-import React from 'react';
 import { TeamMember } from '../types';
+import { useTranslation } from 'react-i18next';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
 export const PRESET_COLORS = [
@@ -72,6 +72,7 @@ export default function TeamMembers({
   boardOnlineUsers = new Set(),
   systemTaskCount = 0
 }: TeamMembersProps) {
+  const { t } = useTranslation('common');
   
   const handleClearSelections = () => {
     if (onClearSelections) {
@@ -125,7 +126,7 @@ export default function TeamMembers({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-            Team Members
+            {t('teamMembers.title')}
           </h2>
           
           {/* Clear Members Button */}
@@ -133,9 +134,9 @@ export default function TeamMembers({
             <button
               onClick={handleClearSelections}
               className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 hover:border-red-400 dark:hover:border-red-500 rounded transition-colors"
-              title="Clear member selections (show all members)"
+              title={t('teamMembers.clearSelectionsTooltip')}
             >
-              Clear
+              {t('teamMembers.clear')}
             </button>
           )}
           
@@ -145,11 +146,11 @@ export default function TeamMembers({
               onClick={onSelectAll}
               className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500 rounded transition-colors"
               title={isAllModeActive 
-                ? "Show only assignees" 
-                : "Show all roles (assignees, watchers, collaborators, requesters)"
+                ? t('teamMembers.showOnlyAssignees')
+                : t('teamMembers.showAllRoles')
               }
             >
-              {isAllModeActive ? 'Assignees Only' : 'All Roles'}
+              {isAllModeActive ? t('teamMembers.assigneesOnly') : t('teamMembers.allRoles')}
             </button>
           )}
           
@@ -167,9 +168,9 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title="Show tasks assigned to the selected team members"
+                title={t('teamMembers.assigneesTooltip')}
               >
-                <span>Assignees</span>
+                <span>{t('teamMembers.assignees')}</span>
               </button>
             )}
             
@@ -185,9 +186,9 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title="Show tasks where the selected members are watching for updates"
+                title={t('teamMembers.watchersTooltip')}
               >
-                <span>Watchers</span>
+                <span>{t('teamMembers.watchers')}</span>
               </button>
             )}
             
@@ -203,9 +204,9 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title="Show tasks where the selected members are actively collaborating"
+                title={t('teamMembers.collaboratorsTooltip')}
               >
-                <span>Collaborators</span>
+                <span>{t('teamMembers.collaborators')}</span>
               </button>
             )}
             
@@ -221,9 +222,9 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title="Show tasks requested by the selected team members"
+                title={t('teamMembers.requestersTooltip')}
               >
-                <span>Requesters</span>
+                <span>{t('teamMembers.requesters')}</span>
               </button>
             )}
             
@@ -240,9 +241,9 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title="Show tasks assigned to the system user (admin only)"
+                title={t('teamMembers.systemTooltip')}
               >
-                <span>System</span>
+                <span>{t('teamMembers.system')}</span>
                 {systemTaskCount > 0 && (
                   <span className="ml-0.5 px-1.5 py-0.5 bg-blue-200 dark:bg-blue-800 text-blue-800 dark:text-blue-200 rounded-full text-xs font-semibold">
                     {systemTaskCount}
@@ -257,7 +258,7 @@ export default function TeamMembers({
       {/* Warning when no checkboxes are selected */}
       {!includeAssignees && !includeWatchers && !includeCollaborators && !includeRequesters && (
         <div className="mb-2 text-xs text-red-400 bg-red-50 px-2 py-1 rounded border border-red-200">
-          ⚠️ No filter options selected. Select at least one option above to display tasks.
+          {t('teamMembers.noFiltersSelected')}
         </div>
       )}
 
@@ -278,7 +279,7 @@ export default function TeamMembers({
                 ringColor: member.color
               }}
               onClick={() => onSelectMember(member.id)}
-              title={`${member.name} ${isSelected ? '(selected)' : '(click to select)'}`}
+              title={`${member.name} ${isSelected ? t('teamMembers.selected') : t('teamMembers.clickToSelect')}`}
             >
               {getMemberAvatar(member)}
               <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
