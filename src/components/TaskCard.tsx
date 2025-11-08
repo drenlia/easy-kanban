@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { Clock, MessageCircle, Calendar, Paperclip, Pencil } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
@@ -122,6 +123,7 @@ const TaskCard = React.memo(function TaskCard({
   // Sprint filtering props
   selectedSprintId = null
 }: TaskCardProps) {
+  const { t } = useTranslation('tasks');
   const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
@@ -818,8 +820,13 @@ const TaskCard = React.memo(function TaskCard({
     setIsEditingDescription(false);
   };
 
-  const handlePriorityChange = (priority: Priority) => {
-    onEdit({ ...task, priority });
+  const handlePriorityChange = (priorityId: number) => {
+    const priorityOption = availablePriorities.find(p => p.id === priorityId);
+    onEdit({ 
+      ...task, 
+      priorityId: priorityId,
+      priority: priorityOption?.priority || null 
+    });
     setShowPrioritySelect(false);
   };
 
@@ -1208,7 +1215,7 @@ const TaskCard = React.memo(function TaskCard({
                 lineHeight: '1.2',
                 verticalAlign: 'top'
               }}
-              title={`Direct link to ${task.ticket}`}
+              title={t('taskCard.directLinkTo', { ticket: task.ticket })}
             >
               {task.ticket}
             </a>
@@ -1301,7 +1308,7 @@ const TaskCard = React.memo(function TaskCard({
                     handleTitleClick(e as any);
                   }}
                   className="absolute -left-[10px] top-1/2 -translate-y-1/2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
-                  title="Edit title"
+                  title={t('taskCard.editTitle')}
                 >
                   <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
                 </button>
@@ -1346,7 +1353,7 @@ const TaskCard = React.memo(function TaskCard({
                     setEditedDescription(content);
                   }}
                   initialContent={editedDescription}
-                  placeholder="Enter task description..."
+                  placeholder={t('taskCard.enterTaskDescription')}
                   compact={true}
                   showSubmitButtons={false}
                   resizable={true}
@@ -1367,7 +1374,7 @@ const TaskCard = React.memo(function TaskCard({
                   className="w-full"
                 />
                 <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                  <span>Press Enter to save (or add list items), Shift+Enter for new line, Escape to cancel, or click outside to save</span>
+                  <span>{t('taskCard.descriptionSaveHint')}</span>
                 </div>
               </div>
             ) : (
@@ -1382,7 +1389,7 @@ const TaskCard = React.memo(function TaskCard({
                       handleDescriptionClick(e as any);
                     }}
                     className="absolute -left-[10px] top-2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
-                    title="Edit description"
+                    title={t('taskCard.editDescription')}
                   >
                     <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
                   </button>
@@ -1426,7 +1433,7 @@ const TaskCard = React.memo(function TaskCard({
             <div className="flex justify-end mb-2">
               <span
                 className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate"
-                title={`Sprint: ${sprintName}`}
+                title={t('taskCard.sprint', { name: sprintName })}
               >
                 {displayName}
               </span>
@@ -1453,7 +1460,7 @@ const TaskCard = React.memo(function TaskCard({
                     key={tag.id}
                     className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
                     style={getTagDisplayStyle(tag)}
-                    title="Click to remove tag"
+                    title={t('taskCard.clickToRemoveTag')}
                   onClick={(e) => {
                     e.stopPropagation();
                     const rect = (e.target as HTMLElement).getBoundingClientRect();
@@ -1510,7 +1517,7 @@ const TaskCard = React.memo(function TaskCard({
             <div className="flex items-center gap-0.5">
               <div
                 ref={calendarIconRef}
-                title="Click to select sprint or set custom dates"
+                title={t('taskCard.clickToSelectSprint')}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleSprintSelectorOpen();
@@ -1522,9 +1529,9 @@ const TaskCard = React.memo(function TaskCard({
                 />
               </div>
               <div 
-                className="text-xs leading-none font-mono cursor-pointer hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
+                className="text-[8px] leading-none font-mono cursor-pointer hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
                 onClick={handleDateRangeClick}
-                title="Click to change dates"
+                title={t('taskCard.clickToChangeDates')}
               >
                 {/* Start Date */}
                 <div
@@ -1547,7 +1554,7 @@ const TaskCard = React.memo(function TaskCard({
                 {/* Due Date - directly underneath with zero spacing */}
                 {task.dueDate && (
                   <div 
-                    className={`font-bold ${!dateValidation.dueDateValid ? 'ring-1 ring-red-400 rounded px-0.5' : ''}`}
+                    className={`${!dateValidation.dueDateValid ? 'font-semibold ring-1 ring-red-400 rounded px-0.5' : ''}`}
                     onMouseEnter={(e) => {
                       if (!dateValidation.dueDateValid) {
                         const rect = e.currentTarget.getBoundingClientRect();
@@ -1590,7 +1597,7 @@ const TaskCard = React.memo(function TaskCard({
                     setIsEditingEffort(true);
                   }}
                   className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer text-xs"
-                  title="Click to change effort"
+                  title={t('taskCard.clickToChangeEffort')}
                 >
                   {task.effort}h
                 </button>
@@ -1607,7 +1614,7 @@ const TaskCard = React.memo(function TaskCard({
               >
                 <div
                   className="flex items-center gap-0.5 rounded px-1 py-1"
-                  title="Hover to view comments"
+                  title={t('taskCard.hoverToViewComments')}
                 >
                   <MessageCircle 
                     size={12} 
@@ -1634,7 +1641,7 @@ const TaskCard = React.memo(function TaskCard({
                     setShowAttachmentsDropdown(!showAttachmentsDropdown);
                   }}
                   className="flex items-center gap-0.5 text-gray-500 hover:text-blue-600 cursor-pointer transition-colors"
-                  title={`${task.attachmentCount} attachment${task.attachmentCount > 1 ? 's' : ''}`}
+                  title={task.attachmentCount > 1 ? t('taskCard.attachments', { count: task.attachmentCount }) : t('taskCard.attachment', { count: task.attachmentCount })}
                   data-stop-propagation
                 >
                   <Paperclip size={12} />
@@ -1656,7 +1663,7 @@ const TaskCard = React.memo(function TaskCard({
               >
                 <div className="p-2">
                   <div className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2 px-2">
-                    Attachments ({task.attachmentCount})
+                    {t('taskCard.attachmentsTitle', { count: task.attachmentCount })}
                   </div>
                   {taskAttachments
                     .filter(att => !att.name.startsWith('img-'))
@@ -1675,7 +1682,7 @@ const TaskCard = React.memo(function TaskCard({
                     ))}
                   {taskAttachments.filter(att => !att.name.startsWith('img-')).length === 0 && (
                     <div className="px-2 py-2 text-xs text-gray-500 dark:text-gray-400 italic">
-                      Loading attachments...
+                      {t('taskCard.loadingAttachments')}
                     </div>
                   )}
                 </div>
@@ -1693,12 +1700,31 @@ const TaskCard = React.memo(function TaskCard({
               }}
               className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
               style={(() => {
-                const priorityOption = availablePriorities.find(p => p.priority === task.priority);
+                // Always use priorityId to find the current priority (handles renamed priorities)
+                // Fall back to priorityName from API (from JOIN), then stored priority name
+                const priorityOption = task.priorityId 
+                  ? availablePriorities.find(p => p.id === task.priorityId)
+                  : (task.priorityName 
+                    ? availablePriorities.find(p => p.priority === task.priorityName)
+                    : (task.priority 
+                      ? availablePriorities.find(p => p.priority === task.priority)
+                      : null));
                 return priorityOption ? getPriorityColors(priorityOption.color) : { backgroundColor: '#f3f4f6', color: '#6b7280' };
               })()}
-              title="Click to change priority"
+              title={t('taskCard.clickToChangePriority')}
             >
-              {task.priority}
+              {(() => {
+                // Always use priorityId to look up current priority name (handles renamed priorities)
+                // This ensures we show the current name, not the old stored name
+                if (task.priorityId) {
+                  const priorityOption = availablePriorities.find(p => p.id === task.priorityId);
+                  if (priorityOption) {
+                    return priorityOption.priority; // Use current name from availablePriorities
+                  }
+                }
+                // Fallback: use priorityName from API (from JOIN), or stored priority name
+                return task.priorityName || task.priority || '';
+              })()}
             </button>
             
             {/* Completed Column Banner Overlay - positioned over priority */}
@@ -1718,7 +1744,7 @@ const TaskCard = React.memo(function TaskCard({
                 {/* "DONE" stamp */}
                 <div className="absolute top-0.5 right-0.5">
                   <div className="bg-green-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-                    DONE
+                    {t('taskCard.done')}
                   </div>
                 </div>
               </div>
@@ -1741,7 +1767,7 @@ const TaskCard = React.memo(function TaskCard({
                 {/* "LATE" stamp */}
                 <div className="absolute top-0.5 right-0.5">
                   <div className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-                    LATE
+                    {t('taskCard.late')}
                   </div>
                 </div>
               </div>
@@ -1763,13 +1789,13 @@ const TaskCard = React.memo(function TaskCard({
           }}
         >
           {availablePriorities
-            .filter(priorityOption => priorityOption.priority !== task.priority)
+            .filter(priorityOption => priorityOption.id !== task.priorityId)
             .map(priorityOption => (
               <button
                 key={priorityOption.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handlePriorityChange(priorityOption.priority);
+                  handlePriorityChange(priorityOption.id);
                 }}
                 className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 flex items-center gap-2"
               >
@@ -1906,7 +1932,7 @@ const TaskCard = React.memo(function TaskCard({
                       {/* Sticky footer */}
                       <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
                         <span className="text-gray-300 font-medium">
-                          Comments ({validComments.length})
+                          {t('taskCard.comments', { count: validComments.length })}
                         </span>
                         <button
                           onClick={(e) => {
@@ -1915,7 +1941,7 @@ const TaskCard = React.memo(function TaskCard({
                           }}
                           className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                         >
-                          Open
+                          {t('taskCard.open')}
                         </button>
                       </div>
         </div>,
@@ -1934,23 +1960,23 @@ const TaskCard = React.memo(function TaskCard({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-sm font-medium text-gray-800 mb-2">
-            Remove Tag
+            {t('taskCard.removeTag')}
                     </div>
           <div className="text-xs text-gray-600 mb-3">
-            Remove "{selectedTagForRemoval.tag}" from this task?
+            {t('taskCard.removeTagConfirm', { tag: selectedTagForRemoval.tag })}
               </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleConfirmTagRemoval}
               className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
             >
-              Remove
+              {t('taskCard.remove')}
             </button>
                     <button
               onClick={handleCancelTagRemoval}
               className="flex-1 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition-colors"
             >
-              Cancel
+              {t('taskCard.cancel')}
                     </button>
               </div>
         </div>,
@@ -1975,7 +2001,7 @@ const TaskCard = React.memo(function TaskCard({
               value={sprintSearchTerm}
               onChange={(e) => setSprintSearchTerm(e.target.value)}
               onKeyDown={handleSprintKeyDown}
-              placeholder="Search sprints..."
+              placeholder={t('taskCard.searchSprints')}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
               autoFocus
             />
@@ -1984,7 +2010,7 @@ const TaskCard = React.memo(function TaskCard({
           <div className="max-h-60 overflow-y-auto">
             {sprintsLoading ? (
               <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                Loading sprints...
+                {t('taskCard.loadingSprints')}
               </div>
             ) : (
               <>
@@ -2004,21 +2030,21 @@ const TaskCard = React.memo(function TaskCard({
                   >
                     <div className="flex items-center justify-between">
                       <div className="font-medium text-gray-900 dark:text-white">
-                        None (Backlog)
+                        {t('taskCard.noneBacklog')}
                       </div>
                       <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-400 dark:bg-gray-600 text-white">
-                        Unassigned
+                        {t('taskCard.unassigned')}
                       </span>
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      Remove from sprint
+                      {t('taskCard.removeFromSprint')}
                     </div>
                   </button>
                 )}
                 
                 {sprints.length === 0 ? (
                   <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
-                    No sprints available. Create one in Admin settings.
+                    {t('taskCard.noSprintsAvailable')}
                   </div>
                 ) : (
                   sprints
@@ -2048,7 +2074,7 @@ const TaskCard = React.memo(function TaskCard({
                           </div>
                           {(sprint.is_active === 1 || sprint.is_active === true) && (
                             <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">
-                              Active
+                              {t('taskCard.active')}
                             </span>
                           )}
                     </div>

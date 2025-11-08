@@ -2,72 +2,75 @@
  * Email Templates - Centralized email content for the application
  */
 
+import { getTranslator } from '../utils/i18n.js';
+
 export const EmailTemplates = {
   /**
    * User Invitation Template
    * Sent when an admin creates a new local account
    */
   userInvite: (data) => {
-    const { user, inviteUrl, adminName, siteName } = data;
+    const { user, inviteUrl, adminName, siteName, db } = data;
+    const t = db ? getTranslator(db) : (key, options = {}) => key;
     
     return {
-      subject: `Welcome to ${siteName || 'Easy Kanban'} - Activate Your Account`,
-      text: `Hi ${user.first_name} ${user.last_name},
+      subject: t('emails.userInvite.subject', { siteName: siteName || 'Easy Kanban' }),
+      text: `${t('emails.userInvite.greeting', { firstName: user.first_name, lastName: user.last_name })}
 
-${adminName} has created an account for you on ${siteName || 'Easy Kanban'}.
+${t('emails.userInvite.body1', { adminName, siteName: siteName || 'Easy Kanban' })}
 
-To activate your account and set up your password, please click the link below:
+${t('emails.userInvite.body2')}
 ${inviteUrl}
 
-This link will expire in 24 hours.
+${t('emails.userInvite.body3')}
 
-If you have any questions, please contact your administrator.
+${t('emails.userInvite.body4')}
 
-Best regards,
-The ${siteName || 'Easy Kanban'} Team`,
+${t('emails.userInvite.body5')}
+${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🎉 Welcome to ${siteName || 'Easy Kanban'}!</h1>
+            <h1 style="color: #2563eb; margin: 0;">🎉 ${t('emails.userInvite.subject', { siteName: siteName || 'Easy Kanban' })}</h1>
           </div>
           
           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">Hi ${user.first_name} ${user.last_name},</h2>
+            <h2 style="color: #374151; margin-top: 0;">${t('emails.userInvite.greeting', { firstName: user.first_name, lastName: user.last_name })}</h2>
             <p style="color: #6b7280; line-height: 1.6;">
-              <strong>${adminName}</strong> has created an account for you on <strong>${siteName || 'Easy Kanban'}</strong>.
+              ${t('emails.userInvite.body1', { adminName, siteName: siteName || 'Easy Kanban' })}
             </p>
           </div>
 
           <div style="background-color: #eff6ff; padding: 20px; border-radius: 8px; border-left: 4px solid #2563eb; margin-bottom: 30px;">
-            <h3 style="color: #1d4ed8; margin-top: 0;">🔐 Account Details</h3>
+            <h3 style="color: #1d4ed8; margin-top: 0;">🔐 ${t('emails.userInvite.accountDetails')}</h3>
             <ul style="color: #374151; margin: 0; padding-left: 20px;">
-              <li><strong>Email:</strong> ${user.email}</li>
-              <li><strong>Name:</strong> ${user.first_name} ${user.last_name}</li>
-              <li><strong>Account Type:</strong> Local Account</li>
+              <li><strong>${t('emails.userInvite.email')}</strong> ${user.email}</li>
+              <li><strong>${t('emails.userInvite.name')}</strong> ${user.first_name} ${user.last_name}</li>
+              <li><strong>${t('emails.userInvite.accountType')}</strong> ${t('emails.userInvite.localAccount')}</li>
             </ul>
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
             <a href="${inviteUrl}" style="background-color: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              🚀 Activate Account & Set Password
+              🚀 ${t('emails.userInvite.activateAccount')}
             </a>
           </div>
           
           <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
             <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⏰ <strong>Important:</strong> This activation link will expire in <strong>24 hours</strong>.
+              ⏰ <strong>Important:</strong> ${t('emails.userInvite.body3')}
             </p>
           </div>
           
           <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
-            If you have any questions about your new account, please contact your administrator.
+            ${t('emails.userInvite.body4')}
           </p>
           
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            Best regards,<br>
-            <strong>The ${siteName || 'Easy Kanban'} Team</strong>
+            ${t('emails.userInvite.body5')}<br>
+            <strong>${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}</strong>
           </p>
         </div>
       `
@@ -260,57 +263,58 @@ The ${siteName || 'Easy Kanban'} Team`,
    * Sent when users request password reset
    */
   passwordReset: (data) => {
-    const { user, resetUrl, siteName } = data;
+    const { user, resetUrl, siteName, db } = data;
+    const t = db ? getTranslator(db) : (key, options = {}) => key;
     
     return {
-      subject: `Password Reset - ${siteName || 'Easy Kanban'}`,
-      text: `Hi ${user.first_name} ${user.last_name},
+      subject: t('emails.passwordReset.subject'),
+      text: `${t('emails.passwordReset.greeting', { firstName: user.first_name, lastName: user.last_name })}
 
-You requested a password reset for your ${siteName || 'Easy Kanban'} account.
+${t('emails.passwordReset.body1', { siteName: siteName || 'Easy Kanban' })}
 
-Click the link below to reset your password:
+${t('emails.passwordReset.body2')}
 ${resetUrl}
 
-This link will expire in 1 hour.
+${t('emails.passwordReset.body3')}
 
-If you didn't request this reset, please ignore this email.
+${t('emails.passwordReset.body4')}
 
-Best regards,
-The ${siteName || 'Easy Kanban'} Team`,
+${t('emails.passwordReset.body5')}
+${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">🔐 Password Reset Request</h1>
+            <h1 style="color: #2563eb; margin: 0;">🔐 ${t('emails.passwordReset.subject')}</h1>
           </div>
           
           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">Hi ${user.first_name} ${user.last_name},</h2>
+            <h2 style="color: #374151; margin-top: 0;">${t('emails.passwordReset.greeting', { firstName: user.first_name, lastName: user.last_name })}</h2>
             <p style="color: #6b7280; line-height: 1.6;">
-              You requested a password reset for your <strong>${siteName || 'Easy Kanban'}</strong> account.
+              ${t('emails.passwordReset.body1', { siteName: siteName || 'Easy Kanban' })}
             </p>
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
             <a href="${resetUrl}" style="background-color: #dc2626; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              🔄 Reset Password
+              🔄 ${t('emails.passwordReset.resetButton')}
             </a>
           </div>
           
           <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
             <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⏰ <strong>Important:</strong> This link will expire in <strong>1 hour</strong>.
+              ⏰ <strong>Important:</strong> ${t('emails.passwordReset.body3')}
             </p>
           </div>
           
           <p style="color: #6b7280; font-size: 14px; line-height: 1.6;">
-            If you didn't request this reset, please ignore this email. Your password will remain unchanged.
+            ${t('emails.passwordReset.body4')}
           </p>
           
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            Best regards,<br>
-            <strong>The ${siteName || 'Easy Kanban'} Team</strong>
+            ${t('emails.passwordReset.body5')}<br>
+            <strong>${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}</strong>
           </p>
         </div>
       `

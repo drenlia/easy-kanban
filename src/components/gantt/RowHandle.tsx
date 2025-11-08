@@ -1,6 +1,6 @@
-import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { GripVertical } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { RowHandleProps, DRAG_TYPES, GanttRowDragItem } from './types';
 
 export const RowHandle: React.FC<RowHandleProps> = ({ 
@@ -9,6 +9,7 @@ export const RowHandle: React.FC<RowHandleProps> = ({
   taskIndex,
   onRowReorder 
 }) => {
+  const { t } = useTranslation('common');
   const dragData: GanttRowDragItem = {
     id: `row-handle-${taskId}`,
     taskId,
@@ -43,7 +44,7 @@ export const RowHandle: React.FC<RowHandleProps> = ({
       {...attributes}
       {...listeners}
       className="flex items-center justify-center w-6 h-6 cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600 transition-colors"
-      title={`Drag to reorder ${taskTitle}`}
+      title={t('gantt.dragToReorderTask', { taskTitle })}
       onClick={(e) => {
         e.stopPropagation();
       }}

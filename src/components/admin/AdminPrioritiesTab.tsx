@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2 } from 'lucide-react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
@@ -50,6 +51,7 @@ const SortablePriorityRow = ({
   onConfirmDeletePriority: (priorityId: string) => Promise<void>;
   onCancelDeletePriority: () => void;
 }) => {
+  const { t } = useTranslation('admin');
   const {
     attributes,
     listeners,
@@ -61,7 +63,7 @@ const SortablePriorityRow = ({
 
   // Refs for delete button positioning
   const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number} | null>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, maxHeight?: number} | null>(null);
 
   // Handle click outside to close delete confirmation
   useEffect(() => {
@@ -88,9 +90,47 @@ const SortablePriorityRow = ({
     const button = deleteButtonRef.current;
     if (button) {
       const rect = button.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      
+      // Estimate dialog height
+      const estimatedDialogHeight = priorityUsageCounts[priority.id] > 0 ? 100 : 80;
+      const dialogWidth = 200;
+      
+      // Check if there's enough space below
+      const spaceBelow = viewportHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      
+      // Position above if not enough space below, but enough space above
+      let top: number;
+      if (spaceBelow < estimatedDialogHeight && spaceAbove > estimatedDialogHeight) {
+        // Position above the button
+        top = rect.top - estimatedDialogHeight - 5;
+      } else {
+        // Position below the button (default)
+        top = rect.bottom + 5;
+      }
+      
+      // Ensure dialog doesn't go off the right edge
+      let left = rect.right - dialogWidth;
+      if (left + dialogWidth > viewportWidth) {
+        left = viewportWidth - dialogWidth - 10; // 10px margin from edge
+      }
+      
+      // Ensure dialog doesn't go off the left edge
+      if (left < 10) {
+        left = 10; // 10px margin from edge
+      }
+      
+      // Calculate max height based on position
+      const maxHeight = top < rect.top
+        ? Math.min(top - 10, 300) // If above, use space from top
+        : Math.min(viewportHeight - top - 20, 300); // If below, use space to bottom
+      
       setDeleteButtonPosition({
-        top: rect.bottom + window.scrollY + 8,
-        left: rect.right + window.scrollX - 200, // Position to the left of the button
+        top,
+        left,
+        maxHeight
       });
     }
     onDelete(priority.id);
@@ -109,7 +149,7 @@ const SortablePriorityRow = ({
           <button
             onClick={() => onEdit(priority)}
             className="p-1.5 rounded transition-colors text-blue-600 hover:text-blue-900 hover:bg-blue-50"
-            title="Edit priority"
+            title={t('priorities.editPriority')}
           >
             <Edit size={16} />
           </button>
@@ -124,8 +164,8 @@ const SortablePriorityRow = ({
             }`}
             title={
               priority.isDefault || priority.initial
-                ? 'Cannot delete the default priority'
-                : 'Delete priority'
+                ? t('priorities.cannotDeleteDefault')
+                : t('priorities.deletePriority')
             }
             data-priority-id={priority.id}
           >
@@ -139,7 +179,7 @@ const SortablePriorityRow = ({
             {...attributes}
             {...listeners}
             className="cursor-grab hover:cursor-grabbing p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 text-xs"
-            title="Drag to reorder"
+            title={t('priorities.dragToReorder')}
           >
             ⋮⋮
           </div>
@@ -193,7 +233,7 @@ const SortablePriorityRow = ({
           checked={!!priority.initial}
           onChange={() => onSetDefault(priority.id)}
           className="w-4 h-4 text-blue-600 dark:text-blue-400 bg-gray-100 dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:ring-2 cursor-pointer"
-          title={priority.initial ? 'This is the default priority' : 'Set as default priority'}
+          title={priority.initial ? t('priorities.isDefaultPriority') : t('priorities.setAsDefault')}
         />
       </td>
       
@@ -203,7 +243,9 @@ const SortablePriorityRow = ({
           className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
           style={{
             top: `${deleteButtonPosition.top}px`,
-            left: `${deleteButtonPosition.left}px`
+            left: `${deleteButtonPosition.left}px`,
+            maxHeight: deleteButtonPosition.maxHeight ? `${deleteButtonPosition.maxHeight}px` : '300px',
+            overflowY: 'auto'
           }}
         >
           <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
@@ -211,23 +253,23 @@ const SortablePriorityRow = ({
               if (priorityUsageCounts[priority.id] > 0) {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete priority?</div>
+                    <div className="font-medium mb-1">{t('priorities.deletePriority')}</div>
                     <div className="text-xs text-gray-700 dark:text-gray-400">
                       <span className="text-blue-600 dark:text-blue-400 font-medium">
-                        {priorityUsageCounts[priority.id]} task{priorityUsageCounts[priority.id] !== 1 ? 's' : ''}
+                        {t('priorities.tasksUsingPriority', { count: priorityUsageCounts[priority.id] })}
                       </span>{' '}
-                      using{' '}
+                      {t('priorities.using')}{' '}
                       <span className="font-medium">{priority.priority}</span>
-                      {' '}will be reassigned to the default priority.
+                      {' '}{t('priorities.willBeReassignedToDefault')}
                     </div>
                   </>
                 );
               } else {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete priority?</div>
+                    <div className="font-medium mb-1">{t('priorities.deletePriority')}</div>
                     <div className="text-xs text-gray-600 dark:text-gray-400">
-                      No tasks are using{' '}
+                      {t('priorities.noTasksUsing')}{' '}
                       <span className="font-medium">{priority.priority}</span>
                     </div>
                   </>
@@ -240,13 +282,13 @@ const SortablePriorityRow = ({
               onClick={() => onConfirmDeletePriority(priority.id)}
               className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
-              Yes
+              {t('priorities.yes')}
             </button>
             <button
               onClick={onCancelDeletePriority}
               className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
             >
-              No
+              {t('priorities.no')}
             </button>
           </div>
         </div>,
@@ -271,6 +313,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
   successMessage,
   error,
 }) => {
+  const { t } = useTranslation('admin');
   const [showAddPriorityForm, setShowAddPriorityForm] = useState(false);
   const [showEditPriorityForm, setShowEditPriorityForm] = useState(false);
   const [editingPriority, setEditingPriority] = useState<Priority | null>(null);
@@ -340,16 +383,16 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
         <div className="mb-6">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Priorities Management</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('priorities.title')}</h2>
               <p className="text-gray-600 dark:text-gray-400">
-                Create and manage priority levels for tasks. Each priority has a custom color for visual identification.
+                {t('priorities.description')}
               </p>
             </div>
             <button
               onClick={() => setShowAddPriorityForm(true)}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              Add Priority
+              {t('priorities.addPriority')}
             </button>
           </div>
         </div>
@@ -395,10 +438,10 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
             <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
               <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Actions</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Priority</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">Preview</th>
-                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Default</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.actions')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.priority')}</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">{t('priorities.tableHeaders.preview')}</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">{t('priorities.tableHeaders.default')}</th>
                 </tr>
               </thead>
               <SortableContext
@@ -423,7 +466,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                   ) : (
                     <tr>
                       <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                        {loading ? 'Loading priorities...' : 'No priorities found'}
+                        {loading ? t('priorities.loadingPriorities') : t('priorities.noPrioritiesFound')}
                       </td>
                     </tr>
                   )}
@@ -439,23 +482,23 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Add New Priority</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">{t('priorities.addNewPriority')}</h3>
               <form onSubmit={handleAddPriority}>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority Name *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.priorityName')}</label>
                     <input
                       type="text"
                       required
                       value={newPriority.priority}
                       onChange={(e) => setNewPriority(prev => ({ ...prev, priority: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter priority name"
+                      placeholder={t('priorities.enterPriorityName')}
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.color')}</label>
                     <input
                       type="color"
                       value={newPriority.color}
@@ -471,7 +514,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                     disabled={isSubmitting}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isSubmitting ? 'Creating...' : 'Create Priority'}
+                    {isSubmitting ? t('priorities.creating') : t('priorities.createPriority')}
                   </button>
                   <button
                     type="button"
@@ -481,7 +524,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                     }}
                     className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                   >
-                    Cancel
+                    {t('priorities.cancel')}
                   </button>
                 </div>
               </form>
@@ -495,23 +538,23 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">Edit Priority</h3>
+              <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">{t('priorities.editPriorityTitle')}</h3>
               <form onSubmit={handleEditPriority}>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Priority Name *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.priorityName')}</label>
                     <input
                       type="text"
                       required
                       value={editingPriority.priority}
                       onChange={(e) => setEditingPriority(prev => prev ? { ...prev, priority: e.target.value } : null)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Enter priority name"
+                      placeholder={t('priorities.enterPriorityName')}
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.color')}</label>
                     <input
                       type="color"
                       value={editingPriority.color}
@@ -527,7 +570,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                     disabled={isSubmitting}
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isSubmitting ? 'Updating...' : 'Update Priority'}
+                    {isSubmitting ? t('priorities.updating') : t('priorities.updatePriority')}
                   </button>
                   <button
                     type="button"
@@ -537,7 +580,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                     }}
                     className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                   >
-                    Cancel
+                    {t('priorities.cancel')}
                   </button>
                 </div>
               </form>

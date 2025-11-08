@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { EmailTemplates } from './emailTemplates.js';
 
 /**
  * Email Service - Handles all email functionality across the app
@@ -219,47 +220,20 @@ class EmailService {
     const settings = validation.settings;
     const transporter = await this.createTransporter(settings);
 
+    // Use EmailTemplates for consistent, translatable content
+    const emailTemplate = EmailTemplates.passwordReset({
+      user,
+      resetUrl,
+      siteName: settings.SITE_NAME || 'Easy Kanban',
+      db: this.db
+    });
+
     const emailContent = {
       from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
       to: user.email,
-      subject: `Password Reset - ${settings.SITE_NAME || 'Easy Kanban'}`,
-      text: `Hi ${user.first_name} ${user.last_name},
-
-You requested a password reset for your Easy Kanban account.
-
-Click the link below to reset your password:
-${resetUrl}
-
-This link will expire in 1 hour.
-
-If you didn't request this reset, please ignore this email.
-
-Best regards,
-The Easy Kanban Team`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #2563eb;">🔐 Password Reset Request</h2>
-          <p>Hi ${user.first_name} ${user.last_name},</p>
-          <p>You requested a password reset for your <strong>Easy Kanban</strong> account.</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
-              Reset Password
-            </a>
-          </div>
-          
-          <p>Or copy and paste this link into your browser:</p>
-          <p style="background-color: #f3f4f6; padding: 12px; border-radius: 4px; word-break: break-all;">
-            ${resetUrl}
-          </p>
-          
-          <p><strong>This link will expire in 1 hour.</strong></p>
-          
-          <p>If you didn't request this reset, please ignore this email.</p>
-          
-          <p>Best regards,<br><strong>The Easy Kanban Team</strong></p>
-        </div>
-      `
+      subject: emailTemplate.subject,
+      text: emailTemplate.text,
+      html: emailTemplate.html
     };
 
     console.log('📧 Sending password reset email to:', user.email);

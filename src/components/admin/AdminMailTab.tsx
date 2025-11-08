@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import api from '../../api';
 
 interface Settings {
@@ -61,6 +62,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   testEmailError,
   onCloseTestErrorModal,
 }) => {
+  const { t } = useTranslation('admin');
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
@@ -84,9 +86,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
     <>
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Mail Server Configuration</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('mail.title')}</h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Configure SMTP settings for sending emails. Changes are applied immediately.
+            {t('mail.description')}
           </p>
           
           {/* Demo Mode Warning */}
@@ -97,11 +99,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                 </svg>
                 <div>
-                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">Demo Mode Active</h3>
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.demoModeActive')}</h3>
                   <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                    Email communication is disabled in demo mode. The mail server settings cannot be enabled 
-                    to prevent sending emails from demo environments. This restriction will be automatically 
-                    lifted when demo mode is disabled.
+                    {t('mail.demoModeDescription')}
                   </p>
                 </div>
               </div>
@@ -116,16 +116,15 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                 </svg>
                 <div className="flex-1">
-                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">Managed Email Service</h3>
+                  <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.managedEmailService')}</h3>
                   <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                    Your email service is currently managed by Easy Kanban. This means emails are sent using our infrastructure 
-                    with the sender address <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">noreply@ezkan.cloud</code>.
+                    {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">noreply@ezkan.cloud</code>.
                   </p>
                   <div className="mt-3">
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm('Are you sure you want to switch to custom SMTP settings? This will clear the current managed settings and require you to configure your own SMTP server. You will need to test the configuration before it can be enabled.')) {
+                        if (confirm(t('mail.switchToCustomSMTPConfirm'))) {
                           // Clear managed SMTP settings in UI only (not saved to DB yet)
                           handleInputChange('MAIL_MANAGED', 'false');
                           handleInputChange('SMTP_HOST', '');
@@ -139,7 +138,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       }}
                       className="text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
                     >
-                      Switch to Custom SMTP
+                      {t('mail.switchToCustomSMTP')}
                     </button>
                   </div>
                 </div>
@@ -153,13 +152,13 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
           <div className="mb-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mail Server Status</h3>
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('mail.mailServerStatus')}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {isDemoMode 
-                    ? 'Email functionality is disabled in demo mode to prevent sending emails from demo environments.'
+                    ? t('mail.statusDemoMode')
                     : !testEmailResult 
-                      ? '⚠️ Fill in the required fields below and test the mail server configuration. The toggle will be enabled after a successful test.'
-                      : '✅ Mail server tested successfully! You can manually enable/disable it as needed. If disabled, you\'ll need to test again before re-enabling.'
+                      ? t('mail.statusTestRequired')
+                      : t('mail.statusTestedSuccessfully')
                   }
                 </p>
               </div>
@@ -169,7 +168,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 <span className={`text-sm font-medium mr-3 ${
                   isDemoMode ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300'
                 }`}>
-                  {isDemoMode ? 'Disabled (Demo)' : editingSettings.MAIL_ENABLED === 'true' ? 'Enabled' : 'Disabled'}
+                  {isDemoMode ? t('mail.disabledDemo') : editingSettings.MAIL_ENABLED === 'true' ? t('mail.enabled') : t('mail.disabled')}
                 </span>
                 <button
                   type="button"
@@ -222,7 +221,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               {/* SMTP Host */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  SMTP Host
+                  {t('mail.smtpHost')}
                 </label>
                 <input
                   type="text"
@@ -243,14 +242,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   placeholder="smtp.gmail.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Hostname or IP of your SMTP server. <span className="text-blue-600">Tab into this field to auto-fill with Gmail example.</span>
+                  {t('mail.smtpHostDescription')} <span className="text-blue-600">{t('mail.autoFillHint')}</span>
                 </p>
               </div>
 
               {/* SMTP Port */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  SMTP Port
+                  {t('mail.smtpPort')}
                 </label>
                 <input
                   type="number"
@@ -271,14 +270,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   placeholder="587"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  587 (TLS), 465 (SSL), 25 (plain). <span className="text-blue-600">Tab into this field to auto-fill with common port.</span>
+                  {t('mail.smtpPortDescription')} <span className="text-blue-600">{t('mail.autoFillPortHint')}</span>
                 </p>
               </div>
 
               {/* SMTP Username */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  SMTP Username
+                  {t('mail.smtpUsername')}
                 </label>
                 <input
                   type="text"
@@ -293,14 +292,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   placeholder="admin@example.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Usually your email address
+                  {t('mail.smtpUsernameDescription')}
                 </p>
               </div>
 
               {/* SMTP Password */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  SMTP Password
+                  {t('mail.smtpPassword')}
                 </label>
                 <input
                   type="password"
@@ -312,10 +311,10 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
                       : 'bg-white dark:bg-gray-700'
                   }`}
-                  placeholder="Enter your SMTP password"
+                  placeholder={t('mail.enterSmtpPassword')}
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Use App Password for Gmail
+                  {t('mail.smtpPasswordDescription')}
                 </p>
               </div>
             </div>
@@ -325,7 +324,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               {/* From Email */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  From Email
+                  {t('mail.fromEmail')}
                 </label>
                 <input
                   type="email"
@@ -340,14 +339,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   placeholder="admin@example.com"
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Email address that appears as sender
+                  {t('mail.fromEmailDescription')}
                 </p>
               </div>
 
               {/* From Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  From Name
+                  {t('mail.fromName')}
                 </label>
                 <input
                   type="text"
@@ -359,17 +358,17 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' 
                       : 'bg-white dark:bg-gray-700'
                   }`}
-                  placeholder="Kanban Admin"
+                  placeholder={t('mail.fromNamePlaceholder')}
                 />
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Display name that appears as sender
+                  {t('mail.fromNameDescription')}
                 </p>
               </div>
 
               {/* SMTP Security */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  SMTP Security
+                  {t('mail.smtpSecurity')}
                 </label>
                 <select
                   value={editingSettings.SMTP_SECURE || 'tls'}
@@ -381,12 +380,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       : 'bg-white dark:bg-gray-700'
                   }`}
                 >
-                  <option value="tls">TLS (Recommended)</option>
-                  <option value="ssl">SSL</option>
-                  <option value="none">None (Plain)</option>
+                  <option value="tls">{t('mail.tlsRecommended')}</option>
+                  <option value="ssl">{t('mail.ssl')}</option>
+                  <option value="none">{t('mail.nonePlain')}</option>
                 </select>
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  TLS recommended for modern servers
+                  {t('mail.smtpSecurityDescription')}
                 </p>
               </div>
             </div>
@@ -401,10 +400,10 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </svg>
               </div>
               <div className="ml-3">
-                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">Test Configuration</h3>
+                <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.testConfiguration')}</h3>
                 <div className="mt-2 text-sm text-blue-700 dark:text-blue-300">
                   <p>
-                    Use the test button below to verify your mail server configuration works correctly.
+                    {t('mail.testConfigurationDescription')}
                   </p>
                 </div>
               </div>
@@ -452,9 +451,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">Testing Required</h3>
+                  <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">{t('mail.testingRequired')}</h3>
                   <div className="mt-2 text-sm text-amber-700 dark:text-amber-300">
-                    <p>Fill in the required fields (SMTP Host, Port, Username, Password, From Email) and test your configuration. If the test succeeds, the mail server will be automatically enabled.</p>
+                    <p>{t('mail.testingRequiredDescription')}</p>
                   </div>
                 </div>
               </div>
@@ -466,13 +465,13 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
               onClick={() => onSave()}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
             >
-              Save Configuration
+              {t('mail.saveConfiguration')}
             </button>
             <button
               onClick={onCancel}
               className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
             >
-              Cancel
+              {t('mail.cancel')}
             </button>
             <button
               onClick={isDemoMode || isManagedEmail ? undefined : onTestEmail}
@@ -482,7 +481,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   ? 'bg-gray-400 cursor-not-allowed' 
                   : 'bg-green-600 hover:bg-green-700 focus:ring-green-500'
               }`}
-              title={isDemoMode ? 'Email testing is disabled in demo mode' : isManagedEmail ? 'Email testing is not needed for managed email service' : !canTestEmail() ? 'Fill in all required fields to test email' : undefined}
+              title={isDemoMode ? t('mail.testDisabledDemo') : isManagedEmail ? t('mail.testNotNeededManaged') : !canTestEmail() ? t('mail.fillRequiredFields') : undefined}
             >
               {isTestingEmail ? (
                 <>
@@ -490,14 +489,14 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  Testing...
+                  {t('mail.testing')}
                 </>
               ) : isDemoMode ? (
-                'Test Email (Disabled in Demo)'
+                t('mail.testEmailDisabledDemo')
               ) : isManagedEmail ? (
-                'Test Email (Not Needed - Managed)'
+                t('mail.testEmailNotNeededManaged')
               ) : (
-                'Test Email'
+                t('mail.testEmail')
               )}
             </button>
           </div>
@@ -515,19 +514,19 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </svg>
               </div>
               <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mt-4">
-                ✅ Email Sent Successfully!
+                {t('mail.emailSentSuccessfully')}
               </h3>
               <div className="mt-4 px-2 py-3 bg-gray-50 rounded-lg">
                 <div className="text-sm text-gray-600 space-y-2">
-                  <p><strong>Message:</strong> {testEmailResult.message}</p>
-                  <p><strong>To:</strong> {testEmailResult.settings.to}</p>
-                  <p><strong>Message ID:</strong> {testEmailResult.messageId}</p>
+                  <p><strong>{t('mail.message')}:</strong> {testEmailResult.message}</p>
+                  <p><strong>{t('mail.to')}:</strong> {testEmailResult.settings.to}</p>
+                  <p><strong>{t('mail.messageId')}:</strong> {testEmailResult.messageId}</p>
                   <div className="border-t pt-2 mt-2">
-                    <p className="font-medium text-gray-700 mb-1">Configuration Used:</p>
-                    <p><strong>Host:</strong> {testEmailResult.settings.host}</p>
-                    <p><strong>Port:</strong> {testEmailResult.settings.port}</p>
-                    <p><strong>Secure:</strong> {testEmailResult.settings.secure}</p>
-                    <p><strong>From:</strong> {testEmailResult.settings.from}</p>
+                    <p className="font-medium text-gray-700 mb-1">{t('mail.configurationUsed')}:</p>
+                    <p><strong>{t('mail.host')}:</strong> {testEmailResult.settings.host}</p>
+                    <p><strong>{t('mail.port')}:</strong> {testEmailResult.settings.port}</p>
+                    <p><strong>{t('mail.secure')}:</strong> {testEmailResult.settings.secure}</p>
+                    <p><strong>{t('mail.from')}:</strong> {testEmailResult.settings.from}</p>
                   </div>
                 </div>
               </div>
@@ -536,7 +535,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   onClick={onCloseTestModal}
                   className="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  Close
+                  {t('mail.close')}
                 </button>
               </div>
             </div>
@@ -555,22 +554,22 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 </svg>
               </div>
               <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mt-4">
-                ❌ Email Test Failed
+                {t('mail.emailTestFailed')}
               </h3>
               <div className="mt-4 px-2 py-3 bg-red-50 rounded-lg">
                 <div className="text-sm text-red-700">
-                  <p className="font-medium mb-2">Backend Response Details:</p>
+                  <p className="font-medium mb-2">{t('mail.backendResponseDetails')}:</p>
                   <pre className="bg-red-100 p-2 rounded text-xs overflow-auto max-h-64 whitespace-pre-wrap">
                     {testEmailError}
                   </pre>
                   <div className="mt-3 text-xs text-red-600">
-                    <p>Common troubleshooting steps:</p>
+                    <p>{t('mail.commonTroubleshootingSteps')}:</p>
                     <ul className="list-disc list-inside mt-1 space-y-1">
-                      <li>Check if the endpoint exists</li>
-                      <li>Verify SMTP server settings</li>
-                      <li>Check authentication credentials</li>
-                      <li>Verify port and security settings</li>
-                      <li>Test network connectivity</li>
+                      <li>{t('mail.checkEndpoint')}</li>
+                      <li>{t('mail.verifySmtpSettings')}</li>
+                      <li>{t('mail.checkCredentials')}</li>
+                      <li>{t('mail.verifyPortSecurity')}</li>
+                      <li>{t('mail.testNetworkConnectivity')}</li>
                     </ul>
                   </div>
                 </div>
@@ -580,7 +579,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   onClick={onCloseTestErrorModal}
                   className="px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300"
                 >
-                  Close
+                  {t('mail.close')}
                 </button>
               </div>
             </div>

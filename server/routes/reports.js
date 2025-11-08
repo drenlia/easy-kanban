@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getLeaderboard } from '../jobs/achievements.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -96,20 +97,65 @@ router.get('/user-points', authenticateToken, (req, res) => {
       LIMIT 12
     `), 'SELECT').all(targetUserId);
     
-    // Get achievements/badges
-    const achievements = wrapQuery(db.prepare(`
+    // Get achievements/badges with badge_id for translation
+    const achievementsRaw = wrapQuery(db.prepare(`
       SELECT 
-        id,
-        achievement_type,
-        badge_name,
-        badge_icon,
-        badge_color,
-        points_earned,
-        earned_at
-      FROM user_achievements
-      WHERE user_id = ?
-      ORDER BY earned_at DESC
+        ua.id,
+        ua.achievement_type,
+        ua.badge_id,
+        ua.badge_name,
+        ua.badge_icon,
+        ua.badge_color,
+        ua.points_earned,
+        ua.earned_at,
+        b.description as badge_description
+      FROM user_achievements ua
+      LEFT JOIN badges b ON ua.badge_id = b.id
+      WHERE ua.user_id = ?
+      ORDER BY ua.earned_at DESC
     `), 'SELECT').all(targetUserId);
+    
+    // Translate achievement names and descriptions
+    const t = getTranslator(db);
+    const achievements = achievementsRaw.map(achievement => {
+      const badgeId = achievement.badge_id;
+      let translatedName = achievement.badge_name;
+      let translatedDescription = achievement.badge_description || '';
+      
+      // Map badge IDs to translation keys
+      const badgeIdToTranslationKey = {
+        'getting-started': { name: 'achievements.names.gettingStarted', desc: 'achievements.descriptions.completedFirstTask' },
+        'productive': { name: 'achievements.names.productive', desc: 'achievements.descriptions.completed10Tasks' },
+        'achiever': { name: 'achievements.names.achiever', desc: 'achievements.descriptions.completed50Tasks' },
+        'champion': { name: 'achievements.names.champion', desc: 'achievements.descriptions.completed100Tasks' },
+        'unstoppable': { name: 'achievements.names.unstoppable', desc: 'achievements.descriptions.completed250Tasks' },
+        'task-master': { name: 'achievements.names.taskMaster', desc: 'achievements.descriptions.created50Tasks' },
+        'task-legend': { name: 'achievements.names.taskLegend', desc: 'achievements.descriptions.created100Tasks' },
+        'team-player': { name: 'achievements.names.teamPlayer', desc: 'achievements.descriptions.added5Collaborators' },
+        'collaborator': { name: 'achievements.names.collaborator', desc: 'achievements.descriptions.added25Collaborators' },
+        'team-builder': { name: 'achievements.names.teamBuilder', desc: 'achievements.descriptions.added50Collaborators' },
+        'communicator': { name: 'achievements.names.communicator', desc: 'achievements.descriptions.added10Comments' },
+        'conversationalist': { name: 'achievements.names.conversationalist', desc: 'achievements.descriptions.added50Comments' },
+        'commentator': { name: 'achievements.names.commentator', desc: 'achievements.descriptions.added100Comments' },
+        'hard-worker': { name: 'achievements.names.hardWorker', desc: 'achievements.descriptions.completed50EffortPoints' },
+        'powerhouse': { name: 'achievements.names.powerhouse', desc: 'achievements.descriptions.completed200EffortPoints' },
+        'juggernaut': { name: 'achievements.names.juggernaut', desc: 'achievements.descriptions.completed500EffortPoints' },
+        'observer': { name: 'achievements.names.observer', desc: 'achievements.descriptions.added10Watchers' },
+        'watchful': { name: 'achievements.names.watchful', desc: 'achievements.descriptions.added50Watchers' }
+      };
+      
+      if (badgeId && badgeIdToTranslationKey[badgeId]) {
+        const translationKeys = badgeIdToTranslationKey[badgeId];
+        translatedName = t(translationKeys.name);
+        translatedDescription = t(translationKeys.desc);
+      }
+      
+      return {
+        ...achievement,
+        badge_name: translatedName,
+        badge_description: translatedDescription
+      };
+    });
     
     // Get ALL active members count (source of truth)
     const totalActiveMembers = wrapQuery(db.prepare(`
@@ -526,6 +572,8 @@ router.get('/task-list', authenticateToken, (req, res) => {
         t.description,
         t.effort,
         t.priority,
+        t.priority_id,
+        p.priority as priority_name,
         t.startDate,
         t.dueDate,
         t.created_at,
@@ -543,6 +591,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
       LEFT JOIN columns c ON t.columnId = c.id
       LEFT JOIN members m ON t.memberId = m.user_id
       LEFT JOIN members r ON t.requesterId = r.user_id
+      LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
       WHERE 1=1
       AND (c.is_archived IS NULL OR c.is_archived = 0)
     `;
@@ -576,8 +625,17 @@ router.get('/task-list', authenticateToken, (req, res) => {
     }
     
     if (priorityName) {
-      query += ' AND t.priority = ?';
-      params.push(priorityName);
+      // Support both priority name and priority_id lookup
+      // First try to find priority by name to get its ID
+      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      if (priority) {
+        query += ' AND t.priority_id = ?';
+        params.push(priority.id);
+      } else {
+        // Fallback to old priority name matching for backward compatibility
+        query += ' AND t.priority = ?';
+        params.push(priorityName);
+      }
     }
     
     query += ' ORDER BY t.created_at DESC LIMIT 1000';
@@ -601,7 +659,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
         column_name: task.column_name,
         assignee_name: task.assignee_name,
         requester_name: task.requester_name,
-        priority_name: task.priority,
+        priority_name: task.priority_name || task.priority, // Use current name from JOIN or fallback to stored name
         effort: task.effort,
         start_date: task.startDate,
         due_date: task.dueDate,

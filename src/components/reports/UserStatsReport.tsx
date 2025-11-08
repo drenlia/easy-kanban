@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Trophy, TrendingUp, CheckCircle2, MessageSquare, Users as UsersIcon, Star } from 'lucide-react';
 
 interface UserPoints {
@@ -42,6 +43,7 @@ interface UserStatsReportProps {
 }
 
 const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, achievementsEnabled }) => {
+  const { t } = useTranslation('common');
   const [data, setData] = useState<UserStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -78,13 +80,13 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch user stats');
+        throw new Error(t('reports.userStats.failedToFetch'));
       }
 
       const result = await response.json();
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -101,7 +103,7 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
   if (error || !data) {
     return (
       <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-        <p className="text-red-800 dark:text-red-200">{error || 'Failed to load stats'}</p>
+        <p className="text-red-800 dark:text-red-200">{error || t('reports.userStats.failedToLoad')}</p>
       </div>
     );
   }
@@ -109,11 +111,11 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
   const { user, rank, totalUsers, monthlyBreakdown, achievements } = data;
 
   const stats = [
-    { label: 'Total Points', value: user.total_points, icon: Star, color: 'text-yellow-500' },
-    { label: 'Tasks Completed', value: user.tasks_completed, icon: CheckCircle2, color: 'text-green-500' },
-    { label: 'Effort Completed', value: user.total_effort_completed, icon: TrendingUp, color: 'text-blue-500' },
-    { label: 'Comments Added', value: user.comments_added, icon: MessageSquare, color: 'text-purple-500' },
-    { label: 'Collaborations', value: user.collaborations, icon: UsersIcon, color: 'text-indigo-500' },
+    { label: t('reports.userStats.totalPoints'), value: user.total_points, icon: Star, color: 'text-yellow-500' },
+    { label: t('reports.userStats.tasksCompleted'), value: user.tasks_completed, icon: CheckCircle2, color: 'text-green-500' },
+    { label: t('reports.userStats.effortCompleted'), value: user.total_effort_completed, icon: TrendingUp, color: 'text-blue-500' },
+    { label: t('reports.userStats.commentsAdded'), value: user.comments_added, icon: MessageSquare, color: 'text-purple-500' },
+    { label: t('reports.userStats.collaborations'), value: user.collaborations, icon: UsersIcon, color: 'text-indigo-500' },
   ];
 
   return (
@@ -123,12 +125,12 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold">{user.user_name}</h2>
-            <p className="text-blue-100 mt-1">Your Performance Dashboard</p>
+            <p className="text-blue-100 mt-1">{t('reports.userStats.performanceDashboard')}</p>
           </div>
           {rank && (
             <div className="text-center">
               <div className="text-5xl font-bold">#{rank}</div>
-              <div className="text-sm text-blue-100">of {totalUsers} members</div>
+              <div className="text-sm text-blue-100">{t('reports.userStats.ofMembers', { total: totalUsers })}</div>
             </div>
           )}
         </div>
@@ -160,7 +162,7 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
             <Trophy className="w-5 h-5 text-yellow-500" />
-            Achievements ({achievements.length})
+            {t('reports.userStats.achievements', { count: achievements.length })}
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {achievements.map((achievement) => (
@@ -186,20 +188,20 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
       {monthlyBreakdown.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Monthly Performance
+            {t('reports.userStats.monthlyPerformance')}
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-gray-700">
                   <th className="text-left py-2 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Month
+                    {t('reports.userStats.month')}
                   </th>
                   <th className="text-right py-2 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Points
+                    {t('reports.leaderboard.points')}
                   </th>
                   <th className="text-right py-2 px-4 text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Tasks Completed
+                    {t('reports.userStats.tasksCompleted')}
                   </th>
                 </tr>
               </thead>

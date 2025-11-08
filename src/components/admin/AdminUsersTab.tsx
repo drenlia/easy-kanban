@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
@@ -60,6 +61,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   successMessage,
   error,
 }) => {
+  const { t } = useTranslation('admin');
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState<string | null>(null);
@@ -78,7 +80,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const colorButtonRefs = useRef<{[key: string]: HTMLButtonElement | null}>({});
   const actionButtonRefs = useRef<{[key: string]: {[type: string]: HTMLButtonElement | null}}>({});
   const noButtonRef = useRef<HTMLButtonElement>(null);
-  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string} | null>(null);
+  const [deleteButtonPosition, setDeleteButtonPosition] = useState<{top: number, left: number, userId: string, maxHeight?: number} | null>(null);
   
   // Helper function to check if a user is the instance owner
   const isOwner = (userEmail: string) => {
@@ -303,10 +305,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         role: 'user',
         isActive: false
       });
-      setLocalSuccessMessage('User created successfully');
+      setLocalSuccessMessage(t('users.userCreatedSuccessfully'));
     } catch (err: any) {
       console.error('Failed to add user:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to create user';
+      const errorMessage = err.response?.data?.error || t('failedToCreateUser');
       setLocalError(errorMessage);
     }
   };
@@ -350,7 +352,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       setShowEditUserForm(false);
     } catch (err: any) {
       console.error('Failed to save user:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to update user';
+      const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
       setLocalError(errorMessage);
     } finally {
       setIsSubmitting(false);
@@ -385,12 +387,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       setIsResendingInvitation(true);
       setLocalError(null);
       await onResendInvitation(editingUserData.id);
-      setLocalSuccessMessage('Invitation email sent successfully!');
+      setLocalSuccessMessage(t('users.invitationEmailSentSuccessfully'));
       // Clear success message after 3 seconds
       setTimeout(() => setLocalSuccessMessage(null), 3000);
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to send invitation email';
+      const errorMessage = err.response?.data?.error || t('failedToSendInvitationEmail');
       setLocalError(errorMessage);
     } finally {
       setIsResendingInvitation(false);
@@ -429,14 +431,14 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       });
 
       if (!response.ok) {
-        setLocalError('Failed to check user limit. Please try again.');
+        setLocalError(t('users.failedToCheckUserLimit'));
         return;
       }
 
       const result = await response.json();
 
       if (!result.canCreate) {
-        setLocalError(result.message || 'User limit reached. Cannot create more users.');
+        setLocalError(result.message || t('users.userLimitReached'));
         setLocalSuccessMessage(null);
         return;
       }
@@ -457,10 +459,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         <div className="mb-6">
           <div className="flex justify-between items-start">
             <div>
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">Users</h2>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('users.title')}</h2>
               <p className="text-gray-600 dark:text-gray-400">
-                Manage user accounts and permissions. Regular users can only manage their own profile information, 
-                while administrators have full access to manage all content, users, and site settings.
+                {t('users.description')}
               </p>
             </div>
             <button
@@ -468,7 +469,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               className="px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 flex items-center gap-2"
             >
               <UserIcon size={16} />
-              Add User
+              {t('users.addUser')}
             </button>
           </div>
         </div>
@@ -508,16 +509,16 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">Actions</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-16">Avatar</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">Email</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">DISPLAY NAME</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-24">AUTH TYPE</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">Color</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-28">Joined</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">{t('users.tableHeaders.actions')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-16">{t('users.tableHeaders.avatar')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.status')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('users.tableHeaders.name')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-48">{t('users.tableHeaders.email')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-32">{t('users.tableHeaders.displayName')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.role')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-24">{t('users.tableHeaders.authType')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-20">{t('users.tableHeaders.color')}</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-28">{t('users.tableHeaders.joined')}</th>
               </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -577,10 +578,49 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             if (user.id === currentUser?.id || !canModifyUser(user.email)) return;
                             
                             const rect = e.currentTarget.getBoundingClientRect();
+                            const viewportHeight = window.innerHeight;
+                            const viewportWidth = window.innerWidth;
+                            
+                            // Estimate dialog height (larger for system user)
+                            const isSystemUser = user.email === 'system@local';
+                            const estimatedDialogHeight = isSystemUser ? 180 : 100;
+                            const dialogWidth = isSystemUser ? 320 : 200;
+                            
+                            // Check if there's enough space below
+                            const spaceBelow = viewportHeight - rect.bottom;
+                            const spaceAbove = rect.top;
+                            
+                            // Position above if not enough space below, but enough space above
+                            let top: number;
+                            if (spaceBelow < estimatedDialogHeight && spaceAbove > estimatedDialogHeight) {
+                              // Position above the button
+                              top = rect.top - estimatedDialogHeight - 5;
+                            } else {
+                              // Position below the button (default)
+                              top = rect.bottom + 5;
+                            }
+                            
+                            // Ensure dialog doesn't go off the right edge
+                            let left = rect.right - dialogWidth;
+                            if (left + dialogWidth > viewportWidth) {
+                              left = viewportWidth - dialogWidth - 10; // 10px margin from edge
+                            }
+                            
+                            // Ensure dialog doesn't go off the left edge
+                            if (left < 10) {
+                              left = 10; // 10px margin from edge
+                            }
+                            
+                            // Calculate max height based on position
+                            const maxHeight = top < rect.top 
+                              ? Math.min(top - 10, 300) // If above, use space from top
+                              : Math.min(viewportHeight - top - 20, 300); // If below, use space to bottom
+                            
                             setDeleteButtonPosition({
-                              top: rect.bottom + 5,
-                              left: rect.right - 200, // Adjust positioning to ensure visibility
-                              userId: user.id
+                              top,
+                              left,
+                              userId: user.id,
+                              maxHeight
                             });
                             onDeleteUser(user.id);
                           }}
@@ -623,7 +663,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         ? 'bg-green-100 text-green-800' 
                         : 'bg-red-100 text-red-800'
                     }`}>
-                      {user.isActive ? 'Active' : 'Inactive'}
+                      {user.isActive ? t('users.active') : t('users.inactive')}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-32">
@@ -643,7 +683,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         ? 'bg-green-100 text-green-800' 
                         : 'bg-gray-100 text-gray-800'
                     }`}>
-                      {user.roles.includes('admin') ? 'Admin' : 'User'}
+                      {user.roles.includes('admin') ? t('users.admin') : t('users.user')}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-24">
@@ -652,7 +692,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         ? 'bg-blue-100 text-blue-800' 
                         : 'bg-gray-100 text-gray-800'
                     }`}>
-                      {user.authProvider === 'google' ? 'Google' : 'Local'}
+                      {user.authProvider === 'google' ? t('users.google') : t('users.local')}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap w-20">
@@ -661,7 +701,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       className="w-6 h-6 rounded-full border-2 border-gray-200 dark:border-gray-600 cursor-pointer hover:scale-110 transition-transform"
                       style={{ backgroundColor: user.memberColor || '#4ECDC4' }}
                       onClick={(e) => handleColorChange(user.id, user.memberColor || '#4ECDC4', e)}
-                      title="Click to change color"
+                      title={t('users.clickToChangeColor')}
                     />
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 w-28">
@@ -672,7 +712,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               ) : (
                 <tr>
                   <td colSpan={10} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                    {loading ? 'Loading users...' : 'No users found'}
+                    {loading ? t('users.loadingUsers') : t('users.noUsersFound')}
                   </td>
                 </tr>
               )}
@@ -686,10 +726,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Add New User</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('users.addNewUser')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.email')}</label>
                   <input
                     type="email"
                     value={newUser.email}
@@ -699,54 +739,54 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.password')}</label>
                   <input
                     type="password"
                     value={newUser.password}
                     onChange={(e) => handleNewUserChange('password', e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Enter password"
+                    placeholder={t('users.enterPassword')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.firstName')}</label>
                   <input
                     type="text"
                     value={newUser.firstName}
                     onChange={(e) => setNewUser(prev => ({ ...prev, firstName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="First Name"
+                    placeholder={t('users.firstName')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.lastName')}</label>
                   <input
                     type="text"
                     value={newUser.lastName}
                     onChange={(e) => setNewUser(prev => ({ ...prev, lastName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Last Name"
+                    placeholder={t('users.lastName')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.displayName')}</label>
                   <input
                     type="text"
                     value={newUser.displayName || `${newUser.firstName} ${newUser.lastName}`}
                     onChange={(e) => setNewUser(prev => ({ ...prev, displayName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Display Name"
+                    placeholder={t('users.displayName')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Role</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.role')}</label>
                   <select
                     value={newUser.role}
                     onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="user">User</option>
-                    <option value="admin">Admin</option>
+                    <option value="user">{t('users.user')}</option>
+                    <option value="admin">{t('users.admin')}</option>
                   </select>
                 </div>
                 <div className="flex items-center">
@@ -758,7 +798,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
                   <label htmlFor="isActive" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
-                    Active (create user locally without sending invite)
+                    {t('users.activeCreateLocally')}
                   </label>
                 </div>
               </div>
@@ -767,13 +807,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   onClick={handleAddUser}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
-                  {newUser.isActive ? 'Save' : 'Invite User'}
+                  {newUser.isActive ? t('users.save') : t('users.inviteUser')}
                 </button>
                 <button
                   onClick={handleCancelAddUser}
                   className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                 >
-                  Cancel
+                  {t('users.cancel')}
                 </button>
               </div>
             </div>
@@ -786,43 +826,43 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Edit User</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('users.editUser')}</h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">First Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.firstName')}</label>
                   <input
                     type="text"
                     value={editingUserData.firstName}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, firstName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="First Name"
+                    placeholder={t('users.firstName')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Last Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.lastName')}</label>
                   <input
                     type="text"
                     value={editingUserData.lastName}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, lastName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Last Name"
+                    placeholder={t('users.lastName')}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Display Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('users.displayName')}</label>
                   <input
                     type="text"
                     value={editingUserData.displayName}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, displayName: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Display Name"
+                    placeholder={t('users.displayName')}
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Email
+                    {t('users.email')}
                     {isOwner(editingUserData.email) && (
-                      <span className="ml-2 text-xs text-amber-600 font-normal">(Owner - cannot be changed)</span>
+                      <span className="ml-2 text-xs text-amber-600 font-normal">{t('users.ownerCannotBeChanged')}</span>
                     )}
                   </label>
                   <input
@@ -836,11 +876,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                         : 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="user@example.com"
-                    title={isOwner(editingUserData.email) ? 'Instance owner email cannot be changed' : ''}
+                    title={isOwner(editingUserData.email) ? t('users.instanceOwnerEmailCannotBeChanged') : ''}
                   />
                   {isOwner(editingUserData.email) && (
                     <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                      As the instance owner, your email address cannot be modified.
+                      {t('users.instanceOwnerEmailCannotBeModified')}
                     </p>
                   )}
                 </div>
@@ -852,13 +892,13 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                       onChange={(e) => setEditingUserData(prev => ({ ...prev, isActive: e.target.checked }))}
                       className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Active</span>
+                    <span className="ml-2 text-sm text-gray-700">{t('users.active')}</span>
                   </label>
                 </div>
                 
                 {/* Avatar Section */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Avatar</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('users.avatar')}</label>
                   <div className="flex items-center space-x-3">
                     {/* Current Avatar Display */}
                     <div className="flex-shrink-0">
@@ -899,16 +939,16 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                             onClick={() => onRemoveAvatar(editingUserData.id)}
                             className="text-sm text-red-600 hover:text-red-800 hover:bg-red-50 px-2 py-1 rounded transition-colors"
                           >
-                            Remove Avatar
+                            {t('users.removeAvatar')}
                           </button>
                         )}
                       </div>
                     ) : (
                       <div className="flex-1">
                         <div className="text-sm text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
-                          <p className="text-blue-800 font-medium">Google Account</p>
+                          <p className="text-blue-800 font-medium">{t('users.googleAccount')}</p>
                           <p className="text-blue-700 text-xs mt-1">
-                            Avatar managed by Google account
+                            {t('users.avatarManagedByGoogle')}
                           </p>
                         </div>
                       </div>
@@ -921,15 +961,15 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                 <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-amber-800">Account Pending Activation</p>
-                      <p className="text-xs text-amber-600">This user hasn't activated their account yet.</p>
+                      <p className="text-sm font-medium text-amber-800">{t('users.accountPendingActivation')}</p>
+                      <p className="text-xs text-amber-600">{t('users.accountNotActivatedYet')}</p>
                     </div>
                     <button
                       onClick={handleResendInvitation}
                       disabled={isResendingInvitation || isSubmitting}
                       className="px-3 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {isResendingInvitation ? 'Sending...' : 'Resend Invitation'}
+                      {isResendingInvitation ? t('users.sending') : t('users.resendInvitation')}
                     </button>
                   </div>
                 </div>
@@ -954,14 +994,14 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                   disabled={isSubmitting}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? 'Saving...' : 'Save Changes'}
+                  {isSubmitting ? t('users.saving') : t('users.saveChanges')}
                 </button>
                 <button
                   onClick={handleCancelEditUser}
                   disabled={isSubmitting}
                   className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Cancel
+                  {t('users.cancel')}
                 </button>
               </div>
             </div>
@@ -976,7 +1016,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
           style={{
             top: `${deleteButtonPosition.top}px`,
             left: `${deleteButtonPosition.left}px`,
-            width: users.find(u => u.id === showDeleteConfirm)?.email === 'system@local' ? '320px' : '200px'
+            width: users.find(u => u.id === showDeleteConfirm)?.email === 'system@local' ? '320px' : '200px',
+            maxHeight: deleteButtonPosition.maxHeight ? `${deleteButtonPosition.maxHeight}px` : '300px',
+            overflowY: 'auto'
           }}
         >
           <div className="text-sm text-gray-700 mb-2 break-words">
@@ -987,28 +1029,27 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               if (user.email === 'system@local') {
                 return (
                   <>
-                    <div className="font-medium mb-1 text-amber-600">⚠️ Delete System User?</div>
+                    <div className="font-medium mb-1 text-amber-600">{t('users.deleteSystemUser')}</div>
                     <div className="text-xs text-amber-700 bg-amber-50 p-2 rounded border border-amber-200 mb-2">
-                      <div className="font-medium mb-1">Critical Warning:</div>
+                      <div className="font-medium mb-1">{t('users.criticalWarning')}</div>
                       <div className="break-words overflow-wrap-anywhere whitespace-normal">
-                        Deleting the System User will affect users who delete their own accounts. 
-                        Their tasks are normally reassigned to this account to preserve project history.
+                        {t('users.deleteSystemUserWarning')}
                       </div>
                     </div>
                     <div className="text-xs text-gray-600">
-                      Are you absolutely sure you want to proceed?
+                      {t('users.areYouSureProceed')}
                     </div>
                   </>
                 );
               } else if (userTaskCounts[user.id] > 0) {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete user?</div>
+                    <div className="font-medium mb-1">{t('users.deleteUser')}</div>
                     <div className="text-xs text-gray-700">
                       <span className="text-red-600 font-medium">
-                        {userTaskCounts[user.id]} task{userTaskCounts[user.id] !== 1 ? 's' : ''}
+                        {t('users.tasksWillBeRemoved', { count: userTaskCounts[user.id] })}
                       </span>{' '}
-                      will be removed for{' '}
+                      {t('users.willBeRemovedFor')}{' '}
                       <span className="font-medium">{user.email}</span>
                     </div>
                   </>
@@ -1016,9 +1057,9 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               } else {
                 return (
                   <>
-                    <div className="font-medium mb-1">Delete user?</div>
+                    <div className="font-medium mb-1">{t('users.deleteUser')}</div>
                     <div className="text-xs text-gray-600">
-                      No tasks will be affected for{' '}
+                      {t('users.noTasksAffected')}{' '}
                       <span className="font-medium">{user.email}</span>
                     </div>
                   </>
@@ -1035,7 +1076,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               }}
               className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
-              No
+              {t('users.no')}
             </button>
             <button
               onClick={() => {
@@ -1044,7 +1085,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
               }}
               className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
             >
-              Yes
+              {t('users.yes')}
             </button>
           </div>
         </div>,
@@ -1105,21 +1146,21 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
             
             switch (hoveredButton.type) {
               case 'promote':
-                return isOwner(user.email) ? 'Cannot modify instance owner' : 'Promote to admin';
+                return isOwner(user.email) ? t('users.cannotModifyInstanceOwner') : t('users.promoteToAdmin');
               case 'demote':
                 return user.id === currentUser?.id 
-                  ? 'You cannot demote yourself' 
+                  ? t('users.cannotDemoteYourself') 
                   : isOwner(user.email) 
-                    ? 'Cannot demote instance owner' 
-                    : 'Demote to user';
+                    ? t('users.cannotDemoteInstanceOwner') 
+                    : t('users.demoteToUser');
               case 'edit':
-                return !canModifyUser(user.email) ? 'Only owner can edit their profile' : 'Edit user';
+                return !canModifyUser(user.email) ? t('users.onlyOwnerCanEditProfile') : t('users.editUser');
               case 'delete':
                 return user.id === currentUser?.id 
-                  ? 'You cannot delete your own account' 
+                  ? t('cannotDeleteOwnAccount') 
                   : isOwner(user.email)
-                    ? 'Cannot delete instance owner'
-                    : 'Delete user';
+                    ? t('users.cannotDeleteInstanceOwner')
+                    : t('users.deleteUser');
               default:
                 return '';
             }

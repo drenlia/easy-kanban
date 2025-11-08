@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft } from 'lucide-react';
 
 interface ForgotPasswordProps {
@@ -6,11 +7,30 @@ interface ForgotPasswordProps {
 }
 
 export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
+  const { t } = useTranslation('auth');
   const [email, setEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
+
+  // Helper function to translate backend messages
+  // Maps English backend messages to translation keys
+  const translateBackendMessage = (backendMessage: string): string => {
+    const messageMap: Record<string, string> = {
+      'Too many password reset requests, please try again in 1 hour': 'forgotPassword.backendMessages.tooManyRequests',
+      'Email is required': 'forgotPassword.backendMessages.emailRequired',
+      'If an account with that email exists, you will receive a password reset link shortly.': 'forgotPassword.backendMessages.resetLinkSent',
+      'Failed to process password reset request': 'forgotPassword.backendMessages.failedToProcess',
+    };
+    
+    const translationKey = messageMap[backendMessage];
+    if (translationKey) {
+      return t(translationKey);
+    }
+    // If no match found, return original message
+    return backendMessage;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,13 +50,14 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
       const data = await response.json();
 
       if (response.ok) {
-        setMessage(data.message);
+        setMessage(translateBackendMessage(data.message));
         setSubmitted(true);
       } else {
-        setError(data.error || 'Failed to send reset email');
+        const translatedError = translateBackendMessage(data.error);
+        setError(translatedError || t('forgotPassword.failedToSendResetEmail'));
       }
     } catch (error) {
-      setError('Network error. Please try again.');
+      setError(t('forgotPassword.networkError'));
     } finally {
       setIsLoading(false);
     }
@@ -48,10 +69,10 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
         <div className="max-w-md w-full space-y-8">
           <div>
             <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-              Check your email
+              {t('forgotPassword.checkYourEmail')}
             </h2>
             <p className="mt-2 text-center text-sm text-gray-600">
-              We've sent password reset instructions to your email address
+              {t('forgotPassword.resetInstructionsSent')}
             </p>
           </div>
           
@@ -67,7 +88,7 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Login
+              {t('forgotPassword.backToLogin')}
             </button>
           </div>
         </div>
@@ -80,17 +101,17 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
       <div className="max-w-md w-full space-y-8">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            Forgot your password?
+            {t('forgotPassword.title')}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            Enter your email address and we'll send you a link to reset your password
+            {t('forgotPassword.description')}
           </p>
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div>
             <label htmlFor="email" className="sr-only">
-              Email address
+              {t('forgotPassword.emailAddress')}
             </label>
             <input
               id="email"
@@ -99,7 +120,7 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
               autoComplete="email"
               required
               className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-              placeholder="Email address"
+              placeholder={t('forgotPassword.emailAddress')}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
@@ -119,7 +140,7 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
               disabled={isLoading}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoading ? 'Sending...' : 'Send Reset Link'}
+              {isLoading ? t('forgotPassword.sending') : t('forgotPassword.sendResetLink')}
             </button>
           </div>
 
@@ -130,7 +151,7 @@ export default function ForgotPassword({ onBackToLogin }: ForgotPasswordProps) {
               className="inline-flex items-center text-sm text-blue-600 hover:text-blue-500"
             >
               <ArrowLeft className="w-4 h-4 mr-1" />
-              Back to Login
+              {t('forgotPassword.backToLogin')}
             </button>
           </div>
         </form>

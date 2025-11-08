@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon, Plus, Trash2, Link, Archive } from 'lucide-react';
 import { Task, TeamMember, Tag } from '../types';
@@ -86,6 +87,7 @@ export default function TaskCardToolbar({
   isEditingTitle = false,
   isEditingDescription = false
 }: TaskCardToolbarProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
   const [showQuickTagDropdown, setShowQuickTagDropdown] = useState(false);
   const [showAddTagModal, setShowAddTagModal] = useState(false);
@@ -320,7 +322,7 @@ export default function TaskCardToolbar({
             ? 'cursor-grab active:cursor-grabbing hover:bg-gray-200 opacity-60 hover:opacity-100' 
             : 'cursor-not-allowed opacity-0'
         } transition-all duration-200`}
-        title="Drag to move task"
+        title={t('toolbar.dragToMove')}
       >
         <GripVertical size={12} className="text-gray-400" />
       </div>
@@ -333,7 +335,7 @@ export default function TaskCardToolbar({
             {onAddComment && (
               <button
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Add comment"
+                title={t('toolbar.addComment')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onAddComment();
@@ -348,7 +350,7 @@ export default function TaskCardToolbar({
               <button
                 ref={quickTagButtonRef}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-                title="Add tag"
+                title={t('toolbar.addTag')}
                 onClick={handleQuickTagClick}
               >
                 <div className="relative">
@@ -362,7 +364,7 @@ export default function TaskCardToolbar({
             <button
               onClick={handleCopy}
               className="p-1 hover:bg-gray-100 rounded-full transition-colors"
-              title="Copy Task"
+              title={t('toolbar.copyTask')}
             >
               <Copy size={14} className="text-gray-400 hover:text-gray-600 transition-colors" />
             </button>
@@ -381,7 +383,7 @@ export default function TaskCardToolbar({
                     ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
                     : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
                 }`}
-                title={isLinkingMode && linkingSourceTask?.id === task.id ? "Source task for linking" : "Hold and drag to link tasks"}
+                title={isLinkingMode && linkingSourceTask?.id === task.id ? t('toolbar.sourceTaskForLinking') : t('toolbar.holdAndDragToLink')}
               >
                 <Link size={14} />
               </button>
@@ -409,7 +411,7 @@ export default function TaskCardToolbar({
                     onEdit({ ...task, columnId: archiveColumn.id });
                   }}
                   className="p-1 hover:bg-yellow-100 rounded-full transition-colors"
-                  title="Archive Task"
+                  title={t('toolbar.archiveTask')}
                 >
                   <Archive size={14} className="text-yellow-600" />
                 </button>
@@ -420,7 +422,7 @@ export default function TaskCardToolbar({
             <button
               onClick={(e) => onRemove(task.id, e)}
               className="p-1 hover:bg-red-100 rounded-full transition-colors"
-              title="Delete Task"
+              title={t('toolbar.deleteTask')}
             >
               <Trash2 size={14} className="text-red-500" />
             </button>
@@ -451,7 +453,7 @@ export default function TaskCardToolbar({
             ref={memberButtonRef}
             onClick={handleMemberToggle}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
-            title="Change Assignee"
+            title={t('toolbar.changeAssignee')}
           >
             {member.googleAvatarUrl || member.avatarUrl ? (
               <img
@@ -499,12 +501,12 @@ export default function TaskCardToolbar({
             className="flex items-center gap-2 p-2 hover:bg-blue-50 cursor-pointer border-b border-gray-200 text-blue-600 font-medium sticky top-0 bg-white"
           >
             <Plus size={14} />
-            <span className="text-sm">Add New Tag</span>
+            <span className="text-sm">{t('toolbar.addTag')}</span>
           </div>
           
           {availableTagsForAssignment.length === 0 ? (
             <div className="p-3 text-sm text-gray-500">
-              No more tags available
+              {t('toolbar.noMoreTagsAvailable')}
             </div>
           ) : (
             availableTagsForAssignment.map(tag => (
@@ -553,7 +555,7 @@ export default function TaskCardToolbar({
             onClick={(e) => e.stopPropagation()}
           >
           <div className="p-2">
-            <div className="text-xs font-medium text-gray-500 mb-2">Assign to:</div>
+            <div className="text-xs font-medium text-gray-500 mb-2">{t('toolbar.assignTo')}</div>
             {members.map(m => (
               <button
                 key={m.id}

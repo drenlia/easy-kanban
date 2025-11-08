@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Plus, MoreVertical, X, GripVertical, Archive } from 'lucide-react';
 import { Column, Task, TeamMember, PriorityOption, CurrentUser, Tag } from '../types';
@@ -130,6 +131,7 @@ export default function KanbanColumn({
   // Sprint filtering
   selectedSprintId = null
 }: KanbanColumnProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(column.title);
   const [isFinished, setIsFinished] = useState(column.is_finished || false);
@@ -447,7 +449,7 @@ export default function KanbanColumn({
             <div className="h-16 bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center">
               <div className="text-blue-600 text-sm font-medium flex items-center gap-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                Drop here
+                {t('column.dropHere')}
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
               </div>
             </div>
@@ -517,7 +519,7 @@ export default function KanbanColumn({
           <div className="h-16 bg-blue-100 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center">
             <div className="text-blue-600 text-sm font-medium flex items-center gap-2">
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-              Drop here
+              {t('column.dropHere')}
               <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
             </div>
           </div>
@@ -568,7 +570,7 @@ export default function KanbanColumn({
             <button
               onClick={() => onDismissColumnWarning(column.id)}
               className="ml-2 text-yellow-600 hover:text-yellow-800 transition-colors flex-shrink-0"
-              title="Dismiss warning"
+              title={t('column.dismissWarning')}
             >
               <X size={16} />
             </button>
@@ -583,7 +585,7 @@ export default function KanbanColumn({
             <div
               {...listeners}
               className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-gray-200 transition-colors opacity-50 hover:opacity-100"
-              title="Drag to reorder column"
+              title={t('column.clickToEditDragToReorder')}
             >
               <GripVertical size={12} className="text-gray-400" />
             </div>
@@ -612,7 +614,7 @@ export default function KanbanColumn({
               <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                  <span className="text-sm font-medium text-gray-700">Mark as Finished Column</span>
+                  <span className="text-sm font-medium text-gray-700">{t('column.markAsFinishedColumn')}</span>
                   {isFinished && siteSettings?.DEFAULT_FINISHED_COLUMN_NAMES && (() => {
                     const finishedColumnNames = parseFinishedColumnNames(siteSettings.DEFAULT_FINISHED_COLUMN_NAMES);
                     const isAutoDetected = finishedColumnNames.some(finishedName => 
@@ -620,12 +622,12 @@ export default function KanbanColumn({
                     );
                     return isAutoDetected ? (
                       <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
-                        Auto-detected
+                        {t('column.autoDetected')}
                       </span>
                     ) : null;
                   })()}
                   {isSubmitting && (
-                    <span className="text-xs text-gray-500">Saving...</span>
+                    <span className="text-xs text-gray-500">{t('column.saving')}</span>
                   )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -644,14 +646,14 @@ export default function KanbanColumn({
               <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
                 <div className="flex items-center space-x-3">
                   <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                  <span className="text-sm font-medium text-gray-700">Mark as Archived Column</span>
+                  <span className="text-sm font-medium text-gray-700">{t('column.markAsArchivedColumn')}</span>
                   {isArchived && title.toLowerCase() === 'archive' && (
                     <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
-                      Auto-detected
+                      {t('column.autoDetected')}
                     </span>
                   )}
                   {isSubmitting && (
-                    <span className="text-xs text-gray-500">Saving...</span>
+                    <span className="text-xs text-gray-500">{t('column.saving')}</span>
                   )}
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
@@ -679,14 +681,14 @@ export default function KanbanColumn({
                   disabled={isSubmitting}
                   className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
                 >
-                  Cancel
+                  {t('buttons.cancel', { ns: 'common' })}
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting || !title.trim()}
                   className="px-3 py-1.5 text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-md transition-colors"
                 >
-                  {isSubmitting ? 'Saving...' : 'Save'}
+                  {isSubmitting ? t('column.saving') : t('buttons.save', { ns: 'common' })}
                 </button>
               </div>
             </form>
@@ -707,12 +709,12 @@ export default function KanbanColumn({
                 }}
                 title={
                   isAdmin && showColumnDeleteConfirm === null 
-                    ? 'Click to edit, drag to reorder' 
+                    ? t('column.clickToEditDragToReorder')
                     : isAdmin && showColumnDeleteConfirm !== null
-                    ? 'Dragging disabled during confirmation'
+                    ? t('column.draggingDisabledDuringConfirmation')
                     : draggedTask
-                    ? 'Hover here to enter cross-board mode'
-                    : 'Column title'
+                    ? t('column.hoverToEnterCrossBoard')
+                    : t('column.columnTitle')
                 }
               >
                 {column.title}
@@ -721,7 +723,7 @@ export default function KanbanColumn({
                 data-column-header
                 onClick={handleAddTask}
                 disabled={isSubmitting || !isOnline}
-                title={!isOnline ? "Network Offline - Changes Disabled" : "Add Task"}
+                title={!isOnline ? t('column.networkOffline') : t('column.addTask')}
                 className={`p-1 rounded-full transition-colors ${
                   !isSubmitting && isOnline
                     ? 'text-gray-500 hover:bg-gray-200 hover:text-gray-700'
@@ -737,7 +739,7 @@ export default function KanbanColumn({
         
         {/* Archive Icon - visible to all users */}
         {!!column.is_archived && (
-          <div title="Archived Column" className="mr-1">
+          <div title={t('column.archivedColumn')} className="mr-1">
             <Archive 
               size={16} 
               className="text-orange-500 dark:text-orange-400" 
@@ -752,7 +754,7 @@ export default function KanbanColumn({
               onClick={() => setShowMenu(!showMenu)}
               className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
               disabled={isSubmitting}
-              title="Column management options"
+              title={t('column.columnManagementOptions')}
             >
               <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
             </button>
@@ -767,7 +769,7 @@ export default function KanbanColumn({
                   className="w-full text-left px-4 py-2 text-sm text-gray-600 hover:bg-gray-100"
                   disabled={isSubmitting}
                 >
-                  Add Column
+                  {t('column.addColumn')}
                 </button>
                 <button
                   ref={setDeleteButtonRef}
@@ -786,7 +788,7 @@ export default function KanbanColumn({
                   className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
                   disabled={isSubmitting}
                 >
-                  Delete Column
+                  {t('column.deleteColumn')}
                 </button>
               </div>
             )}
@@ -822,9 +824,9 @@ export default function KanbanColumn({
                   }`}>
                     <div className={`text-4xl mb-2 ${isOver ? 'animate-bounce' : ''}`}>📋</div>
                     <div className="font-semibold text-lg">
-                      {isOver ? 'Drop task here!' : 'Drop zone'}
+                      {isOver ? t('column.dropTaskHere') : t('column.dropZone')}
                     </div>
-                    {isOver && <div className="text-sm opacity-75 mt-1">Release to place task</div>}
+                    {isOver && <div className="text-sm opacity-75 mt-1">{t('column.releaseToPlace')}</div>}
                   </div>
                 ) : (
                   <div className="text-gray-500 dark:text-gray-400 text-center">
@@ -869,31 +871,32 @@ export default function KanbanColumn({
             left: `${deleteButtonPosition.left}px`,
           }}
         >
-          <div className="text-sm text-gray-700 mb-3">
-            {(() => {
-              const taskCount = getColumnTaskCount(column.id);
-              return `Delete column and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`;
-            })()}
-          </div>
-          <div className="flex space-x-2 justify-end">
-            <button
-              onClick={() => {
-                onCancelColumnDelete();
-                setDeleteButtonPosition(null);
-              }}
-              className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
-            >
-              No
-            </button>
-            <button
-              onClick={() => {
-                onConfirmColumnDelete(column.id);
-                setDeleteButtonPosition(null);
-              }}
-              className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-            >
-              Yes
-            </button>
+            <div className="text-sm text-gray-700 mb-3">
+              {(() => {
+                const taskCount = getColumnTaskCount(column.id);
+                const taskWord = taskCount !== 1 ? t('column.tasks') : t('column.task');
+                return `${t('column.deleteColumnAndTasks')} ${taskCount} ${taskWord}?`;
+              })()}
+            </div>
+            <div className="flex space-x-2 justify-end">
+              <button
+                onClick={() => {
+                  onCancelColumnDelete();
+                  setDeleteButtonPosition(null);
+                }}
+                className="px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors"
+              >
+                {t('buttons.no', { ns: 'common' })}
+              </button>
+              <button
+                onClick={() => {
+                  onConfirmColumnDelete(column.id);
+                  setDeleteButtonPosition(null);
+                }}
+                className="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              >
+                {t('buttons.yes', { ns: 'common' })}
+              </button>
           </div>
         </div>,
         document.body

@@ -8,6 +8,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -817,23 +818,24 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
 router.get('/instance-status', authenticateToken, (req, res) => {
   try {
     const db = req.app.locals.db;
+    const t = getTranslator(db);
     const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
     
     const getStatusMessage = (status) => {
       switch (status) {
         case 'active':
-          return 'This instance is running normally.';
+          return 'This instance is running normally.'; // Active status doesn't need translation as it's not shown
         case 'suspended':
-          return 'This instance has been temporarily suspended. Please contact support for assistance.';
+          return t('instanceStatus.suspended');
         case 'terminated':
-          return 'This instance has been terminated. Please contact support for assistance.';
+          return t('instanceStatus.terminated');
         case 'failed':
-          return 'This instance failed to deploy properly. Please contact support for assistance.';
+          return t('instanceStatus.failed');
         case 'deploying':
-          return 'This instance is currently being deployed. Please try again in a few minutes.';
+          return t('instanceStatus.deploying');
         default:
-          return 'This instance is currently unavailable. Please contact support.';
+          return t('instanceStatus.unavailable');
       }
     };
     

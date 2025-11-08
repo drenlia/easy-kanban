@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
@@ -557,6 +558,19 @@ export default function App() {
     initializeAdminDefaults();
   }, [isAuthenticated, currentUser?.roles, userStatus?.isAdmin]); // Run when authentication status, user roles, or admin status change
 
+  // Initialize i18n and change language based on user preferences or browser language
+  const { i18n } = useTranslation();
+  
+  // Helper function to detect browser language
+  const detectBrowserLanguage = (): 'en' | 'fr' => {
+    const browserLang = navigator.language || (navigator as any).userLanguage || 'en';
+    // Check if browser language starts with 'fr' (fr, fr-FR, fr-CA, etc.)
+    if (browserLang.toLowerCase().startsWith('fr')) {
+      return 'fr';
+    }
+    return 'en';
+  };
+  
   // Load auto-refresh setting and sprint selection from user preferences
   useEffect(() => {
     if (currentUser) {
@@ -564,6 +578,31 @@ export default function App() {
         try {
           // Load preferences from database (not just cookies)
           const prefs = await loadUserPreferencesAsync(currentUser.id);
+          
+          // Language logic:
+          // 1. If user has saved preference in DB, use it (it's "set in stone")
+          // 2. Otherwise, check localStorage (what they chose on login page or browser default)
+          // 3. If no localStorage, detect browser language
+          // 4. Save the chosen language to DB as user preference
+          let languageToUse: 'en' | 'fr' = prefs.language;
+          
+          if (!languageToUse) {
+            // No saved preference - check localStorage first (user might have toggled on login page)
+            const localStorageLang = localStorage.getItem('i18nextLng');
+            if (localStorageLang === 'fr' || localStorageLang === 'en') {
+              languageToUse = localStorageLang as 'en' | 'fr';
+            } else {
+              // No localStorage either - detect browser language
+              languageToUse = detectBrowserLanguage();
+            }
+            // Save the chosen language as user preference (makes it "set in stone")
+            await updateUserPreference('language', languageToUse, currentUser.id);
+          }
+          
+          // Change i18n language if needed
+          if (i18n.language !== languageToUse) {
+            await i18n.changeLanguage(languageToUse);
+          }
           
           // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
           
@@ -578,13 +617,19 @@ export default function App() {
             taskFilters.setSelectedSprintId(null);
           }
         } catch (error) {
-          console.error('Failed to restore sprint selection:', error);
+          console.error('Failed to restore preferences:', error);
         }
       };
       
       restorePreferences();
+    } else {
+      // If no user, detect browser language and use it (saved in localStorage by i18next)
+      const browserLang = detectBrowserLanguage();
+      if (i18n.language !== browserLang) {
+        i18n.changeLanguage(browserLang);
+      }
     }
-  }, [currentUser]);
+  }, [currentUser, i18n]);
 
   // Auto-refresh toggle handler - DISABLED (using real-time updates)
   // const handleToggleAutoRefresh = useCallback(async () => {
@@ -3007,12 +3052,13 @@ export default function App() {
     if (!selectedBoard) return;
 
     // Generate auto-numbered column name
+    const baseColumnName = i18n.t('column.newColumn', { ns: 'tasks' });
     const existingColumnTitles = Object.values(columns).map(col => col.title);
     let columnNumber = 1;
-    let newTitle = `New Column ${columnNumber}`;
+    let newTitle = `${baseColumnName} ${columnNumber}`;
     while (existingColumnTitles.includes(newTitle)) {
       columnNumber++;
-      newTitle = `New Column ${columnNumber}`;
+      newTitle = `${baseColumnName} ${columnNumber}`;
     }
 
     // Get the position of the column we want to insert after
@@ -3106,7 +3152,7 @@ export default function App() {
   
   // Handle column width resize
   const handleColumnWidthResize = (deltaX: number) => {
-    const newWidth = Math.max(200, Math.min(600, kanbanColumnWidth + deltaX)); // Min 200px, max 600px
+    const newWidth = Math.max(280, Math.min(600, kanbanColumnWidth + deltaX)); // Min 200px, max 600px
     setKanbanColumnWidth(newWidth);
     updateCurrentUserPreference('kanbanColumnWidth', newWidth);
   };

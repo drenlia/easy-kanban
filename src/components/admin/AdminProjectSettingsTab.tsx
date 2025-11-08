@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface AdminProjectSettingsTabProps {
   editingSettings: { [key: string]: string };
@@ -19,6 +20,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   successMessage,
   error
 }) => {
+  const { t } = useTranslation('admin');
   const [finishedColumnNames, setFinishedColumnNames] = useState<string[]>([]);
   const [newColumnName, setNewColumnName] = useState('');
 
@@ -88,9 +90,9 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">Project Settings</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{t('projectSettings.title')}</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          Configure project and task identifier prefixes and finished column detection.
+          {t('projectSettings.description')}
         </p>
       </div>
 
@@ -111,11 +113,10 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
         <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
           <div className="mb-4">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
-              Finished Column Names
+              {t('projectSettings.finishedColumnNames')}
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Define column names that should be automatically marked as "finished" (case-insensitive). 
-              Tasks in these columns won't be considered overdue regardless of their due date.
+              {t('projectSettings.finishedColumnNamesDescription')}
             </p>
             
             {/* Add new column name input */}
@@ -125,7 +126,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
                 value={newColumnName}
                 onChange={(e) => setNewColumnName(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="Enter column name (e.g., 'Done')"
+                placeholder={t('projectSettings.enterColumnName')}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               <button
@@ -133,7 +134,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
                 disabled={!newColumnName.trim() || finishedColumnNames.includes(newColumnName.trim())}
                 className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                Add
+                {t('projectSettings.add')}
               </button>
             </div>
             
@@ -162,10 +163,10 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           <div className="flex items-center justify-between">
             <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-              Highlight Overdue Tasks
+              {t('projectSettings.highlightOverdueTasks')}
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-                When enabled, overdue tasks will be highlighted with a "LATE" badge.
+                {t('projectSettings.highlightOverdueTasksDescription')}
               </p>
             </div>
             <div className="flex items-center">
@@ -195,7 +196,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Default Project Prefix
+              {t('projectSettings.defaultProjectPrefix')}
             </label>
             <input
               type="text"
@@ -205,14 +206,14 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
               placeholder="PROJ-"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Prefix used for new board project identifiers (e.g., "PROJ-" → "PROJ-00001")
+              {t('projectSettings.defaultProjectPrefixDescription')}
             </p>
           </div>
 
           {/* Default Task Prefix */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Default Task Prefix
+              {t('projectSettings.defaultTaskPrefix')}
             </label>
             <input
               type="text"
@@ -222,20 +223,20 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
               placeholder="TASK-"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Prefix used for new task ticket identifiers (e.g., "TASK-" → "TASK-00001")
+              {t('projectSettings.defaultTaskPrefixDescription')}
             </p>
           </div>
         </div>
 
         {/* Information Box */}
         <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">How it works:</h3>
+          <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">{t('projectSettings.howItWorks')}</h3>
           <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
-            <li>• New boards automatically get project identifiers: {editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-'}00001, {editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-'}00002, etc.</li>
-            <li>• New tasks automatically get ticket identifiers: {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00001, {editingSettings.DEFAULT_TASK_PREFIX || 'TASK-'}00002, etc.</li>
-            <li>• Numbers are auto-incremented and zero-padded to 5 digits</li>
-            <li>• Column names matching the finished list (case-insensitive) will automatically be marked as completed</li>
-            <li>• Tasks in finished columns won't be considered overdue regardless of their due date</li>
+            <li>• {t('projectSettings.howItWorks1', { prefix: editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-' })}</li>
+            <li>• {t('projectSettings.howItWorks2', { prefix: editingSettings.DEFAULT_TASK_PREFIX || 'TASK-' })}</li>
+            <li>• {t('projectSettings.howItWorks3')}</li>
+            <li>• {t('projectSettings.howItWorks4')}</li>
+            <li>• {t('projectSettings.howItWorks5')}</li>
           </ul>
         </div>
       </div>
@@ -246,13 +247,13 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           onClick={onCancel}
           className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
-          Cancel
+          {t('projectSettings.cancel')}
         </button>
         <button
           onClick={() => onSave()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
-          Save Settings
+          {t('projectSettings.saveSettings')}
         </button>
       </div>
     </div>

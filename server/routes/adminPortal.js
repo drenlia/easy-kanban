@@ -10,6 +10,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
 import { getLicenseManager } from '../config/license.js';
+import { getTranslator } from '../utils/i18n.js';
 
 // Initialize database
 const db = initializeDatabase();
@@ -52,9 +53,10 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance info:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch instance information' 
+      error: t('errors.failedToFetchInstanceInformation') 
     });
   }
 });
@@ -79,9 +81,10 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching owner info:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch owner information' 
+      error: t('errors.failedToFetchOwnerInformation') 
     });
   }
 });
@@ -90,11 +93,12 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
 router.put('/owner', authenticateAdminPortal, (req, res) => {
   try {
     const { email } = req.body;
+    const t = getTranslator(db);
     
     if (!email) {
       return res.status(400).json({ 
         success: false,
-        error: 'Owner email is required' 
+        error: t('errors.ownerEmailRequired') 
       });
     }
     
@@ -103,7 +107,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
     if (!user) {
       return res.status(400).json({ 
         success: false,
-        error: 'User with this email does not exist' 
+        error: t('errors.userWithEmailDoesNotExist') 
       });
     }
     
@@ -117,15 +121,16 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
       success: true,
       data: {
         owner: email,
-        message: 'Instance owner set successfully',
+        message: t('success.instanceOwnerSetSuccessfully'),
         timestamp: new Date().toISOString()
       }
     });
   } catch (error) {
     console.error('Error setting instance owner:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to set instance owner' 
+      error: t('errors.failedToSetInstanceOwner') 
     });
   }
 });
@@ -145,9 +150,10 @@ router.get('/settings', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching settings:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch settings' 
+      error: t('errors.failedToFetchSettings') 
     });
   }
 });
@@ -158,10 +164,12 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     const { key } = req.params;
     const { value } = req.body;
     
+    const t = getTranslator(db);
+    
     if (value === undefined || value === null) {
       return res.status(400).json({ 
         success: false,
-        error: 'Setting value is required' 
+        error: t('errors.settingValueRequired') 
       });
     }
     
@@ -174,14 +182,15 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Setting updated successfully',
+      message: t('success.settingUpdatedSuccessfully'),
       data: { key, value }
     });
   } catch (error) {
     console.error('Error updating setting:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update setting' 
+      error: t('errors.failedToUpdateSetting') 
     });
   }
 });
@@ -191,10 +200,12 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
   try {
     const settings = req.body;
     
+    const t = getTranslator(db);
+    
     if (!settings || typeof settings !== 'object') {
       return res.status(400).json({ 
         success: false,
-        error: 'Settings object is required' 
+        error: t('errors.settingsObjectRequired') 
       });
     }
     
@@ -214,14 +225,15 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     
     res.json({
       success: true,
-      message: `${results.length} settings updated successfully`,
+      message: t('success.settingsUpdatedSuccessfully', { count: results.length }),
       data: results
     });
   } catch (error) {
     console.error('Error updating settings:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update settings' 
+      error: t('errors.failedToUpdateSettings') 
     });
   }
 });
@@ -261,9 +273,10 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching users:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch users' 
+      error: t('errors.failedToFetchUsers') 
     });
   }
 });
@@ -275,9 +288,10 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     
     // Validate required fields
     if (!email || !password || !firstName || !lastName || !role) {
+      const t = getTranslator(db);
       return res.status(400).json({ 
         success: false,
-        error: 'Email, password, first name, last name, and role are required' 
+        error: t('errors.emailPasswordFirstNameLastNameRoleRequired') 
       });
     }
     
@@ -286,7 +300,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid email address format' 
+        error: t('errors.invalidEmailAddressFormat') 
       });
     }
     
@@ -295,7 +309,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
-        error: 'User with this email already exists' 
+        error: t('errors.userWithEmailAlreadyExists') 
       });
     }
     
@@ -323,9 +337,10 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     
     console.log(`✅ Admin portal created user: ${email} (${firstName} ${lastName})`);
     
+    const t = getTranslator(db);
     res.json({
       success: true,
-      message: 'User created successfully',
+      message: t('success.userCreatedSuccessfully'),
       data: {
         id: userId,
         email,
@@ -337,9 +352,10 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating user:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to create user' 
+      error: t('errors.failedToCreateUser') 
     });
   }
 });
@@ -387,15 +403,17 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     
     console.log(`✅ Admin portal updated user: ${userId}`);
     
+    const t = getTranslator(db);
     res.json({
       success: true,
-      message: 'User updated successfully'
+      message: t('success.userUpdatedSuccessfully')
     });
   } catch (error) {
     console.error('Error updating user:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update user' 
+      error: t('errors.failedToUpdateUser') 
     });
   }
 });
@@ -405,12 +423,14 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
   try {
     const { userId } = req.params;
     
+    const t = getTranslator(db);
+    
     // Check if user exists
     const user = wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!user) {
       return res.status(404).json({ 
         success: false,
-        error: 'User not found' 
+        error: t('errors.userNotFound') 
       });
     }
     
@@ -421,13 +441,14 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
     
     res.json({
       success: true,
-      message: 'User deleted successfully'
+      message: t('success.userDeletedSuccessfully')
     });
   } catch (error) {
     console.error('Error deleting user:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to delete user' 
+      error: t('errors.failedToDeleteUser') 
     });
   }
 });
@@ -638,12 +659,14 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
     const { key } = req.params;
     const { value } = req.body;
 
+    const t = getTranslator(db);
+    
     // Validate key
     const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
     if (!allowedKeys.includes(key)) {
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid plan setting key' 
+        error: t('errors.invalidPlanSettingKey') 
       });
     }
 
@@ -653,7 +676,7 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
       if (isNaN(numValue) || numValue < -1) {
         return res.status(400).json({ 
           success: false,
-          error: 'Value must be a positive number, -1 for unlimited, or null' 
+          error: t('errors.valueMustBePositiveNumber') 
         });
       }
     }
@@ -673,14 +696,15 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Plan setting updated successfully',
+      message: t('success.planSettingUpdatedSuccessfully'),
       data: { key, value }
     });
   } catch (error) {
     console.error('Error updating plan setting:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update plan setting' 
+      error: t('errors.failedToUpdatePlanSetting') 
     });
   }
 });
@@ -690,12 +714,14 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
   try {
     const { key } = req.params;
 
+    const t = getTranslator(db);
+    
     // Validate key
     const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
     if (!allowedKeys.includes(key)) {
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid plan setting key' 
+        error: t('errors.invalidPlanSettingKey') 
       });
     }
 
@@ -706,7 +732,7 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
     if (result.changes === 0) {
       return res.status(404).json({ 
         success: false,
-        error: 'Plan setting not found' 
+        error: t('errors.planSettingNotFound') 
       });
     }
 
@@ -714,14 +740,15 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Plan setting override deleted successfully',
+      message: t('success.planSettingOverrideDeletedSuccessfully'),
       data: { key }
     });
   } catch (error) {
     console.error('Error deleting plan setting:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to delete plan setting' 
+      error: t('errors.failedToDeletePlanSetting') 
     });
   }
 });
@@ -735,12 +762,13 @@ router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
   try {
     const { key } = req.params;
 
+    const t = getTranslator(db);
     const result = wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
     
     if (result.changes === 0) {
       return res.status(404).json({ 
         success: false,
-        error: 'Setting not found' 
+        error: t('errors.settingNotFound') 
       });
     }
 
@@ -748,13 +776,14 @@ router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Setting deleted successfully'
+      message: t('success.settingDeletedSuccessfully')
     });
   } catch (error) {
     console.error('Error deleting setting:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to delete setting' 
+      error: t('errors.failedToDeleteSetting') 
     });
   }
 });
@@ -764,10 +793,12 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
   try {
     const { key, value } = req.body;
 
+    const t = getTranslator(db);
+    
     if (!key || value === undefined) {
       return res.status(400).json({ 
         success: false,
-        error: 'Key and value are required' 
+        error: t('errors.keyAndValueRequired') 
       });
     }
 
@@ -776,7 +807,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
     if (existingSetting) {
       return res.status(400).json({ 
         success: false,
-        error: 'Setting with this key already exists' 
+        error: t('errors.settingWithKeyAlreadyExists') 
       });
     }
 
@@ -788,14 +819,15 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Setting created successfully',
+      message: t('success.settingCreatedSuccessfully'),
       data: { key, value }
     });
   } catch (error) {
     console.error('Error creating setting:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to create setting' 
+      error: t('errors.failedToCreateSetting') 
     });
   }
 });
@@ -809,12 +841,14 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
   try {
     const { status } = req.body;
 
+    const t = getTranslator(db);
+    
     // Validate status
     const validStatuses = ['deploying', 'active', 'suspended', 'terminated', 'failed'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid status. Must be deploying, active, suspended, terminated, or failed' 
+        error: t('errors.invalidStatus') 
       });
     }
 
@@ -839,14 +873,15 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
 
     res.json({
       success: true,
-      message: 'Instance status updated successfully',
+      message: t('success.instanceStatusUpdatedSuccessfully'),
       data: { status }
     });
   } catch (error) {
     console.error('Error updating instance status:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update instance status' 
+      error: t('errors.failedToUpdateInstanceStatus') 
     });
   }
 });
@@ -863,9 +898,10 @@ router.get('/instance-status', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance status:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to fetch instance status' 
+      error: t('errors.failedToFetchInstanceStatus') 
     });
   }
 });
@@ -880,11 +916,13 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
+    const t = getTranslator(db);
+    
     // Validate required fields
     if (!email || !firstName || !lastName || !role) {
       return res.status(400).json({ 
         success: false,
-        error: 'Email, first name, last name, and role are required' 
+        error: t('errors.emailFirstNameLastNameRoleRequired') 
       });
     }
     
@@ -893,7 +931,7 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     if (!emailRegex.test(email)) {
       return res.status(400).json({ 
         success: false,
-        error: 'Invalid email address format' 
+        error: t('errors.invalidEmailAddressFormat') 
       });
     }
     
@@ -902,7 +940,7 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     if (!existingUser) {
       return res.status(404).json({ 
         success: false,
-        error: 'User not found' 
+        error: t('errors.userNotFound') 
       });
     }
     
@@ -911,7 +949,7 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     if (emailTaken) {
       return res.status(400).json({ 
         success: false,
-        error: 'Email is already taken by another user' 
+        error: t('errors.emailAlreadyTakenByAnotherUser') 
       });
     }
     
@@ -939,7 +977,7 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     
     res.json({
       success: true,
-      message: 'User updated successfully',
+      message: t('success.userUpdatedSuccessfully'),
       data: {
         id: userId,
         email,
@@ -951,9 +989,10 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error updating user:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to update user' 
+      error: t('errors.failedToUpdateUser') 
     });
   }
 });
@@ -963,10 +1002,12 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
   try {
     const { email, adminName } = req.body;
     
+    const t = getTranslator(db);
+    
     if (!email) {
       return res.status(400).json({ 
         success: false,
-        error: 'Email is required' 
+        error: t('errors.emailRequired') 
       });
     }
     
@@ -975,7 +1016,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     if (!user) {
       return res.status(404).json({ 
         success: false,
-        error: 'User not found' 
+        error: t('errors.userNotFound') 
       });
     }
     
@@ -983,7 +1024,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     if (user.is_active) {
       return res.status(400).json({ 
         success: false,
-        error: 'User is already active' 
+        error: t('errors.userAlreadyActive') 
       });
     }
     
@@ -1023,7 +1064,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     
     res.json({
       success: true,
-      message: 'Invitation sent successfully',
+      message: t('success.invitationSentSuccessfully'),
       data: {
         email: user.email,
         inviteUrl: inviteUrl,
@@ -1032,9 +1073,10 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error sending invitation:', error);
+    const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
-      error: 'Failed to send invitation' 
+      error: t('errors.failedToSendInvitation') 
     });
   }
 });

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { X, Edit2, Trash2, Save, XCircle, Globe, Lock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { SavedFilterView, updateSavedFilterView, deleteSavedFilterView } from '../api';
 
 interface ManageFiltersModalProps {
@@ -21,6 +22,7 @@ export default function ManageFiltersModal({
   onCurrentFilterViewChange,
   onRefreshFilters
 }: ManageFiltersModalProps) {
+  const { t } = useTranslation('common');
   const [editingView, setEditingView] = useState<SavedFilterView | null>(null);
   const [editName, setEditName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -47,7 +49,7 @@ export default function ManageFiltersModal({
     );
 
     if (nameExists) {
-      alert('A filter with this name already exists');
+      alert(t('manageFiltersModal.filterNameExists'));
       return;
     }
 
@@ -72,7 +74,7 @@ export default function ManageFiltersModal({
       setEditName('');
     } catch (error) {
       console.error('Failed to update filter view:', error);
-      alert('Failed to update filter. Please try again.');
+      alert(t('manageFiltersModal.failedToUpdate'));
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +100,7 @@ export default function ManageFiltersModal({
       setDeleteConfirmId(null);
     } catch (error) {
       console.error('Failed to delete filter view:', error);
-      alert('Failed to delete filter. Please try again.');
+      alert(t('manageFiltersModal.failedToDelete'));
     } finally {
       setIsLoading(false);
     }
@@ -129,7 +131,7 @@ export default function ManageFiltersModal({
       onRefreshFilters?.();
     } catch (error) {
       console.error('Failed to toggle filter sharing:', error);
-      alert('Failed to update sharing status. Please try again.');
+      alert(t('manageFiltersModal.failedToUpdateSharing'));
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +142,7 @@ export default function ManageFiltersModal({
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Manage Saved Filters</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('manageFiltersModal.title')}</h2>
           <button
             onClick={onClose}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors"
@@ -154,9 +156,9 @@ export default function ManageFiltersModal({
         <div className="flex-1 overflow-y-auto p-6">
           {savedFilterViews.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-gray-500">No saved filters yet.</p>
+              <p className="text-gray-500">{t('manageFiltersModal.noSavedFilters')}</p>
               <p className="text-sm text-gray-400 mt-1">
-                Create filters from the search interface to manage them here.
+                {t('manageFiltersModal.createFiltersHint')}
               </p>
             </div>
           ) : (
@@ -176,7 +178,7 @@ export default function ManageFiltersModal({
                         value={editName}
                         onChange={(e) => setEditName(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                        placeholder="Filter name..."
+                        placeholder={t('manageFiltersModal.filterNamePlaceholder')}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && editName.trim()) {
                             handleSaveEdit();
@@ -193,14 +195,14 @@ export default function ManageFiltersModal({
                           className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                           disabled={isLoading}
                         >
-                          Cancel
+                          {t('manageFiltersModal.cancel')}
                         </button>
                         <button
                           onClick={handleSaveEdit}
                           disabled={!editName.trim() || isLoading}
                           className="px-3 py-1.5 text-sm text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
                         >
-                          {isLoading ? 'Saving...' : 'Save'}
+                          {isLoading ? t('manageFiltersModal.saving') : t('manageFiltersModal.save')}
                         </button>
                       </div>
                     </div>
@@ -210,7 +212,7 @@ export default function ManageFiltersModal({
                       <div>
                         <h4 className="font-medium text-gray-900">{view.filterName}</h4>
                         <p className="text-sm text-red-600 mt-1">
-                          Are you sure you want to delete this filter? This action cannot be undone.
+                          {t('manageFiltersModal.deleteConfirmation')}
                         </p>
                       </div>
                       <div className="flex justify-end gap-2">
@@ -219,14 +221,14 @@ export default function ManageFiltersModal({
                           className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                           disabled={isLoading}
                         >
-                          Cancel
+                          {t('manageFiltersModal.cancel')}
                         </button>
                         <button
                           onClick={() => handleConfirmDelete(view.id)}
                           className="px-3 py-1.5 text-sm text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:opacity-50"
                           disabled={isLoading}
                         >
-                          {isLoading ? 'Deleting...' : 'Delete'}
+                          {isLoading ? t('manageFiltersModal.deleting') : t('manageFiltersModal.delete')}
                         </button>
                       </div>
                     </div>
@@ -237,9 +239,9 @@ export default function ManageFiltersModal({
                         <div className="flex-1 min-w-0">
                           <h4 className="font-medium text-gray-900 truncate">{view.filterName}</h4>
                           <div className="text-xs text-gray-500 mt-1 space-y-1">
-                            <p>Created: {new Date(view.created_at).toLocaleDateString()}</p>
+                            <p>{t('manageFiltersModal.created')}{new Date(view.created_at).toLocaleDateString()}</p>
                             {currentFilterView?.id === view.id && (
-                              <p className="text-blue-600 font-medium">Currently applied</p>
+                              <p className="text-blue-600 font-medium">{t('manageFiltersModal.currentlyApplied')}</p>
                             )}
                           </div>
                         </div>
@@ -247,7 +249,7 @@ export default function ManageFiltersModal({
                           <button
                             onClick={() => handleStartEdit(view)}
                             className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                            title="Rename filter"
+                            title={t('manageFiltersModal.renameFilter')}
                             disabled={isLoading}
                           >
                             <Edit2 size={14} />
@@ -255,7 +257,7 @@ export default function ManageFiltersModal({
                           <button
                             onClick={() => handleDeleteClick(view.id)}
                             className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Delete filter"
+                            title={t('manageFiltersModal.deleteFilter')}
                             disabled={isLoading}
                           >
                             <Trash2 size={14} />
@@ -272,7 +274,7 @@ export default function ManageFiltersModal({
                             <Lock size={14} className="text-gray-400" />
                           )}
                           <span className="text-sm text-gray-700">
-                            {view.shared ? 'Shared with team' : 'Private filter'}
+                            {view.shared ? t('manageFiltersModal.sharedWithTeam') : t('manageFiltersModal.privateFilter')}
                           </span>
                         </div>
                         <button
@@ -307,7 +309,7 @@ export default function ManageFiltersModal({
               className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
               disabled={isLoading}
             >
-              Done
+              {t('manageFiltersModal.done')}
             </button>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -35,6 +36,7 @@ const DropZone = memo(({ columnId, columnName, isVisible }: {
   columnName?: string;
   isVisible: boolean;
 }) => {
+  const { t } = useTranslation('common');
   const { setNodeRef, isOver } = useDroppable({
     id: `drop-zone-${columnId}`,
     data: {
@@ -55,7 +57,7 @@ const DropZone = memo(({ columnId, columnName, isVisible }: {
       }`}
     >
       <div className="text-blue-600 dark:text-blue-200 text-xs font-medium">
-        📋 Drop here to move task to {columnName || 'this group'}
+        📋 {t('gantt.dropHereToMoveTask', { columnName: columnName || t('gantt.thisGroup') })}
       </div>
     </div>
   );
@@ -109,6 +111,7 @@ const TaskRow = memo(({
   columns,
   siteSettings
 }: any) => {
+  const { t } = useTranslation('common');
   const isThisTaskDragging = activeDragItem && 
     (activeDragItem as SortableTaskRowItem).type === 'task-row-reorder' && 
     (activeDragItem as SortableTaskRowItem).task.id === task.id;
@@ -221,7 +224,7 @@ const TaskRow = memo(({
         {...attributes}
         {...listeners}
         onClick={(e) => e.stopPropagation()}
-        title={`Drag to reorder ${task.title}`}
+        title={t('gantt.dragToReorderTask', { taskTitle: task.title })}
       >
         <div className="flex items-center justify-center w-6 h-6 text-gray-400 hover:text-gray-600 transition-colors">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -286,7 +289,7 @@ const TaskRow = memo(({
                 onCopyTask(task);
               }}
               className="p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
-              title="Copy Task"
+              title={t('gantt.copyTask')}
             >
               <Copy size={14} className="text-gray-500 hover:text-gray-700" />
             </button>
@@ -298,7 +301,7 @@ const TaskRow = memo(({
                 onRemoveTask(task.id, e);
               }}
               className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors"
-              title="Delete Task"
+              title={t('gantt.deleteTask')}
             >
               <Trash2 size={14} className="text-gray-500 hover:text-red-600" />
             </button>
@@ -332,6 +335,7 @@ const GanttTaskList = memo(({
   highlightedTaskId,
   siteSettings
 }: GanttTaskListProps) => {
+  const { t } = useTranslation('common');
   return (
     <div 
       className="sticky left-0 z-10 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700"
@@ -339,7 +343,7 @@ const GanttTaskList = memo(({
     >
       {/* Task Creation Header */}
       <div className="h-12 bg-blue-50 dark:bg-blue-900 border-b-4 border-blue-400 dark:border-blue-500 flex items-center justify-end px-3">
-        <span className="text-sm text-blue-700 dark:text-blue-200 font-medium">Add tasks here →</span>
+        <span className="text-sm text-blue-700 dark:text-blue-200 font-medium">{t('gantt.addTasksHere')}</span>
       </div>
       
       {/* Task List with Sortable */}
@@ -370,7 +374,7 @@ const GanttTaskList = memo(({
                 {/* Drop zone */}
                 <DropZone 
                   columnId={columnId}
-                  columnName={columns[columnId]?.title || `Column ${columnId}`}
+                  columnName={columns[columnId]?.title || t('gantt.column', { columnId })}
                   isVisible={((activeDragItem as SortableTaskRowItem)?.type === 'task-row-reorder') && 
                     activeDragItem && 
                     (activeDragItem as SortableTaskRowItem).task.columnId !== columnId}

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronDown, Search, X } from 'lucide-react';
 
 interface Sprint {
@@ -25,6 +26,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
   onSprintChange,
   tasks = []
 }) => {
+  const { t } = useTranslation('tasks');
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -176,11 +178,11 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600"
-        title="Select Sprint"
+        title={t('sprintSelector.selectSprint')}
       >
         <Calendar className="h-4 w-4" />
         <span className="max-w-[150px] truncate">
-          {selectedSprintId === 'backlog' ? 'Backlog' : selectedSprint ? selectedSprint.name : 'All Sprints'}
+          {selectedSprintId === 'backlog' ? t('sprintSelector.backlog') : selectedSprint ? selectedSprint.name : t('sprintSelector.allSprints')}
         </span>
         <ChevronDown className="h-4 w-4" />
       </button>
@@ -196,7 +198,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Search sprints..."
+                placeholder={t('sprintSelector.searchSprints')}
                 className="w-full pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 autoFocus
               />
@@ -215,11 +217,11 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
           <div className="overflow-y-auto flex-1">
             {loading ? (
               <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                Loading sprints...
+                {t('sprintSelector.loadingSprints')}
               </div>
             ) : filteredSprints.length === 0 ? (
               <div className="p-4 text-center text-sm text-gray-500 dark:text-gray-400">
-                {searchTerm ? 'No sprints found' : 'No sprints available'}
+                {searchTerm ? t('sprintSelector.noSprintsFound') : t('sprintSelector.noSprintsAvailable')}
               </div>
             ) : (
               <>
@@ -234,7 +236,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                     !selectedSprintId && selectedSprintId !== 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
                   }`}
                 >
-                  <span className="font-medium">All Sprints</span>
+                  <span className="font-medium">{t('sprintSelector.allSprints')}</span>
                   <div className="flex items-center gap-2">
                     {totalTaskCount > 0 && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
@@ -242,7 +244,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                       </span>
                     )}
                     {!selectedSprintId && selectedSprintId !== 'backlog' && (
-                      <span className="text-xs text-blue-600 dark:text-blue-400">(No filter)</span>
+                      <span className="text-xs text-blue-600 dark:text-blue-400">{t('sprintSelector.noFilter')}</span>
                     )}
                   </div>
                 </button>
@@ -264,7 +266,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                       selectedSprintId === 'backlog' ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400' : 'text-gray-700 dark:text-gray-200'
                     }`}
                   >
-                    <span className="font-medium">Backlog</span>
+                    <span className="font-medium">{t('sprintSelector.backlog')}</span>
                     <div className="flex items-center gap-2">
                       {getSprintTaskCount(null) > 0 && (
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
@@ -272,7 +274,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                         </span>
                       )}
                       {selectedSprintId === 'backlog' && (
-                        <span className="text-xs text-blue-600 dark:text-blue-400">(Unassigned)</span>
+                        <span className="text-xs text-blue-600 dark:text-blue-400">{t('sprintSelector.unassigned')}</span>
                       )}
                     </div>
                   </button>
@@ -304,7 +306,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
                             {sprint.name}
                             {(sprint.is_active === 1 || sprint.is_active === true) && (
                               <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                Active
+                                {t('sprintSelector.active')}
                               </span>
                             )}
                           </div>

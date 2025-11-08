@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip, Calendar } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
@@ -55,6 +56,7 @@ interface ColumnConfig {
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
+// Note: Column labels are now translated in the component using useTranslation
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'sprint', label: 'Sprint', visible: true, width: 150 },
   { key: 'ticket', label: 'ID', visible: true, width: 100 },
@@ -88,6 +90,7 @@ export default function ListView({
   siteSettings,
   currentUser
 }: ListViewProps) {
+  const { t } = useTranslation(['tasks', 'common']);
   
   const [sortField, setSortField] = useState<SortField>('column');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -107,6 +110,19 @@ export default function ListView({
       visible: userPrefs.listViewColumnVisibility[col.key] ?? col.visible
     }));
   });
+
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  // Must be defined before useMemo hooks that use it
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
   const [showColumnMenu, setShowColumnMenu] = useState<string | null>(null);
   const [columnMenuPosition, setColumnMenuPosition] = useState<{top: number, left: number} | null>(null);
   const columnMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -539,18 +555,6 @@ export default function ListView({
     );
   };
 
-  // Helper function to parse date string as local date (avoiding timezone issues)
-  const parseLocalDate = (dateString: string): Date => {
-    if (!dateString) return new Date();
-    
-    // Handle both YYYY-MM-DD and full datetime strings
-    const dateOnly = dateString.split('T')[0]; // Get just the date part
-    const [year, month, day] = dateOnly.split('-').map(Number);
-    
-    // Create date in local timezone
-    return new Date(year, month - 1, day); // month is 0-indexed
-  };
-
   // Helper function to check if a task is overdue
   const isTaskOverdue = (task: Task) => {
     if (!task.dueDate) return false;
@@ -578,7 +582,7 @@ export default function ListView({
     if (!tags || !Array.isArray(tags) || tags.length === 0) {
       return (
         <div className="px-2 py-1 border border-dashed border-gray-300 rounded text-xs text-gray-400 cursor-pointer hover:border-gray-400 hover:text-gray-500">
-          Click to add tags
+          {t('tags.clickToAdd')}
         </div>
       );
     }
@@ -1120,10 +1124,22 @@ export default function ListView({
     const task = allTasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const updatedTask = {
-      ...task,
-      [field]: value
+    const updatedTask: any = {
+      ...task
     };
+
+    // Handle priority specially - use priorityId instead of priority name
+    if (field === 'priority') {
+      const priorityOption = availablePriorities.find(p => p.priority === value);
+      if (priorityOption) {
+        updatedTask.priorityId = priorityOption.id;
+        updatedTask.priority = priorityOption.priority;
+      } else {
+        updatedTask[field] = value;
+      }
+    } else {
+      updatedTask[field] = value;
+    }
 
     try {
       await onEditTask(updatedTask);
@@ -1264,13 +1280,14 @@ export default function ListView({
                       selectedBoard={boards?.find(b => b.id === selectedBoard) || boards?.[0] || { id: '', title: '', columns: {} }}
                       members={members}
                       availableTags={availableTags}
+                      availablePriorities={availablePriorities}
                       isAdmin={currentUser?.roles?.includes('admin') || false}
                     />
                     <button
                       ref={columnMenuButtonRef}
                       onClick={handleColumnMenuToggle}
                       className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
-                      title="Show/Hide Columns"
+                      title={t('listView.showHideColumns')}
                     >
                       <Menu size={14} />
                     </button>
@@ -1290,7 +1307,7 @@ export default function ListView({
                   onClick={() => handleSort(column.key)}
                 >
                   <div className="flex items-center justify-between">
-                    <span>{column.label}</span>
+                    <span>{t(`columnLabels.${column.key}`, { ns: 'tasks' }) || column.label}</span>
                     {sortField === column.key && (
                       sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                     )}
@@ -1303,7 +1320,7 @@ export default function ListView({
             {sortedTasks.length === 0 ? (
               <tr>
                 <td colSpan={visibleColumns.length + 1} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
-                  No tasks found matching your filters
+                  {t('listView.noTasksFound')}
                 </td>
               </tr>
             ) : (
@@ -1345,7 +1362,7 @@ export default function ListView({
                             onCopyTask(task);
                           }}
                           className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-green-600"
-                          title="Copy Task"
+                          title={t('listView.copyTask')}
                         >
                           <Copy size={12} />
                         </button>
@@ -1355,7 +1372,7 @@ export default function ListView({
                             onRemoveTask(task.id, e);
                           }}
                           className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
-                          title="Delete Task"
+                          title={t('listView.deleteTask')}
                         >
                           <Trash2 size={12} />
                         </button>
@@ -1433,7 +1450,7 @@ export default function ListView({
                                   onCancel={cancelEditing}
                                   onChange={(content) => setEditValue(content)}
                                   initialContent={editValue}
-                                  placeholder="Enter task description..."
+                                  placeholder={t('listView.enterTaskDescription')}
                                   compact={true}
                                   showSubmitButtons={false}
                                   resizable={false}
@@ -1564,7 +1581,17 @@ export default function ListView({
                               toggleDropdown(task.id, 'priority', e);
                             }}
                           >
-                            {getPriorityDisplay(task.priority)}
+                            {(() => {
+                              // Always use priorityId to look up current priority name (handles renamed priorities)
+                              if (task.priorityId) {
+                                const priorityOption = availablePriorities.find(p => p.id === task.priorityId);
+                                if (priorityOption) {
+                                  return getPriorityDisplay(priorityOption.priority);
+                                }
+                              }
+                              // Fallback: use priorityName from API (from JOIN), or stored priority name
+                              return getPriorityDisplay(task.priorityName || task.priority || '');
+                            })()}
                           </div>
                           
                           {/* Completed Column Banner Overlay - positioned over priority */}
@@ -1630,7 +1657,7 @@ export default function ListView({
                       {column.key === 'startDate' && (
                         <div className="flex items-center gap-1">
                           <div
-                            title="Click to select sprint"
+                            title={t('listView.clickToSelectSprint')}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleSprintSelectorOpen(task.id, e);
@@ -1729,9 +1756,9 @@ export default function ListView({
                           <span 
                             className="text-gray-400 text-xs cursor-pointer hover:bg-gray-50 rounded px-1 py-0.5 border border-dashed border-gray-300 hover:border-gray-400"
                             onClick={(e) => handleDateRangeClick(task.id, e)}
-                            title="Click to set dates"
+                            title={t('listView.clickToSetDate')}
                           >
-                            Click to set date
+                            {t('listView.clickToSetDate')}
                           </span>
                         )
                       )}
@@ -1758,7 +1785,7 @@ export default function ListView({
                           >
                             <div
                               className="flex items-center gap-0.5 rounded px-1 py-1 cursor-pointer"
-                              title="Hover to view comments"
+                              title={t('listView.hoverToViewComments')}
                             >
                               <MessageCircle 
                                 size={12} 
@@ -2237,7 +2264,7 @@ export default function ListView({
         >
           <div className="py-1">
             <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
-              Show/Hide Columns
+              {t('listView.showHideColumns')}
             </div>
             {columns.map(col => (
               <button
@@ -2251,7 +2278,7 @@ export default function ListView({
               >
                 {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 <span className={col.visible && visibleColumns.length === 1 ? 'text-gray-400' : ''}>
-                  {col.label}
+                  {t(`columnLabels.${col.key}`, { ns: 'tasks' }) || col.label}
                 </span>
               </button>
             ))}
@@ -2278,7 +2305,7 @@ export default function ListView({
               value={sprintSearchTerm}
               onChange={(e) => setSprintSearchTerm(e.target.value)}
               onKeyDown={(e) => handleSprintKeyDown(e, showSprintSelector)}
-              placeholder="Search sprints..."
+              placeholder={t('listView.searchSprints')}
               className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
               autoFocus
             />

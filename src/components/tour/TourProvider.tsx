@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Joyride, { CallBackProps, STATUS } from 'react-joyride';
+import { useTranslation } from 'react-i18next';
 import { getTourSteps } from './TourSteps';
 
 interface TourProviderProps {
@@ -9,6 +10,7 @@ interface TourProviderProps {
 
 const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser }) => {
   console.log('TourProvider: Component mounting/rendering');
+  const { t } = useTranslation('common');
   const [isRunning, setIsRunning] = useState(false);
   const { userSteps, adminSteps } = getTourSteps();
 
@@ -108,11 +110,11 @@ const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser }) =>
           },
         }}
         locale={{
-          back: 'Back',
-          close: 'Close',
-          last: 'Finish Tour',
-          next: 'Next',
-          skip: 'Skip Tour',
+          back: t('tour.back'),
+          close: t('tour.close'),
+          last: t('tour.last'),
+          next: t('tour.next'),
+          skip: t('tour.skip'),
         }}
       />
     </>

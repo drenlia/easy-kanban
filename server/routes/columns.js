@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -10,6 +11,7 @@ router.post('/', authenticateToken, async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Check for duplicate column name within the same board
     const existingColumn = wrapQuery(
@@ -18,7 +20,7 @@ router.post('/', authenticateToken, async (req, res) => {
     ).get(boardId, title);
     
     if (existingColumn) {
-      return res.status(400).json({ error: 'A column with this name already exists in this board' });
+      return res.status(400).json({ error: t('errors.columnNameExists') });
     }
     
     // Get finished column names from settings
@@ -27,7 +29,7 @@ router.post('/', authenticateToken, async (req, res) => {
       'SELECT'
     ).get('DEFAULT_FINISHED_COLUMN_NAMES');
     
-    let finishedColumnNames = ['Done', 'Completed', 'Finished']; // Default values
+    let finishedColumnNames = ['Done', 'Terminé', 'Completed', 'Complété', 'Finished', 'Fini']; // Default values
     if (finishedColumnNamesSetting?.value) {
       try {
         finishedColumnNames = JSON.parse(finishedColumnNamesSetting.value);
@@ -69,7 +71,9 @@ router.post('/', authenticateToken, async (req, res) => {
     res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });
   } catch (error) {
     console.error('Error creating column:', error);
-    res.status(500).json({ error: 'Failed to create column' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToCreateColumn') });
   }
 });
 
@@ -79,11 +83,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { title, is_finished, is_archived } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Get the column's board ID
     const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
     if (!column) {
-      return res.status(404).json({ error: 'Column not found' });
+      return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
     // Check for duplicate column name within the same board (excluding current column)
@@ -93,7 +98,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     ).get(column.boardId, title, id);
     
     if (existingColumn) {
-      return res.status(400).json({ error: 'A column with this name already exists in this board' });
+      return res.status(400).json({ error: t('errors.columnNameExists') });
     }
     
     // Get finished column names from settings
@@ -143,7 +148,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
     res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });
   } catch (error) {
     console.error('Error updating column:', error);
-    res.status(500).json({ error: 'Failed to update column' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToUpdateColumn') });
   }
 });
 
@@ -152,11 +159,12 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Get the column's board ID before deleting
     const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
     if (!column) {
-      return res.status(404).json({ error: 'Column not found' });
+      return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
     wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
@@ -174,7 +182,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Column deleted successfully' });
   } catch (error) {
     console.error('Error deleting column:', error);
-    res.status(500).json({ error: 'Failed to delete column' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToDeleteColumn') });
   }
 });
 
@@ -183,9 +193,10 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     const currentColumn = wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
     if (!currentColumn) {
-      return res.status(404).json({ error: 'Column not found' });
+      return res.status(404).json({ error: t('errors.columnNotFound') });
     }
 
     const currentPosition = currentColumn.position;
@@ -230,7 +241,9 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     res.json({ message: 'Column reordered successfully' });
   } catch (error) {
     console.error('Error reordering column:', error);
-    res.status(500).json({ error: 'Failed to reorder column' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToReorderColumn') });
   }
 });
 
@@ -259,7 +272,9 @@ router.post('/renumber', authenticateToken, async (req, res) => {
     res.json({ message: 'Columns renumbered successfully' });
   } catch (error) {
     console.error('Error renumbering columns:', error);
-    res.status(500).json({ error: 'Failed to renumber columns' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToRenumberColumns') });
   }
 });
 

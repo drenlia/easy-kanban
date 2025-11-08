@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AlertCircle, CheckCircle, Users, ClipboardList, Layout, HardDrive, Shield, ExternalLink } from 'lucide-react';
 import api from '../../api';
 
@@ -39,6 +40,7 @@ interface AdminLicensingTabProps {
 }
 
 const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, settings }) => {
+  const { t } = useTranslation('admin');
   const [activeSubTab, setActiveSubTab] = useState<'overview' | 'subscription'>('overview');
   const [licenseInfo, setLicenseInfo] = useState<LicenseInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -109,9 +111,15 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   };
 
   const formatBytes = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return `0 ${t('licensing.bytes')}`;
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const sizes = [
+      t('licensing.bytes'),
+      t('licensing.kb'),
+      t('licensing.mb'),
+      t('licensing.gb'),
+      t('licensing.tb')
+    ];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
@@ -161,7 +169,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
         <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
-            <p className="text-red-800 dark:text-red-200">Error loading license information: {error}</p>
+            <p className="text-red-800 dark:text-red-200">{t('licensing.errorLoadingLicenseInfo', { error })}</p>
           </div>
         </div>
       );
@@ -170,7 +178,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
     if (!licenseInfo) {
       return (
         <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <p className="text-gray-600 dark:text-gray-400">No license information available.</p>
+          <p className="text-gray-600 dark:text-gray-400">{t('licensing.noLicenseInfoAvailable')}</p>
         </div>
       );
     }
@@ -181,7 +189,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
         <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg p-4">
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
-            <p className="text-red-800 dark:text-red-200">Error loading license information: {licenseInfo.error}</p>
+            <p className="text-red-800 dark:text-red-200">{t('licensing.errorLoadingLicenseInfo', { error: licenseInfo.error })}</p>
           </div>
         </div>
       );
@@ -194,7 +202,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
             <p className="text-yellow-800 dark:text-yellow-200">
-              {licenseInfo.message || 'License information is incomplete or unavailable.'}
+              {licenseInfo.message || t('licensing.licenseInfoIncomplete')}
             </p>
           </div>
         </div>
@@ -209,12 +217,12 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             <CheckCircle className="h-6 w-6 text-blue-500 mr-3" />
             <div>
               <h3 className="text-lg font-semibold text-blue-800 dark:text-blue-200">
-                {isDemoMode ? 'Demo Mode' : 'Self-Hosted Mode'}
+                {isDemoMode ? t('licensing.demoMode') : t('licensing.selfHostedMode')}
               </h3>
               <p className="text-blue-700 dark:text-blue-300 mt-1">
                 {isDemoMode 
-                  ? 'License system is disabled for demo purposes. This instance resets hourly and is for evaluation only.'
-                  : 'License system is disabled. This instance is running in self-hosted mode with no restrictions.'
+                  ? t('licensing.demoModeDescription')
+                  : t('licensing.selfHostedModeDescription')
                 }
               </p>
             </div>
@@ -230,17 +238,17 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
           <div className="p-6">
             <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
               <Shield className="h-5 w-5 mr-2" />
-              Current Plan
+              {t('licensing.currentPlan')}
             </h3>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 {getSupportTypeIcon(licenseInfo.limits.SUPPORT_TYPE)}
                 <div>
-                  <h3 className="text-xl font-semibold capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE} Plan</h3>
+                  <h3 className="text-xl font-semibold capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE} {t('licensing.plan')}</h3>
                   <p className="text-gray-600 dark:text-gray-400">
-                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'pro' && 'Full-featured plan with unlimited resources'}
-                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'basic' && 'Standard plan with moderate limits'}
-                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'free' && 'Free plan with basic features'}
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'pro' && t('licensing.proPlanDescription')}
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'basic' && t('licensing.basicPlanDescription')}
+                    {licenseInfo.limits.SUPPORT_TYPE.toLowerCase() === 'free' && t('licensing.freePlanDescription')}
                   </p>
                 </div>
               </div>
@@ -258,7 +266,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             <div className="p-6">
               <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
                 <Users className="h-4 w-4 mr-2" />
-                Users
+                {t('licensing.users')}
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -277,10 +285,10 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-500 dark:text-gray-400">
-                        {calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT).toFixed(1)}% used
+                        {t('licensing.percentageUsed', { percentage: calculateUsagePercentage(licenseInfo.usage.users, licenseInfo.limits.USER_LIMIT).toFixed(1) })}
                       </span>
                       {licenseInfo.limitsReached.users && (
-                        <span className="text-red-500 font-medium">Limit reached</span>
+                        <span className="text-red-500 font-medium">{t('licensing.limitReached')}</span>
                       )}
                     </div>
                   </>
@@ -294,7 +302,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             <div className="p-6">
               <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
                 <Layout className="h-4 w-4 mr-2" />
-                Boards
+                {t('licensing.boards')}
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -313,10 +321,10 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-gray-500 dark:text-gray-400">
-                        {calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT).toFixed(1)}% used
+                        {t('licensing.percentageUsed', { percentage: calculateUsagePercentage(licenseInfo.usage.boards, licenseInfo.limits.BOARD_LIMIT).toFixed(1) })}
                       </span>
                       {licenseInfo.limitsReached.boards && (
-                        <span className="text-red-500 font-medium">Limit reached</span>
+                        <span className="text-red-500 font-medium">{t('licensing.limitReached')}</span>
                       )}
                     </div>
                   </>
@@ -330,7 +338,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             <div className="p-6">
               <h3 className="text-sm font-medium flex items-center mb-3 text-gray-900 dark:text-white">
                 <HardDrive className="h-4 w-4 mr-2" />
-                Storage
+                {t('licensing.storage')}
               </h3>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -347,10 +355,10 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-gray-500 dark:text-gray-400">
-                    {calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT).toFixed(1)}% used
+                    {t('licensing.percentageUsed', { percentage: calculateUsagePercentage(licenseInfo.usage.storage, licenseInfo.limits.STORAGE_LIMIT).toFixed(1) })}
                   </span>
                   {licenseInfo.limitsReached.storage && (
-                    <span className="text-red-500 font-medium">Limit reached</span>
+                    <span className="text-red-500 font-medium">{t('licensing.limitReached')}</span>
                   )}
                 </div>
               </div>
@@ -363,22 +371,22 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
           <div className="p-6">
             <h3 className="text-lg font-semibold flex items-center mb-4 text-gray-900 dark:text-white">
               <ClipboardList className="h-5 w-5 mr-2" />
-              Task Limits per Board
+              {t('licensing.taskLimitsPerBoard')}
             </h3>
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {licenseInfo.limits.TASK_LIMIT === -1 ? 'Unlimited' : licenseInfo.limits.TASK_LIMIT} tasks per board
+                  {licenseInfo.limits.TASK_LIMIT === -1 ? t('licensing.unlimited') : licenseInfo.limits.TASK_LIMIT} {t('licensing.tasksPerBoard')}
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400 mt-1">
-                  Maximum number of tasks allowed in each board
+                  {t('licensing.maxTasksPerBoardDescription')}
                 </p>
               </div>
               <div className="text-right">
                 <div className="text-2xl font-bold text-gray-900 dark:text-white">
                   {licenseInfo.limits.TASK_LIMIT === -1 ? '∞' : licenseInfo.limits.TASK_LIMIT}
                 </div>
-                <div className="text-sm text-gray-500 dark:text-gray-400">per board</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">{t('licensing.perBoard')}</div>
               </div>
             </div>
 
@@ -386,7 +394,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             {licenseInfo.limits.TASK_LIMIT !== -1 && licenseInfo.boardTaskCounts && licenseInfo.boardTaskCounts.length > 0 && (
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                  Board Usage Breakdown
+                  {t('licensing.boardUsageBreakdown')}
                 </h4>
                 <div className="space-y-3">
                   {licenseInfo.boardTaskCounts.map((board) => {
@@ -421,13 +429,13 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                           </div>
                           <div className="flex items-center justify-between mt-1">
                             <span className="text-xs text-gray-500 dark:text-gray-400">
-                              {usagePercentage.toFixed(1)}% used
+                              {t('licensing.percentageUsed', { percentage: usagePercentage.toFixed(1) })}
                             </span>
                             {isAtLimit && (
-                              <span className="text-xs text-red-600 font-medium">Limit reached</span>
+                              <span className="text-xs text-red-600 font-medium">{t('licensing.limitReached')}</span>
                             )}
                             {isNearLimit && !isAtLimit && (
-                              <span className="text-xs text-yellow-600 font-medium">Near limit</span>
+                              <span className="text-xs text-yellow-600 font-medium">{t('licensing.nearLimit')}</span>
                             )}
                           </div>
                         </div>
@@ -443,7 +451,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
               <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div className="flex items-center text-gray-500 dark:text-gray-400">
                   <CheckCircle className="h-4 w-4 mr-2" />
-                  <span className="text-sm">Unlimited tasks per board - no restrictions</span>
+                  <span className="text-sm">{t('licensing.unlimitedTasksPerBoard')}</span>
                 </div>
               </div>
             )}
@@ -453,28 +461,28 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
         {/* License Status */}
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">License Status</h3>
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">{t('licensing.licenseStatus')}</h3>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">License System</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('licensing.licenseSystem')}</span>
                 <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                   licenseInfo.enabled 
                     ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
                     : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                 }`}>
-                  {licenseInfo.enabled ? 'Managed' : 'Self-Managed'}
+                  {licenseInfo.enabled ? t('licensing.managed') : t('licensing.selfManaged')}
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Plan Type</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('licensing.planType')}</span>
                 <span className="text-sm capitalize text-gray-900 dark:text-white">{licenseInfo.limits.SUPPORT_TYPE}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">App Version</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('licensing.appVersion')}</span>
                 <span className="text-sm text-gray-900 dark:text-white">{settings?.APP_VERSION || '0'}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Last Updated</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('licensing.lastUpdated')}</span>
                 <span className="text-sm text-gray-500 dark:text-gray-400">{new Date().toLocaleString()}</span>
               </div>
             </div>
@@ -492,10 +500,10 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             <AlertCircle className="h-6 w-6 text-yellow-500 mr-3" />
             <div>
               <h3 className="text-lg font-semibold text-yellow-800 dark:text-yellow-200">
-                Access Restricted
+                {t('licensing.accessRestricted')}
               </h3>
               <p className="text-yellow-700 dark:text-yellow-300 mt-1">
-                Only the instance owner can access subscription management.
+                {t('licensing.onlyOwnerCanAccess')}
               </p>
             </div>
           </div>
@@ -510,9 +518,9 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
       <div className="space-y-6">
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="p-6">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Customer Portal</h3>
+            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">{t('licensing.customerPortal')}</h3>
             <p className="text-gray-600 dark:text-gray-400 mb-6">
-              Manage your subscription, view billing history, change plans, and cancel your subscription through our customer portal.
+              {t('licensing.customerPortalDescription')}
             </p>
             
             {hasWebsiteUrl ? (
@@ -520,7 +528,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                 onClick={() => window.open(websiteUrl, '_blank', 'noopener,noreferrer')}
                 className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
-                Open Customer Portal
+                {t('licensing.openCustomerPortal')}
                 <ExternalLink className="ml-2 h-4 w-4" />
               </button>
             ) : (
@@ -528,7 +536,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                 <div className="flex items-center">
                   <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
                   <p className="text-yellow-800 dark:text-yellow-200">
-                    Website URL not configured. Please contact your system administrator to set the WEBSITE_URL in Site Settings.
+                    {t('licensing.websiteUrlNotConfigured')}
                   </p>
                 </div>
               </div>
@@ -543,13 +551,13 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
     <div className="p-6">
       <div className="mb-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Licensing</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{t('licensing.title')}</h2>
           {activeSubTab === 'overview' && (
             <button
               onClick={fetchLicenseInfo}
               className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
-              Refresh
+              {t('licensing.refresh')}
             </button>
           )}
         </div>
@@ -566,7 +574,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            Overview
+            {t('licensing.overview')}
           </button>
           <button
             onClick={() => handleSubTabChange('subscription')}
@@ -576,7 +584,7 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            Manage Subscription
+            {t('licensing.manageSubscription')}
           </button>
         </nav>
       </div>

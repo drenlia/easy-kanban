@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Upload, User, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { X, Upload, Trash2 } from 'lucide-react';
 import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, getTaskDeleteConfirmSetting } from '../utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
 import api from '../api';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
 
@@ -17,6 +18,7 @@ interface ProfileProps {
 }
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
+  const { t } = useTranslation('common');
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string; MAIL_ENABLED?: string }>({});
@@ -188,7 +190,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       onProfileUpdated();
       
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to remove avatar');
+      setError(err.response?.data?.error || t('profile.failedToRemoveAvatar'));
     } finally {
       setIsSubmitting(false);
     }
@@ -198,7 +200,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!displayName.trim()) {
-      setError('Display name is required');
+      setError(t('profile.displayNameRequired'));
       return;
     }
 
@@ -229,7 +231,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       onClose();
       
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update profile');
+      setError(err.response?.data?.error || t('profile.failedToUpdateProfile'));
     } finally {
       setIsSubmitting(false);
     }
@@ -249,7 +251,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmation !== 'DELETE') {
-      setError('Please type "DELETE" to confirm account deletion');
+      setError(t('profile.pleaseTypeDelete'));
       return;
     }
 
@@ -265,7 +267,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       }
       
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to delete account');
+      setError(err.response?.data?.error || t('profile.failedToDeleteAccount'));
       setIsDeletingAccount(false);
     }
   };
@@ -304,7 +306,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       }
     } catch (error) {
       console.error('Failed to update activity feed setting:', error);
-      setError('Failed to update activity feed setting');
+      setError(t('profile.failedToUpdateActivityFeed'));
     }
   };
 
@@ -369,7 +371,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
       <div className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
         <div className="mt-3">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">User Settings</h3>
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('profile.title')}</h3>
             <button
               onClick={handleClose}
               disabled={isSubmitting}
@@ -390,7 +392,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Profile Settings
+                {t('profile.profileSettings')}
               </button>
               <button
                 onClick={() => setActiveTab('app-settings')}
@@ -400,7 +402,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                App Settings
+                {t('profile.appSettings')}
               </button>
               <button
                 onClick={() => setActiveTab('notifications')}
@@ -410,7 +412,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Notifications
+                {t('profile.notifications')}
               </button>
             </nav>
           </div>
@@ -422,7 +424,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 {/* Avatar Section */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-3">
-                    Profile Picture
+                    {t('profile.profilePicture')}
                   </label>
                   <div className="flex items-center space-x-4">
                     {/* Avatar Display */}
@@ -435,7 +437,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                           type="button"
                           onClick={handleRemoveFile}
                           className="absolute -top-2 -right-2 h-6 w-6 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-lg"
-                          title="Remove avatar"
+                          title={t('profile.removeAvatar')}
                         >
                           <X size={12} />
                         </button>
@@ -460,17 +462,17 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                             className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                           >
                             <Upload className="h-4 w-4 mr-2" />
-                            {currentUser?.avatarUrl || previewUrl ? 'Change Photo' : 'Upload Photo'}
+                            {currentUser?.avatarUrl || previewUrl ? t('profile.changePhoto') : t('profile.uploadPhoto')}
                           </button>
                         </div>
                         <p className="text-xs text-gray-500">
-                          JPG, PNG or GIF. Max size: 5MB
+                          {t('profile.photoFormatHint')}
                         </p>
                       </div>
                     ) : (
                       <div className="flex-1">
                         <p className="text-sm text-gray-500">
-                          Your profile picture is managed by your {currentUser?.authProvider === 'google' ? 'Google' : 'SSO'} account.
+                          {t('profile.profilePictureManaged', { provider: currentUser?.authProvider === 'google' ? 'Google' : 'SSO' })}
                         </p>
                       </div>
                     )}
@@ -480,7 +482,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 {/* Display Name */}
                 <div>
                   <label htmlFor="displayName" className="block text-sm font-medium text-gray-700 mb-1">
-                    Display Name
+                    {t('profile.displayName')}
                   </label>
                   <input
                     ref={displayNameRef}
@@ -489,11 +491,11 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="Enter your display name"
+                    placeholder={t('profile.displayNamePlaceholder')}
                     required
                   />
                   <p className="mt-1 text-sm text-gray-500">
-                    This is how your name will appear throughout the application.
+                    {t('profile.displayNameHint')}
                   </p>
                 </div>
 
@@ -513,7 +515,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
-                    {isSubmitting ? 'Saving...' : 'Save Changes'}
+                    {isSubmitting ? t('profile.saving') : t('profile.saveChanges')}
                   </button>
                   <button
                     type="button"
@@ -521,7 +523,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                     disabled={isSubmitting}
                     className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors"
                   >
-                    Cancel
+                    {t('buttons.cancel')}
                   </button>
                 </div>
               </form>
@@ -531,10 +533,10 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <h3 className="text-lg font-semibold text-red-800 mb-2 flex items-center">
                     <Trash2 className="h-5 w-5 mr-2" />
-                    Danger Zone
+                    {t('profile.dangerZone')}
                   </h3>
                   <p className="text-sm text-red-700 mb-4">
-                    Once you delete your account, there is no going back. This action cannot be undone.
+                    {t('profile.deleteAccountWarning')}
                   </p>
                   
                   {!showDeleteConfirm ? (
@@ -544,26 +546,26 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       disabled={isSubmitting || isDeletingAccount}
                       className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors text-sm font-medium"
                     >
-                      Delete My Account
+                      {t('profile.deleteMyAccount')}
                     </button>
                   ) : (
                     <div className="space-y-4">
                       <div className="bg-red-100 border border-red-300 rounded-md p-3">
                         <p className="text-sm text-red-800 font-medium mb-2">
-                          ⚠️ This will permanently delete your account and all associated data:
+                          {t('profile.deleteAccountPermanent')}
                         </p>
                         <ul className="text-sm text-red-700 list-disc list-inside space-y-1">
-                          <li>Your profile and personal information</li>
-                          <li>All your comments on tasks</li>
-                          <li>You will be unassigned from all tasks</li>
-                          <li>Your task creation and modification history</li>
+                          <li>{t('profile.deleteAccountList1')}</li>
+                          <li>{t('profile.deleteAccountList2')}</li>
+                          <li>{t('profile.deleteAccountList3')}</li>
+                          <li>{t('profile.deleteAccountList4')}</li>
                         </ul>
                       </div>
                       
                       <div className="space-y-3">
                         <div>
                           <label className="block text-sm font-medium text-red-800 mb-2">
-                            Type "DELETE" to confirm:
+                            {t('profile.typeDeleteToConfirm')}
                           </label>
                           <input
                             ref={deleteConfirmationRef}
@@ -571,7 +573,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                             value={deleteConfirmation}
                             onChange={(e) => setDeleteConfirmation(e.target.value)}
                             className="w-full px-3 py-2 border border-red-300 dark:border-red-600 rounded-md focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                            placeholder="Type DELETE here"
+                            placeholder={t('profile.typeDeletePlaceholder')}
                             disabled={isDeletingAccount}
                           />
                         </div>
@@ -590,7 +592,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                           disabled={deleteConfirmation !== 'DELETE' || isDeletingAccount}
                           className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {isDeletingAccount ? 'Deleting Account...' : 'Delete My Account Forever'}
+                          {isDeletingAccount ? t('profile.deletingAccount') : t('profile.deleteMyAccountForever')}
                         </button>
                         <button
                           type="button"
@@ -602,7 +604,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                           disabled={isDeletingAccount}
                           className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 transition-colors text-sm"
                         >
-                          Cancel
+                          {t('buttons.cancel')}
                         </button>
                       </div>
                     </div>
@@ -616,9 +618,9 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           {activeTab === 'app-settings' && (
             <div className="space-y-6">
               <div>
-                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Application Preferences</h4>
+                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('profile.applicationPreferences')}</h4>
                 <p className="text-sm text-gray-600 mb-6">
-                  Customize how the application behaves for you. These settings override the system defaults.
+                  {t('profile.appPreferencesDescription')}
                 </p>
               </div>
 
@@ -627,11 +629,11 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Task Delete Confirmation
+                      {t('profile.taskDeleteConfirmation')}
                     </label>
                     <p className="text-sm text-gray-500">
-                      Choose whether to show a confirmation dialog when deleting tasks.
-                      {systemSettings.TASK_DELETE_CONFIRM !== 'false' ? ' System default: Enabled' : ' System default: Disabled'}
+                      {t('profile.taskDeleteConfirmationDescription')}
+                      {systemSettings.TASK_DELETE_CONFIRM !== 'false' ? ` ${t('profile.systemDefaultEnabled')}` : ` ${t('profile.systemDefaultDisabled')}`}
                     </p>
                   </div>
                   <div className="ml-6 flex-shrink-0">
@@ -650,9 +652,9 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                       }}
                       className="block w-40 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     >
-                      <option value="system">Use System Default</option>
-                      <option value="true">Always Confirm</option>
-                      <option value="false">Never Confirm</option>
+                      <option value="system">{t('profile.useSystemDefault')}</option>
+                      <option value="true">{t('profile.alwaysConfirm')}</option>
+                      <option value="false">{t('profile.neverConfirm')}</option>
                     </select>
                   </div>
                 </div>
@@ -663,11 +665,11 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Activity Feed
+                      {t('profile.activityFeed')}
                     </label>
                     <p className="text-sm text-gray-500">
-                      Show a floating activity feed on the screen to see recent actions and changes.
-                      {systemSettings.SHOW_ACTIVITY_FEED !== 'false' ? ' System default: Enabled' : ' System default: Disabled'}
+                      {t('profile.activityFeedDescription')}
+                      {systemSettings.SHOW_ACTIVITY_FEED !== 'false' ? ` ${t('profile.systemDefaultEnabled')}` : ` ${t('profile.systemDefaultDisabled')}`}
                     </p>
                   </div>
                   <div className="ml-6 flex-shrink-0">
@@ -685,7 +687,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
               </div>
 
               <div className="text-sm text-gray-500 italic">
-                Changes are saved automatically
+                {t('profile.changesSavedAutomatically')}
               </div>
             </div>
           )}
@@ -694,9 +696,9 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
           {activeTab === 'notifications' && (
             <div className="space-y-6">
               <div>
-                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email Notifications</h4>
+                <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('profile.emailNotifications')}</h4>
                 <p className="text-sm text-gray-600 mb-6">
-                  Choose when you'd like to receive email notifications about task activities.
+                  {t('profile.emailNotificationsDescription')}
                 </p>
 
                 {/* Check if email is enabled */}
@@ -709,10 +711,9 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                         </svg>
                       </div>
                       <div className="ml-3">
-                        <h3 className="text-sm font-medium text-yellow-800">Email Server Disabled</h3>
+                        <h3 className="text-sm font-medium text-yellow-800">{t('profile.emailServerDisabled')}</h3>
                         <p className="text-sm text-yellow-700 mt-1">
-                          Email notifications are not available because the email server is disabled. 
-                          Contact your administrator to enable email functionality.
+                          {t('profile.emailServerDisabledDescription')}
                         </p>
                       </div>
                     </div>
@@ -721,13 +722,13 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
 
                 {/* Notification Settings */}
                 <div className={`space-y-4 ${systemSettings.MAIL_ENABLED !== 'true' ? 'opacity-50 pointer-events-none' : ''}`}>
-                  <div className="text-sm font-medium text-gray-700 mb-3">Notify me when:</div>
+                  <div className="text-sm font-medium text-gray-700 mb-3">{t('profile.notifyMeWhen')}</div>
                   
                   {/* New Task Assigned */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A new task is assigned to me</label>
-                      <p className="text-xs text-gray-500">Get notified when someone assigns a task to you</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.newTaskAssigned')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.newTaskAssignedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -754,8 +755,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* My Task Updated */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">My task is updated</label>
-                      <p className="text-xs text-gray-500">Get notified when tasks assigned to you are modified</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.myTaskUpdated')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.myTaskUpdatedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -782,8 +783,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Watched Task Updated */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A task I'm watching is updated</label>
-                      <p className="text-xs text-gray-500">Get notified when tasks you're watching are modified</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.watchedTaskUpdated')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.watchedTaskUpdatedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -810,8 +811,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Added as Collaborator */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">I'm added as a collaborator on a task</label>
-                      <p className="text-xs text-gray-500">Get notified when someone adds you as a collaborator</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.addedAsCollaborator')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.addedAsCollaboratorDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -838,8 +839,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Collaborating Task Updated */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A task I'm collaborating in is updated</label>
-                      <p className="text-xs text-gray-500">Get notified when tasks you're collaborating on are modified</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.collaboratingTaskUpdated')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.collaboratingTaskUpdatedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -866,8 +867,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Comment Added */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A comment is added to a task I'm involved in</label>
-                      <p className="text-xs text-gray-500">Get notified when comments are added to tasks you're assigned, watching, or collaborating on</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.commentAdded')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.commentAddedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -894,8 +895,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Requester Task Created */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A task is created and I'm the requester</label>
-                      <p className="text-xs text-gray-500">Get notified when tasks you requested are created</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.requesterTaskCreated')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.requesterTaskCreatedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -922,8 +923,8 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                   {/* Requester Task Updated */}
                   <div className="flex items-center justify-between py-2">
                     <div>
-                      <label className="text-sm font-medium text-gray-700">A task is updated where I'm the requester</label>
-                      <p className="text-xs text-gray-500">Get notified when tasks you requested are modified</p>
+                      <label className="text-sm font-medium text-gray-700">{t('profile.requesterTaskUpdated')}</label>
+                      <p className="text-xs text-gray-500">{t('profile.requesterTaskUpdatedDescription')}</p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
@@ -949,7 +950,7 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
                 </div>
 
                 <div className="text-sm text-gray-500 italic mt-6">
-                  Changes are saved automatically
+                  {t('profile.changesSavedAutomatically')}
                 </div>
               </div>
             </div>

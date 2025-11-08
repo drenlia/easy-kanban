@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
+import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -17,8 +18,11 @@ router.get('/', authenticateToken, (req, res) => {
     const tasksStmt = wrapQuery(
       db.prepare(`
         SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
-               t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId, t.sprint_id,
+               t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
                t.created_at, t.updated_at,
+               p.id as priorityId,
+               p.priority as priorityName,
+               p.color as priorityColor,
                CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                     THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
                     ELSE NULL END as attachmentCount,
@@ -71,8 +75,9 @@ router.get('/', authenticateToken, (req, res) => {
         LEFT JOIN members collaborator ON collaborator.id = col.memberId
         LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
         LEFT JOIN attachments a ON a.taskId = t.id
+        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
         WHERE t.columnId = ?
-        GROUP BY t.id
+        GROUP BY t.id, p.id
         ORDER BY t.position ASC
 `),
       'SELECT'
@@ -85,6 +90,11 @@ router.get('/', authenticateToken, (req, res) => {
       columns.forEach(column => {
         const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
+          // Use priorityName from JOIN (current name) or fallback to stored priority
+          priority: task.priorityName || task.priority || null,
+          priorityId: task.priorityId || null,
+          priorityName: task.priorityName || task.priority || null,
+          priorityColor: task.priorityColor || null,
           sprintId: task.sprint_id || null, // Map snake_case to camelCase
           createdAt: task.created_at, // Map snake_case to camelCase
           updatedAt: task.updated_at, // Map snake_case to camelCase
@@ -141,7 +151,9 @@ router.get('/', authenticateToken, (req, res) => {
     res.json(boardsWithData);
   } catch (error) {
     console.error('Error fetching boards:', error);
-    res.status(500).json({ error: 'Failed to fetch boards' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToFetch', { resource: 'boards' }) });
   }
 });
 
@@ -151,10 +163,12 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
     
+    const t = getTranslator(db);
+    
     // Verify board exists
     const board = wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
     if (!board) {
-      return res.status(404).json({ error: 'Board not found' });
+      return res.status(404).json({ error: t('errors.boardNotFound') });
     }
     
     // Get columns for this board
@@ -166,15 +180,30 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
     res.json(columns);
   } catch (error) {
     console.error('Error fetching board columns:', error);
-    res.status(500).json({ error: 'Failed to fetch board columns' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToFetchBoardColumns') });
+  }
+});
+
+// Get default column names for new boards (based on APP_LANGUAGE)
+router.get('/default-columns', authenticateToken, (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const defaultColumns = getDefaultBoardColumns(db);
+    res.json(defaultColumns);
+  } catch (error) {
+    console.error('Error fetching default columns:', error);
+    res.status(500).json({ error: 'Failed to fetch default columns' });
   }
 });
 
 // Create board
-router.post('/', authenticateToken, checkBoardLimit, (req, res) => {
+router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   const { id, title } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Check for duplicate board name
     const existingBoard = wrapQuery(
@@ -183,7 +212,7 @@ router.post('/', authenticateToken, checkBoardLimit, (req, res) => {
     ).get(title);
     
     if (existingBoard) {
-      return res.status(400).json({ error: 'A board with this name already exists' });
+      return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
     // Generate project identifier
@@ -192,6 +221,33 @@ router.post('/', authenticateToken, checkBoardLimit, (req, res) => {
     
     const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
     wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
+    
+    // Automatically create default columns based on APP_LANGUAGE
+    const defaultColumns = getDefaultBoardColumns(db);
+    const columnStmt = db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
+    
+    defaultColumns.forEach((col, index) => {
+      const columnId = `${col.id}-${id}`;
+      const isFinished = col.id === 'completed';
+      const isArchived = col.id === 'archive';
+      
+      columnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
+      
+      // Publish column creation to Redis for real-time updates
+      redisService.publish('column-created', {
+        boardId: id,
+        column: { 
+          id: columnId, 
+          title: col.title, 
+          boardId: id, 
+          position: index, 
+          is_finished: isFinished, 
+          is_archived: isArchived 
+        },
+        updatedBy: req.user?.id || 'system',
+        timestamp: new Date().toISOString()
+      });
+    });
     
     const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
     
@@ -205,7 +261,9 @@ router.post('/', authenticateToken, checkBoardLimit, (req, res) => {
     res.json(newBoard);
   } catch (error) {
     console.error('Error creating board:', error);
-    res.status(500).json({ error: 'Failed to create board' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToCreateBoard') });
   }
 });
 
@@ -234,6 +292,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { title } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Check for duplicate board name (excluding current board)
     const existingBoard = wrapQuery(
@@ -242,7 +301,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     ).get(title, id);
     
     if (existingBoard) {
-      return res.status(400).json({ error: 'A board with this name already exists' });
+      return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
     wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
@@ -259,7 +318,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
     res.json({ id, title });
   } catch (error) {
     console.error('Error updating board:', error);
-    res.status(500).json({ error: 'Failed to update board' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToUpdateBoard') });
   }
 });
 
@@ -281,7 +342,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Board deleted successfully' });
   } catch (error) {
     console.error('Error deleting board:', error);
-    res.status(500).json({ error: 'Failed to delete board' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToDeleteBoard') });
   }
 });
 
@@ -290,9 +353,10 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     const currentBoard = wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
     if (!currentBoard) {
-      return res.status(404).json({ error: 'Board not found' });
+      return res.status(404).json({ error: t('errors.boardNotFound') });
     }
 
     // Get all boards ordered by current position
@@ -330,7 +394,9 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     res.json({ message: 'Board reordered successfully' });
   } catch (error) {
     console.error('Error reordering board:', error);
-    res.status(500).json({ error: 'Failed to reorder board' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToReorderBoard') });
   }
 });
 
@@ -358,7 +424,9 @@ router.get('/:boardId/relationships', authenticateToken, (req, res) => {
     res.json(relationships);
   } catch (error) {
     console.error('Error fetching board relationships:', error);
-    res.status(500).json({ error: 'Failed to fetch board relationships' });
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToFetchBoardRelationships') });
   }
 });
 

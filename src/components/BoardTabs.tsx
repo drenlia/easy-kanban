@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Board, Task } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
@@ -149,6 +150,7 @@ const DroppableBoardTab: React.FC<{
     onSelect();
   };
 
+  const { t } = useTranslation('common');
   const tabClasses = getBoardTabDropClasses(isDropReady && canDrop, isHovering && canDrop, isDragActive);
 
   return (
@@ -169,7 +171,7 @@ const DroppableBoardTab: React.FC<{
         transition-all duration-200
         relative
       `}
-      title={`${board.title}${isDragActive && canDrop ? ' (Drop task here)' : ''}`}
+      title={`${board.title}${isDragActive && canDrop ? ` (${t('boardTabs.dropTaskHere')})` : ''}`}
     >
       {/* VERY SMALL droppable area - only the inner content */}
       <div
@@ -218,6 +220,7 @@ const SortableBoardTab: React.FC<{
     isDragging,
   } = useSortable({ id: board.id });
 
+  const { t } = useTranslation('common');
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -229,7 +232,7 @@ const SortableBoardTab: React.FC<{
         {/* Drag Handle - Small icon on the left */}
         <div
           className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition-opacity"
-          title="Drag to reorder"
+          title={t('boardTabs.dragToReorder')}
           {...attributes}
           {...listeners}
         >
@@ -247,7 +250,7 @@ const SortableBoardTab: React.FC<{
               ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
               : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
           } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
-          title="Click to select, double-click to rename (Admin only)"
+          title={t('boardTabs.clickToSelectDoubleClickToRename')}
         >
           <div className="flex items-center gap-2">
             <span>{board.title}</span>
@@ -268,7 +271,7 @@ const SortableBoardTab: React.FC<{
               onRemove();
             }}
             className="absolute -top-1 -right-1 p-1 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-700 hover:bg-gray-100/50"
-            title="Delete board (Admin only)"
+            title={t('boardTabs.deleteBoard')}
           >
             <span className="text-xs font-bold">×</span>
           </button>
@@ -286,8 +289,8 @@ const SortableBoardTab: React.FC<{
         >
           <div className="text-sm text-gray-700 mb-2">
             {(taskCount || 0) > 0 
-              ? `Delete board and ${taskCount} task${taskCount !== 1 ? 's' : ''}?`
-              : 'Delete empty board?'
+              ? t('boardTabs.deleteBoardAndTasks', { count: taskCount })
+              : t('boardTabs.deleteEmptyBoard')
             }
           </div>
           <div className="flex space-x-2">
@@ -295,13 +298,13 @@ const SortableBoardTab: React.FC<{
               onClick={() => onConfirmDelete(board.id)}
               className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
-              Yes
+              {t('buttons.yes')}
             </button>
             <button
               onClick={onCancelDelete}
               className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
             >
-              No
+              {t('buttons.no')}
             </button>
           </div>
         </div>,
@@ -322,6 +325,7 @@ const RegularBoardTab: React.FC<{
   taskCount?: number;
   showTaskCount?: boolean;
 }> = ({ board, isSelected, onSelect, onEdit, onRemove, canDelete, taskCount, showTaskCount }) => {
+  const { t } = useTranslation('common');
   return (
     <div className="relative group">
       <button
@@ -331,7 +335,7 @@ const RegularBoardTab: React.FC<{
             ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
             : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
         }`}
-        title="Click to select board"
+        title={t('boardTabs.clickToSelectBoard')}
       >
         <div className="flex items-center gap-2">
           <span>{board.title}</span>
@@ -364,6 +368,7 @@ export default function BoardTabs({
   onTaskDropOnBoard,
   siteSettings
 }: BoardTabsProps) {
+  const { t } = useTranslation('common');
   const [editingBoardId, setEditingBoardId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -476,12 +481,12 @@ export default function BoardTabs({
   if (boards.length === 0) {
     return (
       <div className="flex items-center gap-2 p-4">
-        <h2 className="text-lg font-semibold text-gray-600">No Boards</h2>
+        <h2 className="text-lg font-semibold text-gray-600">{t('boardTabs.noBoards')}</h2>
         {isAdmin && (
           <button
             onClick={onAddBoard}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-            title="Add Board (Admin only)"
+            title={t('boardTabs.addBoard')}
             data-tour-id="add-board-button"
           >
             <Plus size={18} />
@@ -591,7 +596,7 @@ export default function BoardTabs({
             <button
               onClick={scrollLeft}
               className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
-              title="Scroll left"
+              title={t('boardTabs.scrollLeft')}
             >
               <ChevronLeft size={16} className="text-gray-600 dark:text-gray-300" />
             </button>
@@ -788,7 +793,7 @@ export default function BoardTabs({
             <button
               onClick={scrollRight}
               className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
-              title="Scroll right"
+              title={t('boardTabs.scrollRight')}
             >
               <ChevronRight size={16} className="text-gray-600 dark:text-gray-300" />
             </button>
@@ -800,7 +805,7 @@ export default function BoardTabs({
           <button
             onClick={onAddBoard}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
-            title="Add New Board (Admin only)"
+            title={t('boardTabs.addNewBoard')}
             data-tour-id="add-board-button"
           >
             <Plus size={18} />

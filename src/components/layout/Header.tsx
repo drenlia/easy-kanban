@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
+import { loadUserPreferences, updateUserPreference } from '../../utils/userPreferences';
 
 interface SystemInfo {
   memory: {
@@ -101,6 +103,32 @@ const Header: React.FC<HeaderProps> = ({
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
   const inviteDropdownRef = useRef<HTMLDivElement>(null);
+  const { i18n, t } = useTranslation('common');
+  
+  // Get current language - use i18n.language for immediate updates, fallback to user preferences
+  const currentLanguage = useMemo(() => {
+    // Use i18n.language if available (most up-to-date)
+    if (i18n.language && (i18n.language === 'en' || i18n.language === 'fr')) {
+      return i18n.language;
+    }
+    // Fallback to user preferences
+    if (currentUser) {
+      const prefs = loadUserPreferences(currentUser.id);
+      return prefs.language || 'en';
+    }
+    return 'en';
+  }, [currentUser, i18n.language]);
+  
+  // Handle language toggle - save to user preferences when user explicitly chooses
+  const handleLanguageToggle = async () => {
+    const newLanguage = currentLanguage === 'en' ? 'fr' : 'en';
+    // Always save to user preferences if logged in (this makes it "set in stone")
+    if (currentUser) {
+      await updateUserPreference('language', newLanguage, currentUser.id);
+    }
+    // Change language immediately
+    await i18n.changeLanguage(newLanguage);
+  };
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [reportsEnabled, setReportsEnabled] = useState(true); // Default to enabled
@@ -289,19 +317,19 @@ const Header: React.FC<HeaderProps> = ({
 
   const handleInviteSend = async () => {
     if (!inviteEmail.trim()) {
-      setInviteError('Please enter an email address');
+      setInviteError(t('navigation.pleaseEnterEmail'));
       return;
     }
 
     // Basic email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(inviteEmail.trim())) {
-      setInviteError('Please enter a valid email address');
+      setInviteError(t('navigation.pleaseEnterValidEmail'));
       return;
     }
 
     if (!onInviteUser) {
-      setInviteError('Invite functionality not available');
+      setInviteError(t('navigation.inviteNotAvailable'));
       return;
     }
 
@@ -311,14 +339,14 @@ const Header: React.FC<HeaderProps> = ({
 
     try {
       await onInviteUser(inviteEmail.trim());
-      setInviteSuccess('Invitation sent successfully!');
+      setInviteSuccess(t('navigation.invitationSent'));
       setInviteEmail('');
       setTimeout(() => {
         setShowInviteDropdown(false);
         setInviteSuccess('');
       }, 2000);
     } catch (error) {
-      setInviteError(error instanceof Error ? error.message : 'Failed to send invitation');
+      setInviteError(error instanceof Error ? error.message : t('navigation.failedToSendInvitation'));
     } finally {
       setIsInviting(false);
     }
@@ -363,10 +391,10 @@ const Header: React.FC<HeaderProps> = ({
                   <button
                     onClick={handleInviteClick}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
-                    title="Invite User"
+                    title={t('navigation.inviteUser')}
                   >
                     <UserPlus className="h-4 w-4" />
-                    Invite
+                    {t('navigation.invite')}
                   </button>
 
                   {/* Invite Dropdown */}
@@ -375,7 +403,7 @@ const Header: React.FC<HeaderProps> = ({
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Mail className="h-4 w-4 text-blue-600" />
-                          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Invite New User</h3>
+                          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">{t('navigation.inviteNewUser')}</h3>
                         </div>
                         
                         <div className="space-y-3">
@@ -385,7 +413,7 @@ const Header: React.FC<HeaderProps> = ({
                               value={inviteEmail}
                               onChange={(e) => setInviteEmail(e.target.value)}
                               onKeyDown={handleInviteKeyPress}
-                              placeholder="Enter email address"
+                              placeholder={t('navigation.enterEmailAddress')}
                               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                               disabled={isInviting}
                               autoFocus
@@ -415,7 +443,7 @@ const Header: React.FC<HeaderProps> = ({
                               ) : (
                                 <Send className="h-3 w-3" />
                               )}
-                              {isInviting ? 'Sending...' : 'Send'}
+                              {isInviting ? t('navigation.sending') : t('navigation.send')}
                             </button>
                             <button
                               onClick={handleInviteCancel}
@@ -423,7 +451,7 @@ const Header: React.FC<HeaderProps> = ({
                               className="flex items-center gap-1.5 px-3 py-1.5 text-gray-600 dark:text-gray-300 text-sm font-medium rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
                             >
                               <X className="h-3 w-3" />
-                              Cancel
+                              {t('buttons.cancel')}
                             </button>
                           </div>
                         </div>
@@ -485,14 +513,14 @@ const Header: React.FC<HeaderProps> = ({
                         className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
                       >
                         <User size={18} />
-                        Profile
+                        {t('navigation.profile')}
                       </button>
                       <button
                         onClick={onLogout}
                         className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
                       >
                         <LogOut size={18} />
-                        Logout
+                        {t('navigation.logout')}
                       </button>
                     </div>
                   </div>
@@ -509,7 +537,7 @@ const Header: React.FC<HeaderProps> = ({
                       : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                     }`}
                 >
-                  Kanban
+                  {t('navigation.kanban')}
                 </button>
                 {reportsEnabled && (reportsVisibleTo === 'all' || currentUser.roles?.includes('admin')) && (
                   <button
@@ -520,7 +548,7 @@ const Header: React.FC<HeaderProps> = ({
                         : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
                       }`}
                   >
-                    Reports
+                    {t('navigation.reports')}
                   </button>
                 )}
                 {currentUser.roles?.includes('admin') && (
@@ -533,7 +561,7 @@ const Header: React.FC<HeaderProps> = ({
                       }`}
                     data-tour-id="admin-tab"
                   >
-                    Admin
+                    {t('navigation.admin')}
                   </button>
                 )}
               </div>
@@ -557,13 +585,24 @@ const Header: React.FC<HeaderProps> = ({
           {/* Theme toggle */}
           <ThemeToggle />
           
+          {/* Language toggle */}
+          {currentUser && (
+            <button
+              onClick={handleLanguageToggle}
+              className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+              title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+            >
+              {currentLanguage === 'en' ? 'FR' : 'EN'}
+            </button>
+          )}
+          
           {/* Polling status indicator removed - using real-time WebSocket updates */}
           
           {/* Manual refresh button */}
           <button
             onClick={handleRefresh}
             className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
-            title="Refresh data now"
+            title={t('navigation.refreshDataNow')}
           >
             <RefreshCw size={16} />
           </button>
@@ -571,7 +610,7 @@ const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onHelpClick}
             className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
-            title="Help (F1)"
+            title={t('navigation.help')}
             data-tour-id="help-button"
           >
             <HelpCircle size={20} />

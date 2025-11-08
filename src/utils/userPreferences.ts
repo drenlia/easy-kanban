@@ -52,6 +52,7 @@ export interface UserPreferences {
   listViewColumnVisibility: ColumnVisibility;
   selectedSprintId: string | null; // Selected sprint for filtering
   lastReportTab: string | null; // Last accessed report tab (persists across sessions)
+  language: 'en' | 'fr'; // User's preferred language
 
   searchFilters: {
     text: string;
@@ -156,6 +157,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
   ganttScrollPositions: {}, // Per-board Gantt scroll positions (empty by default)
   selectedSprintId: null, // Default to "All Sprints" (no filter)
   lastReportTab: null, // Default to no last report (will use burndown)
+  language: 'en', // Default to English
   listViewColumnVisibility: {
     // Default column visibility - all columns visible except some less important ones
     ticket: true,
@@ -401,7 +403,10 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('lastReportTab', preferences.lastReportTab),
           
           // Gantt Scroll Positions
-          saveIfDefined('ganttScrollPositions', JSON.stringify(preferences.ganttScrollPositions))
+          saveIfDefined('ganttScrollPositions', JSON.stringify(preferences.ganttScrollPositions)),
+          
+          // Language Preference
+          saveIfDefined('language', preferences.language)
         ]);
       } catch (dbError) {
         console.warn('Failed to save preferences to database:', dbError);
@@ -539,6 +544,9 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
         // Last Report Tab
         lastReportTab: smartMerge(preferences.lastReportTab, dbSettings.lastReportTab, defaults.lastReportTab),
         
+        // Language Preference
+        language: smartMerge(preferences.language, dbSettings.language, defaults.language),
+        
         // List View Column Visibility (special handling for object)
         listViewColumnVisibility: (() => {
           const cookieColumns = preferences.listViewColumnVisibility;
@@ -655,6 +663,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'searchFilters': 'searchFilters',
         'listViewColumnVisibility': 'listViewColumnVisibility',
         'ganttScrollPositions': 'ganttScrollPositions',
+        'language': 'language',
       };
       
       dbKey = topLevelKeyMap[key as string];

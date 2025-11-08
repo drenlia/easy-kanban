@@ -1,5 +1,5 @@
-import React from 'react';
 import { AlertCircle, RefreshCw, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface VersionUpdateBannerProps {
   currentVersion: string;
@@ -14,6 +14,7 @@ const VersionUpdateBanner: React.FC<VersionUpdateBannerProps> = ({
   onRefresh,
   onDismiss,
 }) => {
+  const { t } = useTranslation('common');
   return (
     <div className="fixed top-0 left-0 right-0 z-[10000] bg-blue-600 text-white shadow-lg">
       <div className="max-w-7xl mx-auto px-4 py-3">
@@ -22,7 +23,7 @@ const VersionUpdateBanner: React.FC<VersionUpdateBannerProps> = ({
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium">
-                New version available
+                {t('versionUpdateBanner.title')}
                 {currentVersion && newVersion && (
                   <span className="ml-2 text-blue-200">
                     (v{currentVersion} → v{newVersion})
@@ -30,7 +31,7 @@ const VersionUpdateBanner: React.FC<VersionUpdateBannerProps> = ({
                 )}
               </p>
               <p className="text-xs text-blue-100 mt-1">
-                A new version of the application has been deployed. Please refresh to get the latest updates.
+                {t('versionUpdateBanner.description')}
               </p>
             </div>
           </div>
@@ -40,12 +41,12 @@ const VersionUpdateBanner: React.FC<VersionUpdateBannerProps> = ({
               className="inline-flex items-center px-4 py-2 bg-white text-blue-600 rounded-md hover:bg-blue-50 transition-colors font-medium text-sm"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh Now
+              {t('versionUpdateBanner.refreshNow')}
             </button>
             <button
               onClick={onDismiss}
               className="p-2 hover:bg-blue-700 rounded-md transition-colors"
-              title="Dismiss (will refresh on next page load)"
+              title={t('versionUpdateBanner.dismissTooltip')}
             >
               <X className="h-4 w-4" />
             </button>

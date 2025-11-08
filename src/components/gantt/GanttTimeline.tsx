@@ -1,5 +1,6 @@
 import React, { useRef, useCallback, useEffect } from 'react';
 import { useDroppable } from '@dnd-kit/core';
+import { useTranslation } from 'react-i18next';
 import { Task } from '../../types';
 import { TaskHandle } from './TaskHandle';
 import { MoveHandle } from './MoveHandle';
@@ -139,6 +140,7 @@ const TaskBar = ({
   columns,
   siteSettings
 }: any) => {
+  const { t } = useTranslation('common');
   const { startDayIndex, endDayIndex } = gridPosition;
   
   // Helper function to parse date string as local date (avoiding timezone issues)
@@ -233,7 +235,7 @@ const TaskBar = ({
           width: `${(displayEndIndex - displayStartIndex + 1) * 40}px`,
           top: '50%',
           transform: 'translateY(-50%)',
-          backgroundColor: getPriorityColor(task.priority),
+          backgroundColor: getPriorityColor((task as any).priorityName || task.priority),
           zIndex: isDragging ? 40 : (isSelected ? 20 : 10),
           pointerEvents: isDragging ? 'none' : 'auto'
         }}
@@ -250,7 +252,7 @@ const TaskBar = ({
             } as any}
             handleType="start"
             onDateChange={() => {}}
-            taskColor={{ backgroundColor: getPriorityColor(task.priority), color: '#FFFFFF' }}
+            taskColor={{ backgroundColor: getPriorityColor((task as any).priorityName || task.priority), color: '#FFFFFF' }}
           />
           <TaskHandle
             taskId={task.id}
@@ -260,7 +262,7 @@ const TaskBar = ({
             } as any}
             handleType="end"
             onDateChange={() => {}}
-            taskColor={{ backgroundColor: getPriorityColor(task.priority), color: '#FFFFFF' }}
+            taskColor={{ backgroundColor: getPriorityColor((task as any).priorityName || task.priority), color: '#FFFFFF' }}
           />
         </>
       )}
@@ -319,7 +321,7 @@ const TaskBar = ({
                 ? 'bg-yellow-400 bg-opacity-80 text-gray-900' 
                 : 'hover:bg-white hover:bg-opacity-20'
             }`}
-            title={selectedParentTask === task.id ? 'Selected as parent - click another task to link' : 'Click to select as parent task'}
+            title={selectedParentTask === task.id ? t('gantt.selectedAsParent') : t('gantt.clickToSelectAsParent')}
           >
             <svg className={`w-3 h-3 ${selectedParentTask === task.id ? 'text-gray-900' : 'text-white'}`} fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
@@ -346,7 +348,7 @@ const TaskBar = ({
           {/* "DONE" stamp */}
           <div className="absolute top-0.5 right-0.5">
             <div className="bg-green-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-              DONE
+              {t('gantt.done')}
             </div>
           </div>
         </div>
@@ -369,7 +371,7 @@ const TaskBar = ({
           {/* "LATE" stamp */}
           <div className="absolute top-0.5 right-0.5">
             <div className="bg-red-500 text-white text-xs font-bold px-1 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-              LATE
+              {t('gantt.late')}
             </div>
           </div>
         </div>
@@ -412,6 +414,7 @@ const GanttTimeline = ({
   columns,
   siteSettings
 }: GanttTimelineProps) => {
+  const { t } = useTranslation('common');
   // Allow vertical scrolling to pass through to parent
   React.useEffect(() => {
     const container = scrollContainerRef.current;
@@ -495,7 +498,7 @@ const GanttTimeline = ({
                     transform: 'translateY(-50%)'
                   }}
                 >
-                  <span className="text-white text-xs font-medium">New Task</span>
+                  <span className="text-white text-xs font-medium">{t('gantt.newTask')}</span>
                 </div>
               );
             }

@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface ResetCountdownProps {
   onReset?: () => void;
 }
 
 const ResetCountdown: React.FC<ResetCountdownProps> = ({ onReset }) => {
+  const { t } = useTranslation('common');
   const [timeLeft, setTimeLeft] = useState<{ minutes: number; seconds: number }>({
     minutes: 0,
     seconds: 0
@@ -68,7 +70,7 @@ const ResetCountdown: React.FC<ResetCountdownProps> = ({ onReset }) => {
       `}>
         <Clock size={12} className={isUrgent ? 'text-white' : 'text-red-500 dark:text-red-400'} />
         <span className="font-medium">
-          Demo resets in {timeLeft.minutes}m {timeLeft.seconds}s
+          {t('resetCountdown.demoResetsIn', { minutes: timeLeft.minutes, seconds: timeLeft.seconds })}
         </span>
       </div>
     </div>

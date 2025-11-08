@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 
 interface RenameModalProps {
@@ -14,6 +15,7 @@ export default function RenameModal({
   onSubmit,
   onClose
 }: RenameModalProps) {
+  const { t } = useTranslation('common');
   const [name, setName] = React.useState(currentName);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -39,7 +41,7 @@ export default function RenameModal({
         <form onSubmit={handleSubmit} className="p-6">
           <div className="mb-6">
             <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-              Name
+              {t('labels.name')}
             </label>
             <input
               type="text"
@@ -47,7 +49,7 @@ export default function RenameModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full px-3 py-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter name"
+              placeholder={t('renameModal.enterName')}
               autoFocus
             />
           </div>
@@ -58,13 +60,13 @@ export default function RenameModal({
               onClick={onClose}
               className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
             >
-              Cancel
+              {t('buttons.cancel')}
             </button>
             <button
               type="submit"
               className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
             >
-              Save
+              {t('buttons.save')}
             </button>
           </div>
         </form>

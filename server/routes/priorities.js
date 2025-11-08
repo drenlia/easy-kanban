@@ -35,8 +35,8 @@ router.get('/:priorityId/usage', authenticateToken, requireRole(['admin']), (req
       return res.status(404).json({ error: 'Priority not found' });
     }
     
-    // Count tasks that use this priority
-    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority = ?'), 'SELECT').get(priority.priority);
+    // Count tasks that use this priority (by priority_id)
+    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE priority_id = ?'), 'SELECT').get(priorityId);
     res.json({ count: usageCount.count });
   } catch (error) {
     console.error('Error fetching priority usage:', error);
@@ -197,25 +197,25 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
       });
     }
     
-    // Check if priority is being used
+    // Check if priority is being used (by priority_id)
     const tasksUsingPriority = wrapQuery(db.prepare(`
       SELECT id, ticket, title, boardId
       FROM tasks 
-      WHERE priority = ?
+      WHERE priority_id = ?
       ORDER BY ticket
-    `), 'SELECT').all(priorityToDelete.priority);
+    `), 'SELECT').all(priorityId);
     
     // Use transaction to ensure atomicity
     db.transaction(() => {
-      // If priority is in use, reassign all tasks to the default priority
+      // If priority is in use, reassign all tasks to the default priority (by priority_id)
       if (tasksUsingPriority.length > 0) {
-        console.log(`📋 Reassigning ${tasksUsingPriority.length} tasks from "${priorityToDelete.priority}" to default priority "${defaultPriority.priority}"`);
+        console.log(`📋 Reassigning ${tasksUsingPriority.length} tasks from priority ID ${priorityId} to default priority "${defaultPriority.priority}" (ID: ${defaultPriority.id})`);
         
         wrapQuery(db.prepare(`
           UPDATE tasks 
-          SET priority = ? 
-          WHERE priority = ?
-        `), 'UPDATE').run(defaultPriority.priority, priorityToDelete.priority);
+          SET priority_id = ?, priority = ? 
+          WHERE priority_id = ?
+        `), 'UPDATE').run(defaultPriority.id, defaultPriority.priority, priorityId);
         
         console.log(`✅ Reassigned ${tasksUsingPriority.length} tasks to default priority`);
       }

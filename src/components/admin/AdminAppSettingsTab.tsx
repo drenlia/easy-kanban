@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import AdminFileUploadsTab from './AdminFileUploadsTab';
 
 interface AdminAppSettingsTabProps {
@@ -20,6 +21,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   successMessage,
   error,
 }) => {
+  const { t } = useTranslation('admin');
   const [isSaving, setIsSaving] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads' | 'notifications'>('ui');
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
@@ -114,11 +116,44 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
     return JSON.stringify(settings) !== JSON.stringify(editingSettings);
   };
 
+  const handleAppLanguageChange = (value: string) => {
+    onSettingsChange({
+      ...editingSettings,
+      APP_LANGUAGE: value
+    });
+    
+    // Auto-save the app language change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          APP_LANGUAGE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save app language:', error);
+      }
+    }, 100);
+  };
+
   const handleTaskDeleteConfirmChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
       TASK_DELETE_CONFIRM: value
     });
+    
+    // Auto-save the task delete confirm change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          TASK_DELETE_CONFIRM: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save task delete confirm:', error);
+      }
+    }, 100);
   };
 
   const handleShowActivityFeedChange = (value: string) => {
@@ -126,6 +161,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       SHOW_ACTIVITY_FEED: value
     });
+    
+    // Auto-save the activity feed visibility change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          SHOW_ACTIVITY_FEED: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed visibility:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultViewModeChange = (value: string) => {
@@ -133,6 +181,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_VIEW_MODE: value
     });
+    
+    // Auto-save the default view mode change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_VIEW_MODE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save default view mode:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultTaskViewModeChange = (value: string) => {
@@ -140,6 +201,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_TASK_VIEW_MODE: value
     });
+    
+    // Auto-save the default task view mode change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_TASK_VIEW_MODE: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save default task view mode:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedPositionChange = (value: string) => {
@@ -147,6 +221,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_POSITION: value
     });
+    
+    // Auto-save the activity feed position change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_POSITION: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed position:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedWidthChange = (value: string) => {
@@ -154,6 +241,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_WIDTH: value
     });
+    
+    // Auto-save the activity feed width change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_WIDTH: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed width:', error);
+      }
+    }, 100);
   };
 
   const handleDefaultActivityFeedHeightChange = (value: string) => {
@@ -161,6 +261,19 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_HEIGHT: value
     });
+    
+    // Auto-save the activity feed height change
+    setTimeout(async () => {
+      try {
+        await onSave({
+          ...editingSettings,
+          DEFAULT_ACTIVITY_FEED_HEIGHT: value
+        });
+        showAutosaveSuccess(t('appSettings.settingSaved'));
+      } catch (error) {
+        console.error('Failed to save activity feed height:', error);
+      }
+    }, 100);
   };
 
   const handleNotificationDelayChange = (value: string) => {
@@ -176,7 +289,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           ...editingSettings,
           NOTIFICATION_DELAY: value
         });
-        showAutosaveSuccess('Email throttling delay saved successfully');
+        showAutosaveSuccess(t('appSettings.emailThrottlingDelaySaved'));
       } catch (error) {
         console.error('Failed to save notification delay:', error);
       }
@@ -214,7 +327,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           ...editingSettings,
           NOTIFICATION_DEFAULTS: JSON.stringify(newDefaults)
         });
-        showAutosaveSuccess('Notification defaults saved successfully');
+        showAutosaveSuccess(t('appSettings.notificationDefaultsSaved'));
       } catch (error) {
         console.error('Failed to save notification defaults:', error);
       }
@@ -224,7 +337,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">App Settings</h2>
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">{t('appSettings.title')}</h2>
       </div>
 
       {/* Sub-tab Navigation */}
@@ -238,7 +351,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            User Interface
+            {t('appSettings.userInterface')}
           </button>
           <button
             onClick={() => handleSubTabChange('uploads')}
@@ -248,7 +361,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            File Uploads
+            {t('appSettings.fileUploads')}
           </button>
           <button
             onClick={() => handleSubTabChange('notifications')}
@@ -258,7 +371,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
             }`}
           >
-            Notifications
+            {t('appSettings.notifications')}
           </button>
         </nav>
       </div>
@@ -315,21 +428,43 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           {/* Settings Form */}
           <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">User Interface Settings</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{t('appSettings.userInterfaceSettings')}</h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Configure application-wide behavior settings. These settings apply as defaults for all users, but users can override them in their personal preferences.
+                {t('appSettings.userInterfaceSettingsDescription')}
               </p>
                 </div>
 
             <div className="px-6 py-4 space-y-6">
+              {/* Default Application Language Setting */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
+                    {t('appSettings.defaultApplicationLanguage')}
+                  </label>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t('appSettings.defaultApplicationLanguageDescription')}
+                  </p>
+                </div>
+                <div className="ml-6 flex-shrink-0">
+                  <select
+                    value={editingSettings.APP_LANGUAGE || 'EN'}
+                    onChange={(e) => handleAppLanguageChange(e.target.value)}
+                    className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
+                  >
+                    <option value="EN">English</option>
+                    <option value="FR">Français</option>
+                  </select>
+                </div>
+              </div>
+
               {/* Task Delete Confirmation Setting */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    Task Delete Confirmation
+                    {t('appSettings.taskDeleteConfirmation')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Require confirmation before deleting tasks. Users can override this in their personal preferences.
+                    {t('appSettings.taskDeleteConfirmationDescription')}
                   </p>
                   </div>
                 <div className="ml-6 flex-shrink-0">
@@ -338,8 +473,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     onChange={(e) => handleTaskDeleteConfirmChange(e.target.value)}
                     className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="true">Enabled</option>
-                    <option value="false">Disabled</option>
+                    <option value="true">{t('appSettings.enabled')}</option>
+                    <option value="false">{t('appSettings.disabled')}</option>
                   </select>
                   </div>
                   </div>
@@ -347,9 +482,9 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
 
             {/* New User Defaults Section */}
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-              <h4 className="text-md font-medium text-gray-900 dark:text-gray-100 mb-4">New User Defaults</h4>
+              <h4 className="text-md font-medium text-gray-900 dark:text-gray-100 mb-4">{t('appSettings.newUserDefaults')}</h4>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                Configure default preferences for new users. Existing users keep their current settings.
+                {t('appSettings.newUserDefaultsDescription')}
               </p>
               
               <div className="space-y-6">
@@ -357,10 +492,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                      Default View Mode
+                      {t('appSettings.defaultViewMode')}
                     </label>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                      Default view mode for new users (Kanban or List view)
+                      {t('appSettings.defaultViewModeDescription')}
                     </p>
                   </div>
                   <div className="ml-6 flex-shrink-0">
@@ -379,10 +514,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                  Default Task View Mode
+                  {t('appSettings.defaultTaskViewMode')}
                     </label>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Default task card size for new users (Expanded or Collapsed)
+                  {t('appSettings.defaultTaskViewModeDescription')}
                     </p>
                   </div>
                   <div className="ml-6 flex-shrink-0">
@@ -391,27 +526,27 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                       onChange={(e) => handleDefaultTaskViewModeChange(e.target.value)}
                       className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     >
-                      <option value="expand">Expanded</option>
-                      <option value="collapse">Collapsed</option>
+                      <option value="expand">{t('appSettings.expanded')}</option>
+                      <option value="collapse">{t('appSettings.collapsed')}</option>
                     </select>
                   </div>
                 </div>
 
             {/* Activity Feed Defaults */}
             <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-              <h5 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-3">Activity Feed Defaults</h5>
+              <h5 className="text-sm font-medium text-blue-900 dark:text-blue-200 mb-3">{t('appSettings.activityFeedDefaults')}</h5>
               <p className="text-sm text-blue-700 dark:text-blue-300 mb-4">
-                Configure default activity feed settings for new users. Users can override these in their personal preferences.
+                {t('appSettings.activityFeedDefaultsDescription')}
               </p>
               
               {/* Activity Feed Visibility */}
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    Default Visibility
+                    {t('appSettings.defaultVisibility')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Whether the activity feed is shown by default
+                    {t('appSettings.defaultVisibilityDescription')}
                   </p>
                   </div>
                 <div className="ml-6 flex-shrink-0">
@@ -420,8 +555,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     onChange={(e) => handleShowActivityFeedChange(e.target.value)}
                     className="block w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                   >
-                    <option value="true">Enabled</option>
-                    <option value="false">Disabled</option>
+                    <option value="true">{t('appSettings.enabled')}</option>
+                    <option value="false">{t('appSettings.disabled')}</option>
                   </select>
                   </div>
                   </div>
@@ -430,10 +565,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    Default Position
+                    {t('appSettings.defaultPosition')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Default position for activity feed (JSON format: {`{"x": 0, "y": 66}`})
+                    {t('appSettings.defaultPositionDescription')}
                   </p>
                   </div>
                 <div className="ml-6 flex-shrink-0">
@@ -451,10 +586,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    Default Width
+                    {t('appSettings.defaultWidth')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Default width in pixels (180-400)
+                    {t('appSettings.defaultWidthDescription')}
                   </p>
                   </div>
                 <div className="ml-6 flex-shrink-0">
@@ -473,10 +608,10 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-                    Default Height
+                    {t('appSettings.defaultHeight')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Default height in pixels (200-800)
+                    {t('appSettings.defaultHeightDescription')}
                   </p>
                   </div>
                 <div className="ml-6 flex-shrink-0">
@@ -502,7 +637,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   onClick={onCancel}
                       className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                     >
-                  Cancel
+                  {t('appSettings.cancel')}
                 </button>
                 <button
                   type="button"
@@ -510,7 +645,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   disabled={isSaving}
                       className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                  {isSaving ? 'Saving...' : 'Save Changes'}
+                  {isSaving ? t('appSettings.saving') : t('appSettings.saveChanges')}
                 </button>
                   </div>
             )}
@@ -567,14 +702,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           <div className="space-y-6">
             {/* Notification Delay Setting */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email Throttling</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('appSettings.emailThrottling')}</h3>
               <div className="space-y-4">
                 <div>
                   <label htmlFor="notification-delay" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Notification Delay (minutes)
+                    {t('appSettings.notificationDelay')}
                   </label>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-                    Accumulate task changes and send consolidated notifications. Set to 0 for immediate notifications.
+                    {t('appSettings.notificationDelayDescription')}
                   </p>
                   <select
                     id="notification-delay"
@@ -582,17 +717,17 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     onChange={(e) => handleNotificationDelayChange(e.target.value)}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
                   >
-                    <option value="0">Immediate (0 minutes)</option>
-                    <option value="15">15 minutes</option>
-                    <option value="30">30 minutes (recommended)</option>
-                    <option value="60">1 hour</option>
-                    <option value="120">2 hours</option>
-                    <option value="240">4 hours</option>
-                    <option value="480">8 hours</option>
-                    <option value="1440">24 hours</option>
+                    <option value="0">{t('appSettings.immediate')}</option>
+                    <option value="15">{t('appSettings.minutes15')}</option>
+                    <option value="30">{t('appSettings.minutes30')}</option>
+                    <option value="60">{t('appSettings.hour1')}</option>
+                    <option value="120">{t('appSettings.hours2')}</option>
+                    <option value="240">{t('appSettings.hours4')}</option>
+                    <option value="480">{t('appSettings.hours8')}</option>
+                    <option value="1440">{t('appSettings.hours24')}</option>
                   </select>
                   <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                    When multiple changes occur to the same task within this time period, they will be combined into a single notification email.
+                    {t('appSettings.notificationDelayHint')}
                   </p>
                 </div>
               </div>
@@ -600,20 +735,20 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
 
             {/* Global Notification Defaults */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Global Notification Defaults</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('appSettings.globalNotificationDefaults')}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                These settings control the default notification preferences for all users. Users can override these settings in their profile.
+                {t('appSettings.globalNotificationDefaultsDescription')}
               </p>
               <div className="space-y-4">
                 {[
-                  { key: 'newTaskAssigned', label: 'New task assigned to me', description: 'Get notified when someone assigns a task to you' },
-                  { key: 'myTaskUpdated', label: 'My task is updated', description: 'Get notified when tasks assigned to you are modified' },
-                  { key: 'watchedTaskUpdated', label: 'A task I\'m watching is updated', description: 'Get notified when tasks you\'re watching are modified' },
-                  { key: 'addedAsCollaborator', label: 'I\'m added as a collaborator on a task', description: 'Get notified when someone adds you as a collaborator' },
-                  { key: 'collaboratingTaskUpdated', label: 'A task I\'m collaborating in is updated', description: 'Get notified when tasks you\'re collaborating on are modified' },
-                  { key: 'commentAdded', label: 'A comment is added to a task I\'m involved in', description: 'Get notified when comments are added to tasks you\'re assigned, watching, or collaborating on' },
-                  { key: 'requesterTaskCreated', label: 'A task is created and I\'m the requester', description: 'Get notified when tasks you requested are created' },
-                  { key: 'requesterTaskUpdated', label: 'A task is updated where I\'m the requester', description: 'Get notified when tasks you requested are modified' }
+                  { key: 'newTaskAssigned', label: t('appSettings.notificationTypes.newTaskAssigned'), description: t('appSettings.notificationTypes.newTaskAssignedDescription') },
+                  { key: 'myTaskUpdated', label: t('appSettings.notificationTypes.myTaskUpdated'), description: t('appSettings.notificationTypes.myTaskUpdatedDescription') },
+                  { key: 'watchedTaskUpdated', label: t('appSettings.notificationTypes.watchedTaskUpdated'), description: t('appSettings.notificationTypes.watchedTaskUpdatedDescription') },
+                  { key: 'addedAsCollaborator', label: t('appSettings.notificationTypes.addedAsCollaborator'), description: t('appSettings.notificationTypes.addedAsCollaboratorDescription') },
+                  { key: 'collaboratingTaskUpdated', label: t('appSettings.notificationTypes.collaboratingTaskUpdated'), description: t('appSettings.notificationTypes.collaboratingTaskUpdatedDescription') },
+                  { key: 'commentAdded', label: t('appSettings.notificationTypes.commentAdded'), description: t('appSettings.notificationTypes.commentAddedDescription') },
+                  { key: 'requesterTaskCreated', label: t('appSettings.notificationTypes.requesterTaskCreated'), description: t('appSettings.notificationTypes.requesterTaskCreatedDescription') },
+                  { key: 'requesterTaskUpdated', label: t('appSettings.notificationTypes.requesterTaskUpdated'), description: t('appSettings.notificationTypes.requesterTaskUpdatedDescription') }
                 ].map((notification) => (
                   <div key={notification.key} className="flex items-center justify-between py-3 border-b border-gray-200 dark:border-gray-700 last:border-b-0">
                     <div className="flex-1">
@@ -654,16 +789,16 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
 
             {/* Email System Status */}
             <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Email System Status</h3>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('appSettings.emailSystemStatus')}</h3>
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${settings.SMTP_HOST ? 'bg-green-500' : 'bg-red-500'}`}></div>
                 <span className="text-sm text-gray-700 dark:text-gray-300">
-                  {settings.SMTP_HOST ? 'Email system is configured and active' : 'Email system is not configured'}
+                  {settings.SMTP_HOST ? t('appSettings.emailSystemConfigured') : t('appSettings.emailSystemNotConfigured')}
                 </span>
               </div>
               {!settings.SMTP_HOST && (
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                  Configure SMTP settings in the Mail tab to enable email notifications.
+                  {t('appSettings.emailSystemNotConfiguredHint')}
                 </p>
               )}
             </div>

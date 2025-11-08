@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { Columns, Task } from '../types';
 
 interface BoardMetricsProps {
@@ -7,6 +8,7 @@ interface BoardMetricsProps {
 }
 
 const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = columns }) => {
+  const { t } = useTranslation('common');
   // Calculate metrics from all tasks across all columns
   const allTasks = Object.values(filteredColumns).flatMap(column => column.tasks || []);
   const totalTasks = allTasks.length;
@@ -25,7 +27,7 @@ const BoardMetrics: React.FC<BoardMetricsProps> = ({ columns, filteredColumns = 
         {/* Header */}
         <div className="text-center">
           <h3 className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">
-            Progress
+            {t('boardMetrics.progress')}
           </h3>
         </div>
         

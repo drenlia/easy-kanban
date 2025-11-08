@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, ChevronDown, Check, ChevronUp, Save, Settings, RefreshCw } from 'lucide-react';
 import { Priority, PriorityOption, Tag, Columns } from '../types';
 import { getAllTags, getSavedFilterViews, getSharedFilterViews, createSavedFilterView, updateSavedFilterView, SavedFilterView } from '../api';
@@ -47,6 +48,7 @@ export default function SearchInterface({
   onColumnsChange,
   selectedBoard
 }: SearchInterfaceProps) {
+  const { t } = useTranslation('common');
   const [showPriorityDropdown, setShowPriorityDropdown] = useState(false);
   const [showTagsDropdown, setShowTagsDropdown] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -324,11 +326,11 @@ export default function SearchInterface({
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-3">
-          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">SEARCH & FILTER</h3>
+          <h3 className="text-xs font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wider">{t('searchInterface.title')}</h3>
           <div className="relative">
             <input
               type="text"
-              placeholder="Search title, description, comments, requester..."
+              placeholder={t('searchInterface.searchPlaceholder')}
               value={filters.text}
               onChange={(e) => updateFilter('text', e.target.value)}
               className={`w-[280px] pr-6 ${getInputClassName(!!filters.text)}`}
@@ -337,7 +339,7 @@ export default function SearchInterface({
               <button
                 onClick={() => updateFilter('text', '')}
                 className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                title="Clear search"
+                title={t('searchInterface.clearSearch')}
               >
                 <X size={10} className="text-gray-400 hover:text-gray-600" />
               </button>
@@ -356,11 +358,11 @@ export default function SearchInterface({
 
           {/* Project and Task Identifier Search Fields */}
           <div className="flex items-center gap-1">
-            <label className="text-xs font-medium text-gray-700">Project id:</label>
+            <label className="text-xs font-medium text-gray-700">{t('searchInterface.projectId')}:</label>
             <div className="relative">
               <input
                 type="text"
-                placeholder="PROJ-00001"
+                placeholder={t('searchInterface.projectIdPlaceholder')}
                 value={filters.projectId}
                 onChange={(e) => updateFilter('projectId', e.target.value)}
                 className={`w-[85px] pr-6 ${getInputClassName(!!filters.projectId)}`}
@@ -369,7 +371,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('projectId', '')}
                   className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear project id"
+                  title={t('searchInterface.clearProjectId')}
                 >
                   <X size={10} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -378,11 +380,11 @@ export default function SearchInterface({
           </div>
 
           <div className="flex items-center gap-1">
-            <label className="text-xs font-medium text-gray-700">Task id:</label>
+            <label className="text-xs font-medium text-gray-700">{t('searchInterface.taskId')}:</label>
             <div className="relative">
               <input
                 type="text"
-                placeholder="TASK-00001"
+                placeholder={t('searchInterface.taskIdPlaceholder')}
                 value={filters.taskId}
                 onChange={(e) => updateFilter('taskId', e.target.value)}
                 className={`w-[85px] pr-6 ${getInputClassName(!!filters.taskId)}`}
@@ -391,7 +393,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('taskId', '')}
                   className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear task id"
+                  title={t('searchInterface.clearTaskId')}
                 >
                   <X size={10} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -434,15 +436,15 @@ export default function SearchInterface({
             <button
               onClick={handleToggleCollapse}
               className="text-red-600 text-xs font-medium hover:text-red-700 hover:underline cursor-pointer transition-colors"
-              title={isCollapsed ? 'Click to view active filters' : 'Click to hide filters'}
+              title={isCollapsed ? t('searchInterface.viewActiveFilters') : t('searchInterface.hideFilters')}
             >
-              Filters active
+              {t('searchInterface.filtersActive')}
             </button>
           )}
 
           {/* Saved Filters Section */}
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gray-700">Save / apply:</span>
+            <span className="text-xs font-medium text-gray-700">{t('searchInterface.saveApply')}:</span>
             
             {/* Filter Dropdown */}
             <div className="relative" ref={filterDropdownRef}>
@@ -451,7 +453,7 @@ export default function SearchInterface({
                 className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-transparent min-w-[120px] flex items-center justify-between"
               >
                 <span className="text-gray-600 dark:text-gray-300">
-                  {currentFilterView ? currentFilterView.filterName : 'None'}
+                  {currentFilterView ? currentFilterView.filterName : t('searchInterface.none')}
                 </span>
                 <ChevronDown size={12} className="text-gray-400 ml-2" />
               </button>
@@ -463,7 +465,7 @@ export default function SearchInterface({
                     onClick={() => handleApplyFilter(null)}
                     className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center justify-between"
                   >
-                    <span>None</span>
+                    <span>{t('searchInterface.none')}</span>
                     {!currentFilterView && <Check size={12} className="text-blue-500" />}
                   </button>
                   
@@ -479,7 +481,7 @@ export default function SearchInterface({
                         className="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 text-blue-600 flex items-center"
                       >
                         <Save size={12} className="mr-2" />
-                        Save current filters...
+                        {t('searchInterface.saveCurrentFilters')}
                       </button>
                     </>
                   )}
@@ -489,7 +491,7 @@ export default function SearchInterface({
                     <>
                       <hr className="border-gray-200" />
                       <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
-                        My Filters:
+                        {t('searchInterface.myFilters')}:
                       </div>
                       {savedFilterViews.map((view) => (
                         <div key={view.id} className="flex items-center group">
@@ -510,7 +512,7 @@ export default function SearchInterface({
                                 handleUpdateFilter(view);
                               }}
                               className="px-2 py-2 text-xs text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100"
-                              title={`Update "${view.filterName}" with current filters`}
+                              title={t('searchInterface.updateFilter', { name: view.filterName })}
                               disabled={isSavingFilter}
                             >
                               <RefreshCw size={12} className={isSavingFilter ? 'animate-spin' : ''} />
@@ -526,7 +528,7 @@ export default function SearchInterface({
                     <>
                       <hr className="border-gray-200" />
                       <div className="px-3 py-1 text-xs font-medium text-gray-500 bg-gray-50">
-                        Shared Filters:
+                        {t('searchInterface.sharedFilters')}:
                       </div>
                       {sharedFilterViews.map((view) => (
                         <div key={`shared-${view.id}`} className="flex items-center">
@@ -539,7 +541,7 @@ export default function SearchInterface({
                               <span className="text-blue-500">🌐</span>
                               <span className="truncate">{view.filterName}</span>
                               {view.creatorName && (
-                                <span className="text-gray-400 text-xs">(by {view.creatorName})</span>
+                                <span className="text-gray-400 text-xs">({t('searchInterface.by', { name: view.creatorName })})</span>
                               )}
                             </div>
                             {currentFilterView?.id === view.id && <Check size={12} className="text-blue-500" />}
@@ -557,7 +559,7 @@ export default function SearchInterface({
             <button
               onClick={() => setShowManageModal(true)}
               className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
-              title="Manage saved filters"
+              title={t('searchInterface.manageSavedFilters')}
             >
               <Settings size={14} />
             </button>
@@ -583,7 +585,7 @@ export default function SearchInterface({
             <button
               onClick={handleClearAllFilters}
               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-full border border-gray-300 transition-colors"
-              title="Clear all filters"
+              title={t('searchInterface.clearAllFilters')}
             >
               <X size={16} />
             </button>
@@ -593,7 +595,7 @@ export default function SearchInterface({
         <button
           onClick={handleToggleCollapse}
           className="p-1 hover:bg-gray-100 rounded transition-colors"
-          title={isCollapsed ? 'Expand advanced search' : 'Collapse to basic search'}
+          title={isCollapsed ? t('searchInterface.expandAdvanced') : t('searchInterface.collapseBasic')}
         >
           {isCollapsed ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronUp size={14} className="text-gray-500" />}
         </button>
@@ -604,7 +606,7 @@ export default function SearchInterface({
           {/* Row 1: Start Dates, User, Clear Button */}
           <div className="flex items-center gap-2">
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[60px] top-1/2 -translate-y-1/2">start from:</label>
+              <label className="text-xs font-medium text-gray-700 absolute left-[60px] top-1/2 -translate-y-1/2">{t('searchInterface.startFrom')}:</label>
               <input
                 type="date"
                 value={filters.dateFrom}
@@ -615,7 +617,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('dateFrom', '')}
                   className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear start from date"
+                  title={t('searchInterface.clearStartFrom')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -623,7 +625,7 @@ export default function SearchInterface({
             </div>
 
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[5px] top-1/2 -translate-y-1/2">start to:</label>
+              <label className="text-xs font-medium text-gray-700 absolute left-[5px] top-1/2 -translate-y-1/2">{t('searchInterface.startTo')}:</label>
               <input
                 type="date"
                 value={filters.dateTo}
@@ -634,7 +636,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('dateTo', '')}
                   className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear start to date"
+                  title={t('searchInterface.clearStartTo')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -647,7 +649,7 @@ export default function SearchInterface({
                   onClick={() => setShowTagsDropdown(!showTagsDropdown)}
                   className={getDropdownButtonClassName(filters.selectedTags.length > 0)}
                 >
-                  <span className="text-gray-700 text-xs">tag</span>
+                  <span className="text-gray-700 text-xs">{t('searchInterface.tag')}</span>
                   <ChevronDown size={12} className="text-gray-400" />
                 </button>
                 
@@ -689,7 +691,7 @@ export default function SearchInterface({
                       <button
                         onClick={() => toggleTag(tagId)}
                         className="ml-1 hover:bg-black hover:bg-opacity-10 rounded-full p-0.5 transition-colors"
-                        title={`Remove ${tag.tag}`}
+                        title={t('searchInterface.removeTag', { tag: tag.tag })}
                       >
                         <X size={10} className="text-red-600" />
                       </button>
@@ -703,7 +705,7 @@ export default function SearchInterface({
                     <button
                       onClick={() => updateFilter('selectedTags', [])}
                       className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
-                      title="Clear all tags"
+                      title={t('searchInterface.clearAllTags')}
                     >
                       <X size={10} className="text-red-600" />
                     </button>
@@ -716,7 +718,7 @@ export default function SearchInterface({
           {/* Row 2: Due Dates, Priority */}
           <div className="flex items-center gap-2">
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[64px] top-1/2 -translate-y-1/2">due from:</label>
+              <label className="text-xs font-medium text-gray-700 absolute left-[64px] top-1/2 -translate-y-1/2">{t('searchInterface.dueFrom')}:</label>
               <input
                 type="date"
                 value={filters.dueDateFrom}
@@ -727,7 +729,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('dueDateFrom', '')}
                   className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear due from date"
+                  title={t('searchInterface.clearDueFrom')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -735,7 +737,7 @@ export default function SearchInterface({
             </div>
 
             <div className="relative">
-              <label className="text-xs font-medium text-gray-700 absolute left-[10px] top-1/2 -translate-y-1/2">due to:</label>
+              <label className="text-xs font-medium text-gray-700 absolute left-[10px] top-1/2 -translate-y-1/2">{t('searchInterface.dueTo')}:</label>
               <input
                 type="date"
                 value={filters.dueDateTo}
@@ -746,7 +748,7 @@ export default function SearchInterface({
                 <button
                   onClick={() => updateFilter('dueDateTo', '')}
                   className="absolute right-[30px] top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Clear due to date"
+                  title={t('searchInterface.clearDueTo')}
                 >
                   <X size={8} className="text-gray-400 hover:text-gray-600" />
                 </button>
@@ -759,7 +761,7 @@ export default function SearchInterface({
                 onClick={() => setShowPriorityDropdown(!showPriorityDropdown)}
                 className={getDropdownButtonClassName(filters.selectedPriorities.length > 0)}
               >
-                <span className="text-gray-700 text-xs">priority</span>
+                <span className="text-gray-700 text-xs">{t('searchInterface.priority')}</span>
                 <ChevronDown size={12} className="text-gray-400" />
               </button>
               
@@ -802,7 +804,7 @@ export default function SearchInterface({
                     <button
                       onClick={() => togglePriority(priorityName)}
                       className="p-0.5 hover:bg-gray-200 rounded-full transition-colors"
-                      title="Remove priority"
+                      title={t('searchInterface.removePriority')}
                     >
                       <X size={10} className="text-gray-600" />
                     </button>
@@ -816,7 +818,7 @@ export default function SearchInterface({
                   <button
                     onClick={() => updateFilter('selectedPriorities', [])}
                     className="p-0.5 hover:bg-red-200 rounded-full transition-colors"
-                    title="Clear all priorities"
+                    title={t('searchInterface.clearAllPriorities')}
                   >
                     <X size={10} className="text-red-600" />
                   </button>
@@ -833,16 +835,16 @@ export default function SearchInterface({
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
           <div className="bg-white rounded-lg p-6 w-96 max-w-90vw">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Save Filter</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('searchInterface.saveFilterTitle')}</h3>
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Filter Name
+                {t('searchInterface.filterName')}
               </label>
               <input
                 type="text"
                 value={newFilterName}
                 onChange={(e) => setNewFilterName(e.target.value)}
-                placeholder="Enter filter name..."
+                placeholder={t('searchInterface.enterFilterName')}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newFilterName.trim()) {
@@ -864,14 +866,14 @@ export default function SearchInterface({
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 disabled={isSavingFilter}
               >
-                Cancel
+                {t('buttons.cancel', { ns: 'common' })}
               </button>
               <button
                 onClick={handleSaveFilter}
                 disabled={!newFilterName.trim() || isSavingFilter}
                 className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {isSavingFilter ? 'Saving...' : 'Save Filter'}
+                {isSavingFilter ? t('searchInterface.saving') : t('searchInterface.saveFilter')}
               </button>
             </div>
           </div>
