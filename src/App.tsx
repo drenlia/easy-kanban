@@ -35,7 +35,7 @@ import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -1667,6 +1667,27 @@ export default function App() {
           const initialBoard = getInitialSelectedBoardWithPreferences(currentUser.id);
           if (initialBoard) {
             setSelectedBoard(initialBoard);
+          }
+        }
+        
+        // Update APP_URL if user is the owner (part of initialization process)
+        try {
+          const ownerCheck = await api.get('/auth/is-owner');
+          if (ownerCheck.data.isOwner) {
+            console.log('🔄 User is owner, updating APP_URL during initialization...');
+            const baseUrl = window.location.origin;
+            console.log('🔄 Calling updateAppUrl with:', baseUrl);
+            const result = await updateAppUrl(baseUrl);
+            console.log('✅ APP_URL updated successfully:', result);
+          } else {
+            console.log('ℹ️ User is not owner, skipping APP_URL update');
+          }
+        } catch (error: any) {
+          // Don't fail initialization if owner check or APP_URL update fails
+          if (error.response?.status === 403 || error.response?.status === 401) {
+            console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
+          } else {
+            console.warn('⚠️ Failed to check ownership or update APP_URL during initialization:', error.message);
           }
         }
       };

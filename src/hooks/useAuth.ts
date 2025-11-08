@@ -77,30 +77,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     // Clear old user preference cookies to prevent accumulation
     clearOtherUserPreferenceCookies(userData.id);
     
-    // Update APP_URL if user is the owner
-    try {
-      // First check if user is the owner to avoid unnecessary API call
-      const ownerCheck = await api.get('/auth/is-owner');
-      
-      if (ownerCheck.data.isOwner) {
-        console.log('🔄 User is owner, updating APP_URL...');
-        const { updateAppUrl } = await import('../api');
-        const baseUrl = window.location.origin;
-        console.log('🔄 Calling updateAppUrl with:', baseUrl);
-        const result = await updateAppUrl(baseUrl);
-        console.log('✅ APP_URL updated successfully:', result);
-      } else {
-        console.log('ℹ️ User is not owner, skipping APP_URL update');
-      }
-    } catch (error: any) {
-      // Don't fail login if owner check or APP_URL update fails
-      if (error.response?.status === 403 || error.response?.status === 401) {
-        // User is not owner or not authorized, which is fine
-        console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
-      } else {
-        console.warn('⚠️ Failed to check ownership or update APP_URL on login:', error.message);
-      }
-    }
+    // Note: APP_URL update is now handled during user preferences initialization
+    // in App.tsx, which runs reliably after login completes
     
     // Redirect to intended destination if available
     if (intendedDestination) {
@@ -315,56 +293,66 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         // Set OAuth processing flag to prevent interference BEFORE hash changes
         isProcessingOAuthRef.current = true;
         
-        // Handle intended destination like regular login
-        const destinationToUse = intendedDestination || storedIntendedDestination;
-        
-        
-        if (destinationToUse) {
-          
-          // Handle full path vs hash-only destinations
-          if (destinationToUse.startsWith('/')) {
-            // Full path with pathname + hash (e.g., "/project/#PROJ-00004#TASK-00001")
-            // Use full URL to preserve pathname
-            window.location.href = window.location.origin + destinationToUse;
-          } else {
-            // Hash-only destination (e.g., "#PROJ-00004#TASK-00001") 
-            window.location.hash = destinationToUse;
-          }
-          
-          // Clear intended destination after redirect
-          setJustRedirected(true);
-          setIntendedDestination(null);
-          localStorage.removeItem('oauthIntendedDestination'); // Clean up
-          
-          // Clear the redirect flag after auto-board-selection would have run
-          setTimeout(() => {
-            setJustRedirected(false);
-          }, 300);
-        } else {
-          // No intended destination, go to default kanban
-          window.location.hash = '#kanban';
-          // Also clear any stale intended destination storage for normal login
-          localStorage.removeItem('oauthIntendedDestination');
-          localStorage.removeItem('capturedIntendedDestination');
-          sessionStorage.removeItem('originalIntendedUrl');
-        }
-        
-        // Store the token in localStorage
-        localStorage.setItem('authToken', token);
-        
         // Set authenticated immediately after storing token
         setIsAuthenticated(true);
-        isProcessingOAuthRef.current = false; // Clear OAuth processing flag
         
-        // Fetch current user data immediately after OAuth and call handleLogin
+        // Fetch current user data and call handleLogin BEFORE redirecting
+        // This ensures APP_URL update happens before navigation
         api.getCurrentUser()
           .then(async response => {
             setCurrentUser(response.user);
             // Call handleLogin to trigger APP_URL update and other login logic
             await handleLogin(response.user, token);
+            
+            // Clear OAuth processing flag
+            isProcessingOAuthRef.current = false;
+            
+            // Handle intended destination AFTER handleLogin completes
+            const destinationToUse = intendedDestination || storedIntendedDestination;
+            
+            if (destinationToUse) {
+              // Handle full path vs hash-only destinations
+              if (destinationToUse.startsWith('/')) {
+                // Full path with pathname + hash (e.g., "/project/#PROJ-00004#TASK-00001")
+                // Use full URL to preserve pathname
+                window.location.href = window.location.origin + destinationToUse;
+              } else {
+                // Hash-only destination (e.g., "#PROJ-00004#TASK-00001") 
+                window.location.hash = destinationToUse;
+              }
+              
+              // Clear intended destination after redirect
+              setJustRedirected(true);
+              setIntendedDestination(null);
+              localStorage.removeItem('oauthIntendedDestination'); // Clean up
+              
+              // Clear the redirect flag after auto-board-selection would have run
+              setTimeout(() => {
+                setJustRedirected(false);
+              }, 300);
+            } else {
+              // No intended destination, go to default kanban
+              window.location.hash = '#kanban';
+              // Also clear any stale intended destination storage for normal login
+              localStorage.removeItem('oauthIntendedDestination');
+              localStorage.removeItem('capturedIntendedDestination');
+              sessionStorage.removeItem('originalIntendedUrl');
+            }
           })
-          .catch(() => {
-            // Fallback: just let the auth effect handle it
+          .catch((error) => {
+            console.error('Failed to get current user after OAuth:', error);
+            // Fallback: still redirect even if user fetch fails
+            isProcessingOAuthRef.current = false;
+            const destinationToUse = intendedDestination || storedIntendedDestination;
+            if (destinationToUse) {
+              if (destinationToUse.startsWith('/')) {
+                window.location.href = window.location.origin + destinationToUse;
+              } else {
+                window.location.hash = destinationToUse;
+              }
+            } else {
+              window.location.hash = '#kanban';
+            }
           });
         
         return; // Exit early to prevent routing conflicts

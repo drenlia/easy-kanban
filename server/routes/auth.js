@@ -50,38 +50,9 @@ router.post('/login', loginLimiter, async (req, res) => {
     // Clear force_logout flag on successful login
     db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
     
-    // Update APP_URL if user is the owner
-    try {
-      const ownerSetting = wrapQuery(
-        db.prepare('SELECT value FROM settings WHERE key = ?'),
-        'SELECT'
-      ).get('OWNER');
-      
-      if (ownerSetting && ownerSetting.value === user.email) {
-        // Extract base URL from request
-        const protocol = req.protocol || (req.secure ? 'https' : 'http');
-        const host = req.get('host') || req.headers.host;
-        const baseUrl = `${protocol}://${host}`;
-        
-        // Get current APP_URL
-        const currentAppUrl = wrapQuery(
-          db.prepare('SELECT value FROM settings WHERE key = ?'),
-          'SELECT'
-        ).get('APP_URL');
-        
-        // Update APP_URL only if it's different
-        if (!currentAppUrl || currentAppUrl.value !== baseUrl) {
-          wrapQuery(
-            db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
-            'INSERT'
-          ).run('APP_URL', baseUrl, new Date().toISOString());
-          console.log(`✅ APP_URL updated to: ${baseUrl}`);
-        }
-      }
-    } catch (error) {
-      // Don't fail login if APP_URL update fails
-      console.warn('⚠️ Failed to update APP_URL on owner login:', error.message);
-    }
+    // Note: APP_URL is updated by the frontend after login, not here
+    // The frontend knows the actual public-facing URL (window.location.origin)
+    // and will call /settings/app-url endpoint if the user is the owner
     
     // Generate JWT token
     const token = jwt.sign(
@@ -729,6 +700,10 @@ router.get('/google/callback', async (req, res) => {
     // Clear force_logout flag on successful login
     db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
     
+    // Note: APP_URL is updated by the frontend after login, not here
+    // The frontend knows the actual public-facing URL (window.location.origin)
+    // and will call /settings/app-url endpoint if the user is the owner
+    
     // Generate JWT token - must match local login structure
     console.log('🔐 [GOOGLE SSO] Generating JWT token...');
     const jwtPayload = { 
@@ -887,7 +862,11 @@ router.get('/instance-status', authenticateToken, (req, res) => {
 // Check if current user is instance owner
 router.get('/is-owner', authenticateToken, (req, res) => {
   try {
-    const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
+    const db = req.app.locals.db;
+    const ownerSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('OWNER');
     const ownerEmail = ownerSetting ? ownerSetting.value : null;
     
     const isOwner = ownerEmail === req.user.email;
