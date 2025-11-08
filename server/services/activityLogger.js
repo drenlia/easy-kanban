@@ -420,7 +420,13 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
   }
 
   const t = getTranslator(db);
-  const fieldLabel = t(`activity.fieldLabels.${field}`, {}, field);
+  // Map field names to translation keys (handle legacy field names)
+  const fieldKeyMap = {
+    'priority': 'priorityId',
+    'priorityId': 'priorityId'
+  };
+  const translationKey = fieldKeyMap[field] || field;
+  const fieldLabel = t(`activity.fieldLabels.${translationKey}`, {}, field);
   const context = additionalContext ? ` ${additionalContext}` : '';
 
   // Special handling for description changes

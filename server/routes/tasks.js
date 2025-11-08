@@ -491,11 +491,15 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     );
     
     // Log the activity (console only for now)
+    const t = getTranslator(db);
+    const board = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
+    const boardTitle = board ? board.title : 'Unknown Board';
+    const taskRef = ticket ? ` (${ticket})` : '';
     await logTaskActivity(
       userId,
       TASK_ACTIONS.CREATE,
       task.id,
-      `created task "${task.title}"`,
+      t('activity.createdTask', { taskTitle: task.title, taskRef, boardTitle }),
       { 
         columnId: task.columnId,
         boardId: task.boardId 
@@ -703,7 +707,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (priorityChanged) {
       const oldPriority = currentTask.priority || 'Unknown';
       const newPriority = priorityName || 'Unknown';
-      changes.push(generateTaskUpdateDetails('priority', oldPriority, newPriority));
+      changes.push(generateTaskUpdateDetails('priorityId', oldPriority, newPriority));
     }
     
     fieldsToTrack.forEach(field => {
@@ -713,7 +717,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
           const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
           const newColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
           const taskRef = task.ticket ? ` (${task.ticket})` : '';
-          changes.push(`moved task "${task.title}"${taskRef} from "${oldColumn?.title || 'Unknown'}" to "${newColumn?.title || 'Unknown'}"`);
+          const movedTaskText = t('activity.movedTaskFromTo', {
+            taskTitle: task.title,
+            taskRef,
+            fromColumn: oldColumn?.title || 'Unknown',
+            toColumn: newColumn?.title || 'Unknown'
+          });
+          changes.push(movedTaskText);
         } else {
           changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field]));
         }
@@ -732,7 +742,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Log activity if there were changes
     if (changes.length > 0) {
-      const details = changes.length === 1 ? changes[0] : `updated task: ${changes.join(', ')}`;
+      const details = changes.length === 1 ? changes[0] : `${t('activity.updatedTaskPrefix')} ${changes.join(', ')}`;
       
       // For single field changes, pass old and new values for better email templates
       let oldValue, newValue;
@@ -872,7 +882,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       userId,
       TASK_ACTIONS.DELETE,
       id,
-      `deleted task "${task.title}" from board "${boardTitle}"`,
+      t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }),
       {
         columnId: task.columnId,
         boardId: task.boardId
@@ -945,7 +955,11 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       userId,
       TASK_ACTIONS.UPDATE, // Reorder is a type of update
       taskId,
-      `reordered task "${currentTask.title}" from position ${currentPosition} to ${newPosition}`,
+      t('activity.reorderedTask', { 
+        taskTitle: currentTask.title, 
+        fromPosition: currentPosition, 
+        toPosition: newPosition 
+      }),
       {
         columnId: columnId,
         boardId: currentTask.boardId
@@ -1002,6 +1016,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   
   try {
     const { db } = req.app.locals;
+    const t = getTranslator(db);
     
     // Get the task to move
     const task = wrapQuery(
@@ -1107,12 +1122,17 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     // Log move activity
     const originalBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);
     const targetBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(targetBoardId);
+    const moveDetails = t('activity.movedTaskBoard', {
+      taskTitle: task.title,
+      fromBoard: originalBoard?.title || 'Unknown',
+      toBoard: targetBoard?.title || 'Unknown'
+    });
     
     await logTaskActivity(
       userId,
       TASK_ACTIONS.MOVE,
       taskId,
-      `moved task "${task.title}" from board "${originalBoard?.title || 'Unknown'}" to "${targetBoard?.title || 'Unknown'}"`,
+      moveDetails,
       {
         columnId: targetColumn.id,
         boardId: targetBoardId
