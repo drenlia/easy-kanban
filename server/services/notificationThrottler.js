@@ -218,8 +218,10 @@ class NotificationThrottler {
       const actor = JSON.parse(queuedNotification.actor_data);
 
       // Create consolidated notification data
+      // Note: userId here should be the RECIPIENT (queuedNotification.user_id), not the actor
+      // The actor is in the actor object
       const consolidatedData = {
-        userId: queuedNotification.user_id,
+        userId: queuedNotification.user_id, // This is the recipient's user ID
         taskId: queuedNotification.task_id,
         action: queuedNotification.change_count > 1 ? 'consolidated_update' : queuedNotification.action,
         details: queuedNotification.details,
@@ -236,8 +238,9 @@ class NotificationThrottler {
         )
       };
 
-      // Send the notification
-      await notificationService.sendTaskNotification(consolidatedData);
+      // Send the notification directly (don't queue it again!)
+      // sendEmailDirectly expects userId to be the recipient's user ID
+      await notificationService.sendEmailDirectly(consolidatedData);
 
       // Mark as sent
       wrapQuery(
