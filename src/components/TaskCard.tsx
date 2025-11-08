@@ -820,8 +820,13 @@ const TaskCard = React.memo(function TaskCard({
     setIsEditingDescription(false);
   };
 
-  const handlePriorityChange = (priority: Priority) => {
-    onEdit({ ...task, priority });
+  const handlePriorityChange = (priorityId: number) => {
+    const priorityOption = availablePriorities.find(p => p.id === priorityId);
+    onEdit({ 
+      ...task, 
+      priorityId: priorityId,
+      priority: priorityOption?.priority || null 
+    });
     setShowPrioritySelect(false);
   };
 
@@ -1695,12 +1700,31 @@ const TaskCard = React.memo(function TaskCard({
               }}
               className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
               style={(() => {
-                const priorityOption = availablePriorities.find(p => p.priority === task.priority);
+                // Always use priorityId to find the current priority (handles renamed priorities)
+                // Fall back to priorityName from API (from JOIN), then stored priority name
+                const priorityOption = task.priorityId 
+                  ? availablePriorities.find(p => p.id === task.priorityId)
+                  : (task.priorityName 
+                    ? availablePriorities.find(p => p.priority === task.priorityName)
+                    : (task.priority 
+                      ? availablePriorities.find(p => p.priority === task.priority)
+                      : null));
                 return priorityOption ? getPriorityColors(priorityOption.color) : { backgroundColor: '#f3f4f6', color: '#6b7280' };
               })()}
               title={t('taskCard.clickToChangePriority')}
             >
-              {task.priority}
+              {(() => {
+                // Always use priorityId to look up current priority name (handles renamed priorities)
+                // This ensures we show the current name, not the old stored name
+                if (task.priorityId) {
+                  const priorityOption = availablePriorities.find(p => p.id === task.priorityId);
+                  if (priorityOption) {
+                    return priorityOption.priority; // Use current name from availablePriorities
+                  }
+                }
+                // Fallback: use priorityName from API (from JOIN), or stored priority name
+                return task.priorityName || task.priority || '';
+              })()}
             </button>
             
             {/* Completed Column Banner Overlay - positioned over priority */}
@@ -1765,13 +1789,13 @@ const TaskCard = React.memo(function TaskCard({
           }}
         >
           {availablePriorities
-            .filter(priorityOption => priorityOption.priority !== task.priority)
+            .filter(priorityOption => priorityOption.id !== task.priorityId)
             .map(priorityOption => (
               <button
                 key={priorityOption.id}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handlePriorityChange(priorityOption.priority);
+                  handlePriorityChange(priorityOption.id);
                 }}
                 className="w-full text-left px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 flex items-center gap-2"
               >

@@ -18,8 +18,11 @@ router.get('/', authenticateToken, (req, res) => {
     const tasksStmt = wrapQuery(
       db.prepare(`
         SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
-               t.startDate, t.dueDate, t.effort, t.priority, t.columnId, t.boardId, t.sprint_id,
+               t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
                t.created_at, t.updated_at,
+               p.id as priorityId,
+               p.priority as priorityName,
+               p.color as priorityColor,
                CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                     THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
                     ELSE NULL END as attachmentCount,
@@ -72,8 +75,9 @@ router.get('/', authenticateToken, (req, res) => {
         LEFT JOIN members collaborator ON collaborator.id = col.memberId
         LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
         LEFT JOIN attachments a ON a.taskId = t.id
+        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
         WHERE t.columnId = ?
-        GROUP BY t.id
+        GROUP BY t.id, p.id
         ORDER BY t.position ASC
 `),
       'SELECT'
@@ -86,6 +90,11 @@ router.get('/', authenticateToken, (req, res) => {
       columns.forEach(column => {
         const tasks = tasksStmt.all(column.id).map(task => ({
           ...task,
+          // Use priorityName from JOIN (current name) or fallback to stored priority
+          priority: task.priorityName || task.priority || null,
+          priorityId: task.priorityId || null,
+          priorityName: task.priorityName || task.priority || null,
+          priorityColor: task.priorityColor || null,
           sprintId: task.sprint_id || null, // Map snake_case to camelCase
           createdAt: task.created_at, // Map snake_case to camelCase
           updatedAt: task.updated_at, // Map snake_case to camelCase

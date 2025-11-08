@@ -62,6 +62,7 @@ function fetchTaskWithRelationships(db, taskId) {
       LEFT JOIN members watcher ON watcher.id = w.memberId
       LEFT JOIN collaborators col ON col.taskId = t.id
       LEFT JOIN members collaborator ON collaborator.id = col.memberId
+      LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
       WHERE t.id = ?
       GROUP BY t.id
     `),
@@ -95,9 +96,32 @@ function fetchTaskWithRelationships(db, taskId) {
     ? [] 
     : JSON.parse(task.collaborators).filter(Boolean);
   
+  // Get priority information if not already included
+  let priorityId = task.priority_id || null;
+  let priorityName = task.priority || null;
+  let priorityColor = null;
+  
+  if (priorityId) {
+    const priority = wrapQuery(db.prepare('SELECT priority, color FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    if (priority) {
+      priorityName = priority.priority;
+      priorityColor = priority.color;
+    }
+  } else if (priorityName) {
+    const priority = wrapQuery(db.prepare('SELECT id, color FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+    if (priority) {
+      priorityId = priority.id;
+      priorityColor = priority.color;
+    }
+  }
+  
   // Convert snake_case to camelCase
   return {
     ...task,
+    priority: priorityName,
+    priorityId: priorityId,
+    priorityName: priorityName,
+    priorityColor: priorityColor,
     sprintId: task.sprint_id || null,
     createdAt: task.created_at,
     updatedAt: task.updated_at
@@ -276,6 +300,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     
     // Get task with attachment count and priority info
     // Use separate prepared statements to avoid SQL injection
+    // Join on priority_id (preferred) or fallback to priority name for backward compatibility
     const task = isTicket 
       ? wrapQuery(db.prepare(`
           SELECT t.*, 
@@ -288,7 +313,7 @@ router.get('/:id', authenticateToken, (req, res) => {
                       ELSE NULL END as attachmentCount
           FROM tasks t
           LEFT JOIN attachments a ON a.taskId = t.id
-          LEFT JOIN priorities p ON p.priority = t.priority
+          LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
           LEFT JOIN columns c ON c.id = t.columnId
           WHERE t.ticket = ?
           GROUP BY t.id, p.id, c.id
@@ -304,7 +329,7 @@ router.get('/:id', authenticateToken, (req, res) => {
                       ELSE NULL END as attachmentCount
           FROM tasks t
           LEFT JOIN attachments a ON a.taskId = t.id
-          LEFT JOIN priorities p ON p.priority = t.priority
+          LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
           LEFT JOIN columns c ON c.id = t.columnId
           WHERE t.id = ?
           GROUP BY t.id, p.id, c.id
@@ -379,8 +404,13 @@ router.get('/:id', authenticateToken, (req, res) => {
     task.tags = tags || [];
     
     // Convert snake_case to camelCase for frontend
+    // Ensure priority information is available (from JOIN or fallback to task.priority)
     const taskResponse = {
       ...task,
+      priority: task.priorityName || task.priority || null,
+      priorityId: task.priorityId || null,
+      priorityName: task.priorityName || task.priority || null,
+      priorityColor: task.priorityColor || null,
       sprintId: task.sprint_id || null,
       createdAt: task.created_at,
       updatedAt: task.updated_at
@@ -424,13 +454,40 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     // Ensure dueDate defaults to startDate if not provided
     const dueDate = task.dueDate || task.startDate;
     
+    // Handle priority: prefer priority_id, but support priority name for backward compatibility
+    let priorityId = task.priorityId || null;
+    let priorityName = task.priority || null;
+    
+    // If priority_id is not provided but priority name is, look up the ID
+    if (!priorityId && priorityName) {
+      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      if (priority) {
+        priorityId = priority.id;
+      } else {
+        // Fallback to default priority if name not found
+        const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+        priorityId = defaultPriority ? defaultPriority.id : null;
+      }
+    }
+    
+    // If still no priority_id, use default
+    if (!priorityId) {
+      const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+      priorityId = defaultPriority ? defaultPriority.id : null;
+      if (priorityId && !priorityName) {
+        // Get the name for the default priority
+        const defaultPriorityFull = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+        priorityName = defaultPriorityFull ? defaultPriorityFull.priority : null;
+      }
+    }
+    
     // Create the task
     wrapQuery(db.prepare(`
-      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, sprint_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, priority_id, columnId, boardId, position, sprint_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
       task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-      task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0, task.sprintId || null, now, now
+      task.startDate, dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0, task.sprintId || null, now, now
     );
     
     // Log the activity (console only for now)
@@ -451,6 +508,10 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     // Add the generated ticket to the task object before publishing
     task.ticket = ticket;
     
+    // Fetch the created task with all relationships (including priority info from JOIN)
+    // This ensures the WebSocket event includes complete task data with current priority name
+    const taskResponse = fetchTaskWithRelationships(db, task.id);
+    
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
     console.log(`📤 [${publishTimestamp}] Publishing task-created to Redis:`, {
@@ -462,7 +523,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     
     await redisService.publish('task-created', {
       boardId: task.boardId,
-      task: task,
+      task: taskResponse || task, // Use taskResponse if available, fallback to task
       timestamp: publishTimestamp
     });
     
@@ -493,14 +554,41 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     // Ensure dueDate defaults to startDate if not provided
     const dueDate = task.dueDate || task.startDate;
     
+    // Handle priority: prefer priority_id, but support priority name for backward compatibility
+    let priorityId = task.priorityId || null;
+    let priorityName = task.priority || null;
+    
+    // If priority_id is not provided but priority name is, look up the ID
+    if (!priorityId && priorityName) {
+      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      if (priority) {
+        priorityId = priority.id;
+      } else {
+        // Fallback to default priority if name not found
+        const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+        priorityId = defaultPriority ? defaultPriority.id : null;
+      }
+    }
+    
+    // If still no priority_id, use default
+    if (!priorityId) {
+      const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+      priorityId = defaultPriority ? defaultPriority.id : null;
+      if (priorityId && !priorityName) {
+        // Get the name for the default priority
+        const defaultPriorityFull = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+        priorityName = defaultPriorityFull ? defaultPriorityFull.priority : null;
+      }
+    }
+    
     db.transaction(() => {
       wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
       wrapQuery(db.prepare(`
-        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, sprint_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+        INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, priority_id, columnId, boardId, position, sprint_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `), 'INSERT').run(
         task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
-        task.startDate, dueDate, task.effort, task.priority, task.columnId, task.boardId, task.sprintId || null, now, now
+        task.startDate, dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.sprintId || null, now, now
       );
     })();
     
@@ -522,6 +610,10 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     // Add the generated ticket to the task object
     task.ticket = ticket;
     
+    // Fetch the created task with all relationships (including priority info from JOIN)
+    // This ensures the WebSocket event includes complete task data with current priority name
+    const taskResponse = fetchTaskWithRelationships(db, task.id);
+    
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
     console.log(`📤 [${publishTimestamp}] Publishing task-created (at top) to Redis:`, {
@@ -533,7 +625,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     
     await redisService.publish('task-created', {
       boardId: task.boardId,
-      task: task,
+      task: taskResponse || task, // Use taskResponse if available, fallback to task
       timestamp: publishTimestamp
     });
     
@@ -568,9 +660,51 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const previousColumnId = currentTask.columnId;
     const previousBoardId = currentTask.boardId;
     
+    // Handle priority: prefer priority_id, but support priority name for backward compatibility
+    let priorityId = task.priorityId || null;
+    let priorityName = task.priority || null;
+    
+    // If priority_id is not provided but priority name is, look up the ID
+    if (!priorityId && priorityName) {
+      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      if (priority) {
+        priorityId = priority.id;
+      } else {
+        // If priority name changed, keep existing priority_id
+        priorityId = currentTask.priority_id;
+        // Get the name for the existing priority_id
+        if (priorityId) {
+          const existingPriority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+          priorityName = existingPriority ? existingPriority.priority : priorityName;
+        }
+      }
+    }
+    
+    // If priority_id is provided, get the name for change tracking
+    if (priorityId && !priorityName) {
+      const priority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+      priorityName = priority ? priority.priority : null;
+    }
+    
+    // If neither is provided, keep existing values
+    if (!priorityId && !priorityName) {
+      priorityId = currentTask.priority_id;
+      priorityName = currentTask.priority;
+    }
+    
     // Generate change details
     const changes = [];
-    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'priority', 'columnId'];
+    const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId'];
+    
+    // Check if priority changed (by ID or name)
+    const priorityChanged = (priorityId && priorityId !== currentTask.priority_id) || 
+                            (priorityName && priorityName !== currentTask.priority);
+    
+    if (priorityChanged) {
+      const oldPriority = currentTask.priority || 'Unknown';
+      const newPriority = priorityName || 'Unknown';
+      changes.push(generateTaskUpdateDetails('priority', oldPriority, newPriority));
+    }
     
     fieldsToTrack.forEach(field => {
       if (currentTask[field] !== task[field]) {
@@ -588,11 +722,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
-      dueDate = ?, effort = ?, priority = ?, columnId = ?, boardId = ?, position = ?, 
+      dueDate = ?, effort = ?, priority = ?, priority_id = ?, columnId = ?, boardId = ?, position = ?, 
       sprint_id = ?, pre_boardId = ?, pre_columnId = ?, updated_at = ? WHERE id = ?
     `), 'UPDATE').run(
       task.title, task.description, task.memberId, task.requesterId, task.startDate,
-      task.dueDate, task.effort, task.priority, task.columnId, task.boardId, task.position || 0,
+      task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
       task.sprintId || null, previousBoardId, previousColumnId, now, id
     );
     
@@ -1507,6 +1641,8 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
           mem.color as memberColor,
           c.title as status,
           t.priority,
+          t.priority_id,
+          p.priority as priority_name,
           t.startDate,
           t.dueDate,
           b.project as projectId
@@ -1514,6 +1650,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         LEFT JOIN members mem ON t.memberId = mem.id
         LEFT JOIN columns c ON t.columnId = c.id
         LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
         WHERE t.id IN (${placeholders})
       `;
       
@@ -1549,7 +1686,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
           memberName: task.memberName || 'Unknown',
           memberColor: task.memberColor || '#6366F1',
           status: task.status || 'Unknown',
-          priority: task.priority || 'medium',
+          priority: task.priority_name || task.priority || 'medium',
           startDate: task.startDate,
           dueDate: task.dueDate,
           projectId: task.projectId
@@ -1577,6 +1714,8 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
           mem.color as memberColor,
           c.title as status,
           t.priority,
+          t.priority_id,
+          p.priority as priority_name,
           t.startDate,
           t.dueDate,
           b.project as projectId
@@ -1584,6 +1723,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         LEFT JOIN members mem ON t.memberId = mem.id
         LEFT JOIN columns c ON t.columnId = c.id
         LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
         WHERE t.id = ?
       `;
       
@@ -1600,7 +1740,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
             memberName: rootTask.memberName || 'Unknown',
             memberColor: rootTask.memberColor || '#6366F1',
             status: rootTask.status || 'Unknown',
-            priority: rootTask.priority || 'medium',
+            priority: rootTask.priority_name || rootTask.priority || 'medium',
             startDate: rootTask.startDate,
             dueDate: rootTask.dueDate,
             projectId: rootTask.projectId

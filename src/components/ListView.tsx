@@ -110,6 +110,19 @@ export default function ListView({
       visible: userPrefs.listViewColumnVisibility[col.key] ?? col.visible
     }));
   });
+
+  // Helper function to parse date string as local date (avoiding timezone issues)
+  // Must be defined before useMemo hooks that use it
+  const parseLocalDate = (dateString: string): Date => {
+    if (!dateString) return new Date();
+    
+    // Handle both YYYY-MM-DD and full datetime strings
+    const dateOnly = dateString.split('T')[0]; // Get just the date part
+    const [year, month, day] = dateOnly.split('-').map(Number);
+    
+    // Create date in local timezone
+    return new Date(year, month - 1, day); // month is 0-indexed
+  };
   const [showColumnMenu, setShowColumnMenu] = useState<string | null>(null);
   const [columnMenuPosition, setColumnMenuPosition] = useState<{top: number, left: number} | null>(null);
   const columnMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -540,18 +553,6 @@ export default function ListView({
         {priority.priority}
       </span>
     );
-  };
-
-  // Helper function to parse date string as local date (avoiding timezone issues)
-  const parseLocalDate = (dateString: string): Date => {
-    if (!dateString) return new Date();
-    
-    // Handle both YYYY-MM-DD and full datetime strings
-    const dateOnly = dateString.split('T')[0]; // Get just the date part
-    const [year, month, day] = dateOnly.split('-').map(Number);
-    
-    // Create date in local timezone
-    return new Date(year, month - 1, day); // month is 0-indexed
   };
 
   // Helper function to check if a task is overdue
@@ -1123,10 +1124,22 @@ export default function ListView({
     const task = allTasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const updatedTask = {
-      ...task,
-      [field]: value
+    const updatedTask: any = {
+      ...task
     };
+
+    // Handle priority specially - use priorityId instead of priority name
+    if (field === 'priority') {
+      const priorityOption = availablePriorities.find(p => p.priority === value);
+      if (priorityOption) {
+        updatedTask.priorityId = priorityOption.id;
+        updatedTask.priority = priorityOption.priority;
+      } else {
+        updatedTask[field] = value;
+      }
+    } else {
+      updatedTask[field] = value;
+    }
 
     try {
       await onEditTask(updatedTask);
@@ -1267,6 +1280,7 @@ export default function ListView({
                       selectedBoard={boards?.find(b => b.id === selectedBoard) || boards?.[0] || { id: '', title: '', columns: {} }}
                       members={members}
                       availableTags={availableTags}
+                      availablePriorities={availablePriorities}
                       isAdmin={currentUser?.roles?.includes('admin') || false}
                     />
                     <button
@@ -1293,7 +1307,7 @@ export default function ListView({
                   onClick={() => handleSort(column.key)}
                 >
                   <div className="flex items-center justify-between">
-                    <span>{t(`columnLabels.${column.key}` as any)}</span>
+                    <span>{t(`columnLabels.${column.key}`, { ns: 'tasks' }) || column.label}</span>
                     {sortField === column.key && (
                       sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                     )}
@@ -1567,7 +1581,17 @@ export default function ListView({
                               toggleDropdown(task.id, 'priority', e);
                             }}
                           >
-                            {getPriorityDisplay(task.priority)}
+                            {(() => {
+                              // Always use priorityId to look up current priority name (handles renamed priorities)
+                              if (task.priorityId) {
+                                const priorityOption = availablePriorities.find(p => p.id === task.priorityId);
+                                if (priorityOption) {
+                                  return getPriorityDisplay(priorityOption.priority);
+                                }
+                              }
+                              // Fallback: use priorityName from API (from JOIN), or stored priority name
+                              return getPriorityDisplay(task.priorityName || task.priority || '');
+                            })()}
                           </div>
                           
                           {/* Completed Column Banner Overlay - positioned over priority */}
@@ -2254,7 +2278,7 @@ export default function ListView({
               >
                 {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
                 <span className={col.visible && visibleColumns.length === 1 ? 'text-gray-400' : ''}>
-                  {col.label}
+                  {t(`columnLabels.${col.key}`, { ns: 'tasks' }) || col.label}
                 </span>
               </button>
             ))}

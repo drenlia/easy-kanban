@@ -1087,6 +1087,15 @@ const GanttViewV2 = ({
         }
         
         
+        // Get current priority name: use priorityId to look up, or use priorityName from API, or fall back to stored priority
+        let priorityName = 'medium';
+        if (task.priorityId && priorities) {
+          const priorityOption = priorities.find(p => p.id === task.priorityId);
+          priorityName = priorityOption?.priority || task.priorityName || task.priority || 'medium';
+        } else {
+          priorityName = task.priorityName || task.priority || 'medium';
+        }
+        
         const ganttTask = {
           ...task,
           id: task.id,
@@ -1096,7 +1105,9 @@ const GanttViewV2 = ({
           endDate,
           dueDate: effectiveTask.dueDate || effectiveTask.startDate || '', // Keep original string format
           status: column.title,
-          priority: task.priority || 'medium',
+          priority: priorityName,
+          priorityId: task.priorityId,
+          priorityName: priorityName,
           columnId: task.columnId,
           columnPosition: column.position || 0,
           taskPosition: task.position || 0
@@ -1115,7 +1126,7 @@ const GanttViewV2 = ({
       }
       return 0;
     });
-  }, [columns, localDragState]);
+  }, [columns, localDragState, priorities]);
 
   // Group tasks by column
   const groupedTasks = useMemo(() => {

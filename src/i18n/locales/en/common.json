@@ -72,7 +72,25 @@
     "excelExport": "Excel Export",
     "currentBoard": "Current Board",
     "allBoards": "All Boards",
-    "failed": "Export failed. Please try again."
+    "failed": "Export failed. Please try again.",
+    "headers": {
+      "board": "Board",
+      "sprint": "Sprint",
+      "ticket": "Ticket",
+      "task": "Task",
+      "description": "Description",
+      "assignee": "Assignee",
+      "priority": "Priority",
+      "status": "Status",
+      "startDate": "Start Date",
+      "dueDate": "Due Date",
+      "effort": "Effort",
+      "tags": "Tags",
+      "comments": "Comments",
+      "created": "Created",
+      "updated": "Updated",
+      "project": "Project"
+    }
   },
   "tools": {
     "title": "Tools",

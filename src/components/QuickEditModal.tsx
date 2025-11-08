@@ -814,12 +814,21 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
               {t('labels.priority')}
             </label>
             <select
-              value={editedTask.priority}
-              onChange={e => setEditedTask(prev => ({ ...prev, priority: e.target.value as Priority }))}
+              value={editedTask.priorityId || ''}
+              onChange={e => {
+                const priorityId = e.target.value ? parseInt(e.target.value) : null;
+                const priority = priorityId ? availablePriorities.find(p => p.id === priorityId) : null;
+                setEditedTask(prev => ({ 
+                  ...prev, 
+                  priorityId: priorityId,
+                  priority: priority?.priority || null 
+                }));
+              }}
               className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
             >
+              <option value="">{t('taskPage.noPriority')}</option>
               {availablePriorities.map(priority => (
-                <option key={priority.id} value={priority.priority}>
+                <option key={priority.id} value={priority.id}>
                   {priority.priority}
                 </option>
               ))}

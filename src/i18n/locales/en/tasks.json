@@ -269,6 +269,24 @@
     "status": "Status",
     "unknown": "Unknown",
     "unknownSize": "Unknown size"
+  },
+  "flowChart": {
+    "title": "Task Flow Chart",
+    "building": "Building task flow chart...",
+    "noRelatedTasks": "No related tasks found. This task has no parent or child relationships.",
+    "filterByStatus": "Filter by Status",
+    "clearAll": "Clear All",
+    "zoomOut": "Zoom out",
+    "zoomIn": "Zoom in",
+    "resetZoom": "Reset zoom and pan",
+    "viewFullscreen": "View in fullscreen",
+    "exitFullscreen": "Exit fullscreen (Esc)",
+    "close": "Close (Esc)",
+    "instructions": {
+      "pressEsc": "Press {{key}} or click outside to exit",
+      "mouseWheel": "{{key}} to zoom",
+      "clickDrag": "{{key}} to pan"
+    }
   }
 }
 

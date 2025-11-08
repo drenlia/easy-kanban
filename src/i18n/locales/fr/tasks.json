@@ -269,6 +269,24 @@
     "status": "Statut",
     "unknown": "Inconnu",
     "unknownSize": "Taille inconnue"
+  },
+  "flowChart": {
+    "title": "Graphique de flux des tâches",
+    "building": "Construction du graphique de flux des tâches...",
+    "noRelatedTasks": "Aucune tâche liée trouvée. Cette tâche n'a pas de relations parent-enfant.",
+    "filterByStatus": "Filtrer par statut",
+    "clearAll": "Tout effacer",
+    "zoomOut": "Dézoomer",
+    "zoomIn": "Zoomer",
+    "resetZoom": "Réinitialiser le zoom et le déplacement",
+    "viewFullscreen": "Voir en plein écran",
+    "exitFullscreen": "Quitter le plein écran (Échap)",
+    "close": "Fermer (Échap)",
+    "instructions": {
+      "pressEsc": "Appuyez sur {{key}} ou cliquez à l'extérieur pour quitter",
+      "mouseWheel": "{{key}} pour zoomer",
+      "clickDrag": "{{key}} pour déplacer"
+    }
   }
 }
 

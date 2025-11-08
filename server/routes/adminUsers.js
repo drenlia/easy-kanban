@@ -620,10 +620,13 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
         
         // Publish task-updated events for real-time updates
         for (const task of tasksToReassign) {
-          // Get the full updated task details
+          // Get the full updated task details with priority info
           const updatedTask = wrapQuery(
             db.prepare(`
               SELECT t.*, 
+                     p.id as priorityId,
+                     p.priority as priorityName,
+                     p.color as priorityColor,
                      json_group_array(
                        DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
                          'id', tag.id,
@@ -653,8 +656,9 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
               LEFT JOIN members watcher ON watcher.id = w.memberId
               LEFT JOIN collaborators col ON col.taskId = t.id
               LEFT JOIN members collaborator ON collaborator.id = col.memberId
+              LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
               WHERE t.id = ?
-              GROUP BY t.id
+              GROUP BY t.id, p.id
             `),
             'SELECT'
           ).get(task.id);
@@ -663,6 +667,12 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
             updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
             updatedTask.watchers = updatedTask.watchers === '[null]' ? [] : JSON.parse(updatedTask.watchers).filter(Boolean);
             updatedTask.collaborators = updatedTask.collaborators === '[null]' ? [] : JSON.parse(updatedTask.collaborators).filter(Boolean);
+            
+            // Use priorityName from JOIN (current name) or fallback to stored priority
+            updatedTask.priority = updatedTask.priorityName || updatedTask.priority || null;
+            updatedTask.priorityId = updatedTask.priorityId || null;
+            updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
+            updatedTask.priorityColor = updatedTask.priorityColor || null;
             
             redisService.publish('task-updated', {
               boardId: task.boardId,

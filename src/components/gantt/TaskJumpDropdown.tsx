@@ -189,7 +189,7 @@ export const TaskJumpDropdown: React.FC<TaskJumpDropdownProps> = ({
                         {/* Priority Indicator */}
                         <div 
                           className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: getPriorityColor(task.priority) }}
+                          style={{ backgroundColor: getPriorityColor((task as any).priorityName || task.priority) }}
                         />
                         
                         {/* Task Info */}

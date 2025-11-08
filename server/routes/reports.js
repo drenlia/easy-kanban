@@ -572,6 +572,8 @@ router.get('/task-list', authenticateToken, (req, res) => {
         t.description,
         t.effort,
         t.priority,
+        t.priority_id,
+        p.priority as priority_name,
         t.startDate,
         t.dueDate,
         t.created_at,
@@ -589,6 +591,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
       LEFT JOIN columns c ON t.columnId = c.id
       LEFT JOIN members m ON t.memberId = m.user_id
       LEFT JOIN members r ON t.requesterId = r.user_id
+      LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
       WHERE 1=1
       AND (c.is_archived IS NULL OR c.is_archived = 0)
     `;
@@ -622,8 +625,17 @@ router.get('/task-list', authenticateToken, (req, res) => {
     }
     
     if (priorityName) {
-      query += ' AND t.priority = ?';
-      params.push(priorityName);
+      // Support both priority name and priority_id lookup
+      // First try to find priority by name to get its ID
+      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      if (priority) {
+        query += ' AND t.priority_id = ?';
+        params.push(priority.id);
+      } else {
+        // Fallback to old priority name matching for backward compatibility
+        query += ' AND t.priority = ?';
+        params.push(priorityName);
+      }
     }
     
     query += ' ORDER BY t.created_at DESC LIMIT 1000';
@@ -647,7 +659,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
         column_name: task.column_name,
         assignee_name: task.assignee_name,
         requester_name: task.requester_name,
-        priority_name: task.priority,
+        priority_name: task.priority_name || task.priority, // Use current name from JOIN or fallback to stored name
         effort: task.effort,
         start_date: task.startDate,
         due_date: task.dueDate,

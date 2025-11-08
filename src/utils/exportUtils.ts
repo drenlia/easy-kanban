@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { Task, Board, TeamMember, Tag, Columns } from '../types';
+import { Task, Board, TeamMember, Tag, Columns, PriorityOption } from '../types';
 
 /**
  * Strip HTML tags from text while preserving line breaks
@@ -68,6 +68,8 @@ export interface ExportOptions {
 
 /**
  * Transform task data for export, excluding internal IDs but keeping relevant business data
+ * Priority name is retrieved from the priorities table (via priorityName or priorityId lookup)
+ * to ensure we always export the current priority name, not the potentially outdated stored name.
  */
 export function transformTaskForExport(
   task: Task, 
@@ -76,7 +78,8 @@ export function transformTaskForExport(
   availableTags: Tag[],
   project?: string,
   columns?: Columns,
-  sprints?: Array<{ id: string; name: string }>
+  sprints?: Array<{ id: string; name: string }>,
+  availablePriorities?: PriorityOption[]
 ): ExportData {
   // Get assignee name
   const assignee = task.memberId 
@@ -103,12 +106,21 @@ export function transformTaskForExport(
     ? sprints.find(s => s.id === task.sprintId)?.name || ''
     : '';
 
+  // Get priority name from priorities table (current name, not stored name)
+  // Priority order: priorityName (from API JOIN) > lookup by priorityId > fallback to stored priority
+  let priorityName = task.priorityName;
+  if (!priorityName && task.priorityId && availablePriorities) {
+    const priority = availablePriorities.find(p => p.id === task.priorityId);
+    priorityName = priority?.priority;
+  }
+  const priority = priorityName || task.priority || '';
+
   return {
     ticket: task.ticket || '',
     title: task.title,
     description: stripHtmlPreservingLineBreaks(task.description || ''),
     assignee,
-    priority: task.priorityName || task.priority,
+    priority,
     status,
     sprint,
     startDate: task.startDate,
@@ -130,7 +142,8 @@ export function getAllTasksForExport(
   boards: Board[], 
   members: TeamMember[], 
   availableTags: Tag[],
-  sprints?: Array<{ id: string; name: string }>
+  sprints?: Array<{ id: string; name: string }>,
+  availablePriorities?: PriorityOption[]
 ): ExportData[] {
   const allTasks: ExportData[] = [];
 
@@ -144,7 +157,8 @@ export function getAllTasksForExport(
           availableTags,
           board.project,
           board.columns,
-          sprints
+          sprints,
+          availablePriorities
         );
         allTasks.push(exportData);
       });
@@ -161,7 +175,8 @@ export function getCurrentBoardTasksForExport(
   board: Board, 
   members: TeamMember[], 
   availableTags: Tag[],
-  sprints?: Array<{ id: string; name: string }>
+  sprints?: Array<{ id: string; name: string }>,
+  availablePriorities?: PriorityOption[]
 ): ExportData[] {
   const tasks: ExportData[] = [];
 
@@ -174,7 +189,8 @@ export function getCurrentBoardTasksForExport(
         availableTags,
         board.project,
         board.columns,
-        sprints
+        sprints,
+        availablePriorities
       );
       tasks.push(exportData);
     });
@@ -185,13 +201,32 @@ export function getCurrentBoardTasksForExport(
 
 /**
  * Convert data to CSV format for browser download
+ * @param data - Array of export data
+ * @param t - Translation function (optional, defaults to English)
  */
-export function convertToCSV(data: ExportData[]): string {
+export function convertToCSV(data: ExportData[], t?: (key: string) => string): string {
   if (data.length === 0) return '';
   
+  // Default translation function that returns the key if no translation function is provided
+  const translate = t || ((key: string) => key);
+  
   const headers = [
-    'Board', 'Sprint', 'Ticket', 'Task', 'Description', 'Assignee', 'Priority', 'Status',
-    'Start Date', 'Due Date', 'Effort', 'Tags', 'Comments', 'Created', 'Updated', 'Project'
+    translate('export.headers.board'),
+    translate('export.headers.sprint'),
+    translate('export.headers.ticket'),
+    translate('export.headers.task'),
+    translate('export.headers.description'),
+    translate('export.headers.assignee'),
+    translate('export.headers.priority'),
+    translate('export.headers.status'),
+    translate('export.headers.startDate'),
+    translate('export.headers.dueDate'),
+    translate('export.headers.effort'),
+    translate('export.headers.tags'),
+    translate('export.headers.comments'),
+    translate('export.headers.created'),
+    translate('export.headers.updated'),
+    translate('export.headers.project')
   ];
   
   const csvRows = [headers.join(',')];

@@ -235,7 +235,7 @@ const TaskBar = ({
           width: `${(displayEndIndex - displayStartIndex + 1) * 40}px`,
           top: '50%',
           transform: 'translateY(-50%)',
-          backgroundColor: getPriorityColor(task.priority),
+          backgroundColor: getPriorityColor((task as any).priorityName || task.priority),
           zIndex: isDragging ? 40 : (isSelected ? 20 : 10),
           pointerEvents: isDragging ? 'none' : 'auto'
         }}
@@ -252,7 +252,7 @@ const TaskBar = ({
             } as any}
             handleType="start"
             onDateChange={() => {}}
-            taskColor={{ backgroundColor: getPriorityColor(task.priority), color: '#FFFFFF' }}
+            taskColor={{ backgroundColor: getPriorityColor((task as any).priorityName || task.priority), color: '#FFFFFF' }}
           />
           <TaskHandle
             taskId={task.id}
@@ -262,7 +262,7 @@ const TaskBar = ({
             } as any}
             handleType="end"
             onDateChange={() => {}}
-            taskColor={{ backgroundColor: getPriorityColor(task.priority), color: '#FFFFFF' }}
+            taskColor={{ backgroundColor: getPriorityColor((task as any).priorityName || task.priority), color: '#FFFFFF' }}
           />
         </>
       )}

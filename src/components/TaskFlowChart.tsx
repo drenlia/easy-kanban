@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getTaskFlowChart } from '../api';
-import { Maximize2, Minimize2, X, Filter, ChevronDown, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Maximize2, Minimize2, X, Filter, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 
 interface TaskNode {
   id: string;
@@ -26,6 +27,7 @@ interface TaskFlowChartProps {
 }
 
 export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFlowChartProps) {
+  const { t } = useTranslation('tasks');
   const [taskTree, setTaskTree] = useState<TaskNode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -507,7 +509,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     
     const visibleChildren = node.children.filter(child => isTaskVisible(child));
     
-    visibleChildren.forEach((child, index) => {
+    visibleChildren.forEach((child) => {
       const parentX = node.x;
       const parentY = node.y + 100; // Bottom of parent box
       const childX = child.x;
@@ -596,7 +598,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       return (
         <div className="flex items-center justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-2 text-gray-600">Building task flow chart...</span>
+          <span className="ml-2 text-gray-600">{t('flowChart.building')}</span>
         </div>
       );
     }
@@ -612,7 +614,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     if (!taskTree) {
       return (
         <div className="text-center py-8">
-          <p className="text-gray-600">No related tasks found. This task has no parent or child relationships.</p>
+          <p className="text-gray-600">{t('flowChart.noRelatedTasks')}</p>
         </div>
       );
     }
@@ -644,13 +646,16 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           
           {/* Render all nodes */}
           {(() => {
-            const nodes: JSX.Element[] = [];
+            const nodes: (JSX.Element | null)[] = [];
             const traverse = (node: TaskNode) => {
-              nodes.push(renderTaskNode(node));
+              const rendered = renderTaskNode(node);
+              if (rendered) {
+                nodes.push(rendered);
+              }
               node.children.forEach(traverse);
             };
             traverse(taskTree);
-            return nodes;
+            return nodes.filter(Boolean);
           })()}
         </svg>
       </div>
@@ -669,7 +674,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
               onClick={zoomOut}
               disabled={zoom <= 0.3}
               className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title="Zoom out"
+              title={t('flowChart.zoomOut')}
             >
               <ZoomOut className="h-4 w-4 text-gray-600" />
             </button>
@@ -680,14 +685,14 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
               onClick={zoomIn}
               disabled={zoom >= 3}
               className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              title="Zoom in"
+              title={t('flowChart.zoomIn')}
             >
               <ZoomIn className="h-4 w-4 text-gray-600" />
             </button>
             <button
               onClick={resetZoom}
               className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors border-l border-gray-200"
-              title="Reset zoom and pan"
+              title={t('flowChart.resetZoom')}
             >
               <RotateCcw className="h-4 w-4 text-gray-600" />
             </button>
@@ -698,7 +703,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
               <button
                 onClick={() => setShowStatusFilter(!showStatusFilter)}
                 className="p-2 bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                title="Filter by status"
+                title={t('flowChart.filterByStatus')}
               >
                 <Filter className="h-4 w-4 text-gray-600" />
                 {selectedStatuses.length > 0 && (
@@ -713,12 +718,12 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
                 <div className="absolute top-full right-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-md shadow-lg border border-gray-200 dark:border-gray-700 z-20">
                   <div className="p-3">
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-sm font-medium text-gray-700">Filter by Status</h3>
+                      <h3 className="text-sm font-medium text-gray-700">{t('flowChart.filterByStatus')}</h3>
                       <button
                         onClick={() => setSelectedStatuses([])}
                         className="text-xs text-blue-600 hover:text-blue-800"
                       >
-                        Clear All
+                        {t('flowChart.clearAll')}
                       </button>
                     </div>
                     <div className="space-y-2 max-h-40 overflow-y-auto">
@@ -756,7 +761,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           <button
             onClick={toggleFullscreen}
             className="p-2 bg-white rounded-md shadow-sm border border-gray-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-            title="View in fullscreen"
+            title={t('flowChart.viewFullscreen')}
           >
             <Maximize2 className="h-4 w-4 text-gray-600" />
           </button>
@@ -783,7 +788,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center">
               <span className="text-blue-600 mr-2">🌳</span>
-              Task Flow Chart
+              {t('flowChart.title')}
             </h2>
             <p className="text-sm text-gray-600">
               {currentTaskData?.ticket} - {currentTaskData?.title}
@@ -797,7 +802,7 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
                 onClick={zoomOut}
                 disabled={zoom <= 0.3}
                 className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Zoom out"
+                title={t('flowChart.zoomOut')}
               >
                 <ZoomOut className="h-4 w-4 text-gray-600" />
               </button>
@@ -808,14 +813,14 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
                 onClick={zoomIn}
                 disabled={zoom >= 3}
                 className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Zoom in"
+                title={t('flowChart.zoomIn')}
               >
                 <ZoomIn className="h-4 w-4 text-gray-600" />
               </button>
               <button
                 onClick={resetZoom}
                 className="p-2 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors border-l border-gray-200"
-                title="Reset zoom and pan"
+                title={t('flowChart.resetZoom')}
               >
                 <RotateCcw className="h-4 w-4 text-gray-600" />
               </button>
@@ -824,14 +829,14 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
             <button
               onClick={exitFullscreen}
               className="p-2 bg-white rounded-md shadow-sm border border-gray-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-              title="Exit fullscreen (Esc)"
+              title={t('flowChart.exitFullscreen')}
             >
               <Minimize2 className="h-4 w-4 text-gray-600" />
             </button>
             <button
               onClick={exitFullscreen}
               className="p-2 bg-white rounded-md shadow-sm border border-gray-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-              title="Close (Esc)"
+              title={t('flowChart.close')}
             >
               <X className="h-4 w-4 text-gray-600" />
             </button>
@@ -847,13 +852,19 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
         <div className="p-3 border-t border-gray-200 bg-gray-50 text-center rounded-b-lg">
           <p className="text-xs text-gray-500">
             <span className="inline-block mr-4">
-              Press <kbd className="px-1 py-0.5 bg-white border border-gray-300 rounded text-xs">Esc</kbd> or click outside to exit
+              {t('flowChart.instructions.pressEsc', { key: '' }).split('{{key}}')[0]}
+              <kbd className="px-1 py-0.5 bg-white border border-gray-300 rounded text-xs">Esc</kbd>
+              {t('flowChart.instructions.pressEsc', { key: '' }).split('{{key}}')[1]}
             </span>
             <span className="inline-block mr-4">
-              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Mouse Wheel</kbd> to zoom
+              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Mouse Wheel</kbd>
+              {' '}
+              {t('flowChart.instructions.mouseWheel', { key: '' }).split('{{key}}')[1]}
             </span>
             <span className="inline-block">
-              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Click & Drag</kbd> to pan
+              <kbd className="px-1 py-0.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-xs">Click & Drag</kbd>
+              {' '}
+              {t('flowChart.instructions.clickDrag', { key: '' }).split('{{key}}')[1]}
             </span>
           </p>
         </div>

@@ -72,7 +72,25 @@
     "excelExport": "Export Excel",
     "currentBoard": "Tableau actuel",
     "allBoards": "Tous les tableaux",
-    "failed": "L'export a échoué. Veuillez réessayer."
+    "failed": "L'export a échoué. Veuillez réessayer.",
+    "headers": {
+      "board": "Tableau",
+      "sprint": "Sprint",
+      "ticket": "Ticket",
+      "task": "Tâche",
+      "description": "Description",
+      "assignee": "Assigné à",
+      "priority": "Priorité",
+      "status": "Statut",
+      "startDate": "Date de début",
+      "dueDate": "Date d'échéance",
+      "effort": "Effort",
+      "tags": "Étiquettes",
+      "comments": "Commentaires",
+      "created": "Créé",
+      "updated": "Mis à jour",
+      "project": "Projet"
+    }
   },
   "tools": {
     "title": "Outils",
