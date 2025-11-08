@@ -121,6 +121,93 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
   }
 });
 
+// Update APP_URL endpoint (owner only)
+router.put('/app-url', authenticateToken, async (req, res) => {
+  try {
+    console.log('📞 APP_URL update endpoint called');
+    const db = req.app.locals.db;
+    const { appUrl } = req.body;
+    const userId = req.user.id;
+    
+    console.log('📞 Request data:', { userId, appUrl });
+    
+    // Get user email
+    const user = wrapQuery(
+      db.prepare('SELECT email FROM users WHERE id = ?'),
+      'SELECT'
+    ).get(userId);
+    
+    if (!user) {
+      console.log('❌ User not found:', userId);
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    console.log('📞 User email:', user.email);
+    
+    // Check if user is the owner
+    const ownerSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('OWNER');
+    
+    console.log('📞 Owner setting:', ownerSetting?.value);
+    
+    if (!ownerSetting || ownerSetting.value !== user.email) {
+      console.log('❌ User is not owner. Owner:', ownerSetting?.value, 'User:', user.email);
+      return res.status(403).json({ error: 'Only the owner can update APP_URL' });
+    }
+    
+    // Validate appUrl
+    if (!appUrl || typeof appUrl !== 'string') {
+      console.log('❌ Invalid appUrl:', appUrl);
+      return res.status(400).json({ error: 'appUrl is required and must be a string' });
+    }
+    
+    // Validate URL format
+    const trimmedUrl = appUrl.trim();
+    if (!trimmedUrl.startsWith('http://') && !trimmedUrl.startsWith('https://')) {
+      console.log('❌ Invalid URL format:', trimmedUrl);
+      return res.status(400).json({ error: 'appUrl must be a valid URL starting with http:// or https://' });
+    }
+    
+    // Remove trailing slash if present
+    const normalizedUrl = trimmedUrl.replace(/\/$/, '');
+    
+    // Get current APP_URL
+    const currentAppUrl = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('APP_URL');
+    
+    console.log('📞 Current APP_URL:', currentAppUrl?.value);
+    console.log('📞 New APP_URL:', normalizedUrl);
+    console.log('📞 Are they different?', !currentAppUrl || currentAppUrl.value !== normalizedUrl);
+    
+    // Update APP_URL only if it's different
+    if (!currentAppUrl || currentAppUrl.value !== normalizedUrl) {
+      wrapQuery(
+        db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
+        'INSERT'
+      ).run('APP_URL', normalizedUrl, new Date().toISOString());
+      console.log(`✅ APP_URL updated from "${currentAppUrl?.value || 'null'}" to "${normalizedUrl}"`);
+      
+      res.json({ 
+        message: 'APP_URL updated successfully',
+        appUrl: normalizedUrl
+      });
+    } else {
+      console.log('ℹ️ APP_URL unchanged, already set to:', normalizedUrl);
+      res.json({ 
+        message: 'APP_URL unchanged',
+        appUrl: normalizedUrl
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error updating APP_URL:', error);
+    res.status(500).json({ error: 'Failed to update APP_URL' });
+  }
+});
+
 // Storage information endpoint
 // Handle GET /api/storage/info (when mounted at /api/storage)
 router.get('/info', authenticateToken, (req, res, next) => {

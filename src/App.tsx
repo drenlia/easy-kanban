@@ -3399,9 +3399,9 @@ export default function App() {
         token={resetToken}
         onBackToLogin={() => window.location.hash = '#kanban'}
         onResetSuccess={() => window.location.hash = '#reset-success'}
-        onAutoLogin={(user, token) => {
+        onAutoLogin={async (user, token) => {
           // Automatically log the user in
-          handleLogin(user, token);
+          await handleLogin(user, token);
           // Small delay to allow auth state to propagate, then navigate
           setTimeout(() => {
             window.location.hash = '#kanban';
@@ -3422,9 +3422,9 @@ export default function App() {
         email={activationEmail}
         onBackToLogin={() => window.location.hash = '#kanban'}
         isLoading={!activationParsed}
-        onAutoLogin={(user, token) => {
+        onAutoLogin={async (user, token) => {
           // Automatically log the user in
-          handleLogin(user, token);
+          await handleLogin(user, token);
           // Small delay to allow auth state to propagate, then navigate
           setTimeout(() => {
             window.location.hash = '#kanban';

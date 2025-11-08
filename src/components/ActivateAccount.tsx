@@ -7,7 +7,7 @@ interface ActivateAccountProps {
   token: string;
   email: string;
   onBackToLogin: () => void;
-  onAutoLogin: (user: any, token: string) => void;
+  onAutoLogin: (user: any, token: string) => Promise<void>;
   isLoading?: boolean;
 }
 

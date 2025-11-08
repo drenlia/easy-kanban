@@ -49,6 +49,7 @@
     "failedToUploadAvatar": "Échec du téléchargement de l'avatar",
     "failedToRemoveAvatar": "Échec de la suppression de l'avatar",
     "displayNameRequired": "Le nom d'affichage est requis",
+    "displayNameTooLong": "Le nom d'affichage ne doit pas dépasser 30 caractères",
     "displayNameTaken": "Ce nom d'affichage est déjà utilisé par un autre utilisateur",
     "failedToUpdateProfile": "Échec de la mise à jour du profil",
     "noAvatarFileUploaded": "Aucun fichier d'avatar téléchargé",
@@ -168,6 +169,100 @@
       "body4": "Si vous n'avez pas demandé cette réinitialisation, veuillez ignorer cet email.",
       "body5": "Cordialement,",
       "body6": "L'équipe {siteName}"
+    },
+    "commentNotification": {
+      "subject": "💬 Nouveau commentaire sur : {taskTitle}",
+      "title": "Nouveau commentaire",
+      "taskId": "ID de la tâche :",
+      "commentBy": "Commentaire de :",
+      "addedCommentToTask": "a ajouté un nouveau commentaire à une tâche que vous suivez :",
+      "newComment": "Nouveau commentaire :",
+      "viewComment": "Voir le commentaire",
+      "receivingReason": "Vous recevez ceci car vous êtes impliqué dans cette tâche."
+    },
+    "taskNotification": {
+      "newTaskAssigned": {
+        "subject": "📋 Nouvelle tâche assignée : {taskTitle}",
+        "title": "Nouvelle tâche assignée",
+        "taskId": "ID de la tâche :",
+        "assignedBy": "Assignée par :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous avez été assigné à cette tâche."
+      },
+      "myTaskUpdated": {
+        "subject": "📝 Votre tâche a été mise à jour : {taskTitle}",
+        "title": "Tâche mise à jour",
+        "taskId": "ID de la tâche :",
+        "updatedBy": "Mise à jour par :",
+        "whatChanged": "Ce qui a changé :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous êtes assigné à cette tâche."
+      },
+      "watchedTaskUpdated": {
+        "subject": "👀 Tâche surveillée mise à jour : {taskTitle}",
+        "title": "Tâche surveillée mise à jour",
+        "taskId": "ID de la tâche :",
+        "updatedBy": "Mise à jour par :",
+        "whatChanged": "Ce qui a changé :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous surveillez cette tâche."
+      },
+      "addedAsCollaborator": {
+        "subject": "🤝 Ajouté en tant que collaborateur : {taskTitle}",
+        "title": "Ajouté en tant que collaborateur",
+        "taskId": "ID de la tâche :",
+        "addedBy": "Ajouté par :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous collaborez maintenant sur cette tâche et recevrez des mises à jour sur les changements."
+      },
+      "collaboratingTaskUpdated": {
+        "subject": "🤝 Tâche en collaboration mise à jour : {taskTitle}",
+        "title": "Tâche en collaboration mise à jour",
+        "taskId": "ID de la tâche :",
+        "updatedBy": "Mise à jour par :",
+        "whatChanged": "Ce qui a changé :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous collaborez sur cette tâche."
+      },
+      "requesterTaskCreated": {
+        "subject": "✅ Votre tâche demandée a été créée : {taskTitle}",
+        "title": "Tâche créée",
+        "taskId": "ID de la tâche :",
+        "createdBy": "Créée par :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous avez demandé cette tâche."
+      },
+      "requesterTaskUpdated": {
+        "subject": "📋 Votre tâche demandée a été mise à jour : {taskTitle}",
+        "title": "Tâche demandée mise à jour",
+        "taskId": "ID de la tâche :",
+        "updatedBy": "Mise à jour par :",
+        "whatChanged": "Ce qui a changé :",
+        "viewTask": "Voir la tâche",
+        "receivingReason": "Vous recevez ceci car vous avez demandé cette tâche."
+      },
+      "common": {
+        "taskNotification": "Notification de tâche",
+        "hi": "Bonjour {firstName},",
+        "actionMessage": {
+          "created": "Une nouvelle tâche a été créée",
+          "assigned": "Vous avez été assigné à une tâche",
+          "updated": "Une tâche à laquelle vous participez a été mise à jour",
+          "commented": "Un nouveau commentaire a été ajouté à une tâche que vous suivez",
+          "status_changed": "Le statut de la tâche a été modifié",
+          "priority_changed": "La priorité de la tâche a été modifiée",
+          "due_date_changed": "La date d'échéance de la tâche a été modifiée",
+          "default": "Notification d'activité de tâche"
+        },
+        "project": "Projet :",
+        "board": "Tableau :",
+        "details": "Détails :",
+        "changed": "Modifié :",
+        "viewTask": "Voir la tâche",
+        "viewTaskReply": "💬 Voir la tâche et répondre",
+        "receivingReason": "Vous avez reçu cette notification car vous êtes impliqué dans cette tâche.",
+        "teamSignature": "L'équipe {siteName}"
+      }
     }
   },
   "achievements": {
@@ -237,6 +332,48 @@
     "settingCreatedSuccessfully": "Paramètre créé avec succès",
     "instanceStatusUpdatedSuccessfully": "Statut de l'instance mis à jour avec succès",
     "invitationSentSuccessfully": "Invitation envoyée avec succès"
+  },
+  "activity": {
+    "createdTask": "a créé la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
+    "createdTaskAtTop": "a créé la tâche \"{taskTitle}\" en haut de la colonne",
+    "deletedTask": "a supprimé la tâche \"{taskTitle}\"{taskRef} du tableau \"{boardTitle}\"",
+    "movedTask": "{details}{taskRef} dans le tableau \"{boardTitle}\"",
+    "updatedTask": "{details} dans la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
+    "movedTaskColumn": "{details} dans le tableau \"{boardTitle}\"",
+    "addedDescription": "a ajouté une description",
+    "updatedDescription": "a mis à jour la description",
+    "clearedDescription": "a supprimé la description",
+    "addedAttachment": "a ajouté {count} pièce jointe",
+    "addedAttachments": "a ajouté {count} pièces jointes",
+    "removedAttachment": "a supprimé {count} pièce jointe",
+    "removedAttachments": "a supprimé {count} pièces jointes",
+    "setField": "a défini {fieldLabel} à \"{newValue}\"",
+    "clearedField": "a supprimé {fieldLabel} (était \"{oldValue}\")",
+    "changedField": "a modifié {fieldLabel} de \"{oldValue}\" à \"{newValue}\"",
+    "setAssignee": "a défini l'assigné à \"{newName}\"",
+    "clearedAssignee": "a supprimé l'assigné (était \"{oldName}\")",
+    "changedAssignee": "a modifié l'assigné de \"{oldName}\" à \"{newName}\"",
+    "setRequester": "a défini le demandeur à \"{newName}\"",
+    "clearedRequester": "a supprimé le demandeur (était \"{oldName}\")",
+    "changedRequester": "a modifié le demandeur de \"{oldName}\" à \"{newName}\"",
+    "fieldLabels": {
+      "title": "titre",
+      "description": "description",
+      "dueDate": "date d'échéance",
+      "startDate": "date de début",
+      "effort": "effort",
+      "priorityId": "priorité",
+      "memberId": "assigné",
+      "requesterId": "demandeur",
+      "columnId": "statut"
+    },
+    "addedComment": "a ajouté un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
+    "updatedComment": "a mis à jour un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
+    "deletedComment": "a supprimé un commentaire sur la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
+    "unknownTask": "Tâche inconnue",
+    "unknownBoard": "Tableau inconnu",
+    "unassigned": "Non assigné",
+    "unknownUser": "Utilisateur inconnu"
   }
 }
 

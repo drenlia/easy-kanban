@@ -26,7 +26,7 @@ interface UseAuthReturn {
   justRedirected: boolean;
   
   // Actions
-  handleLogin: (userData: any, token: string) => void;
+  handleLogin: (userData: any, token: string) => Promise<void>;
   handleLogout: () => void;
   handleProfileUpdated: () => Promise<void>;
   refreshSiteSettings: () => Promise<void>;
@@ -69,7 +69,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   }, [isAuthenticated, authChecked, intendedDestination]);
 
   // Authentication handlers
-  const handleLogin = (userData: any, token: string) => {
+  const handleLogin = async (userData: any, token: string) => {
     localStorage.setItem('authToken', token);
     setCurrentUser(userData);
     setIsAuthenticated(true);
@@ -77,6 +77,30 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     // Clear old user preference cookies to prevent accumulation
     clearOtherUserPreferenceCookies(userData.id);
     
+    // Update APP_URL if user is the owner
+    try {
+      // First check if user is the owner to avoid unnecessary API call
+      const ownerCheck = await api.get('/auth/is-owner');
+      
+      if (ownerCheck.data.isOwner) {
+        console.log('🔄 User is owner, updating APP_URL...');
+        const { updateAppUrl } = await import('../api');
+        const baseUrl = window.location.origin;
+        console.log('🔄 Calling updateAppUrl with:', baseUrl);
+        const result = await updateAppUrl(baseUrl);
+        console.log('✅ APP_URL updated successfully:', result);
+      } else {
+        console.log('ℹ️ User is not owner, skipping APP_URL update');
+      }
+    } catch (error: any) {
+      // Don't fail login if owner check or APP_URL update fails
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        // User is not owner or not authorized, which is fine
+        console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
+      } else {
+        console.warn('⚠️ Failed to check ownership or update APP_URL on login:', error.message);
+      }
+    }
     
     // Redirect to intended destination if available
     if (intendedDestination) {
@@ -332,10 +356,12 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         setIsAuthenticated(true);
         isProcessingOAuthRef.current = false; // Clear OAuth processing flag
         
-        // Fetch current user data immediately after OAuth
+        // Fetch current user data immediately after OAuth and call handleLogin
         api.getCurrentUser()
-          .then(response => {
+          .then(async response => {
             setCurrentUser(response.user);
+            // Call handleLogin to trigger APP_URL update and other login logic
+            await handleLogin(response.user, token);
           })
           .catch(() => {
             // Fallback: just let the auth effect handle it

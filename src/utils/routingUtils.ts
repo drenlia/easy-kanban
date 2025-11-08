@@ -20,7 +20,10 @@ export const parseProjectRoute = (url: string = window.location.href): { isProje
   try {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname;
-    const hash = urlObj.hash;
+    let hash = urlObj.hash;
+    
+    // Decode %23 back to # (email clients may encode # to %23)
+    hash = hash.replace(/%23/g, '#');
     
     // Check if path is /project/ and hash contains project ID
     if (pathname === '/project/' && hash) {
@@ -44,9 +47,12 @@ export const parseTaskRoute = (url: string = window.location.href): { isTaskRout
   try {
     const urlObj = new URL(url);
     const pathname = urlObj.pathname;
-    const hash = urlObj.hash;
+    let hash = urlObj.hash;
     
     if (!hash) return { isTaskRoute: false };
+    
+    // Decode %23 back to # (email clients may encode # to %23)
+    hash = hash.replace(/%23/g, '#');
     
     const cleanHash = hash.replace(/^#/, '');
     const hashParts = cleanHash.split('#');
@@ -79,6 +85,9 @@ export const parseTaskRoute = (url: string = window.location.href): { isTaskRout
  * CENTRALIZED ROUTE PARSING - Single source of truth
  */
 export const parseUrlHash = (hash: string): ParsedRoute => {
+  // Decode %23 back to # (email clients may encode # to %23)
+  hash = hash.replace(/%23/g, '#');
+  
   const cleanHash = hash.replace(/^#/, ''); // Remove leading #
   
   // Split by # for route hierarchy  

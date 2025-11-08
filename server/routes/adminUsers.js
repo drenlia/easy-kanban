@@ -8,6 +8,7 @@ import { getLicenseManager } from '../config/license.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -60,24 +61,31 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
 router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const t = getTranslator(db);
     const { userId } = req.params;
     const { displayName } = req.body;
     
     if (!displayName || displayName.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required' });
+      return res.status(400).json({ error: t('errors.displayNameRequired') });
+    }
+    
+    // Validate display name length (max 30 characters)
+    const trimmedDisplayName = displayName.trim();
+    if (trimmedDisplayName.length > 30) {
+      return res.status(400).json({ error: t('errors.displayNameTooLong') });
     }
     
     // Check for duplicate display name (excluding current user)
     const existingMember = wrapQuery(
       db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
       'SELECT'
-    ).get(displayName.trim(), userId);
+    ).get(trimmedDisplayName, userId);
     
     if (existingMember) {
-      return res.status(400).json({ error: 'This display name is already taken by another user' });
+      return res.status(400).json({ error: t('errors.displayNameTaken') });
     }
     
-    console.log('🏷️ Updating member name for user:', userId, 'to:', displayName.trim());
+    console.log('🏷️ Updating member name for user:', userId, 'to:', trimmedDisplayName);
     
     // Get member info before update for Redis publishing
     const member = wrapQuery(db.prepare('SELECT id, color FROM members WHERE user_id = ?'), 'SELECT').get(userId);
@@ -89,7 +97,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     
     // Update the member's name in the members table
     const updateMemberStmt = wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
-    const result = updateMemberStmt.run(displayName.trim(), userId);
+    const result = updateMemberStmt.run(trimmedDisplayName, userId);
     
     if (result.changes === 0) {
       console.log('❌ No member found for user:', userId);
@@ -100,7 +108,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     console.log('📤 Publishing member-updated to Redis for name change');
     await redisService.publish('member-updated', {
       memberId: member.id,
-      member: { id: member.id, name: displayName.trim(), color: member.color },
+      member: { id: member.id, name: trimmedDisplayName, color: member.color },
       timestamp: new Date().toISOString()
     });
     console.log('✅ Member-updated published to Redis');
@@ -108,7 +116,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     console.log('✅ Member name updated successfully');
     res.json({ 
       message: 'Member name updated successfully',
-      displayName: displayName.trim()
+      displayName: trimmedDisplayName
     });
   } catch (error) {
     console.error('Member name update error:', error);
@@ -282,6 +290,7 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role, displayName, baseUrl, isActive } = req.body;
   const db = req.app.locals.db;
+  const t = getTranslator(db);
   
   // Validate required fields with specific error messages
   if (!email) {
@@ -347,7 +356,25 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     // Create team member automatically with custom display name if provided and random color
     const memberId = crypto.randomUUID();
-    const memberName = displayName || `${firstName} ${lastName}`;
+    let memberName = displayName || `${firstName} ${lastName}`;
+    
+    // Validate display name length (max 30 characters) if provided
+    if (displayName) {
+      const trimmedDisplayName = displayName.trim();
+      if (trimmedDisplayName.length > 30) {
+        return res.status(400).json({ error: t('errors.displayNameTooLong') });
+      }
+      memberName = trimmedDisplayName;
+    } else {
+      // If no display name provided, use firstName + lastName, but truncate if needed
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (fullName.length > 30) {
+        memberName = fullName.substring(0, 30);
+      } else {
+        memberName = fullName;
+      }
+    }
+    
     const memberColor = getRandomColor(); // Random color from palette
     wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, memberName, memberColor, userId);

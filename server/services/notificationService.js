@@ -2,6 +2,7 @@ import EmailService from './emailService.js';
 import { EmailTemplates } from './emailTemplates.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationThrottler } from './notificationThrottler.js';
+import { getTranslator } from '../utils/i18n.js';
 
 /**
  * Notification Service - Handles email notifications for task activities
@@ -78,9 +79,14 @@ class NotificationService {
    */
   getTaskParticipants(taskId) {
     try {
-      // Get basic task info
+      // Get basic task info with board and project info
       const task = wrapQuery(
-        this.db.prepare('SELECT memberId, requesterId, title, ticket FROM tasks WHERE id = ?'),
+        this.db.prepare(`
+          SELECT t.id, t.memberId, t.requesterId, t.title, t.ticket, t.boardId, b.project as projectId
+          FROM tasks t
+          LEFT JOIN boards b ON t.boardId = b.id
+          WHERE t.id = ?
+        `),
         'SELECT'
       ).get(taskId);
 
@@ -139,7 +145,14 @@ class NotificationService {
       }
 
       const result = {
-        task,
+        task: {
+          id: taskId, // Include task ID for URL construction
+          memberId: task.memberId,
+          requesterId: task.requesterId,
+          title: task.title,
+          ticket: task.ticket
+        },
+        projectId: task.projectId,
         assignee,
         requester,
         watchers,
@@ -153,7 +166,8 @@ class NotificationService {
         watchersCount: watchers.length,
         collaboratorsCount: collaborators.length,
         assigneeUserId: assignee?.userId,
-        requesterUserId: requester?.userId
+        requesterUserId: requester?.userId,
+        projectId: task.projectId
       });
       
       return result;
@@ -168,12 +182,39 @@ class NotificationService {
    */
   generateEmailTemplate(notificationType, data) {
     const siteSettings = this.getSiteSettings();
+    const baseUrl = this.getBaseUrl();
+    
+    // Construct taskUrl if not provided and we have task data
+    // Note: Email clients may encode # to %23, but browsers should decode it automatically
+    let taskUrl = data.taskUrl;
+    if (!taskUrl && data.task && data.participants) {
+      const { task, participants } = data;
+      if (task.ticket && participants.projectId) {
+        taskUrl = `${baseUrl}/project/#${participants.projectId}#${task.ticket}`;
+      } else if (task.ticket) {
+        // Fallback: try to get project ID from task's board
+        const taskWithProject = wrapQuery(
+          this.db.prepare(`
+            SELECT b.project as projectId
+            FROM tasks t
+            LEFT JOIN boards b ON t.boardId = b.id
+            WHERE t.id = ?
+          `),
+          'SELECT'
+        ).get(task.id);
+        const projectId = taskWithProject?.projectId;
+        taskUrl = projectId ? `${baseUrl}/project/#${projectId}#${task.ticket}` : `${baseUrl}/project/#${task.ticket}`;
+      } else if (task.id) {
+        taskUrl = `${baseUrl}#task#${task.id}`;
+      }
+    }
     
     // Add site settings to data for templates
     const templateData = {
       ...data,
+      taskUrl: taskUrl || data.taskUrl,
       siteName: siteSettings.SITE_NAME || 'Easy Kanban',
-      siteUrl: siteSettings.SITE_URL || 'http://localhost:3000',
+      siteUrl: baseUrl,
       db: this.db
     };
     
@@ -198,173 +239,241 @@ class NotificationService {
   generateLegacyTemplate(notificationType, data) {
     const { task, action, details, actor, oldValue, newValue, participants } = data;
     const taskIdentifier = task.ticket || `Task #${task.id.substring(0, 8)}`;
-    const siteSettings = this.getSiteSettings();
-    const siteUrl = siteSettings.SITE_URL || 'http://localhost:3000';
-    const taskUrl = task.ticket ? `${siteUrl}/project/#${participants.projectId || ''}#${task.ticket}` : `${siteUrl}#task#${task.id}`;
+    const baseUrl = this.getBaseUrl();
+    // Construct task URL with project ID if available
+    // Note: Email clients may encode # to %23, but browsers should decode it automatically
+    let taskUrl;
+    if (task.ticket && participants.projectId) {
+      taskUrl = `${baseUrl}/project/#${participants.projectId}#${task.ticket}`;
+    } else if (task.ticket) {
+      // Fallback: try to get project ID from task's board
+      const taskWithProject = wrapQuery(
+        this.db.prepare(`
+          SELECT b.project as projectId
+          FROM tasks t
+          LEFT JOIN boards b ON t.boardId = b.id
+          WHERE t.id = ?
+        `),
+        'SELECT'
+      ).get(task.id);
+      const projectId = taskWithProject?.projectId;
+      taskUrl = projectId ? `${baseUrl}/project/#${projectId}#${task.ticket}` : `${baseUrl}/project/#${task.ticket}`;
+    } else {
+      taskUrl = `${baseUrl}#task#${task.id}`;
+    }
+    const t = getTranslator(this.db);
 
     const templates = {
       newTaskAssigned: {
-        subject: `📋 New task assigned: ${task.title}`,
+        subject: t('emails.taskNotification.newTaskAssigned.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2563eb;">New Task Assigned</h2>
+            <h2 style="color: #2563eb;">${t('emails.taskNotification.newTaskAssigned.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Assigned by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.newTaskAssigned.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.newTaskAssigned.assignedBy')}</strong> ${actor.name}</p>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #2563eb;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.newTaskAssigned.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you were assigned to this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.newTaskAssigned.receivingReason')}</p>
           </div>
         `
       },
 
       myTaskUpdated: {
-        subject: `📝 Your task was updated: ${task.title}`,
+        subject: t('emails.taskNotification.myTaskUpdated.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2563eb;">Task Updated</h2>
+            <h2 style="color: #2563eb;">${t('emails.taskNotification.myTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Updated by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.myTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.myTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <strong style="color: #92400e;">What changed:</strong>
+                <strong style="color: #92400e;">${t('emails.taskNotification.myTaskUpdated.whatChanged')}</strong>
                 <p style="color: #92400e; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
               </div>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #2563eb;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.myTaskUpdated.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you're assigned to this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.myTaskUpdated.receivingReason')}</p>
           </div>
         `
       },
 
       watchedTaskUpdated: {
-        subject: `👀 Watched task updated: ${task.title}`,
+        subject: t('emails.taskNotification.watchedTaskUpdated.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #7c3aed;">Watched Task Updated</h2>
+            <h2 style="color: #7c3aed;">${t('emails.taskNotification.watchedTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Updated by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.watchedTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.watchedTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ede9fe; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <strong style="color: #6b21a8;">What changed:</strong>
+                <strong style="color: #6b21a8;">${t('emails.taskNotification.watchedTaskUpdated.whatChanged')}</strong>
                 <p style="color: #6b21a8; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
               </div>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #7c3aed; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #7c3aed;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.watchedTaskUpdated.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you're watching this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.watchedTaskUpdated.receivingReason')}</p>
           </div>
         `
       },
 
       addedAsCollaborator: {
-        subject: `🤝 Added as collaborator: ${task.title}`,
+        subject: t('emails.taskNotification.addedAsCollaborator.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #059669;">Added as Collaborator</h2>
+            <h2 style="color: #059669;">${t('emails.taskNotification.addedAsCollaborator.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Added by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.addedAsCollaborator.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.addedAsCollaborator.addedBy')}</strong> ${actor.name}</p>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #059669;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.addedAsCollaborator.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're now collaborating on this task and will receive updates about changes.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.addedAsCollaborator.receivingReason')}</p>
           </div>
         `
       },
 
       collaboratingTaskUpdated: {
-        subject: `🤝 Collaborating task updated: ${task.title}`,
+        subject: t('emails.taskNotification.collaboratingTaskUpdated.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #059669;">Collaborating Task Updated</h2>
+            <h2 style="color: #059669;">${t('emails.taskNotification.collaboratingTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Updated by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.collaboratingTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.collaboratingTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ecfdf5; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <strong style="color: #065f46;">What changed:</strong>
+                <strong style="color: #065f46;">${t('emails.taskNotification.collaboratingTaskUpdated.whatChanged')}</strong>
                 <p style="color: #065f46; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
               </div>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #059669; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #059669;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.collaboratingTaskUpdated.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you're collaborating on this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.collaboratingTaskUpdated.receivingReason')}</p>
           </div>
         `
       },
 
       commentAdded: {
-        subject: `💬 New comment on: ${task.title}`,
+        subject: t('emails.commentNotification.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #dc2626;">New Comment</h2>
+            <h2 style="color: #dc2626;">${t('emails.commentNotification.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Comment by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.commentNotification.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.commentNotification.commentBy')}</strong> ${actor.name}</p>
               ${data.commentContent ? `
                 <div style="background-color: #fef2f2; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #dc2626;">
-                  <strong style="color: #991b1b;">New Comment:</strong>
+                  <strong style="color: #991b1b;">${t('emails.commentNotification.newComment')}</strong>
                   <div style="color: #991b1b; margin: 10px 0 0 0;">${data.commentContent}</div>
                 </div>
               ` : ''}
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}#comments" style="background-color: #dc2626; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Comment</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #dc2626;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.commentNotification.viewComment')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you're involved in this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.commentNotification.receivingReason')}</p>
           </div>
         `
       },
 
       requesterTaskCreated: {
-        subject: `✅ Your requested task was created: ${task.title}`,
+        subject: t('emails.taskNotification.requesterTaskCreated.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #16a34a;">Task Created</h2>
+            <h2 style="color: #16a34a;">${t('emails.taskNotification.requesterTaskCreated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Created by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskCreated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskCreated.createdBy')}</strong> ${actor.name}</p>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #16a34a;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.requesterTaskCreated.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you requested this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.requesterTaskCreated.receivingReason')}</p>
           </div>
         `
       },
 
       requesterTaskUpdated: {
-        subject: `📋 Your requested task was updated: ${task.title}`,
+        subject: t('emails.taskNotification.requesterTaskUpdated.subject', { taskTitle: task.title }),
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #16a34a;">Requested Task Updated</h2>
+            <h2 style="color: #16a34a;">${t('emails.taskNotification.requesterTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Task ID:</strong> ${taskIdentifier}</p>
-              <p style="color: #64748b; margin: 5px 0;"><strong>Updated by:</strong> ${actor.name}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #f0fdf4; padding: 15px; border-radius: 6px; margin: 15px 0;">
-                <strong style="color: #166534;">What changed:</strong>
+                <strong style="color: #166534;">${t('emails.taskNotification.requesterTaskUpdated.whatChanged')}</strong>
                 <p style="color: #166534; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
               </div>
             </div>
-            <div style="margin: 20px 0;">
-              <a href="${taskUrl}" style="background-color: #16a34a; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">View Task</a>
+            <div style="margin: 20px 0; text-align: center;">
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+                <tr>
+                  <td align="center" style="border-radius: 6px; background-color: #16a34a;">
+                    <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">${t('emails.taskNotification.requesterTaskUpdated.viewTask')}</a>
+                  </td>
+                </tr>
+              </table>
             </div>
-            <p style="color: #64748b; font-size: 14px;">You're receiving this because you requested this task.</p>
+            <p style="color: #64748b; font-size: 14px;">${t('emails.taskNotification.requesterTaskUpdated.receivingReason')}</p>
           </div>
         `
       }
@@ -445,7 +554,7 @@ class NotificationService {
   getSiteSettings() {
     try {
       const settings = {};
-      const keys = ['SITE_NAME', 'SITE_URL'];
+      const keys = ['SITE_NAME', 'SITE_URL', 'APP_URL'];
       keys.forEach(key => {
         const setting = wrapQuery(
           this.db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -458,6 +567,31 @@ class NotificationService {
       console.warn('Failed to get site settings:', error.message);
       return {};
     }
+  }
+  
+  /**
+   * Get base URL with fallback chain: APP_URL -> SITE_URL -> http://localhost:3000
+   */
+  getBaseUrl() {
+    const siteSettings = this.getSiteSettings();
+    
+    // Priority: APP_URL -> SITE_URL -> localhost fallback
+    if (siteSettings.APP_URL && siteSettings.APP_URL.trim()) {
+      const appUrl = siteSettings.APP_URL.trim();
+      // Remove trailing slash if present
+      return appUrl.replace(/\/$/, '');
+    }
+    
+    if (siteSettings.SITE_URL && siteSettings.SITE_URL.trim()) {
+      const siteUrl = siteSettings.SITE_URL.trim();
+      // Only use if it's a valid full URL (not just a path)
+      if (siteUrl !== '/' && !siteUrl.startsWith('/') && (siteUrl.startsWith('http://') || siteUrl.startsWith('https://'))) {
+        return siteUrl.replace(/\/$/, '');
+      }
+    }
+    
+    // Fallback to localhost
+    return 'http://localhost:3000';
   }
 
   /**
@@ -820,8 +954,7 @@ class NotificationService {
         return { success: false, reason: 'User is already active' };
       }
 
-      const siteSettings = this.getSiteSettings();
-      const actualBaseUrl = baseUrl || siteSettings.SITE_URL || 'http://localhost:3000';
+      const actualBaseUrl = baseUrl || this.getBaseUrl();
       const inviteUrl = `${actualBaseUrl}/#activate-account?token=${inviteToken}&email=${encodeURIComponent(user.email)}`;
 
       // Generate invitation email

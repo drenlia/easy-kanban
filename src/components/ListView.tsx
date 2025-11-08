@@ -11,6 +11,7 @@ import DOMPurify from 'dompurify';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { truncateMemberName } from '../utils/memberUtils';
 import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
 import AddTagModal from './AddTagModal';
@@ -2002,7 +2003,7 @@ export default function ListView({
                   </div>
                 )}
                 <span className="text-sm text-gray-900 dark:text-gray-100 font-medium">
-                  {member.name}
+                  {truncateMemberName(member.name)}
                 </span>
               </button>
             ))}

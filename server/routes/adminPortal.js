@@ -332,8 +332,13 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Create member for the user
     const memberId = crypto.randomUUID();
     const memberColor = '#4ECDC4'; // Default color
+    // Ensure member name doesn't exceed 30 characters
+    let memberName = `${firstName} ${lastName}`.trim();
+    if (memberName.length > 30) {
+      memberName = memberName.substring(0, 30);
+    }
     wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
-      .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+      .run(memberId, memberName, memberColor, userId);
     
     console.log(`✅ Admin portal created user: ${email} (${firstName} ${lastName})`);
     

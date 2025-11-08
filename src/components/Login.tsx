@@ -4,7 +4,7 @@ import { login } from '../api';
 import { Copy, Check } from 'lucide-react';
 
 interface LoginProps {
-  onLogin: (userData: any, token: string) => void;
+  onLogin: (userData: any, token: string) => Promise<void>;
   siteSettings?: any;
   hasDefaultAdmin?: boolean;
   intendedDestination?: string | null;
@@ -200,7 +200,7 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
 
     try {
       const response = await login(email, password);
-      onLogin(response.user, response.token);
+      await onLogin(response.user, response.token);
     } catch (error: any) {
       setError(error.response?.data?.error || t('login.loginFailed'));
     } finally {

@@ -51,9 +51,15 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${inviteUrl}" style="background-color: #2563eb; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              🚀 ${t('emails.userInvite.activateAccount')}
-            </a>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+              <tr>
+                <td align="center" style="border-radius: 6px; background-color: #2563eb;">
+                  <a href="${inviteUrl}" target="_blank" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    🚀 ${t('emails.userInvite.activateAccount')}
+                  </a>
+                </td>
+              </tr>
+            </table>
           </div>
           
           <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">
@@ -92,34 +98,22 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       taskUrl, 
       siteName,
       oldValue,
-      newValue 
+      newValue,
+      db
     } = data;
 
+    const t = db ? getTranslator(db) : (key, options = {}) => key;
+
     const getActionMessage = () => {
-      switch (actionType) {
-        case 'created':
-          return `A new task has been created`;
-        case 'assigned':
-          return `You have been assigned to a task`;
-        case 'updated':
-          return `A task you're involved in has been updated`;
-        case 'commented':
-          return `A new comment has been added to a task you're following`;
-        case 'status_changed':
-          return `Task status has been changed`;
-        case 'priority_changed':
-          return `Task priority has been changed`;
-        case 'due_date_changed':
-          return `Task due date has been changed`;
-        default:
-          return `Task activity notification`;
-      }
+      const actionKey = actionType || 'default';
+      return t(`emails.taskNotification.common.actionMessage.${actionKey}`, {}, 
+        t('emails.taskNotification.common.actionMessage.default'));
     };
 
     const getChangeDetails = () => {
       if (oldValue && newValue && oldValue !== newValue) {
         return `<div style="background-color: #fef3c7; padding: 12px; border-radius: 6px; margin: 10px 0;">
-          <strong>Changed:</strong><br>
+          <strong>${t('emails.taskNotification.common.changed')}</strong><br>
           <span style="color: #dc2626;">❌ ${oldValue}</span><br>
           <span style="color: #16a34a;">✅ ${newValue}</span>
         </div>`;
@@ -129,26 +123,26 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
 
     return {
       subject: `${siteName || 'Easy Kanban'}: ${getActionMessage()} - ${task.title}`,
-      text: `Hi ${user.first_name},
+      text: `${t('emails.taskNotification.common.hi', { firstName: user.first_name })}
 
 ${getActionMessage()} in ${board.name}:
 
 Task: ${task.title}
-${project ? `Project: ${project}` : ''}
-Details: ${actionDetails}
+${project ? `${t('emails.taskNotification.common.project')} ${project}` : ''}
+${t('emails.taskNotification.common.details')} ${actionDetails}
 
-View task: ${taskUrl}
+${t('emails.taskNotification.common.viewTask')}: ${taskUrl}
 
 Best regards,
-The ${siteName || 'Easy Kanban'} Team`,
+${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">📋 Task Notification</h1>
+            <h1 style="color: #2563eb; margin: 0;">📋 ${t('emails.taskNotification.common.taskNotification')}</h1>
           </div>
           
           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">Hi ${user.first_name},</h2>
+            <h2 style="color: #374151; margin-top: 0;">${t('emails.taskNotification.common.hi', { firstName: user.first_name })}</h2>
             <p style="color: #6b7280; line-height: 1.6; font-size: 16px;">
               ${getActionMessage()} in <strong>${board.name}</strong>:
             </p>
@@ -156,22 +150,28 @@ The ${siteName || 'Easy Kanban'} Team`,
 
           <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
             <h3 style="color: #1f2937; margin-top: 0; font-size: 18px;">📝 ${task.title}</h3>
-            ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>Project:</strong> ${project}</p>` : ''}
-            <p style="color: #374151; margin: 10px 0;"><strong>Details:</strong> ${actionDetails}</p>
+            ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${project}</p>` : ''}
+            <p style="color: #374151; margin: 10px 0;"><strong>${t('emails.taskNotification.common.details')}</strong> ${actionDetails}</p>
             ${getChangeDetails()}
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${taskUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              👀 View Task
-            </a>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+              <tr>
+                <td align="center" style="border-radius: 6px; background-color: #2563eb;">
+                  <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    👀 ${t('emails.taskNotification.common.viewTask')}
+                  </a>
+                </td>
+              </tr>
+            </table>
           </div>
           
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            You received this notification because you're involved in this task.<br>
-            <strong>The ${siteName || 'Easy Kanban'} Team</strong>
+            ${t('emails.taskNotification.common.receivingReason')}<br>
+            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
           </p>
         </div>
       `
@@ -191,42 +191,45 @@ The ${siteName || 'Easy Kanban'} Team`,
       comment, 
       commentAuthor, 
       taskUrl, 
-      siteName 
+      siteName,
+      db
     } = data;
 
-    return {
-      subject: `${siteName || 'Easy Kanban'}: New comment on "${task.title}"`,
-      text: `Hi ${user.first_name},
+    const t = db ? getTranslator(db) : (key, options = {}) => key;
 
-${commentAuthor.first_name} ${commentAuthor.last_name} added a new comment to a task you're following:
+    return {
+      subject: t('emails.commentNotification.subject', { taskTitle: task.title }),
+      text: `${t('emails.taskNotification.common.hi', { firstName: user.first_name })}
+
+${commentAuthor.first_name} ${commentAuthor.last_name} ${t('emails.commentNotification.addedCommentToTask')}
 
 Task: ${task.title}
-${project ? `Project: ${project}` : ''}
-Board: ${board.name}
+${project ? `${t('emails.taskNotification.common.project')} ${project}` : ''}
+${t('emails.taskNotification.common.board')} ${board.name}
 
-Comment: ${comment.text.replace(/<[^>]*>/g, '')} // Strip HTML for text version
+Comment: ${comment.text.replace(/<[^>]*>/g, '')}
 
-View task: ${taskUrl}
+${t('emails.taskNotification.common.viewTask')}: ${taskUrl}
 
 Best regards,
-The ${siteName || 'Easy Kanban'} Team`,
+${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #2563eb; margin: 0;">💬 New Comment</h1>
+            <h1 style="color: #2563eb; margin: 0;">💬 ${t('emails.commentNotification.title')}</h1>
           </div>
           
           <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #374151; margin-top: 0;">Hi ${user.first_name},</h2>
+            <h2 style="color: #374151; margin-top: 0;">${t('emails.taskNotification.common.hi', { firstName: user.first_name })}</h2>
             <p style="color: #6b7280; line-height: 1.6;">
-              <strong>${commentAuthor.first_name} ${commentAuthor.last_name}</strong> added a new comment to a task you're following:
+              <strong>${commentAuthor.first_name} ${commentAuthor.last_name}</strong> ${t('emails.commentNotification.addedCommentToTask')}
             </p>
           </div>
 
           <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
             <h3 style="color: #1f2937; margin-top: 0;">📝 ${task.title}</h3>
-            ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>Project:</strong> ${project}</p>` : ''}
-            <p style="color: #6b7280; margin: 5px 0;"><strong>Board:</strong> ${board.name}</p>
+            ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${project}</p>` : ''}
+            <p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.board')}</strong> ${board.name}</p>
           </div>
 
           <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 16px; margin-bottom: 20px;">
@@ -242,16 +245,22 @@ The ${siteName || 'Easy Kanban'} Team`,
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${taskUrl}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              💬 View Task & Reply
-            </a>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+              <tr>
+                <td align="center" style="border-radius: 6px; background-color: #2563eb;">
+                  <a href="${taskUrl}" target="_blank" style="display: inline-block; padding: 12px 24px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    ${t('emails.taskNotification.common.viewTaskReply')}
+                  </a>
+                </td>
+              </tr>
+            </table>
           </div>
           
           <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
           
           <p style="color: #9ca3af; font-size: 12px; text-align: center;">
-            You received this notification because you're involved in this task.<br>
-            <strong>The ${siteName || 'Easy Kanban'} Team</strong>
+            ${t('emails.taskNotification.common.receivingReason')}<br>
+            <strong>${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Easy Kanban' })}</strong>
           </p>
         </div>
       `
@@ -295,9 +304,15 @@ ${t('emails.passwordReset.body6', { siteName: siteName || 'Easy Kanban' })}`,
           </div>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" style="background-color: #dc2626; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: bold;">
-              🔄 ${t('emails.passwordReset.resetButton')}
-            </a>
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin: 0 auto;">
+              <tr>
+                <td align="center" style="border-radius: 6px; background-color: #dc2626;">
+                  <a href="${resetUrl}" target="_blank" style="display: inline-block; padding: 14px 28px; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">
+                    🔄 ${t('emails.passwordReset.resetButton')}
+                  </a>
+                </td>
+              </tr>
+            </table>
           </div>
           
           <div style="background-color: #fef3c7; padding: 16px; border-radius: 6px; margin-bottom: 20px;">

@@ -8,6 +8,7 @@ import TextEditor from './TextEditor';
 import websocketClient from '../services/websocketClient';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { useFileUpload } from '../hooks/useFileUpload';
+import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 
 interface QuickEditModalProps {
@@ -536,7 +537,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                         onClick={() => toggleWatcher(member)}
                         className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
                       >
-                        <span>{member.name}</span>
+                        <span>{truncateMemberName(member.name)}</span>
                         {isWatching && <Check className="w-4 h-4 text-green-500" />}
                       </div>
                     );
@@ -557,7 +558,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: member.color }}
                     />
-                    {member.name}
+                    {truncateMemberName(member.name)}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -615,7 +616,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                         onClick={() => toggleCollaborator(member)}
                         className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
                       >
-                        <span>{member.name}</span>
+                        <span>{truncateMemberName(member.name)}</span>
                         {isCollaborating && <Check className="w-4 h-4 text-green-500" />}
                       </div>
                     );
@@ -636,7 +637,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: member.color }}
                     />
-                    {member.name}
+                    {truncateMemberName(member.name)}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -693,7 +694,7 @@ export default function QuickEditModal({ task, members, onClose, onSave, siteSet
               >
                 {members.map(member => (
                   <option key={member.id} value={member.id}>
-                    {member.name}
+                    {truncateMemberName(member.name)}
                   </option>
                 ))}
               </select>

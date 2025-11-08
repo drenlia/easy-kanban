@@ -49,6 +49,7 @@
     "failedToUploadAvatar": "Failed to upload avatar",
     "failedToRemoveAvatar": "Failed to remove avatar",
     "displayNameRequired": "Display name is required",
+    "displayNameTooLong": "Display name must not exceed 30 characters",
     "displayNameTaken": "This display name is already taken by another user",
     "failedToUpdateProfile": "Failed to update profile",
     "noAvatarFileUploaded": "No avatar file uploaded",
@@ -168,6 +169,100 @@
       "body4": "If you didn't request this reset, please ignore this email.",
       "body5": "Best regards,",
       "body6": "The {siteName} Team"
+    },
+    "commentNotification": {
+      "subject": "💬 New comment on: {taskTitle}",
+      "title": "New Comment",
+      "taskId": "Task ID:",
+      "commentBy": "Comment by:",
+      "addedCommentToTask": "added a new comment to a task you're following:",
+      "newComment": "New Comment:",
+      "viewComment": "View Comment",
+      "receivingReason": "You're receiving this because you're involved in this task."
+    },
+    "taskNotification": {
+      "newTaskAssigned": {
+        "subject": "📋 New task assigned: {taskTitle}",
+        "title": "New Task Assigned",
+        "taskId": "Task ID:",
+        "assignedBy": "Assigned by:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you were assigned to this task."
+      },
+      "myTaskUpdated": {
+        "subject": "📝 Your task was updated: {taskTitle}",
+        "title": "Task Updated",
+        "taskId": "Task ID:",
+        "updatedBy": "Updated by:",
+        "whatChanged": "What changed:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you're assigned to this task."
+      },
+      "watchedTaskUpdated": {
+        "subject": "👀 Watched task updated: {taskTitle}",
+        "title": "Watched Task Updated",
+        "taskId": "Task ID:",
+        "updatedBy": "Updated by:",
+        "whatChanged": "What changed:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you're watching this task."
+      },
+      "addedAsCollaborator": {
+        "subject": "🤝 Added as collaborator: {taskTitle}",
+        "title": "Added as Collaborator",
+        "taskId": "Task ID:",
+        "addedBy": "Added by:",
+        "viewTask": "View Task",
+        "receivingReason": "You're now collaborating on this task and will receive updates about changes."
+      },
+      "collaboratingTaskUpdated": {
+        "subject": "🤝 Collaborating task updated: {taskTitle}",
+        "title": "Collaborating Task Updated",
+        "taskId": "Task ID:",
+        "updatedBy": "Updated by:",
+        "whatChanged": "What changed:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you're collaborating on this task."
+      },
+      "requesterTaskCreated": {
+        "subject": "✅ Your requested task was created: {taskTitle}",
+        "title": "Task Created",
+        "taskId": "Task ID:",
+        "createdBy": "Created by:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you requested this task."
+      },
+      "requesterTaskUpdated": {
+        "subject": "📋 Your requested task was updated: {taskTitle}",
+        "title": "Requested Task Updated",
+        "taskId": "Task ID:",
+        "updatedBy": "Updated by:",
+        "whatChanged": "What changed:",
+        "viewTask": "View Task",
+        "receivingReason": "You're receiving this because you requested this task."
+      },
+      "common": {
+        "taskNotification": "Task Notification",
+        "hi": "Hi {firstName},",
+        "actionMessage": {
+          "created": "A new task has been created",
+          "assigned": "You have been assigned to a task",
+          "updated": "A task you're involved in has been updated",
+          "commented": "A new comment has been added to a task you're following",
+          "status_changed": "Task status has been changed",
+          "priority_changed": "Task priority has been changed",
+          "due_date_changed": "Task due date has been changed",
+          "default": "Task activity notification"
+        },
+        "project": "Project:",
+        "board": "Board:",
+        "details": "Details:",
+        "changed": "Changed:",
+        "viewTask": "View Task",
+        "viewTaskReply": "💬 View Task & Reply",
+        "receivingReason": "You received this notification because you're involved in this task.",
+        "teamSignature": "The {siteName} Team"
+      }
     }
   },
   "achievements": {
@@ -237,6 +332,48 @@
     "settingCreatedSuccessfully": "Setting created successfully",
     "instanceStatusUpdatedSuccessfully": "Instance status updated successfully",
     "invitationSentSuccessfully": "Invitation sent successfully"
+  },
+  "activity": {
+    "createdTask": "created task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "createdTaskAtTop": "created task \"{taskTitle}\" at top of column",
+    "deletedTask": "deleted task \"{taskTitle}\"{taskRef} from board \"{boardTitle}\"",
+    "movedTask": "{details}{taskRef} in board \"{boardTitle}\"",
+    "updatedTask": "{details} in task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "movedTaskColumn": "{details} in board \"{boardTitle}\"",
+    "addedDescription": "added description",
+    "updatedDescription": "updated description",
+    "clearedDescription": "cleared description",
+    "addedAttachment": "added {count} attachment",
+    "addedAttachments": "added {count} attachments",
+    "removedAttachment": "removed {count} attachment",
+    "removedAttachments": "removed {count} attachments",
+    "setField": "set {fieldLabel} to \"{newValue}\"",
+    "clearedField": "cleared {fieldLabel} (was \"{oldValue}\")",
+    "changedField": "changed {fieldLabel} from \"{oldValue}\" to \"{newValue}\"",
+    "setAssignee": "set assignee to \"{newName}\"",
+    "clearedAssignee": "cleared assignee (was \"{oldName}\")",
+    "changedAssignee": "changed assignee from \"{oldName}\" to \"{newName}\"",
+    "setRequester": "set requester to \"{newName}\"",
+    "clearedRequester": "cleared requester (was \"{oldName}\")",
+    "changedRequester": "changed requester from \"{oldName}\" to \"{newName}\"",
+    "fieldLabels": {
+      "title": "title",
+      "description": "description",
+      "dueDate": "due date",
+      "startDate": "start date",
+      "effort": "effort",
+      "priorityId": "priority",
+      "memberId": "assignee",
+      "requesterId": "requester",
+      "columnId": "status"
+    },
+    "addedComment": "added comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "updatedComment": "updated comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "deletedComment": "deleted comment on task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
+    "unknownTask": "Unknown Task",
+    "unknownBoard": "Unknown Board",
+    "unassigned": "Unassigned",
+    "unknownUser": "Unknown User"
   }
 }
 

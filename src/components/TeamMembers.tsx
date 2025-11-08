@@ -84,6 +84,14 @@ export default function TeamMembers({
   // Use members directly - API will include/exclude SYSTEM based on includeSystem parameter
   const displayMembers = members;
   
+  // Function to truncate display name to 12 characters
+  const truncateDisplayName = (name: string, maxLength: number = 12): string => {
+    if (name.length <= maxLength) {
+      return name;
+    }
+    return name.substring(0, maxLength) + '...';
+  };
+  
   // Function to get avatar display for a member
   const getMemberAvatar = (member: TeamMember) => {
     // Priority: Google avatar > Local avatar > Default initials
@@ -283,7 +291,7 @@ export default function TeamMembers({
             >
               {getMemberAvatar(member)}
               <span className={`text-xs font-medium ${isSelected ? 'font-semibold' : ''}`}>
-                {member.name}
+                {truncateDisplayName(member.name)}
               </span>
             </div>
           );

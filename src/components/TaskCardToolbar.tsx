@@ -5,6 +5,7 @@ import { Copy, FileText, Eye, UserPlus, GripVertical, MessageSquarePlus, TagIcon
 import { Task, TeamMember, Tag } from '../types';
 import { formatMembersTooltip } from '../utils/taskUtils';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 
 // System user member ID constant
@@ -582,7 +583,7 @@ export default function TaskCardToolbar({
                     {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <span className="text-sm">{m.name}</span>
+                <span className="text-sm">{truncateMemberName(m.name)}</span>
                 {m.id === member.id && (
                   <span className="ml-auto text-blue-600 text-xs">✓</span>
                 )}

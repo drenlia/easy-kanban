@@ -8,6 +8,7 @@ import { getTaskById, getMembers, getBoards, addWatcherToTask, removeWatcherFrom
 import { useFileUpload } from '../hooks/useFileUpload';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
+import { truncateMemberName } from '../utils/memberUtils';
 import TextEditor from './TextEditor';
 import ModalManager from './layout/ModalManager';
 import Header from './layout/Header';
@@ -1242,7 +1243,7 @@ export default function TaskPage({
                   >
                     {members.map((member) => (
                       <option key={member.id} value={member.id}>
-                        {member.name}
+                        {truncateMemberName(member.name)}
                       </option>
                     ))}
                   </select>
@@ -1257,7 +1258,7 @@ export default function TaskPage({
                   >
                     {members.map((member) => (
                       <option key={member.id} value={member.id}>
-                        {member.name}
+                        {truncateMemberName(member.name)}
                       </option>
                     ))}
                   </select>
@@ -1325,7 +1326,7 @@ export default function TaskPage({
                           key={collaborator.id}
                           className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-green-100 text-green-800"
                         >
-                          {collaborator.name}
+                          {truncateMemberName(collaborator.name)}
                           <button
                             type="button"
                             onClick={async () => {

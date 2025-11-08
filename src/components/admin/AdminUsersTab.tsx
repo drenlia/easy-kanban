@@ -774,6 +774,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     type="text"
                     value={newUser.displayName || `${newUser.firstName} ${newUser.lastName}`}
                     onChange={(e) => setNewUser(prev => ({ ...prev, displayName: e.target.value }))}
+                    maxLength={30}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder={t('users.displayName')}
                   />
@@ -854,6 +855,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                     type="text"
                     value={editingUserData.displayName}
                     onChange={(e) => setEditingUserData(prev => ({ ...prev, displayName: e.target.value }))}
+                    maxLength={30}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     placeholder={t('users.displayName')}
                   />

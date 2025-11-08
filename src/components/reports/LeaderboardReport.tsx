@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 import { Trophy, Medal, Award } from 'lucide-react';
 
 interface LeaderboardEntry {
@@ -185,7 +185,14 @@ const LeaderboardReport: React.FC = () => {
         <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
           <div className="flex items-center justify-between text-sm">
             <span className="text-blue-800 dark:text-blue-200">
-              {t('reports.leaderboard.showingMembers', { showing: data.leaderboard.length, total: data.totalMembers })}
+              <Trans
+                i18nKey="reports.leaderboard.showingMembers"
+                ns="common"
+                values={{ showing: data.leaderboard.length, total: data.totalMembers }}
+                components={{
+                  strong: <strong />
+                }}
+              />
             </span>
             {data.totalMembers > data.leaderboard.length && (
               <span className="text-blue-600 dark:text-blue-400 text-xs">

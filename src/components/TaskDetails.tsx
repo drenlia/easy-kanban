@@ -12,6 +12,7 @@ import { loadUserPreferences, updateUserPreference } from '../utils/userPreferen
 import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
 
 interface TaskDetailsProps {
@@ -1415,7 +1416,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 >
                   {members.map(member => (
                     <option key={member.id} value={member.id}>
-                      {member.name}
+                      {truncateMemberName(member.name)}
                     </option>
                   ))}
                 </select>
@@ -1433,7 +1434,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 >
                   {members.map(member => (
                     <option key={member.id} value={member.id}>
-                      {member.name}
+                      {truncateMemberName(member.name)}
                     </option>
                   ))}
                 </select>
@@ -1477,7 +1478,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             onClick={() => toggleWatcher(member)}
                             className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
                           >
-                            <span>{member.name}</span>
+                            <span>{truncateMemberName(member.name)}</span>
                             {isWatching && <Check className="w-4 h-4 text-green-500" />}
                           </div>
                         );
@@ -1498,7 +1499,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: member.color }}
                         />
-                        {member.name}
+                        {truncateMemberName(member.name)}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -1551,7 +1552,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             onClick={() => toggleCollaborator(member)}
                             className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between"
                           >
-                            <span>{member.name}</span>
+                            <span>{truncateMemberName(member.name)}</span>
                             {isCollaborating && <Check className="w-4 h-4 text-green-500" />}
                           </div>
                         );
@@ -1572,7 +1573,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           className="w-2 h-2 rounded-full"
                           style={{ backgroundColor: member.color }}
                         />
-                        {member.name}
+                        {truncateMemberName(member.name)}
                         <button
                           type="button"
                           onClick={(e) => {

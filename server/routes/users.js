@@ -4,6 +4,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUpload } from '../config/multer.js';
 import redisService from '../services/redisService.js';
+import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -115,26 +116,33 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const db = req.app.locals.db;
+    const t = getTranslator(db);
     const { displayName } = req.body;
     const userId = req.user.id;
     
     if (!displayName || displayName.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required' });
+      return res.status(400).json({ error: t('errors.displayNameRequired') });
+    }
+    
+    // Validate display name length (max 30 characters)
+    const trimmedDisplayName = displayName.trim();
+    if (trimmedDisplayName.length > 30) {
+      return res.status(400).json({ error: t('errors.displayNameTooLong') });
     }
     
     // Check for duplicate display name (excluding current user)
     const existingMember = wrapQuery(
       db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
       'SELECT'
-    ).get(displayName.trim(), userId);
+    ).get(trimmedDisplayName, userId);
     
     if (existingMember) {
-      return res.status(400).json({ error: 'This display name is already taken by another user' });
+      return res.status(400).json({ error: t('errors.displayNameTaken') });
     }
     
     // Update the member's name in the members table
     const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    updateMemberStmt.run(displayName.trim(), userId);
+    updateMemberStmt.run(trimmedDisplayName, userId);
     
     // Get the member ID for Redis publishing
     const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
@@ -145,7 +153,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
       await redisService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
-        displayName: displayName.trim(),
+        displayName: trimmedDisplayName,
         timestamp: new Date().toISOString()
       });
       console.log('✅ User-profile-updated published to Redis');
@@ -153,7 +161,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     res.json({ 
       message: 'Profile updated successfully',
-      displayName: displayName.trim()
+      displayName: trimmedDisplayName
     });
   } catch (error) {
     console.error('Profile update error:', error);

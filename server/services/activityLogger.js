@@ -1,6 +1,7 @@
 import { isValidAction } from '../constants/activityActions.js';
 import { getNotificationService } from './notificationService.js';
 import redisService from './redisService.js';
+import { getTranslator } from '../utils/i18n.js';
 
 /**
  * Activity Logger Service
@@ -106,29 +107,63 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       console.warn('Failed to get project/task identifiers:', prefixError.message);
     }
 
+    // Get translator for activity messages
+    const t = getTranslator(db);
+    
+    // Translate task and board titles if they are default values
+    const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
+    const translatedBoardTitle = boardTitle === 'Unknown Board' ? t('activity.unknownBoard') : boardTitle;
+    
     // Create enhanced details with context for specific actions
     let enhancedDetails = details;
     const taskRef = taskTicket ? ` (${taskTicket})` : '';
     
     if (action === 'create_task') {
-      enhancedDetails = `created task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
+      // Check if this is a "create at top" action
+      if (details && details.includes('at top')) {
+        enhancedDetails = t('activity.createdTaskAtTop', {
+          taskTitle: translatedTaskTitle
+        });
+      } else {
+        enhancedDetails = t('activity.createdTask', {
+          taskTitle: translatedTaskTitle,
+          taskRef,
+          boardTitle: translatedBoardTitle
+        });
+      }
     } else if (action === 'delete_task') {
       // For delete_task, if taskTitle is "Unknown Task", use the provided details
       if (taskTitle === 'Unknown Task' && details.includes('deleted task')) {
-        enhancedDetails = details; // Use the provided details as-is
+        enhancedDetails = details; // Use the provided details as-is (already translated)
       } else {
-        enhancedDetails = `deleted task "${taskTitle}"${taskRef} from board "${boardTitle}"`;
+        enhancedDetails = t('activity.deletedTask', {
+          taskTitle: translatedTaskTitle,
+          taskRef,
+          boardTitle: translatedBoardTitle
+        });
       }
     } else if (action === 'move_task') {
       // Board move already includes task name, add task reference if available
-      enhancedDetails = `${details}${taskRef} in board "${boardTitle}"`;
+      enhancedDetails = t('activity.movedTask', {
+        details,
+        taskRef,
+        boardTitle: translatedBoardTitle
+      });
     } else if (action === 'update_task') {
       // Check if this is a column move (already includes task name in details)
       if (details.includes('moved task') && details.includes('from') && details.includes('to')) {
         // Column move already includes task reference, just add board context
-        enhancedDetails = `${details} in board "${boardTitle}"`;
+        enhancedDetails = t('activity.movedTaskColumn', {
+          details,
+          boardTitle: translatedBoardTitle
+        });
       } else {
-        enhancedDetails = `${details} in task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
+        enhancedDetails = t('activity.updatedTask', {
+          details,
+          taskTitle: translatedTaskTitle,
+          taskRef,
+          boardTitle: translatedBoardTitle
+        });
       }
     }
 
@@ -240,6 +275,9 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
   }
 
   try {
+    // Get translator for activity messages
+    const t = getTranslator(db);
+    
     // Get user's current role
     const userRole = db.prepare(`
       SELECT r.id as roleId 
@@ -262,6 +300,15 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       return;
     }
 
+    // Try to translate common activity patterns
+    // For now, we'll use the details as-is if it doesn't match a known pattern
+    // This allows callers to pass pre-translated strings or custom messages
+    let translatedDetails = details;
+    
+    // Simple pattern matching for common activities (can be expanded)
+    // For tag associations, relationships, etc., we'll keep the details as-is
+    // since they may contain dynamic content that's already formatted
+
     // Insert activity into database
     const stmt = db.prepare(`
       INSERT INTO activity (
@@ -278,7 +325,7 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       additionalData.columnId || null,
       additionalData.boardId || null,
       additionalData.tagId || null,
-      details
+      translatedDetails
     );
 
     
@@ -319,7 +366,17 @@ const analyzeHTMLContent = (html) => {
 /**
  * Generate intelligent description change details
  */
-const generateDescriptionChangeDetails = (oldValue, newValue) => {
+const generateDescriptionChangeDetails = (oldValue, newValue, t) => {
+  if (!t) {
+    // Fallback if translator not provided
+    t = (key, params = {}) => {
+      if (key === 'activity.updatedDescription') return 'updated description';
+      if (key === 'activity.addedAttachment') return `added ${params.count} attachment${params.count > 1 ? 's' : ''}`;
+      if (key === 'activity.removedAttachment') return `removed ${params.count} attachment${params.count > 1 ? 's' : ''}`;
+      return key;
+    };
+  }
+
   const oldContent = analyzeHTMLContent(oldValue);
   const newContent = analyzeHTMLContent(newValue);
   
@@ -331,59 +388,56 @@ const generateDescriptionChangeDetails = (oldValue, newValue) => {
   
   // Check for text changes
   if (textChanged) {
-    actions.push('updated description');
+    actions.push(t('activity.updatedDescription'));
   }
   
   // Check for image changes
   if (imagesAdded.length > 0) {
     const count = imagesAdded.length;
-    actions.push(`added ${count} attachment${count > 1 ? 's' : ''}`);
+    const key = count === 1 ? 'activity.addedAttachment' : 'activity.addedAttachments';
+    actions.push(t(key, { count }));
   }
   
   if (imagesRemoved.length > 0) {
     const count = imagesRemoved.length;
-    actions.push(`removed ${count} attachment${count > 1 ? 's' : ''}`);
+    const key = count === 1 ? 'activity.removedAttachment' : 'activity.removedAttachments';
+    actions.push(t(key, { count }));
   }
   
   // If no meaningful changes detected, fall back to generic message
   if (actions.length === 0) {
-    return 'updated description';
+    return t('activity.updatedDescription');
   }
   
+  // Join actions with " and " - this needs to be translated too, but for now we'll use English
   return actions.join(' and ');
 };
 
 export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalContext = '') => {
-  const fieldLabels = {
-    title: 'title',
-    description: 'description',
-    dueDate: 'due date',
-    startDate: 'start date',
-    effort: 'effort',
-    priorityId: 'priority',
-    memberId: 'assignee',
-    requesterId: 'requester',
-    columnId: 'status'
-  };
+  if (!db) {
+    console.warn('Database not available for generateTaskUpdateDetails');
+    return '';
+  }
 
-  const fieldLabel = fieldLabels[field] || field;
+  const t = getTranslator(db);
+  const fieldLabel = t(`activity.fieldLabels.${field}`, {}, field);
   const context = additionalContext ? ` ${additionalContext}` : '';
 
   // Special handling for description changes
   if (field === 'description') {
     if (oldValue === null || oldValue === undefined || oldValue === '') {
-      return newValue ? 'added description' : 'updated description';
+      return newValue ? t('activity.addedDescription') : t('activity.updatedDescription');
     } else if (newValue === null || newValue === undefined || newValue === '') {
-      return 'cleared description';
+      return t('activity.clearedDescription');
     } else {
-      return generateDescriptionChangeDetails(oldValue, newValue);
+      return generateDescriptionChangeDetails(oldValue, newValue, t);
     }
   }
 
   // Special handling for memberId and requesterId changes - resolve user IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
     const getMemberName = (userId) => {
-      if (!userId || !db) return 'Unassigned';
+      if (!userId || !db) return t('activity.unassigned');
       try {
         const member = db.prepare(`
           SELECT m.name 
@@ -391,32 +445,42 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
           JOIN users u ON m.user_id = u.id 
           WHERE u.id = ?
         `).get(userId);
-        return member?.name || 'Unknown User';
+        return member?.name || t('activity.unknownUser');
       } catch (error) {
         console.warn('Failed to resolve member name for user ID:', userId, error.message);
-        return 'Unknown User';
+        return t('activity.unknownUser');
       }
     };
 
     const oldName = getMemberName(oldValue);
     const newName = getMemberName(newValue);
 
-    if (oldValue === null || oldValue === undefined || oldValue === '') {
-      return `set ${fieldLabel} to "${newName}"${context}`;
-    } else if (newValue === null || newValue === undefined || newValue === '') {
-      return `cleared ${fieldLabel} (was "${oldName}")${context}`;
-    } else {
-      return `changed ${fieldLabel} from "${oldName}" to "${newName}"${context}`;
+    if (field === 'memberId') {
+      if (oldValue === null || oldValue === undefined || oldValue === '') {
+        return t('activity.setAssignee', { newName }) + context;
+      } else if (newValue === null || newValue === undefined || newValue === '') {
+        return t('activity.clearedAssignee', { oldName }) + context;
+      } else {
+        return t('activity.changedAssignee', { oldName, newName }) + context;
+      }
+    } else if (field === 'requesterId') {
+      if (oldValue === null || oldValue === undefined || oldValue === '') {
+        return t('activity.setRequester', { newName }) + context;
+      } else if (newValue === null || newValue === undefined || newValue === '') {
+        return t('activity.clearedRequester', { oldName }) + context;
+      } else {
+        return t('activity.changedRequester', { oldName, newName }) + context;
+      }
     }
   }
 
   // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
-    return `set ${fieldLabel} to "${newValue}"${context}`;
+    return t('activity.setField', { fieldLabel, newValue }) + context;
   } else if (newValue === null || newValue === undefined || newValue === '') {
-    return `cleared ${fieldLabel} (was "${oldValue}")${context}`;
+    return t('activity.clearedField', { fieldLabel, oldValue }) + context;
   } else {
-    return `changed ${fieldLabel} from "${oldValue}" to "${newValue}"${context}`;
+    return t('activity.changedField', { fieldLabel, oldValue, newValue }) + context;
   }
 };
 
@@ -498,10 +562,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn(`User ${userId} not found for comment activity logging`);
     }
 
-    // Create clean, user-friendly details without exposing raw comment content
-    const actionText = action === 'create_comment' ? 'added comment' : 
-                      action === 'update_comment' ? 'updated comment' : 
-                      action === 'delete_comment' ? 'deleted comment' : 'modified comment';
+    // Get translator for activity messages
+    const t = getTranslator(db);
+    
+    // Translate task and board titles if they are default values
+    const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
+    const translatedBoardTitle = boardTitle === 'Unknown Board' ? t('activity.unknownBoard') : boardTitle;
     
     // Get task reference for enhanced context
     let taskRef = '';
@@ -514,7 +580,33 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn('Failed to get task reference for comment activity:', refError.message);
     }
     
-    let enhancedDetails = `${actionText} on task "${taskTitle}"${taskRef} in board "${boardTitle}"`;
+    // Create clean, user-friendly details without exposing raw comment content
+    let enhancedDetails;
+    if (action === 'create_comment') {
+      enhancedDetails = t('activity.addedComment', {
+        taskTitle: translatedTaskTitle,
+        taskRef,
+        boardTitle: translatedBoardTitle
+      });
+    } else if (action === 'update_comment') {
+      enhancedDetails = t('activity.updatedComment', {
+        taskTitle: translatedTaskTitle,
+        taskRef,
+        boardTitle: translatedBoardTitle
+      });
+    } else if (action === 'delete_comment') {
+      enhancedDetails = t('activity.deletedComment', {
+        taskTitle: translatedTaskTitle,
+        taskRef,
+        boardTitle: translatedBoardTitle
+      });
+    } else {
+      enhancedDetails = t('activity.updatedComment', {
+        taskTitle: translatedTaskTitle,
+        taskRef,
+        boardTitle: translatedBoardTitle
+      });
+    }
 
     // Get project identifier and task ticket for enhanced context (always enabled)
     try {

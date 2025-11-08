@@ -264,6 +264,11 @@ export const getCurrentUser = async () => {
   return data;
 };
 
+export const updateAppUrl = async (appUrl: string) => {
+  const { data } = await api.put('/settings/app-url', { appUrl });
+  return data;
+};
+
 // Debug - DISABLED
 // export const getQueryLogs = async () => {
 //   const { data } = await api.get('/debug/logs');

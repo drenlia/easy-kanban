@@ -7,7 +7,7 @@ interface ResetPasswordProps {
   token: string;
   onBackToLogin: () => void;
   onResetSuccess: () => void;
-  onAutoLogin: (user: any, token: string) => void;
+  onAutoLogin: (user: any, token: string) => Promise<void>;
 }
 
 export default function ResetPassword({ token, onBackToLogin, onResetSuccess, onAutoLogin }: ResetPasswordProps) {
