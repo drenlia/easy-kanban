@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getSystemInfo } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
+import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
 import AdminSSOTab from './admin/AdminSSOTab';
 import AdminTagsTab from './admin/AdminTagsTab';
@@ -100,34 +101,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-  
-  // Tab-specific message states to prevent leakage between tabs
-  const [tabMessages, setTabMessages] = useState<{[tab: string]: {success: string | null, error: string | null}}>({});
-  
-  // Helper functions for tab-specific messages
-  const setTabMessage = (tab: string, type: 'success' | 'error', message: string | null) => {
-    setTabMessages(prev => ({
-      ...prev,
-      [tab]: {
-        ...prev[tab],
-        [type]: message
-      }
-    }));
-  };
-  
-  const getTabMessage = (tab: string, type: 'success' | 'error') => {
-    return tabMessages[tab]?.[type] || null;
-  };
-  
-  const clearTabMessages = (tab: string) => {
-    setTabMessages(prev => ({
-      ...prev,
-      [tab]: { success: null, error: null }
-    }));
-  };
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
@@ -175,11 +149,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       if (fullHash.startsWith('#admin#app-settings#')) {
         if (activeTab !== 'app-settings') {
           setActiveTab('app-settings');
-          // Clear global messages when switching tabs
-          setSuccessMessage(null);
-          setError(null);
-          // Clear tab-specific messages for the new tab
-          clearTabMessages('app-settings');
         }
         return; // Don't process further, let AdminAppSettingsTab handle the sub-tab
       }
@@ -188,22 +157,14 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       if (fullHash.startsWith('#admin#licensing#')) {
         if (activeTab !== 'licensing') {
           setActiveTab('licensing');
-          // Clear global messages when switching tabs
-          setSuccessMessage(null);
-          setError(null);
           // Clear tab-specific messages for the new tab
-          clearTabMessages('licensing');
         }
         return; // Don't process further, let AdminLicensingTab handle the sub-tab
       }
       
       if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
         setActiveTab(tabHash);
-        // Clear global messages when switching tabs
-        setSuccessMessage(null);
-        setError(null);
         // Clear tab-specific messages for the new tab
-        clearTabMessages(tabHash);
       }
     };
 
@@ -216,27 +177,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     if (fullHash.startsWith('#admin#app-settings#')) {
       if (activeTab !== 'app-settings') {
         setActiveTab('app-settings');
-        // Clear global messages when switching tabs
-        setSuccessMessage(null);
-        setError(null);
         // Clear tab-specific messages for the new tab
         clearTabMessages('app-settings');
       }
     } else if (fullHash.startsWith('#admin#licensing#')) {
       if (activeTab !== 'licensing') {
         setActiveTab('licensing');
-        // Clear global messages when switching tabs
-        setSuccessMessage(null);
-        setError(null);
         // Clear tab-specific messages for the new tab
         clearTabMessages('licensing');
       }
     } else if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
       // Clear global messages when switching tabs
-      setSuccessMessage(null);
-      setError(null);
-      // Clear tab-specific messages for the new tab
       clearTabMessages(tabHash);
     }
 
@@ -504,7 +456,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       );
       setHasDefaultAdmin(defaultAdminExists);
     } catch (err) {
-      setError(t('failedToLoadAdminData'));
+      toast.error(t('failedToLoadAdminData'), '');
       console.error(err);
     } finally {
       setLoading(false);
@@ -517,7 +469,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       await api.put(`/admin/users/${userId}/role`, { role });
       await loadData(); // Reload users
     } catch (err) {
-      setError(action === 'promote' ? t('failedToPromoteUser') : t('failedToDemoteUser'));
+      toast.error(action === 'promote' ? t('failedToPromoteUser') : t('failedToDemoteUser'), '');
       console.error(err);
     }
   };
@@ -525,7 +477,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleDeleteUser = async (userId: string) => {
     // Prevent users from deleting themselves
     if (userId === currentUser?.id) {
-      setError(t('cannotDeleteOwnAccount'));
+      toast.error(t('cannotDeleteOwnAccount'), '');
       return;
     }
 
@@ -551,7 +503,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       setShowDeleteConfirm(null);
     } catch (err) {
-      setError(t('failedToDeleteUser'));
+      toast.error(t('failedToDeleteUser'), '');
       console.error(err);
     }
   };
@@ -580,10 +532,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const updatedTags = await getTags();
       setTags(updatedTags);
       setShowDeleteTagConfirm(null);
-      setTabMessage('tags', 'success', t('tagDeletedSuccessfully'));
-      setTimeout(() => setTabMessage('tags', 'success', null), 5000);
+      toast.success(t('tagDeletedSuccessfully'), '');
     } catch (error: any) {
-      setTabMessage('tags', 'error', error.response?.data?.error || t('failedToDeleteTag'));
+      toast.error(t('failedToDeleteTag'), error.response?.data?.error || '');
     }
   };
 
@@ -595,32 +546,28 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     await createTag(tagData);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setTabMessage('tags', 'success', t('tagCreatedSuccessfully'));
-    setTimeout(() => setTabMessage('tags', 'success', null), 5000);
+    toast.success(t('tagCreatedSuccessfully'), '');
   };
 
   const handleUpdateTag = async (tagId: number, updates: { tag: string; description: string; color: string }) => {
     await updateTag(tagId, updates);
     const updatedTags = await getTags();
     setTags(updatedTags);
-    setTabMessage('tags', 'success', t('tagUpdatedSuccessfully'));
-    setTimeout(() => setTabMessage('tags', 'success', null), 5000);
+    toast.success(t('tagUpdatedSuccessfully'), '');
   };
 
   const handleAddPriority = async (priorityData: { priority: string; color: string }) => {
     await createPriority(priorityData);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setTabMessage('priorities', 'success', t('priorityCreatedSuccessfully'));
-    setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
+    toast.success(t('priorityCreatedSuccessfully'), '');
   };
 
   const handleUpdatePriority = async (priorityId: string, updates: { priority: string; color: string }) => {
     await updatePriority(Number(priorityId), updates);
     const updatedPriorities = await getPriorities();
     setPriorities(updatedPriorities);
-    setTabMessage('priorities', 'success', t('priorityUpdatedSuccessfully'));
-    setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
+    toast.success(t('priorityUpdatedSuccessfully'), '');
   };
 
   const handleDeletePriority = async (priorityId: string) => {
@@ -651,8 +598,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         successMessage += ` (${t('tasksReassignedToDefault', { count: reassignedCount })})`;
       }
       
-      setTabMessage('priorities', 'success', successMessage);
-      setTimeout(() => setTabMessage('priorities', 'success', null), 5000);
+      toast.success(successMessage, '');
     } catch (error: any) {
       console.error('Failed to delete priority:', error);
       
@@ -665,7 +611,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         errorMessage = error.message;
       }
       
-      setTabMessage('priorities', 'error', errorMessage);
+      toast.error(errorMessage, '');
     }
   };
 
@@ -677,15 +623,12 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     setPriorities(reorderedPriorities);
     try {
       await reorderPriorities(reorderedPriorities);
-      setSuccessMessage(t('prioritiesReorderedSuccessfully'));
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('prioritiesReorderedSuccessfully'), '');
     } catch (error: any) {
       // Revert on error
       const currentPriorities = await getPriorities();
       setPriorities(currentPriorities);
-      setError(error.response?.data?.error || t('failedToReorderPriorities'));
+      toast.error(error.response?.data?.error || t('failedToReorderPriorities'), '');
     }
   };
 
@@ -694,13 +637,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       await setDefaultPriority(Number(priorityId));
       const updatedPriorities = await getPriorities();
       setPriorities(updatedPriorities);
-      setSuccessMessage(t('defaultPriorityUpdatedSuccessfully'));
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('defaultPriorityUpdatedSuccessfully'), '');
     } catch (error: any) {
       console.error('Failed to set default priority:', error);
-      setError(error?.response?.data?.error || t('failedToSetDefaultPriority'));
+      toast.error(error?.response?.data?.error || t('failedToSetDefaultPriority'), '');
     }
   };
 
@@ -721,7 +661,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     } catch (error) {
       console.error('Failed to remove user avatar:', error);
-      setError(t('failedToRemoveAvatar'));
+      toast.error(t('failedToRemoveAvatar'), '');
     }
   };
 
@@ -742,10 +682,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   const handleSaveSettings = async (newSettings?: { [key: string]: string | undefined }) => {
     try {
-      // Clear both global and tab-specific messages
-      setError(null);
-      setSuccessMessage(null);
-      clearTabMessages(activeTab);
       
       let hasChanges = false;
       // Use passed settings if available, otherwise use editingSettings
@@ -753,6 +689,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
+        // Skip WEBSITE_URL - it's read-only and set during instance purchase
+        if (key === 'WEBSITE_URL') {
+          continue;
+        }
+        
         if (value !== settings[key]) {
           // Skip console log for NOTIFICATION_* settings to reduce noise
           if (!key.startsWith('NOTIFICATION_')) {
@@ -774,17 +715,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           onSettingsChanged();
         }
         
-        // Show success message on current tab only
-        setTabMessage(activeTab, 'success', t('settingsSavedSuccessfully'));
-        
-        // Clear success message after 5 seconds
-        setTimeout(() => setTabMessage(activeTab, 'success', null), 5000);
+        // Show success toast
+        toast.success(t('settingsSavedSuccessfully'), '');
       } else {
-        setTabMessage(activeTab, 'success', t('noChangesToSave'));
-        setTimeout(() => setTabMessage(activeTab, 'success', null), 3000);
+        toast.info(t('noChangesToSave'), '', 3000);
       }
     } catch (err) {
-      setTabMessage(activeTab, 'error', t('failedToSaveSettings'));
+      toast.error(t('failedToSaveSettings'), '');
       console.error(err);
     }
   };
@@ -792,7 +729,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   // Auto-save function for immediate saving of individual settings
   const handleAutoSaveSetting = async (key: string, value: string) => {
     try {
-      setError(null);
       
       // Save the setting immediately
       await api.put('/admin/settings', { key, value });
@@ -806,11 +742,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       
       // Show brief success message for auto-save
-      setSuccessMessage(t('settingSavedAutomatically', { key }));
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('settingSavedAutomatically', { key }), '', 3000);
       
     } catch (err) {
-      setError(t('failedToSaveSetting', { key }));
+      toast.error(t('failedToSaveSetting', { key }), '');
       console.error(err);
       throw err; // Re-throw so the component can handle the error
     }
@@ -819,10 +754,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleReloadOAuth = async () => {
     try {
       await api.post('/auth/reload-oauth');
-      setSuccessMessage(t('oauthReloadedSuccessfully'));
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('oauthReloadedSuccessfully'), '');
     } catch (err: any) {
-      setError(t('failedToReloadOAuth'));
+      toast.error(t('failedToReloadOAuth'), '');
       console.error(err);
     }
   };
@@ -851,9 +785,8 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Check if email was actually sent (only relevant if isActive is false)
       if (!userData.isActive && result.emailSent === false) {
-        setError(t('userCreatedButEmailFailed', { error: result.emailError || t('emailServiceUnavailable') }));
+        toast.warning(t('userCreatedButEmailFailed', { error: result.emailError || t('emailServiceUnavailable') }), '');
       } else {
-        setError(null);
       }
       
       await loadData(); // Reload users
@@ -863,14 +796,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     } catch (error: any) {
       console.error('Failed to create user:', error);
-      setError(error.message || t('failedToCreateUser'));
+      toast.error(error.message || t('failedToCreateUser'), '');
       throw error; // Re-throw so the UI can handle it
     }
   };
 
   const handleResendInvitation = async (userId: string) => {
     try {
-      setError(null);
       
       // Check email server status first
       const emailStatusResponse = await fetch('/api/admin/email-status', {
@@ -889,13 +821,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
 
       const result = await resendUserInvitation(userId);
-      setSuccessMessage(t('invitationEmailSent', { email: result.email }));
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('invitationEmailSent', { email: result.email }), '');
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
       const errorMessage = err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
-      setError(errorMessage);
+      toast.error(errorMessage, '');
     }
   };
 
@@ -929,18 +859,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       if (onUsersChanged) {
         onUsersChanged();
       }
-      setError(null);
     } catch (err: any) {
       console.error('❌ Failed to save user:', err);
       const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
-      setError(errorMessage);
+      toast.error(errorMessage, '');
       throw err; // Re-throw so the calling component can handle it
     }
   };
 
   const handleCancelSettings = () => {
     setEditingSettings(settings);
-    setError(null);
   };
 
   const handleMailServerDisabled = () => {
@@ -951,8 +879,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const handleTestEmail = async () => {
     try {
       setIsTestingEmail(true);
-      setError(null);
-      setSuccessMessage(null);
       
       // First, save any unsaved settings
       let hasChanges = false;
@@ -1118,8 +1044,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onColorChange={handleUserColorChange}
               onRemoveAvatar={handleUserRemoveAvatar}
               onResendInvitation={handleResendInvitation}
-              successMessage={successMessage}
-              error={error}
             />
           )}
 
@@ -1130,8 +1054,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
-              successMessage={getTabMessage('site-settings', 'success')}
-              error={getTabMessage('site-settings', 'error')}
             />
           )}
 
@@ -1143,8 +1065,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
               onReloadOAuth={handleReloadOAuth}
-              successMessage={getTabMessage('sso', 'success')}
-              error={getTabMessage('sso', 'error')}
             />
           )}
 
@@ -1157,8 +1077,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onCancel={handleCancelSettings}
               onTestEmail={handleTestEmail}
               onMailServerDisabled={handleMailServerDisabled}
-              successMessage={getTabMessage('mail-server', 'success')}
-              error={getTabMessage('mail-server', 'error')}
               isTestingEmail={isTestingEmail}
               showTestEmailModal={showTestEmailModal}
               testEmailResult={testEmailResult}
@@ -1198,8 +1116,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSetDefaultPriority={handleSetDefaultPriority}
               showDeletePriorityConfirm={showDeletePriorityConfirm}
               priorityUsageCounts={priorityUsageCounts}
-              successMessage={successMessage}
-              error={error}
             />
           )}
 
@@ -1211,8 +1127,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
-              successMessage={getTabMessage('app-settings', 'success')}
-              error={getTabMessage('app-settings', 'error')}
             />
           )}
 
@@ -1224,8 +1138,6 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
               onAutoSave={handleAutoSaveSetting}
-              successMessage={getTabMessage('project-settings', 'success')}
-              error={getTabMessage('project-settings', 'error')}
             />
           )}
 

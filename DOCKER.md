@@ -1,12 +1,11 @@
-# Docker Setup for Easy Kanban (Development Mode)
+# Docker Setup for Easy Kanban
 
-This guide explains how to run the Easy Kanban application using Docker in development mode.
+This guide explains how to run the Easy Kanban application using Docker. **This application is designed to run exclusively in Docker containers** and includes all required services (Redis, database, etc.) automatically configured.
 
 ## Prerequisites
 
 - Docker installed and running
 - Docker Compose (V1 or V2) installed
-- Node.js 20+ (for local development)
 
 **Note**: This setup works with both:
 - Docker Compose V1 (`docker-compose` command)
@@ -86,32 +85,62 @@ npm run docker:clean-legacy
 ## Container Architecture
 
 ```
-┌─────────────────────────────────────┐
-│         Docker Container            │
-│  ┌─────────────────────────────┐    │
-│  │    Vite Dev Server          │    │  ← Port 3010
-│  │   (Hot Reloading)           │    │
-│  └─────────────────────────────┘    │
-│  ┌─────────────────────────────┐    │
-│  │    Express Backend          │    │  ← Port 3222
-│  │     (API Server)            │    │
-│  └─────────────────────────────┘    │
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│         Docker Compose Stack                    │
+│                                                 │
+│  ┌─────────────────────────────────────────┐   │
+│  │      Easy Kanban Container               │   │
+│  │  ┌─────────────────────────────┐         │   │
+│  │  │    Vite Dev Server          │         │   │  ← Port 3010
+│  │  │   (Hot Reloading)           │         │   │
+│  │  └─────────────────────────────┘         │   │
+│  │  ┌─────────────────────────────┐         │   │
+│  │  │    Express Backend          │         │   │  ← Port 3222
+│  │  │     (API Server)            │         │   │
+│  │  └─────────────────────────────┘         │   │
+│  └─────────────────────────────────────────┘   │
+│                                                 │
+│  ┌─────────────────────────────────────────┐   │
+│  │      Redis Container                    │   │
+│  │  ┌─────────────────────────────┐         │   │
+│  │  │    Redis Server             │         │   │  ← Port 6379
+│  │  │   (Real-time updates)       │         │   │
+│  │  └─────────────────────────────┘         │   │
+│  └─────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────┘
 ```
 
 ## Volumes
 
+### Application Volumes
 - `kanban-data`: SQLite database storage
 - `kanban-attachments`: File upload storage
-- `./server/kanban.db`: Database file (mounted for easy access)
+- `kanban-avatars`: User avatar storage
+- `redis_data`: Redis persistent data storage
+
+### Development Volumes
 - `.:/app`: Source code mounted for hot reloading
 - `/app/node_modules`: Node modules volume (preserves container modules)
 
 ## Environment Variables
 
-- `NODE_ENV`: Set to 'development'
+### Core Configuration
+- `NODE_ENV`: Set to 'development' or 'production'
+- `DOCKER_ENV`: Set to 'true' (indicates Docker environment)
 - `PORT`: Backend server port (default: 3222)
 - `VITE_API_URL`: Frontend API endpoint
+
+### Services
+- `REDIS_URL`: Redis connection URL (automatically configured: `redis://redis:6379`)
+
+### Security
+- `JWT_SECRET`: Secret key for JWT authentication (should be changed in production)
+- `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins
+
+### Optional
+- `DEMO_ENABLED`: Enable demo mode with hourly resets (default: false)
+- `LICENSE_ENABLED`: Enable licensing features (default: false)
+- `APP_VERSION`: Application version string
 
 ## Health Check
 
@@ -138,6 +167,18 @@ ls -la server/kanban.db
 
 # Check database permissions
 docker exec -it easy-kanban ls -la /app/server/data
+```
+
+### Redis connection issues
+```bash
+# Check if Redis container is running
+docker compose ps redis
+
+# Check Redis logs
+docker compose logs redis
+
+# Verify Redis is accessible (check application logs for connection errors)
+docker compose logs easy-kanban | grep -i redis
 ```
 
 ### Port conflicts
@@ -175,13 +216,14 @@ npm run docker:dev
 
 ## Security Notes
 
-⚠️ **Important**: This application currently has no authentication system. 
-For development use, implement proper security measures:
+⚠️ **Important**: For production deployments:
 
-- User authentication and authorization
-- Input validation and sanitization
-- Rate limiting
-- Network security
+- Change the default admin password immediately after first login
+- Set a strong `JWT_SECRET` in your environment variables
+- Configure HTTPS/SSL for production
+- Review and restrict `ALLOWED_ORIGINS` for CORS
+- Consider additional network security measures (firewall, VPN, etc.)
+- Regularly update Docker images and dependencies
 
 ## Performance Considerations
 
@@ -190,21 +232,15 @@ For development use, implement proper security measures:
 - **Source maps** increase bundle size
 - **Volume mounting** may impact I/O performance
 
-## Alternative: Local Development
+## Why Docker Only?
 
-If you prefer to run without Docker:
+This application is designed to run exclusively in Docker containers because:
 
-```bash
-# Install dependencies
-npm install
-
-# Run locally
-npm run dev
-```
-
-This will give you the same ports:
-- Frontend: http://localhost:3010
-- Backend: http://localhost:3222
+- **Redis Dependency**: The application requires Redis for real-time updates and caching. Docker Compose automatically sets up and configures Redis.
+- **Consistent Environment**: Docker ensures the same environment across development, staging, and production.
+- **Simplified Setup**: No need to manually install and configure Node.js, Redis, or other dependencies.
+- **Isolated Services**: All services (application, Redis, database) run in isolated containers with proper networking.
+- **Easy Deployment**: Containerized applications are easier to deploy and scale.
 
 ## Support
 
@@ -214,10 +250,21 @@ For issues or questions:
 3. Check container health: `docker compose ps`
 4. Review this documentation
 
+## Services Included
+
+The Docker Compose setup automatically includes:
+
+1. **Easy Kanban Application**: Main application container with frontend and backend
+2. **Redis**: In-memory data store for real-time updates and caching
+3. **Persistent Volumes**: Data persistence for database, attachments, avatars, and Redis
+
+All services are automatically configured and connected. No manual setup required!
+
 ## Recent Updates
 
-- **Simplified to Development-Only**: Removed production complexity
+- **Docker-Only Approach**: Application designed exclusively for Docker deployment
+- **Redis Integration**: Redis service automatically included and configured
 - **Docker Compose V2 Compatibility**: Removed version field for modern compatibility
 - **Dual Command Support**: Added both `docker compose` and `docker-compose` commands
 - **Hot Reloading**: Optimized for development workflow
-- **Clear Port Configuration**: Frontend on 3010, Backend on 3222
+- **Clear Port Configuration**: Frontend on 3010, Backend on 3222, Redis on 6379

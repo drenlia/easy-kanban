@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from '../../utils/toast';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
 
 interface ReportingSettings {
@@ -45,7 +46,6 @@ const AdminReportingTab: React.FC = () => {
   const [originalSettings, setOriginalSettings] = useState<ReportingSettings>(settings);
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     fetchSettings();
@@ -104,8 +104,7 @@ const AdminReportingTab: React.FC = () => {
           ...prev,
           REPORTS_VISIBLE_TO: newValue
         }));
-        setMessage({ type: 'success', text: t('reporting.visibilitySettingSaved') });
-        setTimeout(() => setMessage(null), 2000);
+        toast.success(t('reporting.visibilitySettingSaved'), '', 2000);
       } else {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to save setting');
@@ -117,18 +116,13 @@ const AdminReportingTab: React.FC = () => {
         ...prev,
         REPORTS_VISIBLE_TO: oldValue
       }));
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : t('reporting.failedToSaveVisibilitySetting')
-      });
-      setTimeout(() => setMessage(null), 3000);
+      toast.error(error instanceof Error ? error.message : t('reporting.failedToSaveVisibilitySetting'), '');
     }
   };
 
   const handleSave = async () => {
     try {
       setSaving(true);
-      setMessage(null);
 
       // Save each setting individually (server expects key/value pairs)
       const settingsToSave = Object.entries(settings);
@@ -148,13 +142,9 @@ const AdminReportingTab: React.FC = () => {
       }
 
       setOriginalSettings(settings);
-      setMessage({ type: 'success', text: t('reporting.settingsSavedSuccessfully') });
-      setTimeout(() => setMessage(null), 3000);
+      toast.success(t('reporting.settingsSavedSuccessfully'), '');
     } catch (error) {
-      setMessage({ 
-        type: 'error', 
-        text: error instanceof Error ? error.message : t('reporting.failedToSaveSettings') 
-      });
+      toast.error(error instanceof Error ? error.message : t('reporting.failedToSaveSettings'), '');
     } finally {
       setSaving(false);
     }
@@ -187,8 +177,7 @@ const AdminReportingTab: React.FC = () => {
           ...prev,
           [key]: newValue
         }));
-        setMessage({ type: 'success', text: t('reporting.settingSavedSuccessfully') });
-        setTimeout(() => setMessage(null), 2000);
+        toast.success(t('reporting.settingSavedSuccessfully'), '', 2000);
       } else {
         const errorData = await response.json().catch(() => ({}));
         throw new Error(errorData.error || 'Failed to save setting');
@@ -200,18 +189,13 @@ const AdminReportingTab: React.FC = () => {
         ...prev,
         [key]: oldValue
       }));
-      setMessage({ 
-        type: 'error', 
-        text: error instanceof Error ? error.message : t('reporting.failedToSaveSetting') 
-      });
-      setTimeout(() => setMessage(null), 3000);
+      toast.error(error instanceof Error ? error.message : t('reporting.failedToSaveSetting'), '');
     }
   };
 
   const handleRefreshNow = async () => {
     try {
       setRefreshing(true);
-      setMessage(null);
 
       const response = await fetch('/api/admin/jobs/snapshot', {
         method: 'POST',
@@ -223,20 +207,12 @@ const AdminReportingTab: React.FC = () => {
 
       if (response.ok) {
         const result = await response.json();
-        setMessage({ 
-          type: 'success', 
-          text: t('reporting.snapshotComplete', { count: result.snapshotCount || 0, duration: result.duration || 0 }) 
-        });
-        setTimeout(() => setMessage(null), 5000);
+        toast.success(t('reporting.snapshotComplete', { count: result.snapshotCount || 0, duration: result.duration || 0 }), '', 5000);
       } else {
         throw new Error('Failed to trigger snapshot');
       }
     } catch (error) {
-      setMessage({ 
-        type: 'error', 
-        text: error instanceof Error ? error.message : t('reporting.failedToTriggerSnapshot') 
-      });
-      setTimeout(() => setMessage(null), 3000);
+      toast.error(error instanceof Error ? error.message : t('reporting.failedToTriggerSnapshot'), '');
     } finally {
       setRefreshing(false);
     }
@@ -256,16 +232,6 @@ const AdminReportingTab: React.FC = () => {
         </p>
       </div>
 
-      {/* Success/Error Message */}
-      {message && (
-        <div className={`p-4 rounded-lg ${
-          message.type === 'success' 
-            ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200'
-            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
-        }`}>
-          {message.text}
-        </div>
-      )}
 
       <div className="space-y-6">
         {/* Module Enablement */}

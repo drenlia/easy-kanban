@@ -9,48 +9,32 @@ interface TourProviderProps {
 }
 
 const TourProvider: React.FC<TourProviderProps> = ({ children, currentUser }) => {
-  console.log('TourProvider: Component mounting/rendering');
   const { t } = useTranslation('common');
   const [isRunning, setIsRunning] = useState(false);
   const { userSteps, adminSteps } = getTourSteps();
 
-  console.log('TourProvider: isRunning =', isRunning, 'currentUser =', currentUser);
-
   // Expose startTour function globally for the help modal
   useEffect(() => {
-    console.log('TourProvider: Setting up global startTour function');
     (window as any).startTour = () => {
-      console.log('Global startTour called');
       setIsRunning(true);
     };
-    console.log('TourProvider: Global startTour function set');
   }, []);
 
   // Determine if user is admin
   const isAdmin = currentUser?.roles?.includes('admin') || currentUser?.role === 'admin';
   const steps = isAdmin ? adminSteps : userSteps;
-  
-  console.log('TourProvider: isAdmin =', isAdmin, 'steps count =', steps.length);
-
-  useEffect(() => {
-    console.log('TourProvider: isRunning changed to', isRunning);
-  }, [isRunning]);
 
   const stopTour = useCallback(() => {
-    console.log('Stopping tour');
     setIsRunning(false);
   }, []);
 
   const handleJoyrideCallback = useCallback((data: CallBackProps) => {
-    console.log('Joyride callback:', data);
     const { status } = data;
     
     if ([STATUS.FINISHED, STATUS.SKIPPED].includes(status)) {
       stopTour();
     }
   }, [stopTour]);
-
-  console.log('TourProvider: Rendering Joyride with run =', isRunning, 'steps =', steps.length);
 
   return (
     <>

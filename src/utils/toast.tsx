@@ -54,20 +54,24 @@ class ToastManager {
 
   show(toast: Omit<Toast, 'id'>) {
     const id = Math.random().toString(36).substr(2, 9);
+    // Use provided duration or default to 3000ms (3 seconds)
+    const duration = toast.duration !== undefined ? toast.duration : 3000;
     const newToast: Toast = {
       id,
-      duration: 5000, // 5 seconds default
-      ...toast
+      duration,
+      type: toast.type,
+      title: toast.title,
+      message: toast.message
     };
 
     this.toasts.push(newToast);
     this.notifyListeners();
 
     // Auto-dismiss after duration (skip if duration is 0 for persistent toasts)
-    if (newToast.duration && newToast.duration > 0) {
+    if (duration && duration > 0) {
       setTimeout(() => {
         this.dismiss(id);
-      }, newToast.duration);
+      }, duration);
     }
 
     return id;

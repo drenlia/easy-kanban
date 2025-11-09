@@ -8,44 +8,118 @@ A modern team collaboration Kanban board application with user management, authe
 
 ## Key Features
 
+### Core Functionality
 - **Multi-board Kanban system** with drag-and-drop functionality
+- **Multiple view modes**: Kanban (visual board), List (table format), and Gantt (timeline) views
 - **Real-time collaboration** - see changes instantly as team members work
 - **User authentication** with local accounts and Google OAuth support
 - **Role-based access control** (Admin/User permissions)
-- **Team management** with color-coded member assignments
+- **Theme support** - Light and dark mode
+
+### Task Management
 - **Task management** with priorities, comments, and file attachments
+- **Rich text editing** for task descriptions and comments with formatting, links, and embedded content
+- **Task relationships** - Link tasks as parent-child or related relationships
+- **Task view modes** - Compact, shrink, and expand views for optimal screen space
+- **Task toolbar** - Quick actions on hover (assign members, change priority, add tags, copy tasks)
+- **Quick edit** - Inline editing without opening full task details
+- **Task watchers & collaborators** - Add team members to watch or collaborate on tasks
+- **Requesters** - Track who requested each task
+- **Sprint association** - Organize tasks by time-based planning periods
+
+### Team & Collaboration
+- **Team management** with color-coded member assignments
 - **User presence indicators** - see who's currently viewing each board
-- **Admin panel** for user management and system configuration
-- **File uploads** for task attachments and user avatars
+- **Activity feed** - Draggable panel showing real-time changes, comments, and team activity
+- **Member filtering** - Filter tasks by assignees, watchers, collaborators, requesters, and system tasks
+
+### Views & Navigation
+- **Kanban View** - Visual board with drag-and-drop between columns
+- **List View** - Table format with sorting, filtering, column configuration, and horizontal scrolling
+- **Gantt View** - Timeline view with task dependencies, visual arrows, and virtual scrolling
+- **Advanced search & filtering** - Filter by text, dates, members, priorities, tags, project IDs, and sprints
+- **Saved filters** - Save and share frequently used filter combinations
+- **Sprint filtering** - Filter tasks by sprint or view backlog (unassigned tasks)
+
+### Reporting & Analytics
+- **Reports module** - Comprehensive analytics and insights (when enabled)
+- **My Stats** - Personal performance dashboard with points, tasks completed, effort, and achievements
+- **Leaderboard** - Team rankings based on performance metrics (when gamification enabled)
+- **Burndown charts** - Track planned vs actual task completion over time
+- **Team Performance** - Team-wide activity metrics and productivity analysis
+- **Task List Report** - Detailed task listings with filtering and export capabilities
+
+### Admin Features
+- **User management** - Create, edit, invite, activate/deactivate users, assign roles
+- **Board & column management** - Create, rename, reorder, and delete boards and columns
+- **Site settings** - Configure site name, URL, and global preferences
+- **SSO configuration** - Google OAuth Single Sign-On setup
+- **Mail server** - SMTP configuration for email notifications and invitations
+- **Tags management** - Create and manage custom tags with colors
+- **Priorities management** - Customize priority levels with names and colors
+- **App settings** - Configure default language, view modes, and application behavior
+- **Project settings** - Manage project identifiers and board configurations
+- **Sprint settings** - Create and manage sprints for time-based task organization
+- **Reporting configuration** - Enable/disable reports, gamification, leaderboard, and achievements
+- **Licensing** - View and manage license information, usage limits, and subscriptions
+- **System monitoring** - Real-time resource monitoring (RAM, CPU, disk usage)
+
+### Data & Export
+- **Export functionality** - Export tasks to CSV or Excel format (admin only)
+- **Excel export** - Multi-sheet Excel files with proper formatting when exporting all boards
+- **File uploads** - Task attachments and user avatars with size and type restrictions
+
+### Additional Features
+- **Email notifications** - Configurable email notifications for task activities
+- **Gamification** - Points, achievements, and leaderboard (when enabled)
+- **Keyboard shortcuts** - F1 for help, efficient keyboard navigation
+- **Column persistence** - Column preferences saved between sessions
+- **Multi-level sorting** - Sort by multiple columns in List View
 
 ## Getting Started
 
 **Default Admin Account:**
-- Email: `admin@example.com`
-- Password: `admin`
+- Email: `admin@kanban.local`
+- Password: generated at initialization - look for it in the backend console log
 
 1. Log in with the default admin account
-2. Create team members in the Admin panel
-3. Set up your boards and columns
-4. Start creating and managing tasks
-5. Configure Google OAuth (optional) in Admin > SSO settings
+2. Go to the admin panel and setup:
+2.1. The site name and URL in Site Settings
+2.2. In the App Settings, choose the default language (FR/EN)
+2.3. Review the Project Settings
+2.4. Add sprints in the Sprint Settings
+2.5. Review Reports Settings
+3. Create team members in the Users Tab
+4. Go to Kanban View and set up your boards and columns
+5. Start creating and managing tasks
+6. Configure Google OAuth (optional) in Admin > SSO settings
 
 ## Permissions
 
 | Action | Admin | User |
 |--------|-------|------|
 | View kanban boards | ✓ | ✓ |
+| View List and Gantt views | ✓ | ✓ |
 | Create/edit/delete tasks | ✓ | ✓ |
 | Add comments and attachments | ✓ | ✓ |
 | Move tasks between columns | ✓ | ✓ |
+| Associate tasks with sprints | ✓ | ✓ |
 | Create/edit/delete boards | ✓ | ✗ |
 | Reorder boards and columns | ✓ | ✗ |
+| Manage columns (add/remove/reorder) | ✓ | ✗ |
 | Access Admin panel | ✓ | ✗ |
 | Manage users | ✓ | ✗ |
 | Configure site settings | ✓ | ✗ |
 | Configure Google OAuth | ✓ | ✗ |
 | Configure mail server | ✓ | ✗ |
+| Manage tags and priorities | ✓ | ✗ |
+| Export data (CSV/Excel) | ✓ | ✗ |
+| Access Reports (when enabled) | ✓ | ✓* |
+| View Leaderboard (when enabled) | ✓ | ✓* |
 | Update own profile | ✓ | ✓ |
+| Configure own notifications | ✓ | ✓ |
+
+*Some reports may be restricted to admins only depending on settings
 
 ## Requirements
 
@@ -53,20 +127,12 @@ A modern team collaboration Kanban board application with user management, authe
 
 ## Installation
 
-### Local Development
-```bash
-git clone https://github.com/drenlia/easy-kanban.git
-cd easy-kanban
-npm install
-npm run dev
-```
-
 ### Docker
 ```bash
 # Clone the repo
 git clone https://github.com/drenlia/easy-kanban.git
 cd easy-kanban
-
+cp docker-compose-example.yml docker-compose.yml
 # Run with docker-compose
 npm run docker:dev
 ```

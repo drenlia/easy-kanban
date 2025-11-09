@@ -95,7 +95,6 @@ export default function HelpModal({ isOpen, onClose, currentUser }: HelpModalPro
   }, [textMatches]);
 
   const handleStartTour = () => {
-    console.log('Start Tutorial button clicked!');
     onClose(); // Close the modal first
     setTimeout(() => {
       startTour(); // Use context function

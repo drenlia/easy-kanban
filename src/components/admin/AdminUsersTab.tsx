@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Edit, Trash2, Crown, User as UserIcon } from 'lucide-react';
 import { getAuthenticatedAvatarUrl } from '../../utils/authImageUrl';
+import { toast } from '../../utils/toast';
 
 interface User {
   id: string;
@@ -37,8 +38,6 @@ interface AdminUsersTabProps {
   onColorChange: (userId: string, color: string) => Promise<void>;
   onRemoveAvatar: (userId: string) => Promise<void>;
   onResendInvitation: (userId: string) => Promise<void>;
-  successMessage: string | null;
-  error: string | null;
 }
 
 const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
@@ -58,8 +57,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   onColorChange,
   onRemoveAvatar,
   onResendInvitation,
-  successMessage,
-  error,
 }) => {
   const { t } = useTranslation('admin');
   const [showAddUserForm, setShowAddUserForm] = useState(false);
@@ -69,8 +66,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const [originalColor, setOriginalColor] = useState<string>('#4ECDC4');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isResendingInvitation, setIsResendingInvitation] = useState<boolean>(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [localSuccessMessage, setLocalSuccessMessage] = useState<string | null>(null);
   const [colorPickerPosition, setColorPickerPosition] = useState<{top: number, left: number, userId: string} | null>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [hoveredButton, setHoveredButton] = useState<{userId: string, type: 'promote' | 'demote' | 'edit' | 'delete', position: {top: number, left: number}} | null>(null);
@@ -172,25 +167,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     };
   }, [showDeleteConfirm, onCancelDeleteUser]);
 
-  // Auto-dismiss error messages after 5 seconds
-  useEffect(() => {
-    if (localError) {
-      const timer = setTimeout(() => {
-        setLocalError(null);
-      }, 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [localError]);
-
-  // Auto-dismiss success messages after 3 seconds
-  useEffect(() => {
-    if (localSuccessMessage) {
-      const timer = setTimeout(() => {
-        setLocalSuccessMessage(null);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [localSuccessMessage]);
   
   const [editingUserData, setEditingUserData] = useState({
     id: '',
@@ -292,7 +268,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
   const handleAddUser = async () => {
     try {
-      setLocalError(null);
       setLocalSuccessMessage(null);
       await onAddUser(newUser);
       setShowAddUserForm(false);
@@ -305,11 +280,11 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         role: 'user',
         isActive: false
       });
-      setLocalSuccessMessage(t('users.userCreatedSuccessfully'));
+      toast.success(t('users.userCreatedSuccessfully'), '');
     } catch (err: any) {
       console.error('Failed to add user:', err);
       const errorMessage = err.response?.data?.error || t('failedToCreateUser');
-      setLocalError(errorMessage);
+      toast.error(errorMessage, '');
     }
   };
 
@@ -340,7 +315,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleSaveUser = async () => {
     try {
       setIsSubmitting(true);
-      setLocalError(null);
       await onSaveUser(editingUserData);
       
       // Clean up preview URL after successful save
@@ -353,7 +327,7 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
     } catch (err: any) {
       console.error('Failed to save user:', err);
       const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
-      setLocalError(errorMessage);
+      toast.error(errorMessage, '');
     } finally {
       setIsSubmitting(false);
     }
@@ -385,15 +359,12 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
   const handleResendInvitation = async () => {
     try {
       setIsResendingInvitation(true);
-      setLocalError(null);
       await onResendInvitation(editingUserData.id);
-      setLocalSuccessMessage(t('users.invitationEmailSentSuccessfully'));
-      // Clear success message after 3 seconds
-      setTimeout(() => setLocalSuccessMessage(null), 3000);
+      toast.success(t('users.invitationEmailSentSuccessfully'), '');
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
       const errorMessage = err.response?.data?.error || t('failedToSendInvitationEmail');
-      setLocalError(errorMessage);
+      toast.error(errorMessage, '');
     } finally {
       setIsResendingInvitation(false);
     }
@@ -409,16 +380,10 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       displayName: '',
       role: 'user'
     });
-    setLocalError(null);
-    setLocalSuccessMessage(null);
   };
 
   const handleNewUserChange = (field: string, value: string) => {
     setNewUser(prev => ({ ...prev, [field]: value }));
-    // Clear local error when user starts typing
-    if (localError) {
-      setLocalError(null);
-    }
   };
 
   const handleAddUserClick = async () => {
@@ -431,25 +396,23 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
       });
 
       if (!response.ok) {
-        setLocalError(t('users.failedToCheckUserLimit'));
+        toast.error(t('users.failedToCheckUserLimit'), '');
         return;
       }
 
       const result = await response.json();
 
       if (!result.canCreate) {
-        setLocalError(result.message || t('users.userLimitReached'));
-        setLocalSuccessMessage(null);
+        toast.error(result.message || t('users.userLimitReached'), '');
         return;
       }
 
       // Limit check passed, open the modal
       setShowAddUserForm(true);
-      setLocalError(null);
       setLocalSuccessMessage(null);
     } catch (error) {
       console.error('Error checking user limit:', error);
-      setLocalError('Failed to check user limit. Please try again.');
+      toast.error('Failed to check user limit. Please try again.', '');
     }
   };
 
@@ -475,36 +438,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
         </div>
 
         {/* Success and Error Messages */}
-        {(successMessage || localSuccessMessage) && (
-          <div className="mb-6 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-green-400 dark:text-green-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm font-medium text-green-800 dark:text-green-200">{localSuccessMessage || successMessage}</p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {(error || localError) && (
-          <div className="mb-6 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md p-4">
-            <div className="flex">
-              <div className="flex-shrink-0">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <div className="ml-3">
-                <p className="text-sm text-red-800">{localError || error}</p>
-              </div>
-            </div>
-          </div>
-        )}
-        
         <div className="overflow-x-auto overflow-y-visible">
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
@@ -977,18 +910,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
                 </div>
               )}
 
-              {/* Local success/error messages */}
-              {localSuccessMessage && (
-                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-md">
-                  <p className="text-sm text-green-800">{localSuccessMessage}</p>
-                </div>
-              )}
-              
-              {localError && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
-                  <p className="text-sm text-red-800">{localError}</p>
-                </div>
-              )}
 
               <div className="flex space-x-3 mt-6">
                 <button

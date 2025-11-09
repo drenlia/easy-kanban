@@ -102,7 +102,10 @@ export const initializeDatabase = () => {
   // Create tables
   createTables(db);
   
-  // Run database migrations BEFORE initializing data (migrations may create tables needed by demo data)
+  // Initialize default priorities BEFORE migrations (migration 10 needs priorities to exist)
+  initializeDefaultPriorities(db);
+  
+  // Run database migrations (migrations may create tables needed by demo data)
   try {
     runMigrations(db);
   } catch (error) {
@@ -399,6 +402,46 @@ const createTables = (db) => {
   `);
 };
 
+// Initialize default priorities (called before migrations to ensure they exist)
+const initializeDefaultPriorities = (db) => {
+  const prioritiesCount = db.prepare('SELECT COUNT(*) as count FROM priorities').get().count;
+  if (prioritiesCount === 0) {
+    const defaultPriorities = [
+      { priority: 'low', color: '#10B981', position: 0, initial: 0 },
+      { priority: 'medium', color: '#F59E0B', position: 1, initial: 1 },
+      { priority: 'high', color: '#EF4444', position: 2, initial: 0 },
+      { priority: 'urgent', color: '#DC2626', position: 3, initial: 0 }
+    ];
+
+    const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position, initial) VALUES (?, ?, ?, ?)');
+    defaultPriorities.forEach(p => {
+      priorityStmt.run(p.priority, p.color, p.position, p.initial || 0);
+    });
+    
+    console.log('✅ Initialized default priorities (low, medium, high, urgent)');
+    console.log('   Default priority: medium');
+  } else {
+    // Ensure at least one priority is marked as default
+    const defaultPriorityCount = db.prepare('SELECT COUNT(*) as count FROM priorities WHERE initial = 1').get().count;
+    if (defaultPriorityCount === 0) {
+      // Set medium as default if no default exists
+      const mediumPriority = db.prepare('SELECT id FROM priorities WHERE priority = ?').get('medium');
+      if (mediumPriority) {
+        db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?').run(mediumPriority.id);
+        console.log('✅ Set "medium" as default priority');
+      } else {
+        // If medium doesn't exist, set the first priority as default
+        const firstPriority = db.prepare('SELECT id FROM priorities ORDER BY position ASC LIMIT 1').get();
+        if (firstPriority) {
+          db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?').run(firstPriority.id);
+          const priorityName = db.prepare('SELECT priority FROM priorities WHERE id = ?').get(firstPriority.id)?.priority;
+          console.log(`✅ Set "${priorityName || 'first priority'}" as default priority`);
+        }
+      }
+    }
+  }
+};
+
 // Initialize default data
 const initializeDefaultData = (db) => {
   // Initialize authentication data if no roles exist
@@ -628,21 +671,8 @@ const initializeDefaultData = (db) => {
     }
   }
 
-  // Initialize default priorities if none exist
-  const prioritiesCount = db.prepare('SELECT COUNT(*) as count FROM priorities').get().count;
-  if (prioritiesCount === 0) {
-    const defaultPriorities = [
-      { priority: 'low', color: '#10B981', position: 0 },
-      { priority: 'medium', color: '#F59E0B', position: 1, initial: 1 },
-      { priority: 'high', color: '#EF4444', position: 2 },
-      { priority: 'urgent', color: '#DC2626', position: 3 }
-    ];
-
-    const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position, initial) VALUES (?, ?, ?, ?)');
-    defaultPriorities.forEach(p => {
-      priorityStmt.run(p.priority, p.color, p.position, p.initial || 0);
-    });
-  }
+  // Ensure default priorities exist (in case they were deleted)
+  initializeDefaultPriorities(db);
 
   // Initialize default data if no boards exist
   const boardsCount = db.prepare('SELECT COUNT(*) as count FROM boards').get().count;

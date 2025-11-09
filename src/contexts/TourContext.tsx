@@ -34,8 +34,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
   const [isRunning, setIsRunning] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const { userSteps, adminSteps } = getTourSteps();
-  
-  console.log('TourProvider render - onViewModeChange:', typeof onViewModeChange, !!onViewModeChange);
 
   // Track previous step index to detect navigation direction
   const previousStepIndexRef = React.useRef<number>(-1);
@@ -44,7 +42,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
   useEffect(() => {
     const pendingTour = sessionStorage.getItem('pendingTourStart');
     if (pendingTour === 'true') {
-      console.log('Resuming tour after navigation');
       sessionStorage.removeItem('pendingTourStart');
       previousStepIndexRef.current = -1; // Reset step index tracking
       // Switch to Kanban view before starting tour
@@ -65,7 +62,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     // Check if we're on TaskPage and redirect to Kanban
     const taskRoute = parseTaskRoute();
     if (taskRoute.isTaskRoute && onPageChange) {
-      console.log('Starting tour from TaskPage - redirecting to Kanban');
       // Store intent to start tour after navigation
       sessionStorage.setItem('pendingTourStart', 'true');
       onPageChange('kanban');
@@ -78,7 +74,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     // Check if we're on Admin page and redirect to Kanban
     const currentHash = window.location.hash;
     if (currentHash.includes('admin') && onPageChange) {
-      console.log('Starting tour from Admin page - redirecting to Kanban');
       // Store intent to start tour after navigation
       sessionStorage.setItem('pendingTourStart', 'true');
       onPageChange('kanban');
@@ -90,7 +85,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     
     // Switch to Kanban view before starting tour (for first step)
     if (onViewModeChange) {
-      console.log('Starting tour - switching to Kanban view');
       onViewModeChange('kanban');
     }
     // Small delay to ensure view updates before tour starts
@@ -133,16 +127,13 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
         if (nextNeedsListView && onViewModeChange) {
           const currentHash = window.location.hash;
           if (currentHash.includes('admin') && onPageChange) {
-            console.log('Pre-switching from Admin to Kanban page for upcoming List view step');
             onPageChange('kanban');
             setTimeout(() => {
               if (onViewModeChange) {
-                console.log('Pre-switching to List view for upcoming step');
                 onViewModeChange('list');
               }
             }, 300);
           } else {
-            console.log('Pre-switching to List view for upcoming step (step:before)');
             onViewModeChange('list');
           }
         }
@@ -154,45 +145,12 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
     if (type === 'step:before' && step && (isGoingForward || action === 'next')) {
       const stepData = step as any;
       
-      // Debug: log step data to see structure
-      if (step.target === '[data-tour-id="export-menu"]' || step.target === '[data-tour-id="column-visibility"]') {
-        console.log('Step data for List view step:', { step, stepData, data: stepData.data, switchToView: stepData.data?.switchToView, action, isGoingForward });
-      }
-      
-      // For export-menu and column-visibility steps, check if element exists
-      // If not, wait a bit longer for DOM to update
-      if (step.target === '[data-tour-id="export-menu"]' || step.target === '[data-tour-id="column-visibility"]') {
-        const element = document.querySelector(step.target as string);
-        if (!element) {
-          console.warn('Target element not found, waiting for DOM update:', step.target);
-          // Wait a bit and check again - this gives the view time to render
-          setTimeout(() => {
-            const checkElement = document.querySelector(step.target as string);
-            if (!checkElement) {
-              console.error('Target element still not found after delay:', step.target);
-            } else {
-              console.log('Target element found after delay:', step.target);
-            }
-          }, 300);
-        }
-      }
-      
       // Note: List view switching is handled above in the first step:before handler
       // This section only handles admin page switching and other view/page switches
       
       // Switch to Admin panel for admin-tab step and all subsequent admin steps
       if (stepData.data?.switchToPage === 'admin' && onPageChange && isAdmin) {
-        console.log('Switching to Admin panel for step:', step.target);
         onPageChange('admin');
-        // Wait for DOM to update after page switch
-        setTimeout(() => {
-          if (step.target && typeof step.target === 'string') {
-            const element = document.querySelector(step.target);
-            if (!element) {
-              console.warn('Target not found after admin page switch:', step.target);
-            }
-          }
-        }, 300);
       }
       
       // Also check if we're on an admin step by target (for steps after admin-tab)
@@ -200,15 +158,7 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
         // Check if we're already on admin page, if not, switch
         const currentHash = window.location.hash;
         if (!currentHash.includes('admin')) {
-          console.log('Switching to Admin panel for admin step:', step.target);
           onPageChange('admin');
-          // Wait for DOM to update
-          setTimeout(() => {
-            const element = document.querySelector(step.target);
-            if (!element) {
-              console.warn('Target not found after admin page switch:', step.target);
-            }
-          }, 300);
         }
         
         // Extract tab name from data-tour-id and switch to that tab
@@ -222,7 +172,6 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
           
           // Only switch if we're not already on this tab
           if (!currentHash.includes(`#${tabName}`) || currentHash !== expectedHash) {
-            console.log(`Switching to admin tab: ${tabName} for step:`, step.target);
             // Update URL hash to trigger tab switch in Admin component
             window.location.hash = `admin#${tabName}`;
           }
@@ -230,21 +179,8 @@ export const TourProvider: React.FC<TourProviderProps> = ({ children, currentUse
       }
     }
     
-    // Handle errors - if target not found, log but don't end tour immediately
+    // Handle errors - if target not found, let react-joyride handle it
     if (type === 'error' && step) {
-      console.warn('Tour step error - target not found:', step.target, 'Step index:', index);
-      // For export-menu and column-visibility, wait a bit and retry
-      if (step.target === '[data-tour-id="export-menu"]' || step.target === '[data-tour-id="column-visibility"]') {
-        console.log('Waiting for element to appear and retrying...');
-        setTimeout(() => {
-          const element = document.querySelector(step.target as string);
-          if (element) {
-            console.log('Element found, tour should continue');
-          } else {
-            console.error('Element still not found after retry:', step.target);
-          }
-        }, 1000);
-      }
       // Don't return here - let react-joyride handle it
     }
     

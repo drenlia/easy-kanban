@@ -7,8 +7,6 @@ interface AdminProjectSettingsTabProps {
   onSave: () => Promise<void>;
   onCancel: () => void;
   onAutoSave?: (key: string, value: string) => Promise<void>; // For immediate saving of specific settings
-  successMessage?: string;
-  error?: string;
 }
 
 const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
@@ -17,8 +15,6 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   onSave,
   onCancel,
   onAutoSave,
-  successMessage,
-  error
 }) => {
   const { t } = useTranslation('admin');
   const [finishedColumnNames, setFinishedColumnNames] = useState<string[]>([]);
@@ -95,18 +91,6 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           {t('projectSettings.description')}
         </p>
       </div>
-
-      {successMessage && (
-        <div className="mb-4 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md p-4">
-          <p className="text-sm text-green-800 dark:text-green-200">{successMessage}</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="mb-4 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md p-4">
-          <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
-        </div>
-      )}
 
       <div className="space-y-6">
         {/* Finished Column Names Management */}

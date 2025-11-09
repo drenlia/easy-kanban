@@ -3,10 +3,12 @@ import os from 'os';
 import axios from 'axios';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
+import { getStorageUsage, formatBytes } from '../utils/storageUtils.js';
 import { getContainerMemoryInfo } from '../utils/containerMemory.js';
 import { manualTriggers } from '../jobs/scheduler.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getLicenseManager } from '../config/license.js';
+import { getSystemDiskUsage } from '../utils/diskUsage.js';
 
 const router = express.Router();
 
@@ -95,7 +97,7 @@ router.post('/jobs/cleanup', authenticateToken, requireRole(['admin']), async (r
   }
 });
 
-router.get('/system-info', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/system-info', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = req.app.locals.db;
     // Memory usage (container-aware)
@@ -107,9 +109,35 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), (req, res)
     const cpuPercent = Math.round((loadAvg[0] / cpuCores) * 100);
     
     // Disk usage (storage info)
-    const storageUsage = getStorageUsage(db);
-    const storageLimit = getStorageLimit(db);
-    const diskPercent = storageLimit > 0 ? Math.round((storageUsage / storageLimit) * 100) : 0;
+    const licenseManager = getLicenseManager(db);
+    const isLicensingEnabled = licenseManager.isEnabled();
+    
+    let diskUsed, diskTotal, diskPercent;
+    
+    if (isLicensingEnabled) {
+      // When licensing is enabled, use license-based storage limits (same as LicensingTab)
+      const storageUsage = getStorageUsage(db);
+      const limits = await licenseManager.getLimits();
+      const storageLimit = limits ? limits.STORAGE_LIMIT : 5368709120; // Fallback to 5GB
+      diskUsed = storageUsage;
+      diskTotal = storageLimit;
+      diskPercent = storageLimit > 0 ? Math.round((storageUsage / storageLimit) * 100) : 0;
+    } else {
+      // When licensing is disabled, try to get actual system disk usage
+      const systemDiskInfo = getSystemDiskUsage();
+      if (systemDiskInfo) {
+        // Use actual system disk usage
+        diskUsed = systemDiskInfo.used;
+        diskTotal = systemDiskInfo.total;
+        diskPercent = systemDiskInfo.percent;
+      } else {
+        // Fallback: use attachment storage usage with a reasonable default limit
+        const storageUsage = getStorageUsage(db);
+        diskUsed = storageUsage;
+        diskTotal = 5368709120; // 5GB default
+        diskPercent = diskTotal > 0 ? Math.round((storageUsage / diskTotal) * 100) : 0;
+      }
+    }
     
     res.json({
       memory: {
@@ -127,11 +155,11 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), (req, res)
         cores: cpuCores
       },
       disk: {
-        used: storageUsage,
-        total: storageLimit,
+        used: diskUsed,
+        total: diskTotal,
         percent: diskPercent,
-        usedFormatted: formatBytes(storageUsage),
-        totalFormatted: formatBytes(storageLimit)
+        usedFormatted: formatBytes(diskUsed),
+        totalFormatted: formatBytes(diskTotal)
       },
       timestamp: new Date().toISOString()
     });

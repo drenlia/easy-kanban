@@ -5,15 +5,11 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { authenticateAdminPortal, adminPortalRateLimit } from '../middleware/adminAuth.js';
-import { initializeDatabase } from '../config/database.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
-
-// Initialize database
-const db = initializeDatabase();
 
 const router = express.Router();
 
@@ -38,6 +34,7 @@ router.use(adminPortalRateLimit);
 // Get instance information
 router.get('/info', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const instanceInfo = {
       instanceName: process.env.INSTANCE_NAME || 'unknown',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
@@ -53,6 +50,7 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance info:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -69,6 +67,7 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
 // Get instance owner information
 router.get('/owner-info', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
     const ownerEmail = ownerSetting ? ownerSetting.value : null;
     
@@ -81,6 +80,7 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching owner info:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -92,6 +92,7 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
 // Set instance owner (admin portal only)
 router.put('/owner', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { email } = req.body;
     const t = getTranslator(db);
     
@@ -127,6 +128,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error setting instance owner:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -138,6 +140,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
 // Get all settings
 router.get('/settings', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     settings.forEach(setting => {
@@ -150,6 +153,7 @@ router.get('/settings', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching settings:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -161,6 +165,7 @@ router.get('/settings', authenticateAdminPortal, (req, res) => {
 // Update a single setting
 router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { key } = req.params;
     const { value } = req.body;
     
@@ -187,6 +192,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating setting:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -198,6 +204,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
 // Update multiple settings
 router.put('/settings', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     const settings = req.body;
     
     const t = getTranslator(db);
@@ -230,6 +237,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating settings:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -245,6 +253,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 // Get all users
 router.get('/users', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const users = wrapQuery(db.prepare(`
       SELECT 
         u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
@@ -273,6 +282,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching users:', error);
+    const db = req.app.locals.db;
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -284,6 +294,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
 // Create a new user
 router.post('/users', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { email, password, firstName, lastName, role, sendInvitation = true, isActive = false } = req.body;
     
     // Validate required fields
@@ -298,6 +309,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      const t = getTranslator(db);
       return res.status(400).json({ 
         success: false,
         error: t('errors.invalidEmailAddressFormat') 
@@ -368,6 +380,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
 // Update user
 router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
@@ -426,6 +439,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
 // Delete user
 router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { userId } = req.params;
     
     const t = getTranslator(db);
@@ -465,6 +479,7 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
 // Health check endpoint
 router.get('/health', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     // Check database connection
     const dbCheck = wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
     
@@ -493,6 +508,7 @@ router.get('/health', authenticateAdminPortal, (req, res) => {
 // Get plan information and limits
 router.get('/plan', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     // Get LicenseManager instance
     const licenseManager = getLicenseManager(db);
     
@@ -661,6 +677,7 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
 // Update plan setting
 router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { key } = req.params;
     const { value } = req.body;
 
@@ -717,6 +734,7 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
 // Delete plan setting (remove database override)
 router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { key } = req.params;
 
     const t = getTranslator(db);
@@ -765,6 +783,7 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
 // Delete a setting
 router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { key } = req.params;
 
     const t = getTranslator(db);
@@ -796,6 +815,7 @@ router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
 // Add a new setting
 router.post('/settings', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { key, value } = req.body;
 
     const t = getTranslator(db);
@@ -844,6 +864,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
 // Update instance status in settings
 router.put('/instance-status', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { status } = req.body;
 
     const t = getTranslator(db);
@@ -894,6 +915,7 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
 // Get current instance status
 router.get('/instance-status', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
 
@@ -918,6 +940,7 @@ router.get('/instance-status', authenticateAdminPortal, (req, res) => {
 // Update user
 router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
@@ -1005,6 +1028,7 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
 // Send invitation email to user
 router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
   try {
+    const db = req.app.locals.db;
     const { email, adminName } = req.body;
     
     const t = getTranslator(db);

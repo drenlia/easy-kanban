@@ -73,6 +73,11 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       return res.status(400).json({ error: 'Setting key is required' });
     }
     
+    // Prevent updates to WEBSITE_URL - it's read-only and set during instance purchase
+    if (key === 'WEBSITE_URL') {
+      return res.status(403).json({ error: 'WEBSITE_URL is read-only and cannot be updated' });
+    }
+    
     // Convert value to string for SQLite (SQLite only accepts strings, numbers, bigints, buffers, and null)
     // Booleans, undefined, and objects need to be converted
     let safeValue = value;

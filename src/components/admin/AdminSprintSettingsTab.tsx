@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, Plus, Edit2, Trash2, Save, X, CheckCircle } from 'lucide-react';
+import { toast } from '../../utils/toast';
 
 interface PlanningPeriod {
   id: string;
@@ -16,8 +17,6 @@ const AdminSprintSettingsTab: React.FC = () => {
   const { t } = useTranslation('admin');
   const [sprints, setSprints] = useState<PlanningPeriod[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState({
@@ -47,9 +46,8 @@ const AdminSprintSettingsTab: React.FC = () => {
 
       const data = await response.json();
       setSprints(data.sprints || []);
-      setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('sprintSettings.failedToLoadSprints'));
+      toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToLoadSprints'), '');
     } finally {
       setLoading(false);
     }
@@ -93,19 +91,19 @@ const AdminSprintSettingsTab: React.FC = () => {
     try {
       // Validation
       if (!formData.name.trim()) {
-        setError(t('sprintSettings.sprintNameRequired'));
+        toast.error(t('sprintSettings.sprintNameRequired'), '');
         return;
       }
       if (!formData.start_date) {
-        setError(t('sprintSettings.startDateRequired'));
+        toast.error(t('sprintSettings.startDateRequired'), '');
         return;
       }
       if (!formData.end_date) {
-        setError(t('sprintSettings.endDateRequired'));
+        toast.error(t('sprintSettings.endDateRequired'), '');
         return;
       }
       if (new Date(formData.end_date) < new Date(formData.start_date)) {
-        setError(t('sprintSettings.endDateAfterStartDate'));
+        toast.error(t('sprintSettings.endDateAfterStartDate'), '');
         return;
       }
 
@@ -128,13 +126,12 @@ const AdminSprintSettingsTab: React.FC = () => {
         throw new Error('Failed to save sprint');
       }
 
-      setSuccessMessage(editingId ? t('sprintSettings.sprintUpdatedSuccessfully') : t('sprintSettings.sprintCreatedSuccessfully'));
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(editingId ? t('sprintSettings.sprintUpdatedSuccessfully') : t('sprintSettings.sprintCreatedSuccessfully'), '');
       
       handleCancel();
       fetchSprints();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('sprintSettings.failedToSaveSprint'));
+      toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToSaveSprint'), '');
     }
   };
 
@@ -155,11 +152,10 @@ const AdminSprintSettingsTab: React.FC = () => {
         throw new Error('Failed to delete sprint');
       }
 
-      setSuccessMessage(t('sprintSettings.sprintDeletedSuccessfully'));
-      setTimeout(() => setSuccessMessage(null), 3000);
+      toast.success(t('sprintSettings.sprintDeletedSuccessfully'), '');
       fetchSprints();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('sprintSettings.failedToDeleteSprint'));
+      toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToDeleteSprint'), '');
     }
   };
 
@@ -183,7 +179,7 @@ const AdminSprintSettingsTab: React.FC = () => {
 
       fetchSprints();
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('sprintSettings.failedToUpdateSprint'));
+      toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToUpdateSprint'), '');
     }
   };
 
@@ -228,20 +224,6 @@ const AdminSprintSettingsTab: React.FC = () => {
         )}
       </div>
 
-      {/* Success Message */}
-      {successMessage && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-200 px-4 py-3 rounded-lg flex items-center gap-2">
-          <CheckCircle className="w-5 h-5" />
-          {successMessage}
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
 
       {/* Create/Edit Form */}
       {(isCreating || editingId) && (
