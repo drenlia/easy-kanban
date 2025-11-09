@@ -14,7 +14,25 @@ export default defineConfig({
     port: 3010,
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
     ws: false, // Disable WebSocket completely
-    allowedHosts: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : ['localhost', '127.0.0.1'],
+    allowedHosts: (() => {
+      // Extract hostnames from ALLOWED_ORIGINS (which may contain full URLs)
+      const defaultHosts = ['localhost', '127.0.0.1'];
+      if (process.env.ALLOWED_ORIGINS) {
+        const hosts = new Set(defaultHosts);
+        process.env.ALLOWED_ORIGINS.split(',').forEach(origin => {
+          // Remove protocol (http:// or https://) and port if present
+          const hostname = origin.trim()
+            .replace(/^https?:\/\//, '') // Remove protocol
+            .replace(/:\d+$/, '') // Remove port
+            .split('/')[0]; // Take only the hostname part
+          if (hostname && hostname !== 'true' && hostname !== 'false') {
+            hosts.add(hostname);
+          }
+        });
+        return Array.from(hosts);
+      }
+      return defaultHosts;
+    })(),
     // CORS headers removed - let Express handle all CORS
     proxy: {
       '/api': {
