@@ -3,19 +3,21 @@
 /**
  * Script to generate SQL INSERT statements for 25 generic QA users
  * 
- * Usage:
- *   1. Copy this file to your server
- *   2. Run: node generate-qa-users.js
- *   3. Copy the output SQL statements
- *   4. First, get the user role ID: SELECT id FROM roles WHERE name = 'user';
- *   5. Replace <ROLE_ID> in the output with the actual role ID
- *   6. Execute the SQL statements in your database
+ * Usage (inside Docker container):
+ *   1. docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js > qa-users.sql
+ *   2. Get the user role ID: docker exec -it easy-kanban sqlite3 /app/server/data/kanban.db "SELECT id FROM roles WHERE name = 'user';"
+ *   3. Replace <ROLE_ID> in qa-users.sql with the actual role ID
+ *   4. Execute: docker exec -i easy-kanban sqlite3 /app/server/data/kanban.db < qa-users.sql
+ * 
+ * Or run interactively:
+ *   docker exec -it easy-kanban node /app/server/scripts/generate-qa-users.js
+ *   (then copy/paste the output and replace <ROLE_ID>)
  * 
  * Password for all users: TestPassword123!
  */
 
-const crypto = require('crypto');
-const bcrypt = require('bcrypt');
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 // Generate a password hash (same password for all QA users)
 const password = 'TestPassword123!';
