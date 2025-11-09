@@ -264,12 +264,19 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
     const db = req.app.locals.db;
     
     // Check if licensing is enabled first (before creating license manager)
+    // If LICENSE_ENABLED is not set or is 'false', treat as disabled
     const licenseEnabled = process.env.LICENSE_ENABLED === 'true';
     if (!licenseEnabled) {
       return res.json({ canCreate: true, reason: null });
     }
     
     // Only check limits if licensing is enabled
+    // Safely get license manager - if db is not available, allow creation
+    if (!db) {
+      console.warn('Database not available for license check, allowing user creation');
+      return res.json({ canCreate: true, reason: null });
+    }
+    
     const licenseManager = getLicenseManager(db);
     if (!licenseManager.isEnabled()) {
       return res.json({ canCreate: true, reason: null });
@@ -279,15 +286,25 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
       await licenseManager.checkUserLimit();
       res.json({ canCreate: true, reason: null });
     } catch (limitError) {
-      const limits = await licenseManager.getLimits();
-      const userCount = await licenseManager.getUserCount();
-      res.json({ 
-        canCreate: false, 
-        reason: 'User limit reached',
-        message: `Your current plan allows ${limits.USER_LIMIT} active users. You currently have ${userCount}. Please upgrade your plan or contact support.`,
-        current: userCount,
-        limit: limits.USER_LIMIT
-      });
+      // This is expected when limit is reached - return success response with canCreate: false
+      try {
+        const limits = await licenseManager.getLimits();
+        const userCount = await licenseManager.getUserCount();
+        res.json({ 
+          canCreate: false, 
+          reason: 'User limit reached',
+          message: `Your current plan allows ${limits.USER_LIMIT} active users. You currently have ${userCount}. Please upgrade your plan or contact support.`,
+          current: userCount,
+          limit: limits.USER_LIMIT
+        });
+      } catch (detailsError) {
+        // If we can't get details, still return the limit error
+        res.json({ 
+          canCreate: false, 
+          reason: 'User limit reached',
+          message: limitError.message
+        });
+      }
     }
   } catch (error) {
     console.error('Error checking user limit:', error);
@@ -296,6 +313,7 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
     if (!licenseEnabled) {
       return res.json({ canCreate: true, reason: null });
     }
+    // For any other error when licensing is enabled, return error
     res.status(500).json({ error: 'Failed to check user limit' });
   }
 });

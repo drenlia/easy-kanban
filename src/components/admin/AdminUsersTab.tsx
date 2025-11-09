@@ -268,7 +268,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
   const handleAddUser = async () => {
     try {
-      setLocalSuccessMessage(null);
       await onAddUser(newUser);
       setShowAddUserForm(false);
       setNewUser({
@@ -409,7 +408,6 @@ const AdminUsersTab: React.FC<AdminUsersTabProps> = ({
 
       // Limit check passed, open the modal
       setShowAddUserForm(true);
-      setLocalSuccessMessage(null);
     } catch (error) {
       console.error('Error checking user limit:', error);
       toast.error('Failed to check user limit. Please try again.', '');
