@@ -696,9 +696,9 @@ export default function KanbanColumn({
             <>
               <h3
                 data-column-title
-                className={`text-lg font-semibold text-gray-700 select-none ${
+                className={`text-lg font-semibold text-gray-700 dark:text-gray-100 select-none ${
                   isAdmin && showColumnDeleteConfirm === null
-                    ? 'cursor-pointer hover:text-gray-900' 
+                    ? 'cursor-pointer hover:text-gray-900 dark:hover:text-white' 
                     : 'cursor-default'
                 }`}
                 onClick={() => {
