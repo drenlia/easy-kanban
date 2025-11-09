@@ -83,15 +83,15 @@ A modern team collaboration Kanban board application with user management, authe
 
 1. Log in with the default admin account
 2. Go to the admin panel and setup:
-   2.1. The site name and URL in Site Settings
-   2.2. In the App Settings, choose the default language (FR/EN)
-   2.3. Review the Project Settings
-   2.4. Add sprints in the Sprint Settings
-   2.5. Review Reports Settings
-3. Create team members in the Users Tab
-4. Go to Kanban View and set up your boards and columns
-5. Start creating and managing tasks
-6. Configure Google OAuth (optional) in Admin > SSO settings
+   1. The site name and URL in Site Settings
+   2. In the App Settings, choose the default language (FR/EN)
+   3. Review the Project Settings
+   4. Add sprints in the Sprint Settings
+   5. Review Reports Settings
+4. Create team members in the Users Tab
+5. Go to Kanban View and set up your boards and columns
+6. Start creating and managing tasks
+7. Configure Google OAuth (optional) in Admin > SSO settings
 
 ## Permissions
 
