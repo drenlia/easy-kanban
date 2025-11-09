@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CurrentUser, SiteSettings } from '../types';
 import { DEFAULT_SITE_SETTINGS } from '../constants';
 import * as api from '../api';
 import { clearAllUserPreferenceCookies, clearOtherUserPreferenceCookies } from '../utils/userPreferences';
+import { registerLogoutCallback, unregisterLogoutCallback, markAsAuthenticated } from '../utils/authErrorHandler';
 
 // Get intended destination from HTML capture
 const getInitialIntendedDestination = (): string | null => {
@@ -73,6 +74,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     localStorage.setItem('authToken', token);
     setCurrentUser(userData);
     setIsAuthenticated(true);
+    
+    // Mark user as authenticated for auth error handler
+    markAsAuthenticated();
     
     // Clear old user preference cookies to prevent accumulation
     clearOtherUserPreferenceCookies(userData.id);
@@ -147,7 +151,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('authToken');
     setCurrentUser(null);
     setIsAuthenticated(false);
@@ -165,7 +169,15 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     callbacks.onPageChange('kanban'); // Reset to kanban page
     callbacks.onDataClear(); // Clear all app data
     window.location.hash = ''; // Clear URL hash
-  };
+  }, [callbacks]);
+
+  // Register logout callback for auth error handler (after handleLogout is defined)
+  useEffect(() => {
+    registerLogoutCallback(handleLogout);
+    return () => {
+      unregisterLogoutCallback();
+    };
+  }, [handleLogout]);
 
   const handleProfileUpdated = async () => {
     try {
@@ -210,6 +222,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           setCurrentUser(response.user);
           setIsAuthenticated(true);
           setAuthChecked(true);
+          markAsAuthenticated(); // Mark as authenticated for auth error handler
         })
         .catch(() => {
           // Clear all authentication data on error

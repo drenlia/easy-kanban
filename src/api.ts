@@ -1,6 +1,7 @@
 import axios, { CancelTokenSource } from 'axios';
 import { TeamMember, Board, Task, Column, Comment } from './types';
 import { versionDetection } from './utils/versionDetection';
+import { handleAuthError } from './utils/authErrorHandler';
 
 const api = axios.create({
   baseURL: '/api'
@@ -297,7 +298,8 @@ export const uploadFile = async (file: File) => {
 export const fetchCommentAttachments = async (commentId: string) => {
   // Don't make API calls if no token is available
   if (!localStorage.getItem('authToken')) {
-    console.log('🔑 Skipping fetchCommentAttachments - no auth token available');
+    // If user was previously authenticated, this is an auth error
+    handleAuthError('Missing auth token for fetchCommentAttachments');
     return [];
   }
   
@@ -309,7 +311,8 @@ export const fetchCommentAttachments = async (commentId: string) => {
 export const fetchTaskAttachments = async (taskId: string) => {
   // Don't make API calls if no token is available
   if (!localStorage.getItem('authToken')) {
-    console.log('🔑 Skipping fetchTaskAttachments - no auth token available');
+    // If user was previously authenticated, this is an auth error
+    handleAuthError('Missing auth token for fetchTaskAttachments');
     return [];
   }
   

@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { handleAuthError } from '../utils/authErrorHandler';
 
 class WebSocketClient {
   private socket: Socket | null = null;
@@ -139,11 +140,15 @@ class WebSocketClient {
       this.isConnected = false;
       
       // Handle authentication errors - redirect to login for expired/invalid tokens
-      if (error.message === 'Invalid token' || error.message === 'Authentication required') {
+      // Check for various auth error messages
+      const isAuthError = error.message === 'Invalid token' || 
+                         error.message === 'Authentication required' ||
+                         error.message?.toLowerCase().includes('token') ||
+                         error.message?.toLowerCase().includes('auth');
+      
+      if (isAuthError) {
         console.log('🔑 WebSocket auth error - token expired or invalid');
-        // Clear token and redirect to login
-        localStorage.removeItem('authToken');
-        window.location.replace(window.location.origin + '/#login');
+        handleAuthError('WebSocket authentication failed');
         return;
       }
       

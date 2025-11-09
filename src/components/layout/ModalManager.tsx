@@ -75,6 +75,7 @@ const ModalManager: React.FC<ModalManagerProps> = ({
           <HelpModal
             isOpen={showHelpModal}
             onClose={onHelpClose}
+            currentUser={currentUser}
           />
         </Suspense>
       )}
