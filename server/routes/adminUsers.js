@@ -147,17 +147,20 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
     const isBeingActivated = !currentUser.is_active && isActive;
     
     if (isBeingActivated) {
-      // Check user limit before allowing activation
-      const licenseManager = getLicenseManager(db);
-      try {
-        await licenseManager.checkUserLimit();
-      } catch (limitError) {
-        console.warn('User limit check failed during activation:', limitError.message);
-        return res.status(403).json({ 
-          error: 'User limit reached',
-          message: limitError.message,
-          details: 'Your current plan does not allow activating more users. Please upgrade your plan or contact support.'
-        });
+      // Check user limit before allowing activation (only if licensing is enabled)
+      const licenseEnabled = process.env.LICENSE_ENABLED === 'true';
+      if (licenseEnabled) {
+        const licenseManager = getLicenseManager(db);
+        try {
+          await licenseManager.checkUserLimit();
+        } catch (limitError) {
+          console.warn('User limit check failed during activation:', limitError.message);
+          return res.status(403).json({ 
+            error: 'User limit reached',
+            message: limitError.message,
+            details: 'Your current plan does not allow activating more users. Please upgrade your plan or contact support.'
+          });
+        }
       }
     }
 
@@ -259,9 +262,15 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
 router.get('/can-create', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = req.app.locals.db;
-    const licenseManager = getLicenseManager(db);
     
-    // Check if licensing is enabled
+    // Check if licensing is enabled first (before creating license manager)
+    const licenseEnabled = process.env.LICENSE_ENABLED === 'true';
+    if (!licenseEnabled) {
+      return res.json({ canCreate: true, reason: null });
+    }
+    
+    // Only check limits if licensing is enabled
+    const licenseManager = getLicenseManager(db);
     if (!licenseManager.isEnabled()) {
       return res.json({ canCreate: true, reason: null });
     }
@@ -282,6 +291,11 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
     }
   } catch (error) {
     console.error('Error checking user limit:', error);
+    // If licensing is disabled, allow user creation even if there's an error
+    const licenseEnabled = process.env.LICENSE_ENABLED === 'true';
+    if (!licenseEnabled) {
+      return res.json({ canCreate: true, reason: null });
+    }
     res.status(500).json({ error: 'Failed to check user limit' });
   }
 });
@@ -316,17 +330,20 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   }
   
   try {
-    // Check user limit before creating new user
-    const licenseManager = getLicenseManager(db);
-    try {
-      await licenseManager.checkUserLimit();
-    } catch (limitError) {
-      console.warn('User limit check failed:', limitError.message);
-      return res.status(403).json({ 
-        error: 'User limit reached',
-        message: limitError.message,
-        details: 'Your current plan does not allow creating more users. Please upgrade your plan or contact support.'
-      });
+    // Check user limit before creating new user (only if licensing is enabled)
+    const licenseEnabled = process.env.LICENSE_ENABLED === 'true';
+    if (licenseEnabled) {
+      const licenseManager = getLicenseManager(db);
+      try {
+        await licenseManager.checkUserLimit();
+      } catch (limitError) {
+        console.warn('User limit check failed:', limitError.message);
+        return res.status(403).json({ 
+          error: 'User limit reached',
+          message: limitError.message,
+          details: 'Your current plan does not allow creating more users. Please upgrade your plan or contact support.'
+        });
+      }
     }
     
     // Check if email already exists
