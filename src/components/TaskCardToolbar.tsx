@@ -330,7 +330,7 @@ export default function TaskCardToolbar({
 
       {/* Unified Toolbar - All action buttons left-justified after drag handle */}
       {shouldShowToolbar && (
-        <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]">
+        <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]" data-tour-id="task-card-toolbar">
           <div className="flex gap-0">
               {/* Add Comment Button */}
             {onAddComment && (

@@ -755,6 +755,7 @@ export default function KanbanColumn({
               className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition-colors"
               disabled={isSubmitting}
               title={t('column.columnManagementOptions')}
+              data-tour-id="column-management-menu"
             >
               <MoreVertical size={18} className="text-gray-500 dark:text-gray-400" />
             </button>

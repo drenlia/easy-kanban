@@ -3474,7 +3474,7 @@ export default function App() {
     
     return (
       <ThemeProvider>
-        <TourProvider currentUser={currentUser}>
+        <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
           <Suspense fallback={<PageLoader />}>
             <TaskPage 
               currentUser={currentUser}
@@ -3526,7 +3526,7 @@ export default function App() {
   }
 
   return (
-    <TourProvider currentUser={currentUser}>
+    <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
       <ThemeProvider>
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
       {process.env.DEMO_ENABLED === 'true' && <ResetCountdown onReset={handleLogout} />}

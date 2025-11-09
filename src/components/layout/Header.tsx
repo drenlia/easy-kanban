@@ -392,6 +392,7 @@ const Header: React.FC<HeaderProps> = ({
                     onClick={handleInviteClick}
                     className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
                     title={t('navigation.inviteUser')}
+                    data-tour-id="invite-user-button"
                   >
                     <UserPlus className="h-4 w-4" />
                     {t('navigation.invite')}
@@ -546,7 +547,8 @@ const Header: React.FC<HeaderProps> = ({
                       currentPage === 'reports'
                         ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
                         : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
+                    }`}
+                    data-tour-id="reports-button"
                   >
                     {t('navigation.reports')}
                   </button>

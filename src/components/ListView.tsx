@@ -1289,6 +1289,7 @@ export default function ListView({
                       onClick={handleColumnMenuToggle}
                       className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
                       title={t('listView.showHideColumns')}
+                      data-tour-id="column-visibility"
                     >
                       <Menu size={14} />
                     </button>

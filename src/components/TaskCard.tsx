@@ -1309,6 +1309,7 @@ const TaskCard = React.memo(function TaskCard({
                   }}
                   className="absolute -left-[10px] top-1/2 -translate-y-1/2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
                   title={t('taskCard.editTitle')}
+                  data-tour-id="task-quick-edit"
                 >
                   <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
                 </button>
@@ -1522,6 +1523,7 @@ const TaskCard = React.memo(function TaskCard({
                   e.stopPropagation();
                   handleSprintSelectorOpen();
                 }}
+                data-tour-id="sprint-association"
               >
                 <Calendar 
                   size={12} 

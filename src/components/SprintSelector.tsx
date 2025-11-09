@@ -179,6 +179,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600"
         title={t('sprintSelector.selectSprint')}
+        data-tour-id="sprint-selector"
       >
         <Calendar className="h-4 w-4" />
         <span className="max-w-[150px] truncate">

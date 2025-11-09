@@ -12,6 +12,7 @@ const ThemeToggle: React.FC = () => {
       onClick={toggleTheme}
       className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
       title={theme === 'light' ? t('theme.switchToDark') : t('theme.switchToLight')}
+      data-tour-id="theme-toggle"
     >
       {theme === 'light' ? (
         <Moon size={16} />
