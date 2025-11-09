@@ -29,7 +29,6 @@ A modern team collaboration Kanban board application with user management, authe
 
 ### Team & Collaboration
 - **Team management** with color-coded member assignments
-- **User presence indicators** - see who's currently viewing each board
 - **Activity feed** - Draggable panel showing real-time changes, comments, and team activity
 - **Member filtering** - Filter tasks by assignees, watchers, collaborators, requesters, and system tasks
 
@@ -80,15 +79,15 @@ A modern team collaboration Kanban board application with user management, authe
 
 **Default Admin Account:**
 - Email: `admin@kanban.local`
-- Password: generated at initialization - look for it in the backend console log
+- Password: `generated` at initialization - look for it in the backend console log
 
 1. Log in with the default admin account
 2. Go to the admin panel and setup:
-2.1. The site name and URL in Site Settings
-2.2. In the App Settings, choose the default language (FR/EN)
-2.3. Review the Project Settings
-2.4. Add sprints in the Sprint Settings
-2.5. Review Reports Settings
+   2.1. The site name and URL in Site Settings
+   2.2. In the App Settings, choose the default language (FR/EN)
+   2.3. Review the Project Settings
+   2.4. Add sprints in the Sprint Settings
+   2.5. Review Reports Settings
 3. Create team members in the Users Tab
 4. Go to Kanban View and set up your boards and columns
 5. Start creating and managing tasks
@@ -128,12 +127,23 @@ A modern team collaboration Kanban board application with user management, authe
 ## Installation
 
 ### Docker
+
+**Step 1: Clone and setup**
 ```bash
 # Clone the repo
 git clone https://github.com/drenlia/easy-kanban.git
 cd easy-kanban
 cp docker-compose-example.yml docker-compose.yml
-# Run with docker-compose
+```
+
+**Step 2: Configure and run**
+1. Edit `docker-compose.yml` and update the following environment variables:
+   - `JWT_SECRET`: Set a strong secret key for authentication
+   - `ALLOWED_ORIGINS`: Set your domain(s), e.g., `yourdomain.com`
+   - `DEMO_ENABLED`: Set to `true` to try the demo with generated data, `false` for production
+
+2. Start the application:
+```bash
 npm run docker:dev
 ```
 
@@ -192,16 +202,15 @@ docker run --rm -v easy-kanban_kanban-data:/source -v $(pwd):/backup alpine cp /
 
 ### Restore Database
 
-**To Running Container:**
 ```bash
-# Stop the application
-docker-compose down
+# Stop the application gracefully (keeps container running)
+docker-compose stop
 
 # Replace database
 docker cp ./kanban-backup.db easy-kanban:/app/server/data/kanban.db
 
 # Restart application
-docker-compose up -d
+docker-compose start
 ```
 
 **Important:** Always stop the application before restoring to prevent data corruption.
@@ -216,13 +225,33 @@ The application includes JWT-based authentication and role-based access control.
 - Consider additional network security measures
 
 ## Authors and acknowledgment
-Developped with AI assistance (bolt.new and cursor.sh)
+Developped with AI assistance
 
 ## License
-No restrictions.  Use and modify as you please, but please keep this free and leave comments.
+
+MIT License
+
+Copyright (c) 2024 Easy Kanban
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## Project status
-This project was created for to answer a specific need and may be useful for someone else.
 
 Improvements are always welcome.
 
