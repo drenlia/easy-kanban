@@ -6,6 +6,7 @@ import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
 import { loadUserPreferences, updateUserPreference } from '../../utils/userPreferences';
+import ResetCountdown from '../ResetCountdown';
 
 interface SystemInfo {
   memory: {
