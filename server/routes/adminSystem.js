@@ -111,19 +111,33 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
     // Disk usage (storage info)
     const licenseManager = getLicenseManager(db);
     const isLicensingEnabled = licenseManager.isEnabled();
+    const isDemoMode = process.env.DEMO_ENABLED === 'true';
     
     let diskUsed, diskTotal, diskPercent;
     
-    if (isLicensingEnabled) {
-      // When licensing is enabled, use license-based storage limits (same as LicensingTab)
+    if (isLicensingEnabled || isDemoMode) {
+      // When licensing is enabled OR in demo mode, use instance storage usage (STORAGE_USED from settings)
       const storageUsage = getStorageUsage(db);
-      const limits = await licenseManager.getLimits();
-      const storageLimit = limits ? limits.STORAGE_LIMIT : 5368709120; // Fallback to 5GB
+      let storageLimit;
+      
+      if (isLicensingEnabled) {
+        // Get limit from license manager
+        const limits = await licenseManager.getLimits();
+        storageLimit = limits ? limits.STORAGE_LIMIT : 5368709120; // Fallback to 5GB
+      } else {
+        // Demo mode: use default limit or get from settings
+        const limitSetting = wrapQuery(
+          db.prepare('SELECT value FROM settings WHERE key = ?'),
+          'SELECT'
+        ).get('STORAGE_LIMIT');
+        storageLimit = limitSetting ? parseInt(limitSetting.value) : 5368709120; // Default 5GB
+      }
+      
       diskUsed = storageUsage;
       diskTotal = storageLimit;
       diskPercent = storageLimit > 0 ? Math.round((storageUsage / storageLimit) * 100) : 0;
     } else {
-      // When licensing is disabled, try to get actual system disk usage
+      // When licensing is disabled and not in demo mode, try to get actual system disk usage
       const systemDiskInfo = getSystemDiskUsage();
       if (systemDiskInfo) {
         // Use actual system disk usage
