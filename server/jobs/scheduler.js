@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { createDailyTaskSnapshots, cleanupOldSnapshots } from './taskSnapshots.js';
 import { checkAllUserAchievements } from './achievements.js';
+import { getNotificationThrottler } from '../services/notificationThrottler.js';
 
 /**
  * Initialize all scheduled background jobs
@@ -55,11 +56,32 @@ export const initializeScheduler = (db) => {
     });
     console.log('  ✓ Snapshot cleanup scheduled (monthly, 1st at 2am UTC)');
     
+    // Job 4: Cleanup Old Notifications (runs daily at 3 AM)
+    // Cron: 0 3 * * * = At 03:00 every day
+    cron.schedule('0 3 * * *', async () => {
+      console.log('🧹 [CRON] Running notification queue cleanup job...');
+      try {
+        const throttler = getNotificationThrottler();
+        if (throttler) {
+          throttler.cleanupOldNotifications();
+        } else {
+          console.warn('⚠️ [CRON] Notification throttler not available for cleanup');
+        }
+      } catch (error) {
+        console.error('❌ [CRON] Notification cleanup job failed:', error);
+      }
+    }, {
+      scheduled: true,
+      timezone: 'UTC'
+    });
+    console.log('  ✓ Notification queue cleanup scheduled (daily at 3am UTC)');
+    
     console.log('✅ Background job scheduler initialized successfully');
     console.log('📋 Scheduled jobs:');
     console.log('   • Daily snapshots: 00:00 UTC');
     console.log('   • Achievement checks: Every hour');
-    console.log('   • Cleanup: 1st of month at 02:00 UTC');
+    console.log('   • Snapshot cleanup: 1st of month at 02:00 UTC');
+    console.log('   • Notification cleanup: Daily at 03:00 UTC');
     
     // Optional: Run initial snapshot if needed (for testing/initialization)
     if (process.env.RUN_INITIAL_SNAPSHOT === 'true') {
