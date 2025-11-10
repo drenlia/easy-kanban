@@ -380,6 +380,11 @@ const Header: React.FC<HeaderProps> = ({
               tasks={allTasks}
             />
           )}
+          
+          {/* Demo Reset Counter - positioned between sprint selector and invite button */}
+          {process.env.DEMO_ENABLED === 'true' && (
+            <ResetCountdown inline={true} onReset={onLogout} />
+          )}
         </div>
         
         <div className="flex items-center gap-3">
