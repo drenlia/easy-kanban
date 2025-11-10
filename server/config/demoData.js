@@ -140,6 +140,10 @@ export function initializeDemoData(db, boardId, columns) {
 
   console.log('🎭 Initializing demo data...');
   
+  // Initialize demo settings
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('STORAGE_USED', '0');
+  console.log('✅ Set STORAGE_USED=0 for demo');
+  
   // Create demo users first
   const demoUsers = createDemoUsers(db);
   if (demoUsers.length === 0) {

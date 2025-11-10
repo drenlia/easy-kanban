@@ -688,6 +688,12 @@ class NotificationService {
    */
   async sendTaskNotification(activityData) {
     try {
+      // Skip notifications in demo mode
+      if (process.env.DEMO_ENABLED === 'true') {
+        console.log('📧 [NOTIFICATION] Skipping notification in demo mode');
+        return;
+      }
+      
       const { userId, action, taskId, details, oldValue, newValue } = activityData;
       
       // Simple deduplication to prevent double processing within 1 second
@@ -796,6 +802,12 @@ class NotificationService {
    */
   async sendEmailDirectly(notificationData) {
     try {
+      // Skip notifications in demo mode
+      if (process.env.DEMO_ENABLED === 'true') {
+        console.log('📧 [NOTIFICATION] Skipping email notification in demo mode');
+        return;
+      }
+      
       const { userId, action, taskId, details, oldValue, newValue, task, participants, actor, notificationType } = notificationData;
       
       // userId in notificationData should be the RECIPIENT (not the actor)
