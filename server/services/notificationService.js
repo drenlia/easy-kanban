@@ -3,6 +3,7 @@ import { EmailTemplates } from './emailTemplates.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationThrottler } from './notificationThrottler.js';
 import { getTranslator } from '../utils/i18n.js';
+import { formatDateTimeLocal } from '../utils/dateFormatter.js';
 
 /**
  * Notification Service - Handles email notifications for task activities
@@ -237,9 +238,14 @@ class NotificationService {
    * Legacy template generation (keeping for backwards compatibility)
    */
   generateLegacyTemplate(notificationType, data) {
-    const { task, action, details, actor, oldValue, newValue, participants } = data;
+    const { task, action, details, actor, oldValue, newValue, participants, timestamp } = data;
     const taskIdentifier = task.ticket || `Task #${task.id.substring(0, 8)}`;
     const baseUrl = this.getBaseUrl();
+    
+    // Format timestamp
+    const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
+    const taskTicket = task?.ticket || '';
+    const ticketPrefix = taskTicket ? `[ ${taskTicket} ] ` : '';
     // Construct task URL with project ID if available
     // Note: Email clients may encode # to %23, but browsers should decode it automatically
     let taskUrl;
@@ -265,13 +271,15 @@ class NotificationService {
 
     const templates = {
       newTaskAssigned: {
-        subject: t('emails.taskNotification.newTaskAssigned.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.newTaskAssigned.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2563eb;">${t('emails.taskNotification.newTaskAssigned.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.newTaskAssigned.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.newTaskAssigned.assignedBy')}</strong> ${actor.name}</p>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -289,17 +297,19 @@ class NotificationService {
       },
 
       myTaskUpdated: {
-        subject: t('emails.taskNotification.myTaskUpdated.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.myTaskUpdated.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #2563eb;">${t('emails.taskNotification.myTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.myTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.myTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #92400e;">${t('emails.taskNotification.myTaskUpdated.whatChanged')}</strong>
-                <p style="color: #92400e; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
+                <p style="color: #92400e; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -317,17 +327,19 @@ class NotificationService {
       },
 
       watchedTaskUpdated: {
-        subject: t('emails.taskNotification.watchedTaskUpdated.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.watchedTaskUpdated.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #7c3aed;">${t('emails.taskNotification.watchedTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.watchedTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.watchedTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ede9fe; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #6b21a8;">${t('emails.taskNotification.watchedTaskUpdated.whatChanged')}</strong>
-                <p style="color: #6b21a8; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
+                <p style="color: #6b21a8; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -345,13 +357,15 @@ class NotificationService {
       },
 
       addedAsCollaborator: {
-        subject: t('emails.taskNotification.addedAsCollaborator.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.addedAsCollaborator.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #059669;">${t('emails.taskNotification.addedAsCollaborator.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.addedAsCollaborator.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.addedAsCollaborator.addedBy')}</strong> ${actor.name}</p>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -369,17 +383,19 @@ class NotificationService {
       },
 
       collaboratingTaskUpdated: {
-        subject: t('emails.taskNotification.collaboratingTaskUpdated.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.collaboratingTaskUpdated.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #059669;">${t('emails.taskNotification.collaboratingTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.collaboratingTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.collaboratingTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ecfdf5; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #065f46;">${t('emails.taskNotification.collaboratingTaskUpdated.whatChanged')}</strong>
-                <p style="color: #065f46; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
+                <p style="color: #065f46; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -397,13 +413,15 @@ class NotificationService {
       },
 
       commentAdded: {
-        subject: t('emails.commentNotification.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.commentNotification.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #dc2626;">${t('emails.commentNotification.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.commentNotification.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.commentNotification.commentBy')}</strong> ${actor.name}</p>
               ${data.commentContent ? `
                 <div style="background-color: #fef2f2; padding: 15px; border-radius: 6px; margin: 15px 0; border-left: 4px solid #dc2626;">
@@ -427,13 +445,15 @@ class NotificationService {
       },
 
       requesterTaskCreated: {
-        subject: t('emails.taskNotification.requesterTaskCreated.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.requesterTaskCreated.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #16a34a;">${t('emails.taskNotification.requesterTaskCreated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskCreated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskCreated.createdBy')}</strong> ${actor.name}</p>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -451,17 +471,19 @@ class NotificationService {
       },
 
       requesterTaskUpdated: {
-        subject: t('emails.taskNotification.requesterTaskUpdated.subject', { taskTitle: task.title }),
+        subject: `${ticketPrefix}${t('emails.taskNotification.requesterTaskUpdated.subject', { taskTitle: task.title })}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #16a34a;">${t('emails.taskNotification.requesterTaskUpdated.title')}</h2>
             <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin: 0 0 10px 0; color: #1e293b;">${task.title}</h3>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskUpdated.taskId')}</strong> ${taskIdentifier}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px; margin-left: 20px;">${task.title}</p>
+              <p style="color: #64748b; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #f0fdf4; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #166534;">${t('emails.taskNotification.requesterTaskUpdated.whatChanged')}</strong>
-                <p style="color: #166534; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue)}</p>
+                <p style="color: #166534; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -485,14 +507,55 @@ class NotificationService {
   /**
    * Format change details for email templates
    */
-  formatChangeDetails(details, oldValue, newValue) {
+  formatChangeDetails(details, oldValue, newValue, t = null) {
+    // Get translator if not provided
+    if (!t) {
+      t = getTranslator(this.db);
+    }
+    
     if (oldValue !== undefined && newValue !== undefined) {
+      // Check if value is a column ID (format: prefix-uuid, e.g., "progress-3c62dc96-fb00-463c-ac4e-d1cb41f7cbec")
+      const isColumnId = (value) => {
+        if (!value) return false;
+        const strValue = String(value);
+        // Column IDs have format: word-hyphen-uuid (e.g., "progress-3c62dc96-fb00-463c-ac4e-d1cb41f7cbec")
+        // Check if it contains a hyphen and looks like it has a UUID part
+        return /^[a-zA-Z0-9_-]+-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(strValue);
+      };
+
+      // Get column title from column ID
+      const getColumnTitle = (columnId) => {
+        if (!columnId) return columnId;
+        try {
+          const column = wrapQuery(
+            this.db.prepare(`
+              SELECT title 
+              FROM columns 
+              WHERE id = ?
+            `),
+            'SELECT'
+          ).get(String(columnId));
+          
+          if (column && column.title) {
+            return column.title;
+          }
+        } catch (error) {
+          // If lookup fails, just return the original value
+        }
+        return columnId;
+      };
+
       // Convert user IDs to human-readable names
       const formatValue = (value) => {
         if (!value) return value;
         const strValue = String(value);
         
-        // Simple approach: try to get member name for any ID that looks like a user/member ID
+        // Check if it's a column ID first
+        if (isColumnId(strValue)) {
+          return getColumnTitle(strValue);
+        }
+        
+        // Then try to get member name for any ID that looks like a user/member ID
         try {
           const member = wrapQuery(
             this.db.prepare(`
@@ -513,22 +576,48 @@ class NotificationService {
         return strValue;
       };
 
+      // Check if this is a description field (contains HTML tags)
+      const isDescription = (value) => {
+        if (!value) return false;
+        const strValue = String(value);
+        // Check if value contains HTML tags (like <p>, <div>, etc.)
+        return /<[a-z][\s\S]*>/i.test(strValue);
+      };
+
+      const isDescField = isDescription(oldValue) || isDescription(newValue) || 
+                         (details && details.toLowerCase().includes('description'));
+
+      // Format value - render HTML for descriptions, escape for others
+      const formatValueForDisplay = (value) => {
+        const formatted = formatValue(value);
+        if (isDescField && formatted) {
+          // For descriptions, render HTML directly (like comments do)
+          return formatted;
+        } else {
+          // For other fields, escape HTML
+          return this.escapeHtml(formatted);
+        }
+      };
+
       // Handle specific field changes with before/after
       if (oldValue && newValue) {
+        const beforeLabel = t('emails.taskNotification.common.before', 'Before');
+        const afterLabel = t('emails.taskNotification.common.after', 'After');
+        
         return `
           <div style="margin: 10px 0;">
             <div style="background-color: #fee2e2; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>Before:</strong> ${this.escapeHtml(formatValue(oldValue))}
+              <strong>${beforeLabel}:</strong> ${formatValueForDisplay(oldValue)}
             </div>
             <div style="background-color: #dcfce7; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>After:</strong> ${this.escapeHtml(formatValue(newValue))}
+              <strong>${afterLabel}:</strong> ${formatValueForDisplay(newValue)}
             </div>
           </div>
         `;
       } else if (newValue) {
-        return `<strong>Set to:</strong> ${this.escapeHtml(formatValue(newValue))}`;
+        return `<strong>Set to:</strong> ${formatValueForDisplay(newValue)}`;
       } else if (oldValue) {
-        return `<strong>Cleared</strong> (was: ${this.escapeHtml(formatValue(oldValue))})`;
+        return `<strong>Cleared</strong> (was: ${formatValueForDisplay(oldValue)})`;
       }
     }
     
@@ -709,6 +798,11 @@ class NotificationService {
     try {
       const { userId, action, taskId, details, oldValue, newValue, task, participants, actor, notificationType } = notificationData;
       
+      // userId in notificationData should be the RECIPIENT (not the actor)
+      // The actor is in the actor object
+      // Note: sendImmediateNotification fixes this by overriding userId to be the recipient
+      const recipientUserId = userId;
+      
       // Get recipient email
       const recipient = wrapQuery(
         this.db.prepare(`
@@ -718,7 +812,7 @@ class NotificationService {
           WHERE u.id = ?
         `),
         'SELECT'
-      ).get(userId);
+      ).get(recipientUserId);
 
       if (!recipient || !recipient.email) {
         console.warn(`⚠️ [NOTIFICATION] No recipient found for userId ${userId}`);
@@ -732,7 +826,8 @@ class NotificationService {
         actor,
         oldValue,
         newValue,
-        participants
+        participants,
+        timestamp: notificationData.timestamp || new Date()
       };
 
       // Generate email template

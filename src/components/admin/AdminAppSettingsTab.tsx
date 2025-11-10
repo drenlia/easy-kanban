@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import AdminFileUploadsTab from './AdminFileUploadsTab';
+import AdminNotificationQueueTab from './AdminNotificationQueueTab';
 
 interface AdminAppSettingsTabProps {
   settings: { [key: string]: string | undefined };
@@ -19,7 +20,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
 }) => {
   const { t } = useTranslation('admin');
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads' | 'notifications'>('ui');
+  const [activeSubTab, setActiveSubTab] = useState<'ui' | 'uploads' | 'notifications' | 'notification-queue'>('ui');
   const [notificationDefaults, setNotificationDefaults] = useState<{ [key: string]: boolean }>({});
   const [autosaveSuccess, setAutosaveSuccess] = useState<string | null>(null);
 
@@ -65,19 +66,23 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       setActiveSubTab('uploads');
     } else if (hash === '#admin#app-settings#notifications') {
       setActiveSubTab('notifications');
+    } else if (hash === '#admin#app-settings#notification-queue') {
+      setActiveSubTab('notification-queue');
     } else if (hash === '#admin#app-settings#user-interface') {
       setActiveSubTab('ui');
     }
   }, []);
 
   // Update URL hash when activeSubTab changes
-  const handleSubTabChange = (tab: 'ui' | 'uploads' | 'notifications') => {
+  const handleSubTabChange = (tab: 'ui' | 'uploads' | 'notifications' | 'notification-queue') => {
     setActiveSubTab(tab);
     let newHash = '#admin#app-settings#user-interface';
     if (tab === 'uploads') {
       newHash = '#admin#app-settings#file-uploads';
     } else if (tab === 'notifications') {
       newHash = '#admin#app-settings#notifications';
+    } else if (tab === 'notification-queue') {
+      newHash = '#admin#app-settings#notification-queue';
     }
     window.location.hash = newHash;
   };
@@ -369,6 +374,16 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           >
             {t('appSettings.notifications')}
           </button>
+          <button
+            onClick={() => handleSubTabChange('notification-queue')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeSubTab === 'notification-queue'
+                ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
+            }`}
+          >
+            {t('appSettings.notificationQueue')}
+          </button>
         </nav>
       </div>
 
@@ -617,6 +632,8 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
             )}
           </div>
         </>
+      ) : activeSubTab === 'notification-queue' ? (
+        <AdminNotificationQueueTab />
       ) : activeSubTab === 'notifications' ? (
         <>
 
@@ -654,6 +671,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-gray-100"
                   >
                     <option value="0">{t('appSettings.immediate')}</option>
+                    <option value="5">{t('appSettings.minutes5')}</option>
                     <option value="15">{t('appSettings.minutes15')}</option>
                     <option value="30">{t('appSettings.minutes30')}</option>
                     <option value="60">{t('appSettings.hour1')}</option>
@@ -768,8 +786,6 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           onSettingsChange={onSettingsChange}
           onSave={onSave}
           onCancel={onCancel}
-          successMessage={successMessage}
-          error={error}
         />
       )}
     </div>

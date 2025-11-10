@@ -14,6 +14,7 @@ import AdminProjectSettingsTab from './admin/AdminProjectSettingsTab';
 import AdminSprintSettingsTab from './admin/AdminSprintSettingsTab';
 import AdminReportingTab from './admin/AdminReportingTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
+import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import websocketClient from '../services/websocketClient';
 
 interface AdminProps {
@@ -1018,6 +1019,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
                 {tab === 'sprint-settings' && t('tabs.sprintSettings')}
                 {tab === 'reporting' && t('tabs.reporting')}
                 {tab === 'licensing' && t('tabs.licensing')}
+                {tab === 'notification-queue' && t('tabs.notificationQueue')}
               </button>
             ))}
           </nav>
@@ -1157,6 +1159,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               currentUser={currentUser}
               settings={settings}
             />
+          )}
+
+          {/* Notification Queue Tab */}
+          {activeTab === 'notification-queue' && (
+            <AdminNotificationQueueTab />
           )}
         </div>
     </div>

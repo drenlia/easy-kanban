@@ -3,6 +3,7 @@
  */
 
 import { getTranslator } from '../utils/i18n.js';
+import { formatDateTimeLocal } from '../utils/dateFormatter.js';
 
 export const EmailTemplates = {
   /**
@@ -99,6 +100,7 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       siteName,
       oldValue,
       newValue,
+      timestamp,
       db
     } = data;
 
@@ -121,8 +123,15 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       return '';
     };
 
+    // Format timestamp for display
+    const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
+    
+    // Get task ticket for subject
+    const taskTicket = task?.ticket || '';
+    const ticketPrefix = taskTicket ? `[ ${taskTicket} ] ` : '';
+
     return {
-      subject: `${siteName || 'Easy Kanban'}: ${getActionMessage()} - ${task.title}`,
+      subject: `${ticketPrefix}${getActionMessage()} - ${task.title}`,
       text: `${t('emails.taskNotification.common.hi', { firstName: user.first_name })}
 
 ${getActionMessage()} in ${board.name}:
@@ -151,6 +160,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
           <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
             <h3 style="color: #1f2937; margin-top: 0; font-size: 18px;">📝 ${task.title}</h3>
             ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${project}</p>` : ''}
+            <p style="color: #6b7280; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
             <p style="color: #374151; margin: 10px 0;"><strong>${t('emails.taskNotification.common.details')}</strong> ${actionDetails}</p>
             ${getChangeDetails()}
           </div>
@@ -192,13 +202,21 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
       commentAuthor, 
       taskUrl, 
       siteName,
+      timestamp,
       db
     } = data;
 
     const t = db ? getTranslator(db) : (key, options = {}) => key;
 
+    // Format timestamp for display
+    const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
+    
+    // Get task ticket for subject
+    const taskTicket = task?.ticket || '';
+    const ticketPrefix = taskTicket ? `[ ${taskTicket} ] ` : '';
+
     return {
-      subject: t('emails.commentNotification.subject', { taskTitle: task.title }),
+      subject: `${ticketPrefix}${t('emails.commentNotification.subject', { taskTitle: task.title })}`,
       text: `${t('emails.taskNotification.common.hi', { firstName: user.first_name })}
 
 ${commentAuthor.first_name} ${commentAuthor.last_name} ${t('emails.commentNotification.addedCommentToTask')}
@@ -230,6 +248,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
             <h3 style="color: #1f2937; margin-top: 0;">📝 ${task.title}</h3>
             ${project ? `<p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.project')}</strong> ${project}</p>` : ''}
             <p style="color: #6b7280; margin: 5px 0;"><strong>${t('emails.taskNotification.common.board')}</strong> ${board.name}</p>
+            <p style="color: #6b7280; margin: 5px 0; font-size: 14px;"><strong>${t('emails.taskNotification.common.timestamp', 'Date/Time')}</strong> ${formattedTimestamp}</p>
           </div>
 
           <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 16px; margin-bottom: 20px;">

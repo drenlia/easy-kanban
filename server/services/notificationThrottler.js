@@ -166,6 +166,7 @@ class NotificationThrottler {
 
   /**
    * Process notifications that are ready to be sent
+   * Groups notifications by user_id and task_id, sending consolidated emails
    */
   async processReadyNotifications() {
     try {
@@ -189,12 +190,122 @@ class NotificationThrottler {
 
       console.log(`📧 [THROTTLER] Processing ${readyNotifications.length} ready notification(s)`);
 
+      // Group notifications by user_id and task_id
+      const groupedNotifications = new Map();
+      
       for (const notification of readyNotifications) {
-        await this.sendNotificationFromQueue(notification);
+        const key = `${notification.user_id}:${notification.task_id}`;
+        if (!groupedNotifications.has(key)) {
+          groupedNotifications.set(key, []);
+        }
+        groupedNotifications.get(key).push(notification);
+      }
+
+      // Process each group (user-task combination)
+      for (const [key, notifications] of groupedNotifications.entries()) {
+        // Sort by last_change_time DESC (reverse chronological - most recent first)
+        notifications.sort((a, b) => {
+          const timeA = new Date(a.last_change_time).getTime();
+          const timeB = new Date(b.last_change_time).getTime();
+          return timeB - timeA; // Descending order
+        });
+
+        // Send consolidated notification for this user-task group
+        await this.sendGroupedNotification(notifications);
       }
 
     } catch (error) {
       console.error('❌ [THROTTLER] Error processing ready notifications:', error);
+    }
+  }
+
+  /**
+   * Send a grouped notification (multiple changes to the same task for the same user)
+   */
+  async sendGroupedNotification(notifications) {
+    if (notifications.length === 0) return;
+
+    // Use the most recent notification as the base
+    const baseNotification = notifications[0];
+    
+    try {
+      console.log(`📧 [THROTTLER] Sending grouped notification for user ${baseNotification.user_id}, task ${baseNotification.task_id} (${notifications.length} change(s))`);
+      
+      const { getNotificationService } = await import('./notificationService.js');
+      const notificationService = getNotificationService();
+      
+      if (!notificationService) {
+        throw new Error('Notification service not available');
+      }
+
+      // Parse stored JSON data from the most recent notification
+      const task = JSON.parse(baseNotification.task_data);
+      const participants = JSON.parse(baseNotification.participants_data);
+      const actor = JSON.parse(baseNotification.actor_data);
+
+      // Create consolidated notification data with all changes
+      const consolidatedData = {
+        userId: baseNotification.user_id,
+        taskId: baseNotification.task_id,
+        action: notifications.length > 1 ? 'consolidated_update' : baseNotification.action,
+        details: notifications.length > 1 
+          ? `${notifications.length} changes made to this task` 
+          : baseNotification.details,
+        oldValue: baseNotification.old_value,
+        newValue: baseNotification.new_value,
+        task,
+        participants,
+        actor,
+        notificationType: baseNotification.notification_type,
+        changeCount: notifications.length,
+        timeSpan: this.calculateTimeSpan(
+          new Date(notifications[notifications.length - 1].first_change_time),
+          new Date(baseNotification.last_change_time)
+        ),
+        timestamp: baseNotification.last_change_time, // Use most recent timestamp
+        allChanges: notifications.map(n => ({
+          action: n.action,
+          details: n.details,
+          oldValue: n.old_value,
+          newValue: n.new_value,
+          timestamp: n.last_change_time,
+          actor: JSON.parse(n.actor_data)
+        }))
+      };
+
+      // Send the consolidated notification
+      await notificationService.sendEmailDirectly(consolidatedData);
+
+      // Mark all notifications in the group as sent
+      const notificationIds = notifications.map(n => n.id);
+      const placeholders = notificationIds.map(() => '?').join(',');
+      
+      wrapQuery(
+        this.db.prepare(`
+          UPDATE notification_queue
+          SET status = 'sent', sent_at = CURRENT_TIMESTAMP
+          WHERE id IN (${placeholders})
+        `),
+        'UPDATE'
+      ).run(...notificationIds);
+
+      console.log(`✅ [THROTTLER] Grouped notification sent successfully (${notifications.length} change(s))`);
+
+    } catch (error) {
+      console.error(`❌ [THROTTLER] Failed to send grouped notification:`, error);
+
+      // Mark all as failed
+      const notificationIds = notifications.map(n => n.id);
+      const placeholders = notificationIds.map(() => '?').join(',');
+      
+      wrapQuery(
+        this.db.prepare(`
+          UPDATE notification_queue
+          SET status = 'failed', error_message = ?, retry_count = retry_count + 1
+          WHERE id IN (${placeholders})
+        `),
+        'UPDATE'
+      ).run(error.message, ...notificationIds);
     }
   }
 
@@ -301,8 +412,15 @@ class NotificationThrottler {
       const notificationService = getNotificationService();
       
       if (notificationService) {
+        // userId parameter is the RECIPIENT, but notificationData.userId is the ACTOR
+        // Override notificationData.userId to be the recipient for sendEmailDirectly
+        const notificationDataWithRecipient = {
+          ...notificationData,
+          userId: userId  // Set userId to the recipient (not the actor)
+        };
+        
         // Send email directly without going through the queue
-        await notificationService.sendEmailDirectly(notificationData);
+        await notificationService.sendEmailDirectly(notificationDataWithRecipient);
         console.log(`✅ [THROTTLER] Immediate notification sent successfully to user ${userId} for task ${taskId}`);
       } else {
         console.warn(`⚠️ [THROTTLER] Notification service not available for immediate notification to user ${userId}`);

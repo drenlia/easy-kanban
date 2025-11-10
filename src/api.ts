@@ -783,4 +783,24 @@ export const getUserStatus = async (): Promise<{
   return response.data;
 };
 
+// Notification Queue
+export const getNotificationQueue = async () => {
+  const response = await api.get('/admin/notification-queue');
+  return response.data;
+};
+
+export const sendNotificationsImmediately = async (notificationIds: string[]) => {
+  const response = await api.post('/admin/notification-queue/send', {
+    notificationIds
+  });
+  return response.data;
+};
+
+export const deleteNotifications = async (notificationIds: string[]) => {
+  const response = await api.delete('/admin/notification-queue', {
+    data: { notificationIds }
+  });
+  return response.data;
+};
+
 export default api;

@@ -58,6 +58,7 @@ import tagsRouter from './routes/tags.js';
 import prioritiesRouter from './routes/priorities.js';
 import settingsRouter from './routes/settings.js';
 import adminSystemRouter from './routes/adminSystem.js';
+import adminNotificationQueueRouter from './routes/adminNotificationQueue.js';
 import taskRelationsRouter from './routes/taskRelations.js';
 import activityRouter from './routes/activity.js';
 
@@ -215,6 +216,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/admin/settings', settingsRouter);
 app.use('/api/storage', settingsRouter);
 app.use('/api/admin', adminSystemRouter);
+app.use('/api/admin/notification-queue', adminNotificationQueueRouter);
 app.use('/api/tasks', taskRelationsRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
