@@ -2,6 +2,10 @@
 
 # Gradual Rollout Script for Easy Kanban
 # This script rolls out new images to all instances gradually to avoid CPU spikes
+#
+# Usage:
+#   ./gradual-rollout.sh              # Rollout to all instances
+#   ./gradual-rollout.sh <filter>     # Rollout to instances matching the filter
 
 set -e
 
@@ -17,6 +21,12 @@ DELAY_BETWEEN_BATCHES=30  # seconds to wait between batches
 BATCH_SIZE=2              # number of instances to update at once
 HEALTH_CHECK_TIMEOUT=300  # seconds to wait for health check (increased for potential scheduling delays)
 
+# Parse command line arguments
+INSTANCE_FILTER=""
+if [ $# -gt 0 ]; then
+    INSTANCE_FILTER="$1"
+fi
+
 # Get all Easy Kanban namespaces
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}🚀 Easy Kanban Gradual Rollout Script${NC}"
@@ -26,17 +36,34 @@ echo -e "${YELLOW}Configuration:${NC}"
 echo -e "  • Batch size: ${BATCH_SIZE} instances at a time"
 echo -e "  • Delay between batches: ${DELAY_BETWEEN_BATCHES} seconds"
 echo -e "  • Health check timeout: ${HEALTH_CHECK_TIMEOUT} seconds"
+if [ -n "$INSTANCE_FILTER" ]; then
+    echo -e "  • ${GREEN}Instance filter: ${INSTANCE_FILTER}${NC}"
+fi
 echo ""
 
 # Get all namespaces
-NAMESPACES=($(kubectl get namespaces -o json | jq -r '.items[].metadata.name | select(startswith("easy-kanban-"))' 2>/dev/null || true))
+if [ -n "$INSTANCE_FILTER" ]; then
+    NAMESPACES=($(kubectl get namespaces -o json | jq -r --arg filter "$INSTANCE_FILTER" '.items[].metadata.name | select(startswith("easy-kanban-")) | select(contains($filter))' 2>/dev/null || true))
+else
+    NAMESPACES=($(kubectl get namespaces -o json | jq -r '.items[].metadata.name | select(startswith("easy-kanban-"))' 2>/dev/null || true))
+fi
 
 if [ ${#NAMESPACES[@]} -eq 0 ]; then
-    echo -e "${RED}❌ No Easy Kanban namespaces found!${NC}"
+    if [ -n "$INSTANCE_FILTER" ]; then
+        echo -e "${RED}❌ No Easy Kanban namespaces found matching filter: '${INSTANCE_FILTER}'${NC}"
+        echo -e "${YELLOW}💡 Available namespaces:${NC}"
+        kubectl get namespaces -o json | jq -r '.items[].metadata.name | select(startswith("easy-kanban-"))' 2>/dev/null | sed 's/^/   • /' || echo "   (none)"
+    else
+        echo -e "${RED}❌ No Easy Kanban namespaces found!${NC}"
+    fi
     exit 1
 fi
 
-echo -e "${GREEN}📋 Found ${#NAMESPACES[@]} instances:${NC}"
+if [ -n "$INSTANCE_FILTER" ]; then
+    echo -e "${GREEN}📋 Found ${#NAMESPACES[@]} instance(s) matching filter '${INSTANCE_FILTER}':${NC}"
+else
+    echo -e "${GREEN}📋 Found ${#NAMESPACES[@]} instances:${NC}"
+fi
 for ns in "${NAMESPACES[@]}"; do
     echo -e "   • ${ns}"
 done
@@ -196,7 +223,9 @@ echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━
 echo -e "${GREEN}✅ Gradual Rollout Complete!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${YELLOW}💡 Tip: You can customize the batch size and delays by editing${NC}"
-echo -e "${YELLOW}   the configuration variables at the top of this script.${NC}"
+echo -e "${YELLOW}💡 Tips:${NC}"
+echo -e "${YELLOW}   • Customize batch size and delays by editing the configuration variables${NC}"
+echo -e "${YELLOW}   • Target specific instances: ./gradual-rollout.sh <filter>${NC}"
+echo -e "${YELLOW}   • Example: ./gradual-rollout.sh demo (rolls out only instances matching 'demo')${NC}"
 echo ""
 
