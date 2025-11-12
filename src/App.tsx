@@ -1641,8 +1641,8 @@ export default function App() {
         
         // Activity Feed Settings (from the same getUserSettings call above)
         const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false';
-        activityFeed.setShowActivityFeed(userSpecificPrefs.activityFeed.showActivityFeed !== undefined 
-          ? userSpecificPrefs.activityFeed.showActivityFeed 
+        activityFeed.setShowActivityFeed(userSpecificPrefs.appSettings.showActivityFeed !== undefined 
+          ? userSpecificPrefs.appSettings.showActivityFeed 
           : defaultFromSystem);
         activityFeed.setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
         activityFeed.setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);

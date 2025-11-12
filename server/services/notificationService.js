@@ -860,6 +860,8 @@ class NotificationService {
       console.log(`✅ [NOTIFICATION] Email sent successfully to ${recipient.name} (${recipient.email}) for ${notificationType}`);
     } catch (error) {
       console.error('❌ [NOTIFICATION] Error sending email directly:', error);
+      // Re-throw the error so the caller (throttler) can mark the notification as failed
+      throw error;
     }
   }
 

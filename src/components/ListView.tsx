@@ -1613,7 +1613,7 @@ export default function ListView({
                               {/* "DONE" stamp */}
                               <div className="absolute top-0.5 right-0.5">
                                 <div className="bg-green-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-                                  DONE
+                                  {t('taskCard.done')}
                                 </div>
                               </div>
                             </div>
@@ -1636,7 +1636,7 @@ export default function ListView({
                               {/* "LATE" stamp */}
                               <div className="absolute top-0.5 right-0.5">
                                 <div className="bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shadow-lg opacity-95 transform -rotate-12">
-                                  LATE
+                                  {t('taskCard.late')}
                                 </div>
                               </div>
                             </div>

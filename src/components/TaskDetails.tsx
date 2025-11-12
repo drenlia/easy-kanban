@@ -1887,7 +1887,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         <div ref={commentsRef} className="p-6 border-t border-gray-200">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">
-              Comments ({sortedComments.length})
+              {t('taskCard.comments', { count: sortedComments.length })}
             </h3>
             {showRefreshIndicator && (
               <div 
