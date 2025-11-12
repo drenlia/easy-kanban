@@ -668,13 +668,25 @@ router.put('/:id', authenticateToken, async (req, res) => {
     let priorityId = task.priorityId || null;
     let priorityName = task.priority || null;
     
+    // Get current task's priority info for comparison
+    let currentPriorityId = currentTask.priority_id;
+    let currentPriorityName = currentTask.priority;
+    
+    // If current task has priority_id but not priority name, look it up
+    if (currentPriorityId && !currentPriorityName) {
+      const currentPriority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(currentPriorityId);
+      if (currentPriority) {
+        currentPriorityName = currentPriority.priority;
+      }
+    }
+    
     // If priority_id is not provided but priority name is, look up the ID
     if (!priorityId && priorityName) {
       const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
       if (priority) {
         priorityId = priority.id;
       } else {
-        // If priority name changed, keep existing priority_id
+        // Priority name not found, keep existing priority_id
         priorityId = currentTask.priority_id;
         // Get the name for the existing priority_id
         if (priorityId) {
@@ -693,19 +705,20 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // If neither is provided, keep existing values
     if (!priorityId && !priorityName) {
       priorityId = currentTask.priority_id;
-      priorityName = currentTask.priority;
+      priorityName = currentTask.priority || currentPriorityName;
     }
     
     // Generate change details
     const changes = [];
     const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId'];
     
-    // Check if priority changed (by ID or name)
-    const priorityChanged = (priorityId && priorityId !== currentTask.priority_id) || 
-                            (priorityName && priorityName !== currentTask.priority);
+    // Check if priority changed (by ID or name) - only if values are actually different
+    const priorityIdChanged = priorityId && currentPriorityId && priorityId !== currentPriorityId;
+    const priorityNameChanged = priorityName && currentPriorityName && priorityName !== currentPriorityName;
+    const priorityChanged = priorityIdChanged || priorityNameChanged;
     
     if (priorityChanged) {
-      const oldPriority = currentTask.priority || 'Unknown';
+      const oldPriority = currentPriorityName || 'Unknown';
       const newPriority = priorityName || 'Unknown';
       changes.push(generateTaskUpdateDetails('priorityId', oldPriority, newPriority));
     }

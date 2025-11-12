@@ -65,6 +65,12 @@ class NotificationThrottler {
    * Add a notification to the throttling queue (DATABASE BACKED)
    */
   addNotification(userId, taskId, notificationData) {
+    // Skip notifications in demo mode
+    if (process.env.DEMO_ENABLED === 'true') {
+      console.log('📧 [THROTTLER] Skipping notification in demo mode');
+      return Promise.resolve();
+    }
+    
     const delay = this.getNotificationDelay();
     
     // If delay is 0, send immediately

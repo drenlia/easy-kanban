@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
-import ResetCountdown from './components/ResetCountdown';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
 import Login from './components/Login';
@@ -1642,8 +1641,8 @@ export default function App() {
         
         // Activity Feed Settings (from the same getUserSettings call above)
         const defaultFromSystem = systemSettings.SHOW_ACTIVITY_FEED !== 'false';
-        activityFeed.setShowActivityFeed(userSpecificPrefs.activityFeed.showActivityFeed !== undefined 
-          ? userSpecificPrefs.activityFeed.showActivityFeed 
+        activityFeed.setShowActivityFeed(userSpecificPrefs.appSettings.showActivityFeed !== undefined 
+          ? userSpecificPrefs.appSettings.showActivityFeed 
           : defaultFromSystem);
         activityFeed.setActivityFeedMinimized(userSpecificPrefs.activityFeed.minimized);
         activityFeed.setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
@@ -3529,8 +3528,7 @@ export default function App() {
     <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
       <ThemeProvider>
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
-      {process.env.DEMO_ENABLED === 'true' && <ResetCountdown onReset={handleLogout} />}
-      
+      {/* Demo Reset Counter is now rendered in Header component */}
       
       {/* New Enhanced Drag & Drop System */}
       <SimpleDragDropManager

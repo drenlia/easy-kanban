@@ -661,26 +661,96 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
     // Get the member ID for the user being deleted (before deletion)
     const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
+    // Get all tasks that will be reassigned (for WebSocket notifications)
+    let tasksToReassign = [];
     if (userMember) {
-      // Get the SYSTEM user's member ID
-      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(SYSTEM_USER_ID);
+      tasksToReassign = wrapQuery(
+        db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
+        'SELECT'
+      ).all(userMember.id, userMember.id);
+      console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
+    }
+    
+    // Begin transaction for cascading deletion
+    const transaction = db.transaction(() => {
+      try {
+        // 1. Delete activity records (no FK constraint, so won't cascade)
+        wrapQuery(db.prepare('DELETE FROM activity WHERE userId = ?'), 'DELETE').run(userId);
+        
+        // 2. Delete comments made by the user (references members without CASCADE)
+        if (userMember) {
+          wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = ?'), 'DELETE').run(userMember.id);
+        }
+        
+        // 3. Delete watchers (should cascade but let's be explicit)
+        if (userMember) {
+          wrapQuery(db.prepare('DELETE FROM watchers WHERE memberId = ?'), 'DELETE').run(userMember.id);
+        }
+        
+        // 4. Delete collaborators (should cascade but let's be explicit)
+        if (userMember) {
+          wrapQuery(db.prepare('DELETE FROM collaborators WHERE memberId = ?'), 'DELETE').run(userMember.id);
+        }
+        
+        // 5. Update planning_periods to set created_by to NULL (references users without CASCADE)
+        wrapQuery(db.prepare('UPDATE planning_periods SET created_by = NULL WHERE created_by = ?'), 'UPDATE').run(userId);
+        
+        // 6. Delete user roles (should cascade but let's be explicit)
+        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 7. Delete user settings (should cascade but let's be explicit)
+        wrapQuery(db.prepare('DELETE FROM user_settings WHERE userId = ?'), 'DELETE').run(userId);
+        
+        // 8. Delete views (should cascade but let's be explicit)
+        wrapQuery(db.prepare('DELETE FROM views WHERE userId = ?'), 'DELETE').run(userId);
+        
+        // 9. Delete password reset tokens (should cascade but let's be explicit)
+        wrapQuery(db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 10. Delete user invitations (should cascade but let's be explicit)
+        wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // 11. Reassign tasks assigned to the user to the system account (preserve task history)
+        const systemMemberId = '00000000-0000-0000-0000-000000000001';
+        
+        if (userMember) {
+          wrapQuery(
+            db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 
+            'UPDATE'
+          ).run(systemMemberId, userMember.id);
+          
+          // 12. Reassign tasks requested by the user to the system account
+          wrapQuery(
+            db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 
+            'UPDATE'
+          ).run(systemMemberId, userMember.id);
+        }
+        
+        // 13. Delete the member record
+        if (userMember) {
+          wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+        }
+        
+        // 14. Finally, delete the user account
+        wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        
+        console.log(`🗑️ User deleted successfully: ${user.email}`);
+        
+      } catch (error) {
+        console.error('Error during user deletion transaction:', error);
+        throw error;
+      }
+    });
+    
+    // Execute the transaction
+    transaction();
+    
+    // Publish task-updated events for all reassigned tasks (for real-time updates)
+    if (tasksToReassign.length > 0) {
+      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
       
       if (systemMember) {
-        // Get all tasks that will be reassigned (for WebSocket notifications)
-        const tasksToReassign = wrapQuery(
-          db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
-          'SELECT'
-        ).all(userMember.id, userMember.id);
-        
-        // Reassign all tasks assigned to this user to the SYSTEM user
-        wrapQuery(db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
-        
-        // Reassign all tasks requested by this user to the SYSTEM user
-        wrapQuery(db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 'UPDATE').run(systemMember.id, userMember.id);
-        
-        console.log(`✅ Reassigned ${tasksToReassign.length} tasks from user ${userId} to SYSTEM user`);
-        
-        // Publish task-updated events for real-time updates
+        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
         for (const task of tasksToReassign) {
           // Get the full updated task details with priority info
           const updatedTask = wrapQuery(
@@ -747,13 +817,8 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
         }
         
         console.log(`📤 Published ${tasksToReassign.length} task-updated events to Redis`);
-      } else {
-        console.warn('⚠️ SYSTEM user member not found, tasks will be orphaned');
       }
     }
-
-    // Delete user (cascade will handle related records including the member)
-    const result = wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
     
     // Publish member-deleted event for real-time updates
     if (userMember) {

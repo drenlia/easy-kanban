@@ -440,20 +440,19 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
     }
   }
 
-  // Special handling for memberId and requesterId changes - resolve user IDs to member names
+  // Special handling for memberId and requesterId changes - resolve member IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
-    const getMemberName = (userId) => {
-      if (!userId || !db) return t('activity.unassigned');
+    const getMemberName = (memberId) => {
+      if (!memberId || !db) return t('activity.unassigned');
       try {
         const member = db.prepare(`
           SELECT m.name 
           FROM members m 
-          JOIN users u ON m.user_id = u.id 
-          WHERE u.id = ?
-        `).get(userId);
+          WHERE m.id = ?
+        `).get(memberId);
         return member?.name || t('activity.unknownUser');
       } catch (error) {
-        console.warn('Failed to resolve member name for user ID:', userId, error.message);
+        console.warn('Failed to resolve member name for member ID:', memberId, error.message);
         return t('activity.unknownUser');
       }
     };

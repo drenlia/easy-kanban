@@ -6,6 +6,7 @@ import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
 import { loadUserPreferences, updateUserPreference } from '../../utils/userPreferences';
+import ResetCountdown from '../ResetCountdown';
 
 interface SystemInfo {
   memory: {
@@ -379,6 +380,11 @@ const Header: React.FC<HeaderProps> = ({
               onSprintChange={onSprintChange}
               tasks={allTasks}
             />
+          )}
+          
+          {/* Demo Reset Counter - positioned between sprint selector and invite button */}
+          {process.env.DEMO_ENABLED === 'true' && (
+            <ResetCountdown inline={true} onReset={onLogout} />
           )}
         </div>
         
