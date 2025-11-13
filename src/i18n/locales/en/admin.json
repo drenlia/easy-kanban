@@ -244,6 +244,8 @@
     "managedEmailDescription": "Your email service is currently managed by Easy Kanban. This means emails are sent using our infrastructure with the sender address",
     "switchToCustomSMTP": "Switch to Custom SMTP",
     "switchToCustomSMTPConfirm": "Are you sure you want to switch to custom SMTP settings? This will clear the current managed settings and require you to configure your own SMTP server. You will need to test the configuration before it can be enabled.",
+    "switchedToCustomSMTP": "Successfully switched to custom SMTP settings",
+    "failedToSwitchToCustomSMTP": "Failed to switch to custom SMTP settings",
     "mailServerStatus": "Mail Server Status",
     "statusDemoMode": "Email functionality is disabled in demo mode to prevent sending emails from demo environments.",
     "statusTestRequired": "⚠️ Fill in the required fields below and test the mail server configuration. The toggle will be enabled after a successful test.",

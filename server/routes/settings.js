@@ -149,17 +149,23 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     console.log('📞 User email:', user.email);
     
-    // Check if user is the owner
+    // Check if user is the owner OR the default admin user (admin@kanban.local)
+    // This allows the first user to set APP_URL even if OWNER hasn't been set yet
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('OWNER');
     
-    console.log('📞 Owner setting:', ownerSetting?.value);
+    const isOwner = ownerSetting && ownerSetting.value === user.email;
+    const isDefaultAdmin = user.email === 'admin@kanban.local';
     
-    if (!ownerSetting || ownerSetting.value !== user.email) {
-      console.log('❌ User is not owner. Owner:', ownerSetting?.value, 'User:', user.email);
-      return res.status(403).json({ error: 'Only the owner can update APP_URL' });
+    console.log('📞 Owner setting:', ownerSetting?.value);
+    console.log('📞 User email:', user.email);
+    console.log('📞 Is owner:', isOwner, 'Is default admin:', isDefaultAdmin);
+    
+    if (!isOwner && !isDefaultAdmin) {
+      console.log('❌ User is not owner or default admin. Owner:', ownerSetting?.value, 'User:', user.email);
+      return res.status(403).json({ error: 'Only the owner or default admin can update APP_URL' });
     }
     
     // Validate appUrl

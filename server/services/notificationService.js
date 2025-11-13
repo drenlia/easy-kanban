@@ -1066,6 +1066,9 @@ class NotificationService {
       const actualBaseUrl = baseUrl || this.getBaseUrl();
       const inviteUrl = `${actualBaseUrl}/#activate-account?token=${inviteToken}&email=${encodeURIComponent(user.email)}`;
 
+      // Get site settings for email template
+      const siteSettings = this.getSiteSettings();
+
       // Generate invitation email
       const emailTemplate = this.generateEmailTemplate('user_invite', {
         user,

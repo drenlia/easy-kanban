@@ -98,6 +98,20 @@ initializeScheduler(db);
 
 const app = express();
 
+// Trust proxy - required when running behind reverse proxy (K8s ingress, nginx, etc.)
+// This allows Express to correctly identify client IPs from X-Forwarded-For headers
+// Set TRUST_PROXY env var to 'false' to disable, a number (e.g., '1') to trust N proxies, or leave unset to trust all
+// For K8s deployments, typically trust the first proxy (ingress controller)
+if (process.env.TRUST_PROXY === 'false') {
+  app.set('trust proxy', false);
+} else if (process.env.TRUST_PROXY) {
+  const proxyCount = parseInt(process.env.TRUST_PROXY);
+  app.set('trust proxy', isNaN(proxyCount) ? true : proxyCount);
+} else {
+  // Default: trust all proxies (safe for K8s/cloud deployments)
+  app.set('trust proxy', true);
+}
+
 // Make database available to routes
 app.locals.db = db;
 

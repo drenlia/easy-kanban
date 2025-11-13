@@ -391,6 +391,41 @@ router.post('/instance-portal/cancel-subscription', authenticateToken, requireRo
   }
 });
 
+// Check email server status
+router.get('/email-status', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const { getNotificationService } = await import('../services/notificationService.js');
+    const notificationService = getNotificationService();
+    const emailValidation = notificationService.emailService.validateEmailConfig();
+    
+    console.log('🔍 Email status check:', {
+      valid: emailValidation.valid,
+      error: emailValidation.error,
+      mailEnabled: emailValidation.settings?.MAIL_ENABLED,
+      available: emailValidation.valid
+    });
+    
+    res.json({
+      available: emailValidation.valid,
+      error: emailValidation.error || null,
+      details: emailValidation.details || null,
+      settings: emailValidation.valid ? {
+        host: emailValidation.settings.SMTP_HOST,
+        port: emailValidation.settings.SMTP_PORT,
+        from: emailValidation.settings.SMTP_FROM_EMAIL,
+        enabled: emailValidation.settings.MAIL_ENABLED === 'true'
+      } : null
+    });
+  } catch (error) {
+    console.error('Email status check error:', error);
+    res.status(500).json({ 
+      available: false, 
+      error: 'Failed to check email status',
+      details: error.message 
+    });
+  }
+});
+
 // Test email configuration endpoint
 router.post('/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {

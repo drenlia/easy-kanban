@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslation } from 'react-i18next';
 import api from '../../api';
+import { toast } from '../../utils/toast';
 
 interface Settings {
   MAIL_ENABLED?: string;
@@ -41,6 +42,7 @@ interface AdminMailTabProps {
   showTestEmailErrorModal: boolean;
   testEmailError: string;
   onCloseTestErrorModal: () => void;
+  onAutoSave?: (key: string, value: string) => Promise<void>;
 }
 
 const AdminMailTab: React.FC<AdminMailTabProps> = ({
@@ -57,6 +59,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   showTestEmailErrorModal,
   testEmailError,
   onCloseTestErrorModal,
+  onAutoSave,
 }) => {
   const { t } = useTranslation('admin');
   const handleInputChange = (key: string, value: string) => {
@@ -119,17 +122,43 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   <div className="mt-3">
                     <button
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
                         if (confirm(t('mail.switchToCustomSMTPConfirm'))) {
-                          // Clear managed SMTP settings in UI only (not saved to DB yet)
-                          handleInputChange('MAIL_MANAGED', 'false');
-                          handleInputChange('SMTP_HOST', '');
-                          handleInputChange('SMTP_PORT', '');
-                          handleInputChange('SMTP_USERNAME', '');
-                          handleInputChange('SMTP_PASSWORD', '');
-                          handleInputChange('SMTP_FROM_EMAIL', '');
-                          handleInputChange('SMTP_FROM_NAME', '');
-                          handleInputChange('MAIL_ENABLED', 'false');
+                          try {
+                            // Update local state
+                            const updatedSettings = {
+                              ...editingSettings,
+                              MAIL_MANAGED: 'false',
+                              SMTP_HOST: '',
+                              SMTP_PORT: '',
+                              SMTP_USERNAME: '',
+                              SMTP_PASSWORD: '',
+                              SMTP_FROM_EMAIL: '',
+                              SMTP_FROM_NAME: '',
+                              MAIL_ENABLED: 'false',
+                            };
+                            onSettingsChange(updatedSettings);
+
+                            // Save all changes to database immediately
+                            if (onAutoSave) {
+                              await onAutoSave('MAIL_MANAGED', 'false');
+                              await onAutoSave('SMTP_HOST', '');
+                              await onAutoSave('SMTP_PORT', '');
+                              await onAutoSave('SMTP_USERNAME', '');
+                              await onAutoSave('SMTP_PASSWORD', '');
+                              await onAutoSave('SMTP_FROM_EMAIL', '');
+                              await onAutoSave('SMTP_FROM_NAME', '');
+                              await onAutoSave('MAIL_ENABLED', 'false');
+                              toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
+                            } else {
+                              // Fallback: use onSave if onAutoSave is not available
+                              await onSave();
+                              toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
+                            }
+                          } catch (error) {
+                            console.error('Failed to switch to custom SMTP:', error);
+                            toast.error(t('mail.failedToSwitchToCustomSMTP') || 'Failed to switch to custom SMTP settings', '');
+                          }
                         }
                       }}
                       className="text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
@@ -223,7 +252,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="text"
                   value={editingSettings.SMTP_HOST || ''}
                   onChange={(e) => handleInputChange('SMTP_HOST', e.target.value)}
-                  onFocus={(e) => {
+                  onFocus={() => {
                     // Pre-fill with example value if field is empty
                     if (!editingSettings.SMTP_HOST) {
                       handleInputChange('SMTP_HOST', 'smtp.gmail.com');
@@ -251,7 +280,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                   type="number"
                   value={editingSettings.SMTP_PORT || ''}
                   onChange={(e) => handleInputChange('SMTP_PORT', e.target.value)}
-                  onFocus={(e) => {
+                  onFocus={() => {
                     // Pre-fill with example value if field is empty
                     if (!editingSettings.SMTP_PORT) {
                       handleInputChange('SMTP_PORT', '587');

@@ -508,40 +508,6 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   }
 });
 
-// Check email server status
-router.get('/email-status', authenticateToken, requireRole(['admin']), async (req, res) => {
-  try {
-    const notificationService = getNotificationService();
-    const emailValidation = notificationService.emailService.validateEmailConfig();
-    
-    console.log('🔍 Email status check:', {
-      valid: emailValidation.valid,
-      error: emailValidation.error,
-      mailEnabled: emailValidation.settings?.MAIL_ENABLED,
-      available: emailValidation.valid
-    });
-    
-    res.json({
-      available: emailValidation.valid,
-      error: emailValidation.error || null,
-      details: emailValidation.details || null,
-      settings: emailValidation.valid ? {
-        host: emailValidation.settings.SMTP_HOST,
-        port: emailValidation.settings.SMTP_PORT,
-        from: emailValidation.settings.SMTP_FROM_EMAIL,
-        enabled: emailValidation.settings.MAIL_ENABLED === 'true'
-      } : null
-    });
-  } catch (error) {
-    console.error('Email status check error:', error);
-    res.status(500).json({ 
-      available: false, 
-      error: 'Failed to check email status',
-      details: error.message 
-    });
-  }
-});
-
 // Resend user invitation
 router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
@@ -596,16 +562,31 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     // Send invitation email
     try {
       const notificationService = getNotificationService();
-      await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-      console.log('✅ Invitation resent successfully for user:', user.email);
+      const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
       
-      res.json({ 
-        message: 'Invitation email sent successfully',
-        email: user.email
-      });
+      if (emailResult && emailResult.success) {
+        console.log('✅ Invitation resent successfully for user:', user.email);
+        res.json({ 
+          success: true,
+          message: 'Invitation email sent successfully',
+          email: user.email
+        });
+      } else {
+        // Email service returned a failure result
+        const errorMessage = emailResult?.reason || emailResult?.error || 'Failed to send invitation email';
+        console.error('⚠️ Failed to send invitation email:', errorMessage);
+        res.status(500).json({ 
+          success: false,
+          error: errorMessage,
+          details: emailResult?.details || null
+        });
+      }
     } catch (emailError) {
       console.error('⚠️ Failed to send invitation email:', emailError.message);
-      res.status(500).json({ error: 'Failed to send invitation email' });
+      res.status(500).json({ 
+        success: false,
+        error: emailError.message || 'Failed to send invitation email'
+      });
     }
     
   } catch (error) {

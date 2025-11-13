@@ -813,10 +813,21 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         }
       } else {
         console.warn('Could not check email status, proceeding with resend');
+        // If we can't check status, we should still try but warn the user
+        console.warn('Email status check failed with status:', emailStatusResponse.status);
       }
 
       const result = await resendUserInvitation(userId);
-      toast.success(t('invitationEmailSent', { email: result.email }), '');
+      
+      // Verify the result actually indicates success
+      // The API returns { success: true, email: ... } on success or { success: false, error: ... } on failure
+      if (result && result.success === true && result.email) {
+        toast.success(t('invitationEmailSent', { email: result.email }), '');
+      } else {
+        // Check for error in response data (from axios error handling)
+        const errorMessage = result?.error || result?.details || t('failedToSendInvitationEmail');
+        throw new Error(errorMessage);
+      }
     } catch (err: any) {
       console.error('Failed to resend invitation:', err);
       const errorMessage = err.response?.data?.error || err.message || t('failedToSendInvitationEmail');
@@ -1080,6 +1091,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               showTestEmailErrorModal={showTestEmailErrorModal}
               testEmailError={testEmailError}
               onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
+              onAutoSave={handleAutoSaveSetting}
             />
           )}
 
