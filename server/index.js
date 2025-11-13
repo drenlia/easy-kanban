@@ -35,6 +35,7 @@ import { initNotificationService, getNotificationService } from './services/noti
 import { initNotificationThrottler, getNotificationThrottler } from './services/notificationThrottler.js';
 import { initializeScheduler, manualTriggers } from './jobs/scheduler.js';
 import { TAG_ACTIONS, COMMENT_ACTIONS } from './constants/activityActions.js';
+import { clearTranslationCache } from './utils/i18n.js';
 
 // Import route modules
 import boardsRouter from './routes/boards.js';
@@ -78,6 +79,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const dbInit = initializeDatabase();
 const db = dbInit.db;
 const versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
+
+// Clear translation cache on startup to ensure fresh translations are loaded
+clearTranslationCache();
+console.log('🔄 Translation cache cleared on startup');
 
 // Initialize instance status setting
 initializeInstanceStatus(db);

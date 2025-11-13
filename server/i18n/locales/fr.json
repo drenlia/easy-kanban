@@ -287,7 +287,15 @@
       "powerhouse": "Centrale",
       "juggernaut": "Juggernaut",
       "observer": "Observateur",
-      "watchful": "Vigilant"
+      "watchful": "Vigilant",
+      "starter": "Débutant",
+      "master": "Maître",
+      "legend": "Légende",
+      "mentor": "Mentor",
+      "firstTask": "Première tâche",
+      "taskCreator": "Créateur de tâches",
+      "pointGetter": "Collecteur de points",
+      "pointCollector": "Grand collecteur de points"
     },
     "descriptions": {
       "completedFirstTask": "Terminé votre première tâche",
@@ -307,7 +315,19 @@
       "completed200EffortPoints": "Terminé 200 points d'effort",
       "completed500EffortPoints": "Terminé 500 points d'effort",
       "added10Watchers": "Ajouté 10 observateurs aux tâches",
-      "added50Watchers": "Ajouté 50 observateurs aux tâches"
+      "added50Watchers": "Ajouté 50 observateurs aux tâches",
+      "completed10TasksStarter": "Terminé 10 tâches",
+      "completed200TasksMaster": "Terminé 200 tâches",
+      "completed500TasksLegend": "Terminé 500 tâches",
+      "completed100EffortPoints": "Terminé 100 points d'effort",
+      "completed500EffortPointsPowerhouse": "Terminé 500 points d'effort",
+      "added50CollaboratorsTeamPlayer": "Ajouté 50 collaborateurs aux tâches",
+      "added200CollaboratorsMentor": "Ajouté 200 collaborateurs aux tâches",
+      "added100CommentsCommunicator": "Ajouté 100 commentaires",
+      "createdFirstTask": "Créé votre première tâche",
+      "created10Tasks": "Créé 10 tâches",
+      "earned100Points": "Gagné 100 points",
+      "earned500Points": "Gagné 500 points"
     }
   },
   "instanceStatus": {

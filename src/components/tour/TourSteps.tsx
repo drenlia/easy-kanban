@@ -157,7 +157,13 @@ export const getTourSteps = (): TourStepsConfig => {
       placement: 'bottom',
       data: { switchToView: 'list' }, // Custom data to trigger view switch
     },
-    // Step 20: Admin Tab (switches to admin page before showing)
+    // Step 20: System Panel Toggle (Admin Only)
+    {
+      target: '[data-tour-id="system-panel-toggle"]',
+      content: i18n.t('tour.steps.systemPanelToggle', { ns: 'common' }),
+      placement: 'bottom',
+    },
+    // Step 21: Admin Tab (switches to admin page before showing)
     {
       target: '[data-tour-id="admin-tab"]',
       content: i18n.t('tour.steps.adminTab', { ns: 'common' }),
@@ -167,73 +173,73 @@ export const getTourSteps = (): TourStepsConfig => {
       offset: 20,
       data: { switchToPage: 'admin' }, // Custom data to trigger page switch
     },
-    // Step 21: Admin Users
+    // Step 22: Admin Users
     {
       target: '[data-tour-id="admin-users"]',
       content: i18n.t('tour.steps.adminUsers', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 22: Admin Site Settings
+    // Step 23: Admin Site Settings
     {
       target: '[data-tour-id="admin-site-settings"]',
       content: i18n.t('tour.steps.adminSiteSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 23: Admin SSO
+    // Step 24: Admin SSO
     {
       target: '[data-tour-id="admin-sso"]',
       content: i18n.t('tour.steps.adminSso', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 24: Admin Mail Server
+    // Step 25: Admin Mail Server
     {
       target: '[data-tour-id="admin-mail-server"]',
       content: i18n.t('tour.steps.adminMailServer', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 25: Admin Tags
+    // Step 26: Admin Tags
     {
       target: '[data-tour-id="admin-tags"]',
       content: i18n.t('tour.steps.adminTags', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 26: Admin Priorities
+    // Step 27: Admin Priorities
     {
       target: '[data-tour-id="admin-priorities"]',
       content: i18n.t('tour.steps.adminPriorities', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 27: Admin App Settings
+    // Step 28: Admin App Settings
     {
       target: '[data-tour-id="admin-app-settings"]',
       content: i18n.t('tour.steps.adminAppSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 28: Admin Project Settings
+    // Step 29: Admin Project Settings
     {
       target: '[data-tour-id="admin-project-settings"]',
       content: i18n.t('tour.steps.adminProjectSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 29: Admin Sprint Settings
+    // Step 30: Admin Sprint Settings
     {
       target: '[data-tour-id="admin-sprint-settings"]',
       content: i18n.t('tour.steps.adminSprintSettings', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 30: Admin Reporting
+    // Step 31: Admin Reporting
     {
       target: '[data-tour-id="admin-reporting"]',
       content: i18n.t('tour.steps.adminReporting', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 31: Admin Licensing
+    // Step 32: Admin Licensing
     {
       target: '[data-tour-id="admin-licensing"]',
       content: i18n.t('tour.steps.adminLicensing', { ns: 'common' }),
       placement: 'bottom',
     },
-    // Step 32: System Usage Panel
+    // Step 33: System Usage Panel
     {
       target: '[data-tour-id="system-usage-panel"]',
       content: i18n.t('tour.steps.systemUsagePanel', { ns: 'common' }),

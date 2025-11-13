@@ -178,19 +178,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     if (fullHash.startsWith('#admin#app-settings#')) {
       if (activeTab !== 'app-settings') {
         setActiveTab('app-settings');
-        // Clear tab-specific messages for the new tab
-        clearTabMessages('app-settings');
       }
     } else if (fullHash.startsWith('#admin#licensing#')) {
       if (activeTab !== 'licensing') {
         setActiveTab('licensing');
-        // Clear tab-specific messages for the new tab
-        clearTabMessages('licensing');
       }
     } else if (ADMIN_TABS.includes(tabHash) && tabHash !== activeTab) {
       setActiveTab(tabHash);
-      // Clear global messages when switching tabs
-      clearTabMessages(tabHash);
     }
 
     window.addEventListener('hashchange', handleHashChange);

@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send } from 'lucide-react';
+import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, Monitor, MonitorOff } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
-import { loadUserPreferences, updateUserPreference } from '../../utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } from '../../utils/userPreferences';
 import ResetCountdown from '../ResetCountdown';
 
 interface SystemInfo {
@@ -130,10 +130,60 @@ const Header: React.FC<HeaderProps> = ({
     // Change language immediately
     await i18n.changeLanguage(newLanguage);
   };
+
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [reportsEnabled, setReportsEnabled] = useState(true); // Default to enabled
   const [reportsVisibleTo, setReportsVisibleTo] = useState('all'); // Default to all users
+  
+  // System panel visibility - will be loaded asynchronously from database
+  const [showSystemPanel, setShowSystemPanel] = useState<boolean>(true); // Default to true, will be updated from database
+
+  // Handle system panel toggle - save to user preferences
+  const handleSystemPanelToggle = async () => {
+    const newValue = !showSystemPanel;
+    setShowSystemPanel(newValue);
+    if (currentUser) {
+      await updateUserPreference('appSettings', { 
+        ...loadUserPreferences(currentUser.id).appSettings,
+        showSystemPanel: newValue 
+      }, currentUser.id);
+    }
+  };
+
+  // Load system panel preference from database when user changes (async to get database value)
+  useEffect(() => {
+    const loadSystemPanelPreference = async () => {
+      if (currentUser?.roles?.includes('admin')) {
+        try {
+          // Use async version to load from both cookies and database
+          const prefs = await loadUserPreferencesAsync(currentUser.id);
+          // Check if showSystemPanel is explicitly set (could be true, false, or undefined)
+          if (prefs.appSettings?.showSystemPanel !== undefined) {
+            // Use the saved value (could be true or false)
+            setShowSystemPanel(prefs.appSettings.showSystemPanel);
+          } else {
+            // Default to true if not set (first time, show the panel)
+            setShowSystemPanel(true);
+          }
+        } catch (error) {
+          console.error('Failed to load system panel preference:', error);
+          // Fallback: try synchronous load from cookies as backup
+          const cookiePrefs = loadUserPreferences(currentUser.id);
+          if (cookiePrefs.appSettings?.showSystemPanel !== undefined) {
+            setShowSystemPanel(cookiePrefs.appSettings.showSystemPanel);
+          } else {
+            // Final fallback to default (true for admins)
+            setShowSystemPanel(true);
+          }
+        }
+      } else {
+        setShowSystemPanel(false);
+      }
+    };
+
+    loadSystemPanelPreference();
+  }, [currentUser]);
 
   // Fetch reports settings to check if reports module is enabled
   useEffect(() => {
@@ -615,6 +665,26 @@ const Header: React.FC<HeaderProps> = ({
             <RefreshCw size={16} />
           </button>
           
+          {/* System Panel Toggle - Admin only */}
+          {currentUser?.roles?.includes('admin') && (
+            <button
+              onClick={handleSystemPanelToggle}
+              className={`p-1.5 hover:bg-gray-50 rounded-full transition-colors ${
+                showSystemPanel 
+                  ? 'text-gray-700 hover:text-gray-900' 
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+              title={showSystemPanel ? t('navigation.hideSystemPanel') || 'Hide system panel' : t('navigation.showSystemPanel') || 'Show system panel'}
+              data-tour-id="system-panel-toggle"
+            >
+              {showSystemPanel ? (
+                <Monitor size={16} />
+              ) : (
+                <MonitorOff size={16} />
+              )}
+            </button>
+          )}
+          
           <button
             onClick={onHelpClick}
             className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
@@ -635,8 +705,8 @@ const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
       
-      {/* System Usage Panel - Vertical Compact for Admins (Always Visible) */}
-      {systemInfo && currentUser?.roles?.includes('admin') && (
+      {/* System Usage Panel - Vertical Compact for Admins (Toggleable) */}
+      {systemInfo && currentUser?.roles?.includes('admin') && showSystemPanel && (
         <div className="absolute top-full right-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-b-lg p-1.5 shadow-lg z-10" data-tour-id="system-usage-panel">
           <div className="flex flex-col space-y-0.5 text-[10px]">
             {/* RAM */}

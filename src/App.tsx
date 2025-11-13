@@ -1400,7 +1400,28 @@ export default function App() {
   };
 
   const handleRefreshData = async () => {
-    await refreshBoardData();
+    try {
+      // Refresh all data in parallel for better performance
+      const [loadedMembers, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+        getMembers(taskFilters.includeSystem),
+        getAllPriorities(),
+        getAllTags(),
+        api.get('/settings')
+      ]);
+
+      // Update all state
+      setMembers(loadedMembers);
+      setAvailablePriorities(loadedPriorities || []);
+      setAvailableTags(loadedTags || []);
+      setSiteSettings(settingsResponse.data || {});
+
+      // Refresh board data (includes all boards, columns, and tasks)
+      await refreshBoardData();
+    } catch (error) {
+      console.error('Failed to refresh data:', error);
+      // Still try to refresh board data even if other data fails
+      await refreshBoardData();
+    }
     // updateLastPollTime(); // Removed - no longer using polling system
   };
 

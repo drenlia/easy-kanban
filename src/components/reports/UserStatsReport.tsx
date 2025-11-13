@@ -43,14 +43,40 @@ interface UserStatsReportProps {
 }
 
 const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, achievementsEnabled }) => {
-  const { t } = useTranslation('common');
+  const { t, i18n } = useTranslation('common');
   const [data, setData] = useState<UserStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Get current user language preference (defaults to 'en' if not set)
+  const userLanguage = i18n.language || 'en';
+
+  const fetchUserStats = async () => {
+    try {
+      setLoading(true);
+      // Pass user's language preference as query parameter
+      const response = await fetch(`/api/reports/user-points?lang=${userLanguage}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(t('reports.userStats.failedToFetch'));
+      }
+
+      const result = await response.json();
+      setData(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchUserStats();
-  }, []);
+  }, [userLanguage]); // Refetch when language changes
 
   // Listen for real-time snapshot updates via WebSocket
   useEffect(() => {
@@ -69,28 +95,6 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
       };
     });
   }, []); // Empty deps - always refresh with latest data
-
-  const fetchUserStats = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/reports/user-points', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(t('reports.userStats.failedToFetch'));
-      }
-
-      const result = await response.json();
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('reports.taskList.errorOccurred'));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (

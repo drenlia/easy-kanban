@@ -60,7 +60,9 @@
     "inviteNotAvailable": "La fonctionnalité d'invitation n'est pas disponible",
     "failedToSendInvitation": "Échec de l'envoi de l'invitation",
     "refreshDataNow": "Actualiser les données maintenant",
-    "help": "Aide (F1)"
+    "help": "Aide (F1)",
+    "showSystemPanel": "Afficher le panneau système",
+    "hideSystemPanel": "Masquer le panneau système"
   },
   "theme": {
     "switchToDark": "Passer en mode sombre",
@@ -891,7 +893,8 @@
       "adminSso": "Configurez l'authentification Single Sign-On (SSO) à l'aide de Google OAuth. Activez ou désactivez la connexion Google et gérez les identifiants OAuth.",
       "adminMailServer": "Configurez les paramètres du serveur de messagerie pour l'envoi de notifications, d'invitations et d'autres e-mails système. Configurez les détails du serveur SMTP et testez la fonctionnalité e-mail.",
       "adminSprintSettings": "Créez et gérez des sprints pour vos projets. Les sprints sont des périodes de planification basées sur le temps utilisées pour organiser les tâches et suivre les progrès. Définissez les noms des sprints, les dates et marquez les sprints actifs.",
-      "adminReporting": "Configurez les fonctionnalités de rapport, y compris la gamification, la visibilité du classement et les paramètres d'achievements. Activez ou désactivez diverses capacités de rapport pour votre équipe."
+      "adminReporting": "Configurez les fonctionnalités de rapport, y compris la gamification, la visibilité du classement et les paramètres d'achievements. Activez ou désactivez diverses capacités de rapport pour votre équipe.",
+      "systemPanelToggle": "Utilisez ce bouton pour afficher ou masquer le panneau de métriques système. Lorsqu'il est activé, vous verrez la surveillance en temps réel de la RAM, du CPU et de l'utilisation du disque. Votre préférence est enregistrée et persistera entre les sessions."
     }
   }
 }

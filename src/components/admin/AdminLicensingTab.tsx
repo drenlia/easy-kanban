@@ -48,11 +48,40 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   
   // Subscription management state
   const [isOwner, setIsOwner] = useState(false);
+  const [websiteUrl, setWebsiteUrl] = useState<string>('');
 
   useEffect(() => {
     fetchLicenseInfo();
     checkOwnership();
   }, []);
+
+  // Fetch WEBSITE_URL - check settings prop first, then fetch directly if needed
+  useEffect(() => {
+    const fetchWebsiteUrl = async () => {
+      try {
+        // First check if it's in the settings prop
+        if (settings?.WEBSITE_URL) {
+          setWebsiteUrl(settings.WEBSITE_URL);
+          return;
+        }
+        
+        // If not in settings prop, fetch it directly
+        const response = await api.get('/admin/settings');
+        const allSettings = response.data || {};
+        if (allSettings.WEBSITE_URL) {
+          setWebsiteUrl(allSettings.WEBSITE_URL);
+        } else {
+          console.warn('WEBSITE_URL not found in settings');
+          setWebsiteUrl('');
+        }
+      } catch (err) {
+        console.error('Failed to fetch WEBSITE_URL:', err);
+        setWebsiteUrl('');
+      }
+    };
+
+    fetchWebsiteUrl();
+  }, [settings]);
 
   // Initialize activeSubTab from URL hash
   useEffect(() => {
@@ -511,7 +540,6 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
       );
     }
 
-    const websiteUrl = settings?.WEBSITE_URL || '';
     const hasWebsiteUrl = websiteUrl.trim() !== '';
 
     return (

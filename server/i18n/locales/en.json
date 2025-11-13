@@ -287,7 +287,15 @@
       "powerhouse": "Powerhouse",
       "juggernaut": "Juggernaut",
       "observer": "Observer",
-      "watchful": "Watchful"
+      "watchful": "Watchful",
+      "starter": "Starter",
+      "master": "Master",
+      "legend": "Legend",
+      "mentor": "Mentor",
+      "firstTask": "First Task",
+      "taskCreator": "Task Creator",
+      "pointGetter": "Point Getter",
+      "pointCollector": "Point Collector"
     },
     "descriptions": {
       "completedFirstTask": "Completed your first task",
@@ -307,7 +315,19 @@
       "completed200EffortPoints": "Completed 200 effort points",
       "completed500EffortPoints": "Completed 500 effort points",
       "added10Watchers": "Added 10 watchers to tasks",
-      "added50Watchers": "Added 50 watchers to tasks"
+      "added50Watchers": "Added 50 watchers to tasks",
+      "completed10TasksStarter": "Completed 10 tasks",
+      "completed200TasksMaster": "Completed 200 tasks",
+      "completed500TasksLegend": "Completed 500 tasks",
+      "completed100EffortPoints": "Completed 100 effort points",
+      "completed500EffortPointsPowerhouse": "Completed 500 effort points",
+      "added50CollaboratorsTeamPlayer": "Added 50 collaborators to tasks",
+      "added200CollaboratorsMentor": "Added 200 collaborators to tasks",
+      "added100CommentsCommunicator": "Added 100 comments",
+      "createdFirstTask": "Created your first task",
+      "created10Tasks": "Created 10 tasks",
+      "earned100Points": "Earned 100 points",
+      "earned500Points": "Earned 500 points"
     }
   },
   "instanceStatus": {

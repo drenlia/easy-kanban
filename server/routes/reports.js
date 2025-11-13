@@ -2,7 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getLeaderboard } from '../jobs/achievements.js';
-import { getTranslator } from '../utils/i18n.js';
+import { getTranslator, t as translate } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -47,8 +47,12 @@ router.get('/settings', authenticateToken, (req, res) => {
 router.get('/user-points', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
-    const { userId } = req.query;
+    const { userId, lang } = req.query;
     const targetUserId = userId || req.user.id;
+    
+    // Use user's language preference if provided, otherwise fall back to APP_LANGUAGE
+    // lang parameter takes precedence over APP_LANGUAGE for user-facing content
+    const userLanguage = (lang === 'fr' || lang === 'en') ? lang : null;
     
     // If requesting another user's points, check if admin
     if (userId && userId !== req.user.id && !req.user.roles?.includes('admin')) {
@@ -116,13 +120,24 @@ router.get('/user-points', authenticateToken, (req, res) => {
     `), 'SELECT').all(targetUserId);
     
     // Translate achievement names and descriptions
-    const t = getTranslator(db);
+    // Use user's language preference if provided, otherwise use APP_LANGUAGE
+    let translationLang = 'en';
+    if (userLanguage) {
+      translationLang = userLanguage;
+    } else {
+      const appLang = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_LANGUAGE')?.value || 'EN';
+      translationLang = appLang.toUpperCase() === 'FR' ? 'fr' : 'en';
+    }
+    
+    // Create translator function with the determined language
+    const t = (key, params = {}) => translate(key, params, translationLang);
+    
     const achievements = achievementsRaw.map(achievement => {
       const badgeId = achievement.badge_id;
       let translatedName = achievement.badge_name;
       let translatedDescription = achievement.badge_description || '';
       
-      // Map badge IDs to translation keys
+      // Map badge IDs to translation keys (new system badges)
       const badgeIdToTranslationKey = {
         'getting-started': { name: 'achievements.names.gettingStarted', desc: 'achievements.descriptions.completedFirstTask' },
         'productive': { name: 'achievements.names.productive', desc: 'achievements.descriptions.completed10Tasks' },
@@ -141,11 +156,35 @@ router.get('/user-points', authenticateToken, (req, res) => {
         'powerhouse': { name: 'achievements.names.powerhouse', desc: 'achievements.descriptions.completed200EffortPoints' },
         'juggernaut': { name: 'achievements.names.juggernaut', desc: 'achievements.descriptions.completed500EffortPoints' },
         'observer': { name: 'achievements.names.observer', desc: 'achievements.descriptions.added10Watchers' },
-        'watchful': { name: 'achievements.names.watchful', desc: 'achievements.descriptions.added50Watchers' }
+        'watchful': { name: 'achievements.names.watchful', desc: 'achievements.descriptions.added50Watchers' },
+        'first-task': { name: 'achievements.names.firstTask', desc: 'achievements.descriptions.createdFirstTask' },
+        'task-creator': { name: 'achievements.names.taskCreator', desc: 'achievements.descriptions.created10Tasks' },
+        'point-getter': { name: 'achievements.names.pointGetter', desc: 'achievements.descriptions.earned100Points' },
+        'point-collector': { name: 'achievements.names.pointCollector', desc: 'achievements.descriptions.earned500Points' }
       };
       
+      // Map old badge names to translation keys (fallback for old system badges without badge_id)
+      const badgeNameToTranslationKey = {
+        'Starter': { name: 'achievements.names.starter', desc: 'achievements.descriptions.completed10TasksStarter' },
+        'Achiever': { name: 'achievements.names.achiever', desc: 'achievements.descriptions.completed50Tasks' },
+        'Master': { name: 'achievements.names.master', desc: 'achievements.descriptions.completed200TasksMaster' },
+        'Legend': { name: 'achievements.names.legend', desc: 'achievements.descriptions.completed500TasksLegend' },
+        'Hard Worker': { name: 'achievements.names.hardWorker', desc: 'achievements.descriptions.completed100EffortPoints' },
+        'Powerhouse': { name: 'achievements.names.powerhouse', desc: 'achievements.descriptions.completed500EffortPointsPowerhouse' },
+        'Team Player': { name: 'achievements.names.teamPlayer', desc: 'achievements.descriptions.added50CollaboratorsTeamPlayer' },
+        'Mentor': { name: 'achievements.names.mentor', desc: 'achievements.descriptions.added200CollaboratorsMentor' },
+        'Communicator': { name: 'achievements.names.communicator', desc: 'achievements.descriptions.added100CommentsCommunicator' }
+      };
+      
+      // First try to translate by badge_id (new system)
       if (badgeId && badgeIdToTranslationKey[badgeId]) {
         const translationKeys = badgeIdToTranslationKey[badgeId];
+        translatedName = t(translationKeys.name);
+        translatedDescription = t(translationKeys.desc);
+      } 
+      // Fallback: translate by badge_name (old system badges without badge_id)
+      else if (badgeNameToTranslationKey[achievement.badge_name]) {
+        const translationKeys = badgeNameToTranslationKey[achievement.badge_name];
         translatedName = t(translationKeys.name);
         translatedDescription = t(translationKeys.desc);
       }

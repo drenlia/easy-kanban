@@ -37,6 +37,9 @@ server/avatars/
 logs/
 *.log
 
+# QA folder
+qa/
+
 # Runtime data
 pids/
 *.pid

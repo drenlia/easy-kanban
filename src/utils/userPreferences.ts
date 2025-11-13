@@ -70,6 +70,7 @@ export interface UserPreferences {
     taskDeleteConfirm?: boolean; // User override for system TASK_DELETE_CONFIRM setting
     showActivityFeed?: boolean; // User override for system SHOW_ACTIVITY_FEED setting
     autoRefreshEnabled?: boolean; // User preference for auto-refresh toggle
+    showSystemPanel?: boolean; // User preference for system metrics panel visibility (default: true for admins)
   };
   notifications: {
     newTaskAssigned: boolean; // Notify when a new task is assigned to me
@@ -369,6 +370,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('taskDeleteConfirm', preferences.appSettings.taskDeleteConfirm),
           saveIfDefined('showActivityFeed', preferences.appSettings.showActivityFeed),
           saveIfDefined('autoRefreshEnabled', preferences.appSettings.autoRefreshEnabled),
+          saveIfDefined('showSystemPanel', preferences.appSettings.showSystemPanel),
           
           // Activity Feed Settings
           saveIfDefined('activityFeedMinimized', preferences.activityFeed.isMinimized),
@@ -567,7 +569,8 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           ...preferences.appSettings,
           taskDeleteConfirm: smartMerge(preferences.appSettings.taskDeleteConfirm, dbSettings.taskDeleteConfirm, defaults.appSettings.taskDeleteConfirm),
           showActivityFeed: smartMerge(preferences.appSettings.showActivityFeed, dbSettings.showActivityFeed, defaults.appSettings.showActivityFeed),
-          autoRefreshEnabled: smartMerge(preferences.appSettings.autoRefreshEnabled, dbSettings.autoRefreshEnabled, defaults.appSettings.autoRefreshEnabled)
+          autoRefreshEnabled: smartMerge(preferences.appSettings.autoRefreshEnabled, dbSettings.autoRefreshEnabled, defaults.appSettings.autoRefreshEnabled),
+          showSystemPanel: smartMerge(preferences.appSettings.showSystemPanel, dbSettings.showSystemPanel, defaults.appSettings.showSystemPanel)
         },
         
         // Activity Feed Settings
