@@ -408,15 +408,67 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     }
     
     // Update role if provided
+    let roleChanged = false;
     if (role !== undefined) {
-      // Remove existing roles
-      wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      // Get current role to check if it changed
+      const currentRole = wrapQuery(db.prepare(`
+        SELECT r.name FROM roles r
+        JOIN user_roles ur ON r.id = ur.role_id
+        WHERE ur.user_id = ?
+      `), 'SELECT').get(userId)?.name;
       
-      // Add new role
-      const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-      if (roleId) {
-        wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      if (currentRole !== role) {
+        roleChanged = true;
+        // Remove existing roles
+        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        
+        // Add new role
+        const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+        if (roleId) {
+          wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+        }
       }
+    }
+    
+    // Get updated user data for WebSocket event
+    const updatedUser = wrapQuery(db.prepare(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url,
+             r.name as role
+      FROM users u
+      LEFT JOIN user_roles ur ON u.id = ur.user_id
+      LEFT JOIN roles r ON ur.role_id = r.id
+      WHERE u.id = ?
+    `), 'SELECT').get(userId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-updated to Redis for admin portal user update');
+    await redisService.publish('user-updated', {
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email || email,
+        firstName: updatedUser.first_name || firstName,
+        lastName: updatedUser.last_name || lastName,
+        isActive: Boolean(updatedUser.is_active),
+        authProvider: updatedUser.auth_provider || null,
+        googleAvatarUrl: updatedUser.google_avatar_url || null,
+        createdAt: updatedUser.created_at,
+        joined: updatedUser.created_at
+      },
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish user-updated event:', err);
+    });
+    
+    // Publish role update if role changed
+    if (roleChanged) {
+      console.log('📤 Publishing user-role-updated to Redis for admin portal role change');
+      await redisService.publish('user-role-updated', {
+        userId: userId,
+        role: role,
+        timestamp: new Date().toISOString()
+      }).catch(err => {
+        console.error('Failed to publish user-role-updated event:', err);
+      });
     }
     
     console.log(`✅ Admin portal updated user: ${userId}`);
@@ -938,7 +990,7 @@ router.get('/instance-status', authenticateAdminPortal, (req, res) => {
 // ================================
 
 // Update user
-router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
+router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = req.app.locals.db;
     const { userId } = req.params;
@@ -1000,6 +1052,41 @@ router.put('/users/:userId', authenticateAdminPortal, (req, res) => {
     // Update member name
     wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
       .run(`${firstName} ${lastName}`, userId);
+    
+    // Get updated user data for WebSocket event
+    const updatedUser = wrapQuery(db.prepare(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
+      FROM users u
+      WHERE u.id = ?
+    `), 'SELECT').get(userId);
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
+    await redisService.publish('user-updated', {
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.first_name,
+        lastName: updatedUser.last_name,
+        isActive: Boolean(updatedUser.is_active),
+        authProvider: updatedUser.auth_provider || null,
+        googleAvatarUrl: updatedUser.google_avatar_url || null,
+        createdAt: updatedUser.created_at,
+        joined: updatedUser.created_at
+      },
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish user-updated event:', err);
+    });
+    
+    // Publish role update
+    await redisService.publish('user-role-updated', {
+      userId: userId,
+      role: role,
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish user-role-updated event:', err);
+    });
     
     console.log(`✅ Admin portal updated user: ${email} (${firstName} ${lastName})`);
     

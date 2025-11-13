@@ -155,6 +155,32 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
       invitation.user_id
     );
     
+    // Get the updated user data for WebSocket event
+    const updatedUser = wrapQuery(db.prepare(`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
+      FROM users u
+      WHERE u.id = ?
+    `), 'SELECT').get(invitation.user_id);
+    
+    // Publish to Redis for real-time updates to admin panel
+    console.log('📤 Publishing user-updated to Redis for account activation');
+    redisService.publish('user-updated', {
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        firstName: updatedUser.first_name,
+        lastName: updatedUser.last_name,
+        isActive: Boolean(updatedUser.is_active),
+        authProvider: updatedUser.auth_provider || null,
+        googleAvatarUrl: updatedUser.google_avatar_url || null,
+        createdAt: updatedUser.created_at,
+        joined: updatedUser.created_at
+      },
+      timestamp: new Date().toISOString()
+    }).catch(err => {
+      console.error('Failed to publish user-updated event:', err);
+    });
+    
     console.log('✅ Account activated successfully for:', invitation.email);
     
     res.json({ 

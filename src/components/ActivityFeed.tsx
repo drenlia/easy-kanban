@@ -907,7 +907,8 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                           {highlightText(name, filterText)}
                         </div>
                         <div 
-                          className="text-gray-700 dark:text-gray-200 text-xs leading-tight"
+                          className="text-gray-700 dark:text-gray-200 text-xs leading-tight break-words"
+                          style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
                           dangerouslySetInnerHTML={{ 
                             __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
                               ALLOWED_TAGS: ['a', 'span'],
@@ -924,7 +925,8 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                         </span>
                         {' '}
                         <span 
-                          className="text-gray-700 dark:text-gray-200"
+                          className="text-gray-700 dark:text-gray-200 break-words"
+                          style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}
                           dangerouslySetInnerHTML={{ 
                             __html: DOMPurify.sanitize(highlightTextHTML(description, filterText), {
                               ALLOWED_TAGS: ['a', 'span'],

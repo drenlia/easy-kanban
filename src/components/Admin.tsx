@@ -306,6 +306,16 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
     };
 
+    const handleUserProfileUpdated = async (data: any) => {
+      try {
+        // Refresh users list to get updated avatar/color/profile info
+        const usersResponse = await api.get('/admin/users');
+        setUsers(usersResponse.data || []);
+      } catch (error) {
+        console.error('Failed to refresh users after profile update:', error);
+      }
+    };
+
     // Settings event handlers
     const handleSettingsUpdated = async (data: any) => {
       try {
@@ -340,6 +350,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     websocketClient.onUserUpdated(handleUserUpdated);
     websocketClient.onUserRoleUpdated(handleUserRoleUpdated);
     websocketClient.onUserDeleted(handleUserDeleted);
+    websocketClient.onUserProfileUpdated(handleUserProfileUpdated);
     websocketClient.onSettingsUpdated(handleSettingsUpdated);
 
     // Cleanup function
@@ -355,6 +366,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       websocketClient.offUserUpdated(handleUserUpdated);
       websocketClient.offUserRoleUpdated(handleUserRoleUpdated);
       websocketClient.offUserDeleted(handleUserDeleted);
+      websocketClient.offUserProfileUpdated(handleUserProfileUpdated);
       websocketClient.offSettingsUpdated(handleSettingsUpdated);
     };
   }, [currentUser?.roles]);
