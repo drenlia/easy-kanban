@@ -918,6 +918,170 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Batch update task positions (optimized for drag-and-drop reordering)
+router.post('/batch-update-positions', authenticateToken, async (req, res) => {
+  const { updates } = req.body; // Array of { taskId, position, columnId }
+  const userId = req.user?.id || 'system';
+  
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'Invalid updates array' });
+  }
+  
+  try {
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    const now = new Date().toISOString();
+    
+    // Validate all tasks exist and get their current data
+    const taskIds = updates.map(u => u.taskId);
+    const placeholders = taskIds.map(() => '?').join(',');
+    const currentTasks = wrapQuery(
+      db.prepare(`SELECT id, position, columnId, boardId, title FROM tasks WHERE id IN (${placeholders})`),
+      'SELECT'
+    ).all(...taskIds);
+    
+    if (currentTasks.length !== taskIds.length) {
+      return res.status(404).json({ error: t('errors.taskNotFound') });
+    }
+    
+    const taskMap = new Map(currentTasks.map(t => [t.id, t]));
+    
+    // Group updates by column for efficient batch processing
+    const updatesByColumn = new Map();
+    updates.forEach(update => {
+      const currentTask = taskMap.get(update.taskId);
+      if (!currentTask) return;
+      
+      const columnId = update.columnId || currentTask.columnId;
+      if (!updatesByColumn.has(columnId)) {
+        updatesByColumn.set(columnId, []);
+      }
+      updatesByColumn.get(columnId).push({
+        taskId: update.taskId,
+        position: update.position,
+        columnId: columnId,
+        previousColumnId: currentTask.columnId,
+        previousBoardId: currentTask.boardId,
+        previousPosition: currentTask.position,
+        title: currentTask.title
+      });
+    });
+    
+    // Execute all updates in a single transaction
+    db.transaction(() => {
+      const updateStmt = db.prepare(`
+        UPDATE tasks SET 
+          position = ?, 
+          columnId = ?,
+          pre_boardId = ?, 
+          pre_columnId = ?,
+          updated_at = ?
+        WHERE id = ?
+      `);
+      
+      updatesByColumn.forEach((columnUpdates, columnId) => {
+        columnUpdates.forEach(update => {
+          updateStmt.run(
+            update.position,
+            update.columnId,
+            update.previousBoardId,
+            update.previousColumnId,
+            now,
+            update.taskId
+          );
+        });
+      });
+    })();
+    
+    // Log activity for tasks that changed columns (batch these too if possible)
+    const columnMoves = [];
+    updatesByColumn.forEach((columnUpdates, columnId) => {
+      columnUpdates.forEach(update => {
+        if (update.previousColumnId !== update.columnId) {
+          columnMoves.push(update);
+        }
+      });
+    });
+    
+    // Batch fetch column info for activity logging
+    if (columnMoves.length > 0) {
+      const columnIds = [...new Set([...columnMoves.map(m => m.columnId), ...columnMoves.map(m => m.previousColumnId)])];
+      const columnPlaceholders = columnIds.map(() => '?').join(',');
+      const columns = wrapQuery(
+        db.prepare(`SELECT id, title, is_finished as is_done FROM columns WHERE id IN (${columnPlaceholders})`),
+        'SELECT'
+      ).all(...columnIds);
+      const columnMap = new Map(columns.map(c => [c.id, c]));
+      
+      // Log activities (can be done in parallel)
+      await Promise.all(columnMoves.map(async (move) => {
+        const oldColumn = columnMap.get(move.previousColumnId);
+        const newColumn = columnMap.get(move.columnId);
+        
+        await logTaskActivity(
+          userId,
+          TASK_ACTIONS.UPDATE,
+          move.taskId,
+          t('activity.movedTaskFromTo', {
+            taskTitle: move.title,
+            taskRef: '',
+            fromColumn: oldColumn?.title || 'Unknown',
+            toColumn: newColumn?.title || 'Unknown'
+          }),
+          {
+            columnId: move.columnId,
+            boardId: move.previousBoardId
+          }
+        );
+        
+        // Log to reporting system
+        const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
+        await logReportingActivity(db, eventType, userId, move.taskId, {
+          fromColumnId: move.previousColumnId,
+          fromColumnName: oldColumn?.title,
+          toColumnId: move.columnId,
+          toColumnName: newColumn?.title
+        });
+      }));
+    }
+    
+    // Publish WebSocket updates for all changed tasks
+    // Note: We publish individual events (not a batch) since WebSocket messages are lightweight
+    // The performance bottleneck was the HTTP requests and DB updates, which are now batched
+    const taskResponses = taskIds.map(id => fetchTaskWithRelationships(db, id));
+    
+    // Publish individual WebSocket events for each task (grouped by board for efficiency)
+    const tasksByBoard = new Map();
+    taskResponses.forEach(task => {
+      if (!tasksByBoard.has(task.boardId)) {
+        tasksByBoard.set(task.boardId, []);
+      }
+      tasksByBoard.get(task.boardId).push({
+        ...task,
+        updatedBy: userId
+      });
+    });
+    
+    // Publish individual events (WebSocket is fast, the bottleneck was HTTP/DB)
+    await Promise.all(Array.from(tasksByBoard.entries()).flatMap(([boardId, tasks]) =>
+      tasks.map(task =>
+        redisService.publish('task-updated', {
+          boardId,
+          task, // Single task per event (WebSocket handler expects this format)
+          timestamp: now
+        })
+      )
+    ));
+    
+    res.json({ message: `Updated ${updates.length} task positions successfully` });
+  } catch (error) {
+    console.error('Error batch updating task positions:', error);
+    const { db } = req.app.locals;
+    const t = getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToUpdateTask') });
+  }
+});
+
 // Reorder tasks
 router.post('/reorder', authenticateToken, async (req, res) => {
   const { taskId, newPosition, columnId } = req.body;

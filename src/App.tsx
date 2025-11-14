@@ -1669,8 +1669,10 @@ export default function App() {
         activityFeed.setLastSeenActivityId(userSpecificPrefs.activityFeed.lastSeenActivityId);
         activityFeed.setClearActivityId(userSpecificPrefs.activityFeed.clearActivityId);
         activityFeed.setActivityFeedPosition(userSpecificPrefs.activityFeed.position);
+        // Validate width to prevent corrupted values (120-600px range)
+        const validatedWidth = Math.max(120, Math.min(600, userSpecificPrefs.activityFeed.width));
         activityFeed.setActivityFeedDimensions({
-          width: userSpecificPrefs.activityFeed.width,
+          width: validatedWidth,
           height: userSpecificPrefs.activityFeed.height
         });
         

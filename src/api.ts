@@ -213,6 +213,12 @@ export const deleteTask = async (id: string) => {
   return data;
 };
 
+// Batch update task positions (optimized for drag-and-drop)
+export const batchUpdateTaskPositions = async (updates: Array<{ taskId: string; position: number; columnId?: string }>) => {
+  const { data } = await api.post('/tasks/batch-update-positions', { updates });
+  return data;
+};
+
 // Comments
 export const createComment = async (comment: Comment & { 
   taskId: string; 

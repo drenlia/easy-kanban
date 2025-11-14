@@ -3,7 +3,7 @@
  */
 
 import { Task, Columns } from '../types';
-import { updateTask } from '../api';
+import { updateTask, batchUpdateTaskPositions } from '../api';
 import { arrayMove } from '@dnd-kit/sortable';
 import { DRAG_COOLDOWN_DURATION } from '../constants';
 
@@ -73,12 +73,16 @@ export const handleSameColumnReorder = async (
     }
   }));
 
-  // Send all updated tasks with their new positions to backend
+  // Send all updated tasks with their new positions to backend (batch update)
   try {
-    // Update all tasks with their new positions
-    for (const updatedTask of tasksWithUpdatedPositions) {
-      await updateTask(updatedTask);
-    }
+    // Use batch update endpoint for better performance
+    const updates = tasksWithUpdatedPositions.map(task => ({
+      taskId: task.id,
+      position: task.position,
+      columnId: task.columnId
+    }));
+    
+    await batchUpdateTaskPositions(updates);
       
     // Add cooldown to prevent polling interference
     setDragCooldown(true);
@@ -159,27 +163,34 @@ export const handleCrossColumnMove = async (
     }
   }));
 
-  // Update database - do this sequentially to avoid race conditions
+  // Update database using batch endpoint for better performance
   try {
-    // Find the moved task in the final updatedTargetTasks array (with correct position)
-    const finalMovedTask = updatedTargetTasks.find(t => t.id === task.id);
-    if (!finalMovedTask) {
-      throw new Error('Could not find moved task in updated target tasks');
-    }
+    // Collect all position updates (moved task + source column tasks + target column tasks)
+    const updates = [
+      // The moved task
+      {
+        taskId: task.id,
+        position: updatedTargetTasks.find(t => t.id === task.id)?.position || targetIndex,
+        columnId: targetColumnId
+      },
+      // All source column tasks
+      ...updatedSourceTasks.map(t => ({
+        taskId: t.id,
+        position: t.position,
+        columnId: sourceColumnId
+      })),
+      // All target column tasks (except the moved one, already included above)
+      ...updatedTargetTasks
+        .filter(t => t.id !== task.id)
+        .map(t => ({
+          taskId: t.id,
+          position: t.position,
+          columnId: targetColumnId
+        }))
+    ];
     
-    // Step 1: Update the moved task to new column and position
-      await updateTask(finalMovedTask);
-      
-    // Step 2: Update all source column tasks (sequential positions)
-    for (const task of updatedSourceTasks) {
-      await updateTask(task);
-    }
-      
-    // Step 3: Update all target column tasks (except the moved one)
-    for (const task of updatedTargetTasks.filter(t => t.id !== finalMovedTask.id)) {
-      await updateTask(task);
-    }
-      
+    // Single batch update instead of multiple individual updates
+    await batchUpdateTaskPositions(updates);
       
     // Add cooldown to prevent polling interference
     setDragCooldown(true);

@@ -578,7 +578,11 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           ...preferences.activityFeed,
           isMinimized: smartMerge(preferences.activityFeed.isMinimized, dbSettings.activityFeedMinimized, defaults.activityFeed.isMinimized),
           position: smartMerge(preferences.activityFeed.position, dbSettings.activityFeedPosition ? JSON.parse(dbSettings.activityFeedPosition) : undefined, defaults.activityFeed.position),
-          width: smartMerge(preferences.activityFeed.width, dbSettings.activityFeedWidth, defaults.activityFeed.width),
+          // Validate and clamp width to valid range (120-200px) to prevent corrupted values
+          width: (() => {
+            const mergedWidth = smartMerge(preferences.activityFeed.width, dbSettings.activityFeedWidth, defaults.activityFeed.width);
+            return Math.max(120, Math.min(200, mergedWidth));
+          })(),
           height: smartMerge(preferences.activityFeed.height, dbSettings.activityFeedHeight, defaults.activityFeed.height),
           lastSeenActivityId: smartMerge(preferences.activityFeed.lastSeenActivityId, dbSettings.lastSeenActivityId, defaults.activityFeed.lastSeenActivityId),
           clearActivityId: smartMerge(preferences.activityFeed.clearActivityId, dbSettings.clearActivityId, defaults.activityFeed.clearActivityId),
