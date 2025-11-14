@@ -475,8 +475,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const role = action === 'promote' ? 'admin' : 'user';
       await api.put(`/admin/users/${userId}/role`, { role });
       await loadData(); // Reload users
-    } catch (err) {
-      toast.error(action === 'promote' ? t('failedToPromoteUser') : t('failedToDemoteUser'), '');
+      toast.success(action === 'promote' ? t('userPromotedSuccessfully') : t('userDemotedSuccessfully'), '');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || 
+                          (action === 'promote' ? t('failedToPromoteUser') : t('failedToDemoteUser'));
+      toast.error(errorMessage, '');
       console.error(err);
     }
   };
@@ -493,8 +496,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const taskCountData = await getUserTaskCount(userId);
       setUserTaskCounts(prev => ({ ...prev, [userId]: taskCountData.count }));
       setShowDeleteConfirm(userId);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to get task count:', error);
+      // Show error toast but still allow deletion
+      const errorMessage = error.response?.data?.error || error.message || t('failedToGetTaskCount');
+      toast.error(errorMessage, '');
       // Still show confirmation even if task count fails
       setUserTaskCounts(prev => ({ ...prev, [userId]: 0 }));
       setShowDeleteConfirm(userId);
@@ -509,8 +515,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
         onUsersChanged();
       }
       setShowDeleteConfirm(null);
-    } catch (err) {
-      toast.error(t('failedToDeleteUser'), '');
+      toast.success(t('userDeletedSuccessfully'), '');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || t('failedToDeleteUser');
+      toast.error(errorMessage, '');
       console.error(err);
     }
   };
@@ -652,10 +660,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   };
 
   const handleUserColorChange = async (userId: string, color: string) => {
-    await api.put(`/admin/users/${userId}/color`, { color });
-    await loadData(); // Reload users
-    if (onUsersChanged) {
-      onUsersChanged();
+    try {
+      await api.put(`/admin/users/${userId}/color`, { color });
+      await loadData(); // Reload users
+      if (onUsersChanged) {
+        onUsersChanged();
+      }
+      toast.success(t('userColorUpdatedSuccessfully'), '');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || t('failedToUpdateUserColor');
+      toast.error(errorMessage, '');
+      console.error('Failed to update user color:', err);
     }
   };
 
@@ -691,6 +706,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     try {
       
       let hasChanges = false;
+      const changedKeys: string[] = [];
       // Use passed settings if available, otherwise use editingSettings
       const settingsToSave = newSettings || editingSettings;
       
@@ -711,6 +727,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           }
           await api.put('/admin/settings', { key, value });
           hasChanges = true;
+          changedKeys.push(key);
         }
       }
       
@@ -722,8 +739,13 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           onSettingsChanged();
         }
         
-        // Show success toast
-        toast.success(t('settingsSavedSuccessfully'), '');
+        // Check if this is only UPLOAD_LIMITS_ENFORCED (which has its own toast message)
+        const isOnlyUploadLimitsEnforced = changedKeys.length === 1 && changedKeys[0] === 'UPLOAD_LIMITS_ENFORCED';
+        
+        // Show success toast (skip for UPLOAD_LIMITS_ENFORCED as it has its own specific message)
+        if (!isOnlyUploadLimitsEnforced) {
+          toast.success(t('settingsSavedSuccessfully'), '');
+        }
       } else {
         toast.info(t('noChangesToSave'), '', 3000);
       }
@@ -877,9 +899,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       if (onUsersChanged) {
         onUsersChanged();
       }
+      
+      toast.success(t('userUpdatedSuccessfully'), '');
     } catch (err: any) {
       console.error('❌ Failed to save user:', err);
-      const errorMessage = err.response?.data?.error || t('failedToUpdateUser');
+      // Extract detailed error message, including user limit errors
+      let errorMessage = err.response?.data?.error || err.response?.data?.message || err.message || t('failedToUpdateUser');
+      
+      // Check for user limit error specifically
+      if (err.response?.status === 403 && (errorMessage.includes('limit') || errorMessage.includes('Limit'))) {
+        errorMessage = err.response?.data?.message || err.response?.data?.error || t('users.userLimitReached');
+      }
+      
       toast.error(errorMessage, '');
       throw err; // Re-throw so the calling component can handle it
     }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save, RefreshCw } from 'lucide-react';
+import { toast } from '../../utils/toast';
 
 interface AdminFileUploadsTabProps {
   settings: { [key: string]: string | undefined };
@@ -251,10 +252,13 @@ const AdminFileUploadsTab: React.FC<AdminFileUploadsTabProps> = ({
       
       onSettingsChange(updatedSettings);
       await onSave(updatedSettings);
-    } catch (error) {
+      toast.success(t('fileUploads.limitsEnforcedUpdated'), '');
+    } catch (error: any) {
       console.error('Failed to save limits enforced setting:', error);
       // Revert on error
       setLimitsEnforced(!newValue);
+      const errorMessage = error.response?.data?.error || error.message || t('fileUploads.failedToUpdateLimitsEnforced');
+      toast.error(errorMessage, '');
     } finally {
       setIsTogglingLimits(false);
     }

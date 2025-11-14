@@ -130,10 +130,15 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
   const fetchLicenseInfo = async () => {
     try {
       setLoading(true);
+      setError(null);
       const response = await api.get('/auth/license-info');
       setLicenseInfo(response.data);
     } catch (err: any) {
-      setError(err.message);
+      const errorMessage = err.response?.data?.error || err.message || t('licensing.errorLoadingLicenseInfo', { error: err.message || 'Unknown error' });
+      setError(errorMessage);
+      // Also show toast for better visibility
+      const { toast } = await import('../../utils/toast');
+      toast.error(errorMessage, '');
     } finally {
       setLoading(false);
     }
