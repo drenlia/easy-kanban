@@ -219,6 +219,66 @@ router.put('/app-url', authenticateToken, async (req, res) => {
   }
 });
 
+// Clear all mail-related settings (for switching from managed to custom SMTP)
+// Handle POST /api/admin/settings/clear-mail (when mounted at /api/admin/settings)
+router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req, res, next) => {
+  // Only handle when mounted at /api/admin/settings
+  if (req.baseUrl !== '/api/admin/settings') {
+    return next(); // Let other routes handle it
+  }
+  
+  try {
+    const db = req.app.locals.db;
+    
+    // Define all mail-related settings to clear (empty strings)
+    const mailSettingsToClear = [
+      'SMTP_HOST',
+      'SMTP_PORT',
+      'SMTP_USERNAME',
+      'SMTP_PASSWORD',
+      'SMTP_FROM_EMAIL',
+      'SMTP_FROM_NAME'
+    ];
+    
+    // Clear all mail-related settings in a single transaction
+    const clearSettings = db.transaction(() => {
+      const stmt = db.prepare(`
+        INSERT OR REPLACE INTO settings (key, value, updated_at) 
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `);
+      
+      // Clear SMTP fields (set to empty strings)
+      mailSettingsToClear.forEach(key => {
+        wrapQuery(stmt, 'INSERT').run(key, '');
+      });
+      
+      // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+      wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
+      wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
+    });
+    
+    clearSettings();
+    
+    // Publish to Redis for real-time updates (single message for all changes)
+    console.log('📤 Publishing mail-settings-cleared to Redis');
+    await redisService.publish('settings-updated', {
+      key: 'MAIL_SETTINGS_CLEARED',
+      value: 'all',
+      timestamp: new Date().toISOString(),
+      clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']
+    });
+    console.log('✅ Mail settings cleared and published to Redis');
+    
+    res.json({ 
+      message: 'Mail settings cleared successfully',
+      clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']
+    });
+  } catch (error) {
+    console.error('❌ Error clearing mail settings:', error);
+    res.status(500).json({ error: 'Failed to clear mail settings', details: error.message });
+  }
+});
+
 // Storage information endpoint
 // Handle GET /api/storage/info (when mounted at /api/storage)
 router.get('/info', authenticateToken, (req, res, next) => {

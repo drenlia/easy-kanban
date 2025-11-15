@@ -43,6 +43,7 @@ interface AdminMailTabProps {
   testEmailError: string;
   onCloseTestErrorModal: () => void;
   onAutoSave?: (key: string, value: string) => Promise<void>;
+  onSettingsReload?: () => Promise<void>;
 }
 
 const AdminMailTab: React.FC<AdminMailTabProps> = ({
@@ -60,6 +61,7 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   testEmailError,
   onCloseTestErrorModal,
   onAutoSave,
+  onSettingsReload,
 }) => {
   const { t } = useTranslation('admin');
   const handleInputChange = (key: string, value: string) => {
@@ -125,7 +127,15 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                       onClick={async () => {
                         if (confirm(t('mail.switchToCustomSMTPConfirm'))) {
                           try {
-                            // Update local state
+                            // Clear all mail-related settings in the database with a single API call
+                            await api.post('/admin/settings/clear-mail');
+                            
+                            // Reload settings from server to get the cleared values
+                            if (onSettingsReload) {
+                              await onSettingsReload();
+                            }
+                            
+                            // Update local state to clear all mail-related fields
                             const updatedSettings = {
                               ...editingSettings,
                               MAIL_MANAGED: 'false',
@@ -138,23 +148,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                               MAIL_ENABLED: 'false',
                             };
                             onSettingsChange(updatedSettings);
-
-                            // Save all changes to database immediately
-                            if (onAutoSave) {
-                              await onAutoSave('MAIL_MANAGED', 'false');
-                              await onAutoSave('SMTP_HOST', '');
-                              await onAutoSave('SMTP_PORT', '');
-                              await onAutoSave('SMTP_USERNAME', '');
-                              await onAutoSave('SMTP_PASSWORD', '');
-                              await onAutoSave('SMTP_FROM_EMAIL', '');
-                              await onAutoSave('SMTP_FROM_NAME', '');
-                              await onAutoSave('MAIL_ENABLED', 'false');
-                              toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
-                            } else {
-                              // Fallback: use onSave if onAutoSave is not available
-                              await onSave();
-                              toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
-                            }
+                            
+                            // Show success message
+                            toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
                           } catch (error) {
                             console.error('Failed to switch to custom SMTP:', error);
                             toast.error(t('mail.failedToSwitchToCustomSMTP') || 'Failed to switch to custom SMTP settings', '');

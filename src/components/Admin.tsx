@@ -1090,6 +1090,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               testEmailError={testEmailError}
               onCloseTestErrorModal={() => setShowTestEmailErrorModal(false)}
               onAutoSave={handleAutoSaveSetting}
+              onSettingsReload={loadData}
             />
           )}
 

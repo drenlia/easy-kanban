@@ -113,6 +113,56 @@ export const initializeDatabase = () => {
     throw error;
   }
   
+  // Safety check: Ensure priority_id column exists (defensive measure in case migration failed)
+  try {
+    const tableInfo = db.prepare('PRAGMA table_info(tasks)').all();
+    const columnNames = tableInfo.map(col => col.name);
+    
+    if (!columnNames.includes('priority_id')) {
+      console.log('⚠️  priority_id column missing - adding it now...');
+      db.exec('ALTER TABLE tasks ADD COLUMN priority_id INTEGER');
+      
+      // Try to populate priority_id from existing priority names
+      const priorities = db.prepare('SELECT id, priority FROM priorities').all();
+      if (priorities.length > 0) {
+        const priorityMap = new Map();
+        priorities.forEach(p => {
+          priorityMap.set(p.priority.toLowerCase(), p.id);
+        });
+        
+        const defaultPriority = db.prepare('SELECT id FROM priorities WHERE initial = 1').get();
+        const defaultPriorityId = defaultPriority ? defaultPriority.id : priorities[0].id;
+        
+        for (const [priorityName, priorityId] of priorityMap.entries()) {
+          db.prepare(`
+            UPDATE tasks 
+            SET priority_id = ? 
+            WHERE LOWER(priority) = ? AND priority_id IS NULL
+          `).run(priorityId, priorityName);
+        }
+        
+        // Set default for any remaining
+        db.prepare(`
+          UPDATE tasks 
+          SET priority_id = ? 
+          WHERE priority_id IS NULL
+        `).run(defaultPriorityId);
+        
+        console.log('✅ priority_id column added and populated');
+      }
+      
+      // Add index
+      try {
+        db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_priority_id ON tasks(priority_id)');
+      } catch (err) {
+        // Index might already exist
+      }
+    }
+  } catch (error) {
+    console.error('⚠️  Warning: Could not verify/add priority_id column:', error.message);
+    // Don't throw - this is a defensive check, not critical
+  }
+  
   // Initialize default data and capture version info (must run AFTER migrations)
   const versionInfo = initializeDefaultData(db);
   
