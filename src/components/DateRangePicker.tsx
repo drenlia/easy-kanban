@@ -10,6 +10,7 @@ interface DateRangePickerProps {
   onDateChange: (startDate: string, endDate: string) => void;
   onClose: () => void;
   position: { left: number; top: number };
+  sprint?: { id: string; name: string; start_date: string; end_date: string } | null; // Optional sprint data
 }
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
@@ -17,7 +18,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   endDate,
   onDateChange,
   onClose,
-  position
+  position,
+  sprint
 }) => {
   const { t } = useTranslation('common');
   const [tempStartDate, setTempStartDate] = useState<string>(startDate || '');
@@ -135,12 +137,20 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     
     if (selectionMode === 'start' || !selectedStart || clickedDate < selectedStart) {
       // Starting new selection or clicking before start date
-      setSelectedStart(clickedDate);
-      setSelectedEnd(null);
-      setSelectionMode('end');
       const dateStr = formatToYYYYMMDD(clickedDate.toISOString());
+      setSelectedStart(clickedDate);
       setTempStartDate(dateStr);
-      setTempEndDate('');
+      
+      // Preserve existing end date if it's already set, otherwise clear it
+      if (tempEndDate && selectedEnd) {
+        // Keep existing end date - user can change it if they want
+        setSelectionMode('end');
+      } else {
+        // No end date set, clear it and wait for user to select
+        setSelectedEnd(null);
+        setTempEndDate('');
+        setSelectionMode('end');
+      }
     } else {
       // Selecting end date
       const endStr = formatToYYYYMMDD(clickedDate.toISOString());
@@ -174,7 +184,14 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       const date = parseLocalDate(value);
       setSelectedStart(date);
       setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
-      setSelectionMode('end');
+      // Preserve existing end date - don't clear it
+      // Only switch to end mode if there's no end date, otherwise stay in current mode
+      if (!tempEndDate || !selectedEnd) {
+        setSelectionMode('end');
+      }
+    } else if (!value) {
+      // If start date is cleared, also clear selected start
+      setSelectedStart(null);
     }
   };
 
@@ -232,6 +249,33 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     setSelectionMode('start');
   };
 
+  // Apply sprint dates
+  const handleApplySprintDates = () => {
+    if (!sprint || !sprint.start_date || !sprint.end_date) return;
+    
+    const sprintStartStr = formatToYYYYMMDD(sprint.start_date);
+    const sprintEndStr = formatToYYYYMMDD(sprint.end_date);
+    
+    // Update temp dates (same as typing manually)
+    setTempStartDate(sprintStartStr);
+    setTempEndDate(sprintEndStr);
+    
+    // Update selected dates
+    const sprintStart = parseLocalDate(sprint.start_date);
+    const sprintEnd = parseLocalDate(sprint.end_date);
+    setSelectedStart(sprintStart);
+    setSelectedEnd(sprintEnd);
+    
+    // Update current month to show sprint start month
+    setCurrentMonth(new Date(sprintStart.getFullYear(), sprintStart.getMonth(), 1));
+    
+    // Set selection mode to end (ready for further adjustments)
+    setSelectionMode('end');
+    
+    // Apply changes immediately (same effect as typing manually)
+    onDateChange(sprintStartStr, sprintEndStr);
+  };
+
   // Generate calendar days
   const generateCalendarDays = () => {
     const days: (number | null)[] = [];
@@ -258,11 +302,19 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     return date >= selectedStart && date <= selectedEnd;
   };
 
-  // Check if date is selected
+  // Check if date is selected (only current selectedStart and selectedEnd, not previous ones)
   const isDateSelected = (day: number): boolean => {
     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-    if (selectedStart && date.getTime() === selectedStart.getTime()) return true;
-    if (selectedEnd && date.getTime() === selectedEnd.getTime()) return true;
+    // Normalize dates to compare only date part (ignore time)
+    const normalizeDate = (d: Date) => {
+      const normalized = new Date(d);
+      normalized.setHours(0, 0, 0, 0);
+      return normalized;
+    };
+    
+    const normalizedDate = normalizeDate(date);
+    if (selectedStart && normalizeDate(selectedStart).getTime() === normalizedDate.getTime()) return true;
+    if (selectedEnd && normalizeDate(selectedEnd).getTime() === normalizedDate.getTime()) return true;
     return false;
   };
 
@@ -329,7 +381,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       {/* Text Inputs */}
       <div className="grid grid-cols-2 gap-1.5 mb-2">
         <div>
-          <label className="block text-[10px] font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+          <label className={`block text-[10px] mb-0.5 ${selectionMode === 'start' ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
             {t('dateRangePicker.startDate')}
           </label>
           <input
@@ -348,7 +400,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           />
         </div>
         <div>
-          <label className="block text-[10px] font-medium text-gray-700 dark:text-gray-300 mb-0.5">
+          <label className={`block text-[10px] mb-0.5 ${selectionMode === 'end' ? 'font-bold text-blue-600 dark:text-blue-400' : 'font-medium text-gray-700 dark:text-gray-300'}`}>
             {t('dateRangePicker.endDate')}
           </label>
           <input
@@ -428,7 +480,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   ${today && !selected ? 'ring-1 ring-gray-400 dark:ring-gray-500' : ''}
                   ${selectionMode === 'end' && selectedStart && date < selectedStart ? 'opacity-40' : ''}
                 `}
-                disabled={selectionMode === 'end' && selectedStart && date < selectedStart}
+                disabled={selectionMode === 'end' && selectedStart ? date < selectedStart : false}
               >
                 {day}
               </button>
@@ -446,6 +498,16 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
           {t('dateRangePicker.clear')}
         </button>
         <div className="flex gap-1.5">
+          {/* Sprint Button - Show if sprint is available */}
+          {sprint && sprint.start_date && sprint.end_date && (
+            <button
+              onClick={handleApplySprintDates}
+              className="px-2 py-1 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors border border-blue-200 dark:border-blue-700"
+              title={`${t('dateRangePicker.applySprintDates')}: ${sprint.name}`}
+            >
+              {t('dateRangePicker.sprint')}
+            </button>
+          )}
           <button
             onClick={onClose}
             className="px-2 py-1 text-[10px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"

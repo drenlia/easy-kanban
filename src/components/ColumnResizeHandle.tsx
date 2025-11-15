@@ -58,8 +58,12 @@ const ColumnResizeHandle: React.FC<ColumnResizeHandleProps> = ({ onResize }) => 
   return (
     <div
       ref={handleRef}
-      className="absolute top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 bg-transparent transition-colors z-10 group"
-      style={{ left: '-0.75rem', right: '-0.75rem' }}
+      className="absolute top-0 bottom-0 cursor-col-resize hover:bg-blue-400 bg-transparent transition-colors z-10 group"
+      style={{ 
+        right: '-12px', // Position at the middle of the 24px gap (1.5rem)
+        width: '4px', // Narrow 4px width
+        transform: 'translateX(-50%)' // Center the 3px handle in the gap (moves 1.5px left to perfectly center)
+      }}
       title="Drag to resize columns"
     >
       {/* Visual indicator on hover */}

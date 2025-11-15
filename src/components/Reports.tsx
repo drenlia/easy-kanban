@@ -8,6 +8,8 @@ import TeamPerformanceReport from './reports/TeamPerformanceReport';
 import TaskListReport from './reports/TaskListReport';
 import { REPORT_TABS, ROUTES } from '../constants';
 import { loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
+import { useSettings } from '../contexts/SettingsContext';
+import { getReportsSettings } from '../api';
 
 type ReportTab = 'stats' | 'leaderboard' | 'burndown' | 'team' | 'tasks';
 
@@ -25,6 +27,7 @@ interface ReportsProps {
 
 const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
   const { t } = useTranslation('common');
+  const { systemSettings } = useSettings(); // Use SettingsContext for reports settings
   const [activeTab, setActiveTab] = useState<ReportTab>(() => {
     // Priority 1: Get tab from URL hash
     const fullHash = window.location.hash;
@@ -53,9 +56,68 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
     }
   });
 
+  // Load settings from SettingsContext (for admins) or fetch from API (for non-admins)
   useEffect(() => {
-    fetchSettings();
-  }, []);
+    const loadSettings = async () => {
+      try {
+        // If user is admin, settings should already be in systemSettings from SettingsContext
+        const isAdmin = currentUser?.roles?.includes('admin');
+        
+        if (isAdmin && systemSettings && Object.keys(systemSettings).length > 0) {
+          // Extract reports settings from systemSettings
+          const reportsSettings: Partial<ReportSettings> = {};
+          Object.keys(systemSettings).forEach(key => {
+            if (key.startsWith('REPORTS_')) {
+              reportsSettings[key as keyof ReportSettings] = systemSettings[key] as string;
+            }
+          });
+          
+          // Only use if we found reports settings
+          if (Object.keys(reportsSettings).length > 0) {
+            const newSettings = {
+              REPORTS_ENABLED: reportsSettings.REPORTS_ENABLED || 'true',
+              REPORTS_GAMIFICATION_ENABLED: reportsSettings.REPORTS_GAMIFICATION_ENABLED || 'true',
+              REPORTS_LEADERBOARD_ENABLED: reportsSettings.REPORTS_LEADERBOARD_ENABLED || 'true',
+              REPORTS_ACHIEVEMENTS_ENABLED: reportsSettings.REPORTS_ACHIEVEMENTS_ENABLED || 'true',
+              REPORTS_VISIBLE_TO: reportsSettings.REPORTS_VISIBLE_TO || 'all',
+            };
+            console.log('📊 Reports Settings from SettingsContext:', newSettings);
+            setSettings(newSettings);
+            setLoading(false);
+            return;
+          }
+        }
+        
+        // Fallback: Fetch from API (for non-admins or if SettingsContext doesn't have reports settings)
+        // Use cached API function to prevent duplicate calls with Header component
+        const data = await getReportsSettings();
+        
+        const newSettings = {
+          REPORTS_ENABLED: data.REPORTS_ENABLED || 'true',
+          REPORTS_GAMIFICATION_ENABLED: data.REPORTS_GAMIFICATION_ENABLED || 'true',
+          REPORTS_LEADERBOARD_ENABLED: data.REPORTS_LEADERBOARD_ENABLED || 'true',
+          REPORTS_ACHIEVEMENTS_ENABLED: data.REPORTS_ACHIEVEMENTS_ENABLED || 'true',
+          REPORTS_VISIBLE_TO: data.REPORTS_VISIBLE_TO || 'all',
+        };
+        console.log('📊 Reports Settings from API:', newSettings);
+        setSettings(newSettings);
+      } catch (error) {
+        console.error('Failed to fetch report settings:', error);
+        // Default to all enabled on error
+        setSettings({
+          REPORTS_ENABLED: 'true',
+          REPORTS_GAMIFICATION_ENABLED: 'true',
+          REPORTS_LEADERBOARD_ENABLED: 'true',
+          REPORTS_ACHIEVEMENTS_ENABLED: 'true',
+          REPORTS_VISIBLE_TO: 'all',
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadSettings();
+  }, [systemSettings, currentUser?.roles]);
 
   // Load last accessed report tab from user preferences (database-stored)
   useEffect(() => {
@@ -134,10 +196,16 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
     const handleSettingsUpdate = (data: any) => {
       console.log('📊 [Reports] Settings updated via WebSocket:', data);
       
-      // If any REPORTS_* setting was updated, refresh all settings
+      // If any REPORTS_* setting was updated, update local settings state
       if (data.key && data.key.startsWith('REPORTS_')) {
-        console.log(`📊 [Reports] Refreshing settings due to ${data.key} update`);
-        fetchSettings();
+        console.log(`📊 [Reports] Updating setting ${data.key} to ${data.value}`);
+        setSettings(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            [data.key]: data.value
+          };
+        });
       }
     };
 
@@ -151,46 +219,6 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
     });
   }, []); // Empty deps - this listener is stable
 
-  const fetchSettings = async () => {
-    try {
-      // Use public reports settings endpoint (accessible to all authenticated users)
-      const response = await fetch(`/api/reports/settings?_t=${Date.now()}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const newSettings = {
-          REPORTS_ENABLED: data.REPORTS_ENABLED || 'true',
-          REPORTS_GAMIFICATION_ENABLED: data.REPORTS_GAMIFICATION_ENABLED || 'true',
-          REPORTS_LEADERBOARD_ENABLED: data.REPORTS_LEADERBOARD_ENABLED || 'true',
-          REPORTS_ACHIEVEMENTS_ENABLED: data.REPORTS_ACHIEVEMENTS_ENABLED || 'true',
-          REPORTS_VISIBLE_TO: data.REPORTS_VISIBLE_TO || 'all',
-        };
-        console.log('📊 Reports Settings Fetched:', {
-          raw: data,
-          processed: newSettings
-        });
-        setSettings(newSettings);
-      }
-    } catch (error) {
-      console.error('Failed to fetch report settings:', error);
-      // Default to all enabled on error
-      setSettings({
-        REPORTS_ENABLED: 'true',
-        REPORTS_GAMIFICATION_ENABLED: 'true',
-        REPORTS_LEADERBOARD_ENABLED: 'true',
-        REPORTS_ACHIEVEMENTS_ENABLED: 'true',
-        REPORTS_VISIBLE_TO: 'all',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Helper function to update filters for a specific report
   const updateReportFilters = useCallback((reportId: string, filters: any) => {

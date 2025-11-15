@@ -161,6 +161,56 @@ router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res
   }
 });
 
+// Get batch tag usage counts (fixes N+1 problem)
+router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res) => {
+  const db = req.app.locals.db;
+  
+  try {
+    // Get all tag IDs from query params
+    // Handle both array format (?tagIds=1&tagIds=2) and comma-separated (?tagIds=1,2)
+    let tagIds = [];
+    if (req.query.tagIds) {
+      if (Array.isArray(req.query.tagIds)) {
+        tagIds = req.query.tagIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      } else if (typeof req.query.tagIds === 'string') {
+        // Handle comma-separated string
+        tagIds = req.query.tagIds.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id));
+      }
+    }
+    
+    if (tagIds.length === 0) {
+      return res.json({});
+    }
+    
+    // Batch fetch all usage counts in one query
+    const placeholders = tagIds.map(() => '?').join(',');
+    const usageCounts = wrapQuery(db.prepare(`
+      SELECT tagId, COUNT(*) as count 
+      FROM task_tags 
+      WHERE tagId IN (${placeholders})
+      GROUP BY tagId
+    `), 'SELECT').all(...tagIds);
+    
+    // Create map of usage counts by tagId
+    const usageMap = {};
+    usageCounts.forEach(usage => {
+      usageMap[usage.tagId] = { count: usage.count };
+    });
+    
+    // Include zero counts for tags with no usage
+    tagIds.forEach(tagId => {
+      if (!usageMap[tagId]) {
+        usageMap[tagId] = { count: 0 };
+      }
+    });
+    
+    res.json(usageMap);
+  } catch (error) {
+    console.error('Error fetching batch tag usage:', error);
+    res.status(500).json({ error: 'Failed to fetch batch tag usage' });
+  }
+});
+
 router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   const db = req.app.locals.db;

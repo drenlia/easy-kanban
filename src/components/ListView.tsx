@@ -30,6 +30,7 @@ interface ListViewProps {
   members: TeamMember[];
   availablePriorities: PriorityOption[]; // Array of priority options with id, priority, color, etc.
   availableTags: Tag[];
+  availableSprints?: any[]; // Optional: sprints passed from parent (avoids duplicate API calls)
   taskViewMode: TaskViewMode;
   onSelectTask: (task: Task | null) => void;
   selectedTask: Task | null;
@@ -78,6 +79,7 @@ export default function ListView({
   members,
   availablePriorities,
   availableTags,
+  availableSprints: propSprints,
   taskViewMode,
   onSelectTask,
   selectedTask,
@@ -934,8 +936,14 @@ export default function ListView({
     }
   };
 
-  // Fetch sprints when sprint selector is opened OR when any task has sprintId (for validation)
+  // Use prop sprints if provided, otherwise fetch when needed (fallback for backward compatibility)
   useEffect(() => {
+    if (propSprints && propSprints.length > 0) {
+      setSprints(propSprints);
+      return;
+    }
+    
+    // Only fetch if not provided via props and needed
     const fetchSprints = async () => {
       // Check if any task has a sprintId and we don't have sprints yet
       const hasTasksWithSprints = allTasks.some(task => task.sprintId);
@@ -963,7 +971,7 @@ export default function ListView({
     };
 
     fetchSprints();
-  }, [showSprintSelector, sprints.length, allTasks]);
+  }, [propSprints, showSprintSelector, sprints.length, allTasks]);
 
   // Close sprint selector when clicking outside
   useEffect(() => {
@@ -2402,6 +2410,7 @@ export default function ListView({
         (() => {
           const task = allTasks.find(t => t.id === showDateRangePicker);
           if (!task) return null;
+          const sprint = task.sprintId && sprints.length > 0 ? sprints.find(s => s.id === task.sprintId) : null;
           return (
             <DateRangePicker
               startDate={task.startDate || ''}
@@ -2409,6 +2418,7 @@ export default function ListView({
               onDateChange={(startDate, endDate) => handleDateRangeChange(showDateRangePicker, startDate, endDate)}
               onClose={handleDateRangePickerClose}
               position={dateRangePickerPosition}
+              sprint={sprint}
             />
           );
         })(),

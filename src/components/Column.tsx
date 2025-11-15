@@ -71,6 +71,7 @@ interface KanbanColumnProps {
   
   // Sprint filtering
   selectedSprintId?: string | null;
+  availableSprints?: any[]; // Optional: sprints passed from parent (avoids duplicate API calls)
 }
 
 export default function KanbanColumn({
@@ -129,7 +130,8 @@ export default function KanbanColumn({
   isOnline = true, // Default to true if not provided
   
   // Sprint filtering
-  selectedSprintId = null
+  selectedSprintId = null,
+  availableSprints
 }: KanbanColumnProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const [isEditing, setIsEditing] = useState(false);
@@ -489,6 +491,8 @@ export default function KanbanColumn({
             onTagRemove={onTagRemove ? onTagRemove(task.id) : undefined}
             boards={boards}
             columns={columns}
+            selectedSprintId={selectedSprintId}
+            availableSprints={availableSprints}
             
             // Task linking props
             isLinkingMode={isLinkingMode}
@@ -501,9 +505,6 @@ export default function KanbanColumn({
             onLinkToolHover={onLinkToolHover}
             onLinkToolHoverEnd={onLinkToolHoverEnd}
             getTaskRelationshipType={getTaskRelationshipType}
-            
-            // Sprint filtering
-            selectedSprintId={selectedSprintId}
           />
         </div>
       );

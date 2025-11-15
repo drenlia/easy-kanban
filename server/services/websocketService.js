@@ -342,6 +342,19 @@ class WebSocketService {
               this.io?.emit('priority-reordered', data);
             });
 
+            // Sprint management events
+            redisService.subscribe('sprint-created', (data) => {
+              this.io?.emit('sprint-created', data);
+            });
+
+            redisService.subscribe('sprint-updated', (data) => {
+              this.io?.emit('sprint-updated', data);
+            });
+
+            redisService.subscribe('sprint-deleted', (data) => {
+              this.io?.emit('sprint-deleted', data);
+            });
+
             // Settings update events
             redisService.subscribe('settings-updated', (data) => {
               this.io?.emit('settings-updated', data);

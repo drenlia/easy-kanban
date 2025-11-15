@@ -657,6 +657,31 @@ class WebSocketClient {
     this.removeEventListener('priority-reordered', callback);
   }
 
+  // Sprint management events
+  onSprintCreated(callback: (data: any) => void) {
+    this.addEventListener('sprint-created', callback);
+  }
+
+  offSprintCreated(callback?: (data: any) => void) {
+    this.removeEventListener('sprint-created', callback);
+  }
+
+  onSprintUpdated(callback: (data: any) => void) {
+    this.addEventListener('sprint-updated', callback);
+  }
+
+  offSprintUpdated(callback?: (data: any) => void) {
+    this.removeEventListener('sprint-updated', callback);
+  }
+
+  onSprintDeleted(callback: (data: any) => void) {
+    this.addEventListener('sprint-deleted', callback);
+  }
+
+  offSprintDeleted(callback?: (data: any) => void) {
+    this.removeEventListener('sprint-deleted', callback);
+  }
+
   // Settings update events
   onSettingsUpdated(callback: (data: any) => void) {
     this.addEventListener('settings-updated', callback);

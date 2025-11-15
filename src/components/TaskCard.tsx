@@ -80,6 +80,7 @@ interface TaskCardProps {
   
   // Sprint filtering props
   selectedSprintId?: string | null;
+  availableSprints?: any[]; // Optional: sprints passed from parent (avoids duplicate API calls)
 }
 
 
@@ -121,7 +122,8 @@ const TaskCard = React.memo(function TaskCard({
   getTaskRelationshipType,
   
   // Sprint filtering props
-  selectedSprintId = null
+  selectedSprintId = null,
+  availableSprints: propSprints
 }: TaskCardProps) {
   const { t } = useTranslation('tasks');
   const [showQuickEdit, setShowQuickEdit] = useState(false);
@@ -149,8 +151,9 @@ const TaskCard = React.memo(function TaskCard({
   // Fetch task attachments when component mounts or task changes
   useEffect(() => {
     const fetchAttachments = async () => {
-      // Always fetch attachments if there are any (not just for images in description)
-      if (task.attachmentCount === 0) {
+      // Skip fetching if attachmentCount is falsy (0, null, undefined) - avoids unnecessary API calls
+      if (!task.attachmentCount || task.attachmentCount === 0) {
+        setTaskAttachments([]);
         setAttachmentsLoaded(true);
         return;
       }
@@ -724,8 +727,14 @@ const TaskCard = React.memo(function TaskCard({
     }
   };
 
-  // Fetch sprints when sprint selector is opened OR when task has sprintId (for validation)
+  // Use prop sprints if provided, otherwise fetch when needed (fallback for backward compatibility)
   useEffect(() => {
+    if (propSprints && propSprints.length > 0) {
+      setSprints(propSprints);
+      return;
+    }
+    
+    // Only fetch if not provided via props and needed
     const fetchSprints = async () => {
       // Fetch if selector is opened OR if task has sprintId and we don't have sprints yet
       const shouldFetch = showSprintSelector || (task.sprintId && sprints.length === 0);
@@ -752,7 +761,7 @@ const TaskCard = React.memo(function TaskCard({
     };
 
     fetchSprints();
-  }, [showSprintSelector, task.sprintId, sprints.length]);
+  }, [propSprints, showSprintSelector, task.sprintId, sprints.length]);
 
   // Close sprint selector when clicking outside
   useEffect(() => {
@@ -2101,6 +2110,7 @@ const TaskCard = React.memo(function TaskCard({
           onDateChange={handleDateRangeChange}
           onClose={handleDateRangePickerClose}
           position={dateRangePickerPosition}
+          sprint={task.sprintId && sprints.length > 0 ? sprints.find(s => s.id === task.sprintId) : null}
         />
       )}
 

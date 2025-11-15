@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { login } from '../api';
 import { Copy, Check } from 'lucide-react';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface LoginProps {
   onLogin: (userData: any, token: string) => Promise<void>;
@@ -13,6 +14,7 @@ interface LoginProps {
 
 export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
   const { t, i18n } = useTranslation('auth');
+  const { siteSettings: contextSiteSettings } = useSettings(); // Use SettingsContext for settings
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -65,7 +67,9 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
         
-        const response = await fetch('/api/settings', { 
+        // Use a lightweight endpoint for health check instead of /api/settings
+        // This avoids duplicate settings fetches (SettingsContext handles settings)
+        const response = await fetch('/api/auth/check-default-admin', { 
           signal: controller.signal,
           cache: 'no-store'
         });
@@ -173,24 +177,15 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     }
   }, []);
 
-  // Check if Google OAuth is configured
+  // Check if Google OAuth is configured - use SettingsContext instead of fetching
   useEffect(() => {
-    const checkGoogleOAuth = async () => {
-      try {
-        const response = await fetch('/api/settings');
-        if (response.ok) {
-          const settings = await response.json();
-          // Only check for GOOGLE_CLIENT_ID (which is safe to be public)
-          // The server will validate the complete OAuth config when actually used
-          setGoogleOAuthEnabled(!!settings.GOOGLE_CLIENT_ID);
-        }
-      } catch (error) {
-        console.warn('Could not check Google OAuth status:', error);
-      }
-    };
-    
-    checkGoogleOAuth();
-  }, []);
+    // Use settings from SettingsContext (already fetched, no need for additional API call)
+    if (contextSiteSettings && Object.keys(contextSiteSettings).length > 0) {
+      // Only check for GOOGLE_CLIENT_ID (which is safe to be public)
+      // The server will validate the complete OAuth config when actually used
+      setGoogleOAuthEnabled(!!contextSiteSettings.GOOGLE_CLIENT_ID);
+    }
+  }, [contextSiteSettings]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {

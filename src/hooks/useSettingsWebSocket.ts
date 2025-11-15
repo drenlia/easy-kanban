@@ -1,12 +1,13 @@
 import { useCallback } from 'react';
-import { getAllTags, getAllPriorities, getSettings } from '../api';
+import { getAllTags, getAllPriorities, getAllSprints, getSettings } from '../api';
 import { versionDetection } from '../utils/versionDetection';
 
 interface UseSettingsWebSocketProps {
   // State setters
   setAvailableTags: React.Dispatch<React.SetStateAction<any[]>>;
   setAvailablePriorities: React.Dispatch<React.SetStateAction<any[]>>;
-  setSiteSettings: React.Dispatch<React.SetStateAction<any>>;
+  setAvailableSprints?: React.Dispatch<React.SetStateAction<any[]>>; // Optional: sprints state setter
+  setSiteSettings?: React.Dispatch<React.SetStateAction<any>>; // Optional: SettingsContext now handles settings updates
   
   // Version status hook
   versionStatus: {
@@ -34,7 +35,8 @@ const getStatusMessage = (status: string) => {
 export const useSettingsWebSocket = ({
   setAvailableTags,
   setAvailablePriorities,
-  setSiteSettings,
+  setAvailableSprints,
+  setSiteSettings, // Optional - SettingsContext handles settings updates
   versionStatus,
 }: UseSettingsWebSocketProps) => {
   
@@ -115,24 +117,50 @@ export const useSettingsWebSocket = ({
     }
   }, [setAvailablePriorities]);
 
-  const handleSettingsUpdated = useCallback(async (data: any) => {
-    try {
-      // Update the specific setting directly from WebSocket data instead of fetching all settings
-      if (data.key && data.value !== undefined) {
-        setSiteSettings(prev => ({
-          ...prev,
-          [data.key]: data.value
-        }));
-      } else {
-        // Fallback to fetching all settings if WebSocket data is incomplete
-        const settings = await getSettings();
-        setSiteSettings(settings);
-        console.log('📨 Settings refreshed after update');
+  const handleSprintCreated = useCallback(async (data: any) => {
+    console.log('📨 Sprint created via WebSocket:', data);
+    if (setAvailableSprints) {
+      try {
+        const sprints = await getAllSprints();
+        setAvailableSprints(sprints);
+        console.log('📨 Sprints refreshed after creation');
+      } catch (error) {
+        console.error('Failed to refresh sprints after creation:', error);
       }
-    } catch (error) {
-      console.error('Failed to refresh settings after update:', error);
     }
-  }, [setSiteSettings]);
+  }, [setAvailableSprints]);
+
+  const handleSprintUpdated = useCallback(async (data: any) => {
+    console.log('📨 Sprint updated via WebSocket:', data);
+    if (setAvailableSprints) {
+      try {
+        const sprints = await getAllSprints();
+        setAvailableSprints(sprints);
+        console.log('📨 Sprints refreshed after update');
+      } catch (error) {
+        console.error('Failed to refresh sprints after update:', error);
+      }
+    }
+  }, [setAvailableSprints]);
+
+  const handleSprintDeleted = useCallback(async (data: any) => {
+    console.log('📨 Sprint deleted via WebSocket:', data);
+    if (setAvailableSprints) {
+      try {
+        const sprints = await getAllSprints();
+        setAvailableSprints(sprints);
+        console.log('📨 Sprints refreshed after deletion');
+      } catch (error) {
+        console.error('Failed to refresh sprints after deletion:', error);
+      }
+    }
+  }, [setAvailableSprints]);
+
+  const handleSettingsUpdated = useCallback(async (data: any) => {
+    // Settings are now updated via SettingsContext which listens to WebSocket events
+    // This handler is kept for backwards compatibility but SettingsContext handles the actual updates
+    console.log('📨 [useSettingsWebSocket] Settings update received (handled by SettingsContext):', data);
+  }, []);
 
   const handleInstanceStatusUpdated = useCallback((data: any) => {
     console.log('📨 Instance status updated via WebSocket:', data);
@@ -158,6 +186,9 @@ export const useSettingsWebSocket = ({
     handlePriorityUpdated,
     handlePriorityDeleted,
     handlePriorityReordered,
+    handleSprintCreated,
+    handleSprintUpdated,
+    handleSprintDeleted,
     handleSettingsUpdated,
     handleInstanceStatusUpdated,
     handleVersionUpdated,

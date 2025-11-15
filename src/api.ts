@@ -421,19 +421,61 @@ export const deleteAccount = async () => {
   return data;
 };
 
+// Admin Settings with caching to prevent duplicate calls
+let lastAdminSettingsCall = 0;
+let cachedAdminSettings: any = null;
+const ADMIN_SETTINGS_CACHE_MS = 500; // Cache for 500ms to prevent duplicate calls
+
 export const getSettings = async () => {
+  const now = Date.now();
+  
+  // If we called this very recently, return cached data
+  if (cachedAdminSettings && (now - lastAdminSettingsCall) < ADMIN_SETTINGS_CACHE_MS) {
+    return cachedAdminSettings;
+  }
+  
+  lastAdminSettingsCall = now;
   const { data } = await api.get('/admin/settings');
+  cachedAdminSettings = data;
   return data;
 };
 
+// Public Settings with caching to prevent duplicate calls
+let lastPublicSettingsCall = 0;
+let cachedPublicSettings: any = null;
+let pendingPublicSettingsPromise: Promise<any> | null = null;
+const PUBLIC_SETTINGS_CACHE_MS = 2000; // Cache for 2 seconds to prevent duplicate calls
+
 export const getPublicSettings = async () => {
+  const now = Date.now();
+  
+  // If we called this very recently, return cached data
+  if (cachedPublicSettings && (now - lastPublicSettingsCall) < PUBLIC_SETTINGS_CACHE_MS) {
+    return cachedPublicSettings;
+  }
+  
+  // If a request is already in flight, return the same promise
+  if (pendingPublicSettingsPromise) {
+    return pendingPublicSettingsPromise;
+  }
+  
+  // Start new request
+  lastPublicSettingsCall = now;
   // Create a separate axios instance for public settings (no auth required)
   const publicApi = axios.create({
     baseURL: '/api'
   });
   
-  const { data } = await publicApi.get('/settings');
-  return data;
+  pendingPublicSettingsPromise = publicApi.get('/settings').then(response => {
+    cachedPublicSettings = response.data;
+    pendingPublicSettingsPromise = null; // Clear pending promise
+    return response.data;
+  }).catch(error => {
+    pendingPublicSettingsPromise = null; // Clear pending promise on error
+    throw error;
+  });
+  
+  return pendingPublicSettingsPromise;
 };
 
 // Activity Feed
@@ -445,21 +487,67 @@ export const getActivityFeed = async (limit: number = 20) => {
 // User Settings with rate limiting to prevent infinite loops
 let lastUserSettingsCall = 0;
 let cachedUserSettings: any = null;
-const USER_SETTINGS_CACHE_MS = 100; // Cache for 100ms to prevent rapid consecutive calls
+let pendingUserSettingsPromise: Promise<any> | null = null;
+const USER_SETTINGS_CACHE_MS = 2000; // Cache for 2 seconds to prevent duplicate calls from multiple components
 
 export const getUserSettings = async () => {
   const now = Date.now();
   
   // If we called this very recently, return cached data
   if (cachedUserSettings && (now - lastUserSettingsCall) < USER_SETTINGS_CACHE_MS) {
-    console.warn('⚠️ getUserSettings called too frequently, returning cached data');
     return cachedUserSettings;
   }
   
+  // If a request is already in flight, return the same promise
+  if (pendingUserSettingsPromise) {
+    return pendingUserSettingsPromise;
+  }
+  
+  // Start new request
   lastUserSettingsCall = now;
-  const { data } = await api.get('/user/settings');
-  cachedUserSettings = data;
-  return data;
+  pendingUserSettingsPromise = api.get('/user/settings').then(response => {
+    cachedUserSettings = response.data;
+    pendingUserSettingsPromise = null; // Clear pending promise
+    return response.data;
+  }).catch(error => {
+    pendingUserSettingsPromise = null; // Clear pending promise on error
+    throw error;
+  });
+  
+  return pendingUserSettingsPromise;
+};
+
+// Reports Settings with caching to prevent duplicate calls
+let lastReportsSettingsCall = 0;
+let cachedReportsSettings: any = null;
+let pendingReportsSettingsPromise: Promise<any> | null = null;
+const REPORTS_SETTINGS_CACHE_MS = 2000; // Cache for 2 seconds to prevent duplicate calls from Header and Reports
+
+export const getReportsSettings = async () => {
+  const now = Date.now();
+  
+  // If we called this very recently, return cached data
+  if (cachedReportsSettings && (now - lastReportsSettingsCall) < REPORTS_SETTINGS_CACHE_MS) {
+    return cachedReportsSettings;
+  }
+  
+  // If a request is already in flight, return the same promise
+  if (pendingReportsSettingsPromise) {
+    return pendingReportsSettingsPromise;
+  }
+  
+  // Start new request
+  lastReportsSettingsCall = now;
+  pendingReportsSettingsPromise = api.get('/reports/settings').then(response => {
+    cachedReportsSettings = response.data;
+    pendingReportsSettingsPromise = null; // Clear pending promise
+    return response.data;
+  }).catch(error => {
+    pendingReportsSettingsPromise = null; // Clear pending promise on error
+    throw error;
+  });
+  
+  return pendingReportsSettingsPromise;
 };
 
 export const updateUserSetting = async (setting_key: string, setting_value: any) => {
@@ -518,8 +606,26 @@ export const getTagUsage = async (tagId: number) => {
   return data;
 };
 
+// Batch fetch tag usage counts (fixes N+1 problem)
+export const getBatchTagUsage = async (tagIds: number[]) => {
+  if (tagIds.length === 0) return {};
+  const { data } = await api.get(`/admin/tags/usage/batch`, {
+    params: { tagIds }
+  });
+  return data;
+};
+
 export const getPriorityUsage = async (priorityId: string) => {
   const { data } = await api.get(`/admin/priorities/${priorityId}/usage`);
+  return data;
+};
+
+// Batch fetch priority usage counts (fixes N+1 problem)
+export const getBatchPriorityUsage = async (priorityIds: string[]) => {
+  if (priorityIds.length === 0) return {};
+  const { data } = await api.get(`/admin/priorities/usage/batch`, {
+    params: { priorityIds }
+  });
   return data;
 };
 
@@ -574,6 +680,22 @@ export const removeCollaboratorFromTask = async (taskId: string, memberId: strin
 // Priorities management
 export const getAllPriorities = async () => {
   const { data } = await api.get('/priorities');
+  return data;
+};
+
+// Sprints management
+export const getAllSprints = async () => {
+  const { data } = await api.get('/admin/sprints');
+  return data.sprints || data || [];
+};
+
+export const getSprintUsage = async (sprintId: string) => {
+  const { data } = await api.get(`/admin/sprints/${sprintId}/usage`);
+  return data;
+};
+
+export const deleteSprint = async (sprintId: string) => {
+  const { data } = await api.delete(`/admin/sprints/${sprintId}`);
   return data;
 };
 

@@ -608,6 +608,8 @@
     "demoResetsIn": "Demo resets in {{minutes}}m {{seconds}}s"
   },
   "dateRangePicker": {
+    "sprint": "Sprint",
+    "applySprintDates": "Apply sprint dates",
     "title": "Select Date Range",
     "startDate": "Start Date",
     "endDate": "End Date",

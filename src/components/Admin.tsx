@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getSystemInfo } from '../api';
+import api, { createUser, updateUser, getUserTaskCount, resendUserInvitation, getTags, createTag, updateTag, deleteTag, getTagUsage, getBatchTagUsage, getPriorities, createPriority, updatePriority, deletePriority, reorderPriorities, setDefaultPriority, getPriorityUsage, getBatchPriorityUsage } from '../api';
 import { ADMIN_TABS, ROUTES } from '../constants';
 import { toast } from '../utils/toast';
 import AdminSiteSettingsTab from './admin/AdminSiteSettingsTab';
@@ -16,6 +16,7 @@ import AdminReportingTab from './admin/AdminReportingTab';
 import AdminLicensingTab from './admin/AdminLicensingTab';
 import AdminNotificationQueueTab from './admin/AdminNotificationQueueTab';
 import websocketClient from '../services/websocketClient';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface AdminProps {
   currentUser: any;
@@ -57,33 +58,11 @@ interface Settings {
   TASK_DELETE_CONFIRM?: string;
 }
 
-interface SystemInfo {
-  memory: {
-    used: number;
-    total: number;
-    free: number;
-    percent: number;
-    usedFormatted: string;
-    totalFormatted: string;
-    freeFormatted: string;
-  };
-  cpu: {
-    percent: number;
-    loadAverage: number;
-    cores: number;
-  };
-  disk: {
-    used: number;
-    total: number;
-    percent: number;
-    usedFormatted: string;
-    totalFormatted: string;
-  };
-  timestamp: string;
-}
+// SystemInfo interface removed - Header.tsx handles all system info
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const { t } = useTranslation('admin');
+  const { systemSettings, refreshSettings } = useSettings(); // Use SettingsContext for admin settings
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to default
     const fullHash = window.location.hash;
@@ -102,7 +81,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
   const [users, setUsers] = useState<User[]>([]);
   const [settings, setSettings] = useState<Settings>({});
   const [loading, setLoading] = useState(true);
-  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  // systemInfo removed - Header.tsx handles all system info polling and display
   const [showTestEmailModal, setShowTestEmailModal] = useState(false);
   const [showTestEmailErrorModal, setShowTestEmailErrorModal] = useState(false);
   const [testEmailResult, setTestEmailResult] = useState<any>(null);
@@ -122,10 +101,14 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
 
   useEffect(() => {
     if (currentUser?.roles?.includes('admin')) {
-      loadData();
+      // Only load data when systemSettings are available (from SettingsContext)
+      // This prevents loading with empty settings
+      if (systemSettings && Object.keys(systemSettings).length > 0) {
+        loadData();
+      }
       fetchOwner();
     }
-  }, [currentUser]);
+  }, [currentUser, systemSettings]);
 
   // Fetch instance owner
   const fetchOwner = async () => {
@@ -330,15 +313,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
             [data.key]: data.value
           }));
         } else {
-          // Fallback to fetching all settings if WebSocket data is incomplete
-          const settingsResponse = await api.get('/admin/settings');
-          const loadedSettings = settingsResponse.data || {};
-          const settingsWithDefaults = {
-            ...loadedSettings,
-            TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
-          };
-          setSettings(settingsWithDefaults);
-          setEditingSettings(settingsWithDefaults);
+          // Fallback: Refresh from SettingsContext if WebSocket data is incomplete
+          await refreshSettings();
+          // SettingsContext will update, and our useEffect will trigger loadData() to sync local state
         }
       } catch (error) {
         console.error('Failed to refresh settings after update:', error);
@@ -369,44 +346,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       websocketClient.offUserProfileUpdated(handleUserProfileUpdated);
       websocketClient.offSettingsUpdated(handleSettingsUpdated);
     };
-  }, [currentUser?.roles]);
+  }, [currentUser?.roles, refreshSettings]);
 
-  // System info fetching (only when on admin page)
-  useEffect(() => {
-    if (!currentUser?.roles?.includes('admin')) return;
-
-    const fetchSystemInfo = async () => {
-      try {
-        const info = await getSystemInfo();
-        setSystemInfo(info);
-      } catch (error) {
-        console.error('Failed to fetch system info:', error);
-      }
-    };
-
-    // Fetch immediately
-    fetchSystemInfo();
-
-    // Set up 10-second interval
-    const interval = setInterval(fetchSystemInfo, 10000);
-
-    return () => clearInterval(interval);
-  }, [currentUser?.roles]);
+  // System info fetching removed - Header.tsx handles all system info polling
+  // Header is always loaded and has the same admin check, so no need for duplicate polling
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersResponse, settingsResponse, tagsResponse, prioritiesResponse] = await Promise.all([
+      // Use SettingsContext for settings (already fetched for admins) instead of duplicate API call
+      const [usersResponse, tagsResponse, prioritiesResponse] = await Promise.all([
         api.get('/admin/users'),
-        api.get('/admin/settings'),
         getTags(),
         getPriorities()
       ]);
       
       setUsers(usersResponse.data || []);
       
+      // Use settings from SettingsContext (already fetched for admins)
       // Ensure default values for settings
-      const loadedSettings = settingsResponse.data || {};
+      const loadedSettings = systemSettings || {};
       const settingsWithDefaults = {
         ...loadedSettings,
         TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
@@ -417,44 +376,38 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       setTags(tagsResponse || []);
       setPriorities(prioritiesResponse || []);
       
-      // Load tag usage counts for all tags
+      // Load tag usage counts for all tags (batch query - fixes N+1 problem)
       if (tagsResponse && tagsResponse.length > 0) {
-        const tagUsagePromises = tagsResponse.map(async (tag: any) => {
-          try {
-            const usageData = await getTagUsage(tag.id);
-            return { tagId: tag.id, count: usageData.count };
-          } catch (error) {
-            console.error(`Failed to get usage for tag ${tag.id}:`, error);
-            return { tagId: tag.id, count: 0 };
-          }
-        });
-        
-        const tagUsageResults = await Promise.all(tagUsagePromises);
-        const tagUsageCountsMap: { [tagId: number]: number } = {};
-        tagUsageResults.forEach(({ tagId, count }) => {
-          tagUsageCountsMap[tagId] = count;
-        });
-        setTagUsageCounts(tagUsageCountsMap);
+        try {
+          const tagIds = tagsResponse.map((tag: any) => tag.id);
+          const batchUsageData = await getBatchTagUsage(tagIds);
+          const tagUsageCountsMap: { [tagId: number]: number } = {};
+          tagIds.forEach((tagId: number) => {
+            tagUsageCountsMap[tagId] = batchUsageData[tagId]?.count || 0;
+          });
+          setTagUsageCounts(tagUsageCountsMap);
+        } catch (error) {
+          console.error('Failed to get batch tag usage:', error);
+          // Fallback to empty map
+          setTagUsageCounts({});
+        }
       }
       
-      // Load priority usage counts for all priorities
+      // Load priority usage counts for all priorities (batch query - fixes N+1 problem)
       if (prioritiesResponse && prioritiesResponse.length > 0) {
-        const priorityUsagePromises = prioritiesResponse.map(async (priority: any) => {
-          try {
-            const usageData = await getPriorityUsage(priority.id);
-            return { priorityId: priority.id, count: usageData.count };
-          } catch (error) {
-            console.error(`Failed to get usage for priority ${priority.id}:`, error);
-            return { priorityId: priority.id, count: 0 };
-          }
-        });
-        
-        const priorityUsageResults = await Promise.all(priorityUsagePromises);
-        const priorityUsageCountsMap: { [priorityId: string]: number } = {};
-        priorityUsageResults.forEach(({ priorityId, count }) => {
-          priorityUsageCountsMap[priorityId] = count;
-        });
-        setPriorityUsageCounts(priorityUsageCountsMap);
+        try {
+          const priorityIds = prioritiesResponse.map((priority: any) => priority.id);
+          const batchUsageData = await getBatchPriorityUsage(priorityIds);
+          const priorityUsageCountsMap: { [priorityId: string]: number } = {};
+          priorityIds.forEach((priorityId: string) => {
+            priorityUsageCountsMap[priorityId] = batchUsageData[priorityId]?.count || 0;
+          });
+          setPriorityUsageCounts(priorityUsageCountsMap);
+        } catch (error) {
+          console.error('Failed to get batch priority usage:', error);
+          // Fallback to empty map
+          setPriorityUsageCounts({});
+        }
       }
       
       // Check if default admin account still exists
@@ -732,7 +685,9 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       
       if (hasChanges) {
-        await loadData(); // Reload settings
+        // Refresh settings from SettingsContext (which will refetch from API via WebSocket or manual refresh)
+        await refreshSettings();
+        await loadData(); // Reload data (users, tags, priorities, and settings from context)
         
         // Update the parent component's site settings immediately
         if (onSettingsChanged) {

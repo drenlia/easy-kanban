@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, Plus, Edit2, Trash2, Save, X, CheckCircle } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { toast } from '../../utils/toast';
+import { getSprintUsage, deleteSprint } from '../../api';
 
 interface PlanningPeriod {
   id: string;
@@ -19,6 +21,9 @@ const AdminSprintSettingsTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [showDeleteSprintConfirm, setShowDeleteSprintConfirm] = useState<string | null>(null);
+  const [sprintUsageCounts, setSprintUsageCounts] = useState<{ [sprintId: string]: number }>({});
+  const [deleteButtonPositions, setDeleteButtonPositions] = useState<{ [sprintId: string]: { top: number; left: number; maxHeight?: number } }>({});
   const [formData, setFormData] = useState({
     name: '',
     start_date: '',
@@ -30,6 +35,31 @@ const AdminSprintSettingsTab: React.FC = () => {
   useEffect(() => {
     fetchSprints();
   }, []);
+
+  // Handle click outside to close delete confirmation
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDeleteSprintConfirm) {
+        const target = event.target as Element;
+        if (!target.closest('.delete-confirmation') && !target.closest(`button[data-sprint-id="${showDeleteSprintConfirm}"]`)) {
+          setShowDeleteSprintConfirm(null);
+          setDeleteButtonPositions(prev => {
+            const updated = { ...prev };
+            delete updated[showDeleteSprintConfirm];
+            return updated;
+          });
+        }
+      }
+    };
+
+    if (showDeleteSprintConfirm) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeleteSprintConfirm]);
 
   const fetchSprints = async () => {
     try {
@@ -130,33 +160,118 @@ const AdminSprintSettingsTab: React.FC = () => {
       
       handleCancel();
       fetchSprints();
+      
+      // Dispatch custom event to refresh sprints in App-level state
+      window.dispatchEvent(new CustomEvent('sprints-updated'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToSaveSprint'), '');
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(t('sprintSettings.deleteSprintConfirm', { name }))) {
-      return;
-    }
-
+  const handleDelete = async (id: string, event?: React.MouseEvent<HTMLButtonElement>) => {
     try {
-      const response = await fetch(`/api/admin/sprints/${id}`, {
-        method: 'DELETE',
+      // Fetch usage count for this sprint
+      const usageData = await getSprintUsage(id);
+      setSprintUsageCounts(prev => ({ ...prev, [id]: usageData.count }));
+      
+      // Calculate position for confirmation modal
+      if (event && event.currentTarget) {
+        const buttonRect = event.currentTarget.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        const modalHeight = 150; // Approximate modal height
+        const spacing = 5;
+        
+        let top = buttonRect.bottom + window.scrollY + spacing;
+        let left = buttonRect.left + window.scrollX;
+        let maxHeight: number | undefined;
+        
+        // Check if modal would go below viewport
+        if (buttonRect.bottom + modalHeight > viewportHeight) {
+          // Position above button instead
+          top = buttonRect.top + window.scrollY - modalHeight - spacing;
+          // Ensure it doesn't go above viewport
+          if (top < window.scrollY) {
+            top = window.scrollY + spacing;
+            maxHeight = viewportHeight - (top - window.scrollY) - spacing * 2;
+          }
+        }
+        
+        // Ensure modal doesn't go off right edge
+        const modalWidth = 250; // Approximate modal width
+        if (left + modalWidth > window.innerWidth) {
+          left = window.innerWidth - modalWidth - spacing;
+        }
+        
+        // Ensure modal doesn't go off left edge
+        if (left < 0) {
+          left = spacing;
+        }
+        
+        setDeleteButtonPositions(prev => ({ ...prev, [id]: { top, left, maxHeight } }));
+      }
+      
+      setShowDeleteSprintConfirm(id);
+    } catch (error) {
+      console.error('Failed to get sprint usage:', error);
+      // Still show confirmation even if usage count fails
+      setSprintUsageCounts(prev => ({ ...prev, [id]: 0 }));
+      setShowDeleteSprintConfirm(id);
+    }
+  };
+
+  const confirmDeleteSprint = async (id: string) => {
+    try {
+      const response = await deleteSprint(id);
+      const updatedSprints = await fetch('/api/admin/sprints', {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         }
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete sprint');
+      const data = await updatedSprints.json();
+      setSprints(data.sprints || []);
+      setShowDeleteSprintConfirm(null);
+      setDeleteButtonPositions(prev => {
+        const updated = { ...prev };
+        delete updated[id];
+        return updated;
+      });
+      
+      // Show success message with unassigned tasks info if applicable
+      const unassignedCount = response?.unassignedTasks || 0;
+      let successMessage = t('sprintSettings.sprintDeletedSuccessfully');
+      if (unassignedCount > 0) {
+        successMessage += ` (${t('sprintSettings.tasksUnassignedToBacklog', { count: unassignedCount })})`;
       }
-
-      toast.success(t('sprintSettings.sprintDeletedSuccessfully'), '');
-      fetchSprints();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToDeleteSprint'), '');
+      
+      toast.success(successMessage, '');
+      
+      // Dispatch custom event to refresh sprints in App-level state
+      window.dispatchEvent(new CustomEvent('sprints-updated'));
+    } catch (error: any) {
+      console.error('Failed to delete sprint:', error);
+      
+      // Extract specific error message from backend response
+      let errorMessage = t('sprintSettings.failedToDeleteSprint');
+      
+      if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage, '');
     }
+  };
+
+  const cancelDeleteSprint = () => {
+    setShowDeleteSprintConfirm(null);
+    setDeleteButtonPositions(prev => {
+      const updated = { ...prev };
+      if (showDeleteSprintConfirm) {
+        delete updated[showDeleteSprintConfirm];
+      }
+      return updated;
+    });
   };
 
   const handleToggleActive = async (sprint: PlanningPeriod) => {
@@ -178,6 +293,9 @@ const AdminSprintSettingsTab: React.FC = () => {
       }
 
       fetchSprints();
+      
+      // Dispatch custom event to refresh sprints in App-level state
+      window.dispatchEvent(new CustomEvent('sprints-updated'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('sprintSettings.failedToUpdateSprint'), '');
     }
@@ -392,12 +510,72 @@ const AdminSprintSettingsTab: React.FC = () => {
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDelete(sprint.id, sprint.name)}
+                          data-sprint-id={sprint.id}
+                          onClick={(e) => handleDelete(sprint.id, e)}
                           className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                           title={t('sprintSettings.delete')}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
+                        
+                        {/* Portal-based Delete Confirmation Dialog */}
+                        {showDeleteSprintConfirm === sprint.id && deleteButtonPositions[sprint.id] && createPortal(
+                          <div 
+                            className="delete-confirmation fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg p-3 z-[9999] min-w-[200px]"
+                            style={{
+                              top: `${deleteButtonPositions[sprint.id].top}px`,
+                              left: `${deleteButtonPositions[sprint.id].left}px`,
+                              maxHeight: deleteButtonPositions[sprint.id].maxHeight ? `${deleteButtonPositions[sprint.id].maxHeight}px` : '300px',
+                              overflowY: 'auto'
+                            }}
+                          >
+                            <div className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+                              {(() => {
+                                const taskCount = sprintUsageCounts[sprint.id] || 0;
+                                if (taskCount > 0) {
+                                  return (
+                                    <>
+                                      <div className="font-medium mb-1">{t('sprintSettings.deleteSprint')}</div>
+                                      <div className="text-xs text-gray-700 dark:text-gray-400">
+                                        <span className="text-blue-600 dark:text-blue-400 font-medium">
+                                          {t('sprintSettings.tasksUsingSprint', { count: taskCount })}
+                                        </span>{' '}
+                                        {t('sprintSettings.using')}{' '}
+                                        <span className="font-medium">{sprint.name}</span>
+                                        {' '}{t('sprintSettings.willBeUnassignedToBacklog')}
+                                      </div>
+                                    </>
+                                  );
+                                } else {
+                                  return (
+                                    <>
+                                      <div className="font-medium mb-1">{t('sprintSettings.deleteSprint')}</div>
+                                      <div className="text-xs text-gray-600 dark:text-gray-400">
+                                        {t('sprintSettings.noTasksUsing')}{' '}
+                                        <span className="font-medium">{sprint.name}</span>
+                                      </div>
+                                    </>
+                                  );
+                                }
+                              })()}
+                            </div>
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => confirmDeleteSprint(sprint.id)}
+                                className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                              >
+                                {t('sprintSettings.yes')}
+                              </button>
+                              <button
+                                onClick={cancelDeleteSprint}
+                                className="px-2 py-1 text-xs bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors"
+                              >
+                                {t('sprintSettings.no')}
+                              </button>
+                            </div>
+                          </div>,
+                          document.body
+                        )}
                       </div>
                     </td>
                   </tr>

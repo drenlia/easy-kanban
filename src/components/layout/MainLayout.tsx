@@ -53,6 +53,7 @@ interface MainLayoutProps {
   dragPreview: any;
   availablePriorities: PriorityOption[];
   availableTags: Tag[];
+  availableSprints?: any[]; // Optional for backward compatibility
   taskViewMode: TaskViewMode;
   viewMode: ViewMode;
   isSearchActive: boolean;

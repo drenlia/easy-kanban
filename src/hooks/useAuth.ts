@@ -70,10 +70,16 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   }, [isAuthenticated, authChecked, intendedDestination]);
 
   // Authentication handlers
-  const handleLogin = async (userData: any, token: string) => {
+  const handleLogin = async (userData: any, token: string, skipEventDispatch = false) => {
     localStorage.setItem('authToken', token);
     setCurrentUser(userData);
     setIsAuthenticated(true);
+    
+    // Dispatch custom event to notify SettingsContext of auth change (storage event doesn't fire for same-tab changes)
+    // Skip if event was already dispatched (e.g., during OAuth callback)
+    if (!skipEventDispatch) {
+      window.dispatchEvent(new CustomEvent('auth-token-changed', { detail: { hasToken: true } }));
+    }
     
     // Mark user as authenticated for auth error handler
     markAsAuthenticated();
@@ -156,6 +162,9 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     setCurrentUser(null);
     setIsAuthenticated(false);
     
+    // Dispatch custom event to notify SettingsContext of auth change (storage event doesn't fire for same-tab changes)
+    window.dispatchEvent(new CustomEvent('auth-token-changed', { detail: { hasToken: false } }));
+    
     // Clear ALL intended destination storage to prevent stale redirects
     localStorage.removeItem('oauthIntendedDestination');
     localStorage.removeItem('capturedIntendedDestination');
@@ -203,13 +212,11 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     }
   };
 
+  // refreshSiteSettings removed - use SettingsContext.refreshSettings() instead
   const refreshSiteSettings = async () => {
-    try {
-      const settings = await api.getSettings();
-      setSiteSettings(settings);
-    } catch (error) {
-      console.error('Failed to refresh site settings:', error);
-    }
+    // Settings are now managed by SettingsContext
+    // Components should use useSettings().refreshSettings() instead
+    console.warn('refreshSiteSettings called - use SettingsContext.refreshSettings() instead');
   };
 
   // Check authentication on app load
@@ -239,19 +246,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
     }
   }, []); // Only run once on mount
 
-  // Load site settings
-  useEffect(() => {
-    const loadSiteSettings = async () => {
-      try {
-        const settings = await api.getPublicSettings();
-        setSiteSettings(settings);
-      } catch (error) {
-        console.error('Failed to load site settings:', error);
-      }
-    };
-    
-    loadSiteSettings();
-  }, []);
+  // Site settings are now loaded by SettingsContext - no need to fetch here
+  // SettingsContext provides settings via useSettings() hook
 
   // Check if default admin account exists
   useEffect(() => {
@@ -303,6 +299,10 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
         // Store the OAuth token
         localStorage.setItem('authToken', token);
         
+        // Dispatch custom event IMMEDIATELY after storing token (before async operations)
+        // This ensures SettingsContext can check admin role and fetch correct endpoint
+        window.dispatchEvent(new CustomEvent('auth-token-changed', { detail: { hasToken: true } }));
+        
         // Set OAuth processing flag to prevent interference BEFORE hash changes
         isProcessingOAuthRef.current = true;
         
@@ -315,7 +315,8 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
           .then(async response => {
             setCurrentUser(response.user);
             // Call handleLogin to trigger APP_URL update and other login logic
-            await handleLogin(response.user, token);
+            // Skip event dispatch since we already dispatched it above to ensure SettingsContext checks admin role immediately
+            await handleLogin(response.user, token, true);
             
             // Clear OAuth processing flag
             isProcessingOAuthRef.current = false;

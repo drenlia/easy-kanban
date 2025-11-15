@@ -399,6 +399,46 @@ const createTables = (db) => {
     CREATE INDEX IF NOT EXISTS idx_task_rels_task_id ON task_rels(task_id);
     CREATE INDEX IF NOT EXISTS idx_task_rels_to_task_id ON task_rels(to_task_id);
     CREATE INDEX IF NOT EXISTS idx_task_rels_relationship ON task_rels(relationship);
+    
+    -- Additional indexes for frequently queried columns
+    -- task_tags table (used in JOINs and WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_task_tags_taskId ON task_tags(taskId);
+    CREATE INDEX IF NOT EXISTS idx_task_tags_tagId ON task_tags(tagId);
+    
+    -- comments table (used in JOINs and WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_comments_taskId ON comments(taskId);
+    CREATE INDEX IF NOT EXISTS idx_comments_authorId ON comments(authorId);
+    
+    -- attachments table (used in WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_attachments_taskId ON attachments(taskId);
+    CREATE INDEX IF NOT EXISTS idx_attachments_commentId ON attachments(commentId);
+    
+    -- tasks table (used in WHERE clauses and JOINs)
+    CREATE INDEX IF NOT EXISTS idx_tasks_columnId ON tasks(columnId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_boardId ON tasks(boardId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_memberId ON tasks(memberId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_requesterId ON tasks(requesterId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_priority_id ON tasks(priority_id);
+    
+    -- columns table (used in WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_columns_boardId ON columns(boardId);
+    CREATE INDEX IF NOT EXISTS idx_columns_is_archived ON columns(is_archived);
+    CREATE INDEX IF NOT EXISTS idx_columns_is_finished ON columns(is_finished);
+    
+    -- activity table (used in WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_activity_userId ON activity(userId);
+    CREATE INDEX IF NOT EXISTS idx_activity_taskId ON activity(taskId);
+    CREATE INDEX IF NOT EXISTS idx_activity_boardId ON activity(boardId);
+    
+    -- members table (used in JOINs)
+    CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
+    
+    -- user_roles table (used in JOINs)
+    CREATE INDEX IF NOT EXISTS idx_user_roles_user_id ON user_roles(user_id);
+    CREATE INDEX IF NOT EXISTS idx_user_roles_role_id ON user_roles(role_id);
+    
+    -- views table (used in WHERE clauses)
+    CREATE INDEX IF NOT EXISTS idx_views_userId ON views(userId);
   `);
 };
 

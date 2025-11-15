@@ -44,6 +44,56 @@ router.get('/:priorityId/usage', authenticateToken, requireRole(['admin']), (req
   }
 });
 
+// Get batch priority usage counts (fixes N+1 problem)
+router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res) => {
+  const db = req.app.locals.db;
+  
+  try {
+    // Get all priority IDs from query params
+    // Handle both array format (?priorityIds=id1&priorityIds=id2) and comma-separated (?priorityIds=id1,id2)
+    let priorityIds = [];
+    if (req.query.priorityIds) {
+      if (Array.isArray(req.query.priorityIds)) {
+        priorityIds = req.query.priorityIds.filter(id => id);
+      } else if (typeof req.query.priorityIds === 'string') {
+        // Handle comma-separated string
+        priorityIds = req.query.priorityIds.split(',').map(id => id.trim()).filter(id => id);
+      }
+    }
+    
+    if (priorityIds.length === 0) {
+      return res.json({});
+    }
+    
+    // Batch fetch all usage counts in one query
+    const placeholders = priorityIds.map(() => '?').join(',');
+    const usageCounts = wrapQuery(db.prepare(`
+      SELECT priority_id, COUNT(*) as count 
+      FROM tasks 
+      WHERE priority_id IN (${placeholders})
+      GROUP BY priority_id
+    `), 'SELECT').all(...priorityIds);
+    
+    // Create map of usage counts by priorityId
+    const usageMap = {};
+    usageCounts.forEach(usage => {
+      usageMap[usage.priority_id] = { count: usage.count };
+    });
+    
+    // Include zero counts for priorities with no usage
+    priorityIds.forEach(priorityId => {
+      if (!usageMap[priorityId]) {
+        usageMap[priorityId] = { count: 0 };
+      }
+    });
+    
+    res.json(usageMap);
+  } catch (error) {
+    console.error('Error fetching batch priority usage:', error);
+    res.status(500).json({ error: 'Failed to fetch batch priority usage' });
+  }
+});
+
 // Admin priorities endpoints
 router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
   try {

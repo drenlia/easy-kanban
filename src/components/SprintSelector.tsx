@@ -19,15 +19,17 @@ interface SprintSelectorProps {
   selectedSprintId: string | null;
   onSprintChange: (sprint: Sprint | null) => void;
   tasks?: Task[]; // All tasks for counting
+  sprints?: Sprint[]; // Optional: sprints passed from parent (avoids duplicate API calls)
 }
 
 const SprintSelector: React.FC<SprintSelectorProps> = ({
   selectedSprintId,
   onSprintChange,
-  tasks = []
+  tasks = [],
+  sprints: propSprints
 }) => {
   const { t } = useTranslation('tasks');
-  const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [sprints, setSprints] = useState<Sprint[]>(propSprints || []);
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -35,8 +37,14 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Fetch sprints from API
+  // Use prop sprints if provided, otherwise fetch from API (fallback for backward compatibility)
   useEffect(() => {
+    if (propSprints && propSprints.length > 0) {
+      setSprints(propSprints);
+      return;
+    }
+    
+    // Only fetch if not provided via props
     const fetchSprints = async () => {
       try {
         setLoading(true);
@@ -60,7 +68,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
     };
 
     fetchSprints();
-  }, []);
+  }, [propSprints]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

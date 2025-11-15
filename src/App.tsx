@@ -6,6 +6,7 @@ import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TourProvider } from './contexts/TourContext';
+import { SettingsProvider, useSettings } from './contexts/SettingsContext';
 import Login from './components/Login';
 import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
@@ -57,7 +58,7 @@ import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
-import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getAllSprints } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -104,7 +105,8 @@ declare global {
 
 
 
-export default function App() {
+// Inner App component that uses hooks (must be inside SettingsProvider)
+function AppContent() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
@@ -115,7 +117,8 @@ export default function App() {
     selectedBoardRef.current = selectedBoard;
   }, [selectedBoard]);
   const [columns, setColumns] = useState<Columns>({});
-  const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string }>({});
+  // Use SettingsContext instead of local state
+  const { systemSettings, siteSettings, refreshSettings: refreshContextSettings } = useSettings();
   const [kanbanColumnWidth, setKanbanColumnWidth] = useState<number>(300); // Default 300px
   
   // User Status for permission refresh
@@ -300,6 +303,7 @@ export default function App() {
   // const [boardTaskCounts, setBoardTaskCounts] = useState<{[boardId: string]: number}>({});
   const [availablePriorities, setAvailablePriorities] = useState<PriorityOption[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [availableSprints, setAvailableSprints] = useState<any[]>([]);
   
   // Column visibility state for each board
   const [boardColumnVisibility, setBoardColumnVisibility] = useState<{[boardId: string]: string[]}>({});
@@ -383,15 +387,12 @@ export default function App() {
     isAuthenticated,
     authChecked,
     currentUser,
-    siteSettings,
     hasDefaultAdmin,
     intendedDestination,
     justRedirected,
     handleLogin,
     handleLogout,
     handleProfileUpdated,
-    refreshSiteSettings,
-    setSiteSettings,
     setCurrentUser,
   } = useAuth({
     onDataClear: () => {
@@ -690,7 +691,7 @@ export default function App() {
     currentBoards: boards,
     currentMembers: members,
     currentColumns: columns,
-    currentSiteSettings: siteSettings,
+    // currentSiteSettings removed - SettingsContext handles all settings
     currentPriorities: availablePriorities,
     currentActivities: activityFeed.activities,
     currentSharedFilters: taskFilters.sharedFilterViews,
@@ -699,7 +700,7 @@ export default function App() {
     onBoardsUpdate: setBoards,
     onMembersUpdate: handleMembersUpdate,
     onColumnsUpdate: setColumns,
-    onSiteSettingsUpdate: setSiteSettings,
+    // onSiteSettingsUpdate removed - SettingsContext handles all settings updates
     onPrioritiesUpdate: setAvailablePriorities,
     onActivitiesUpdate: handleActivitiesUpdate,
     onSharedFiltersUpdate: taskFilters.setSharedFilterViews,
@@ -873,7 +874,8 @@ export default function App() {
   const settingsWebSocket = useSettingsWebSocket({
     setAvailableTags,
     setAvailablePriorities,
-    setSiteSettings,
+    setAvailableSprints,
+    // setSiteSettings removed - use refreshContextSettings from SettingsContext instead
     versionStatus,
   });
 
@@ -944,6 +946,9 @@ export default function App() {
     websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
     websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
     websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
+    websocketClient.onSprintCreated(settingsWebSocket.handleSprintCreated);
+    websocketClient.onSprintUpdated(settingsWebSocket.handleSprintUpdated);
+    websocketClient.onSprintDeleted(settingsWebSocket.handleSprintDeleted);
     websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
     websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
     websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
@@ -987,6 +992,9 @@ export default function App() {
       websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
       websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
       websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
+      websocketClient.offSprintCreated(settingsWebSocket.handleSprintCreated);
+      websocketClient.offSprintUpdated(settingsWebSocket.handleSprintUpdated);
+      websocketClient.offSprintDeleted(settingsWebSocket.handleSprintDeleted);
       websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
       websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
       websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
@@ -1029,130 +1037,13 @@ export default function App() {
     }
   }, [columns, selectedTask]);
 
-  // ============================================================================
-  // WEBSOCKET CONNECTION EFFECT
-  // ============================================================================
-  // Register all memoized handlers and connect
-  
-  useEffect(() => {
-    if (!isAuthenticated || !localStorage.getItem('authToken')) {
-      return;
-    }
-
-    // Register handlers BEFORE connecting
-    websocketClient.onWebSocketReady(websocketConnection.handleWebSocketReady);
-    websocketClient.onConnect(websocketConnection.handleReconnect);
-    websocketClient.onDisconnect(websocketConnection.handleDisconnect);
-
-    // Register all WebSocket event handlers
-    websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
-    websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
-    websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
-    websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
-    websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
-    websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
-    websocketClient.onColumnDeleted(columnWebSocket.handleColumnDeleted);
-    websocketClient.onColumnReordered(columnWebSocket.handleColumnReordered);
-    websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
-    websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
-    websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
-    websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
-    websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
-    websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
-    websocketClient.onTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
-    websocketClient.onTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
-    websocketClient.onTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
-    websocketClient.onMemberUpdated(memberWebSocket.handleMemberUpdated);
-    websocketClient.onMemberCreated(memberWebSocket.handleMemberCreated);
-    websocketClient.onMemberDeleted(memberWebSocket.handleMemberDeleted);
-    websocketClient.onUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
-    websocketClient.onActivityUpdated(memberWebSocket.handleActivityUpdated);
-    websocketClient.onFilterCreated(memberWebSocket.handleFilterCreated);
-    websocketClient.onFilterUpdated(memberWebSocket.handleFilterUpdated);
-    websocketClient.onFilterDeleted(memberWebSocket.handleFilterDeleted);
-    websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
-    websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
-    websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
-    websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
-    websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
-    websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
-    websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
-    websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
-    websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
-    websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
-    websocketClient.onInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
-    websocketClient.onVersionUpdated(settingsWebSocket.handleVersionUpdated);
-    websocketClient.onCommentCreated(commentWebSocket.handleCommentCreated);
-    websocketClient.onCommentUpdated(commentWebSocket.handleCommentUpdated);
-    websocketClient.onCommentDeleted(commentWebSocket.handleCommentDeleted);
-
-    // Register browser online/offline handlers
-    window.addEventListener('online', websocketConnection.handleBrowserOnline);
-    window.addEventListener('offline', websocketConnection.handleBrowserOffline);
-
-    // Connect to WebSocket
-    websocketClient.connect();
-
-    // Cleanup function
-    return () => {
-      // Unregister all WebSocket event handlers
-      websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
-      websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
-      websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
-      websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
-      websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
-      websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
-      websocketClient.offColumnDeleted(columnWebSocket.handleColumnDeleted);
-      websocketClient.offColumnReordered(columnWebSocket.handleColumnReordered);
-      websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
-      websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
-      websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
-      websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
-      websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
-      websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
-      websocketClient.offTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
-      websocketClient.offTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
-      websocketClient.offTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
-      websocketClient.offMemberUpdated(memberWebSocket.handleMemberUpdated);
-      websocketClient.offMemberCreated(memberWebSocket.handleMemberCreated);
-      websocketClient.offMemberDeleted(memberWebSocket.handleMemberDeleted);
-      websocketClient.offUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
-      websocketClient.offActivityUpdated(memberWebSocket.handleActivityUpdated);
-      websocketClient.offFilterCreated(memberWebSocket.handleFilterCreated);
-      websocketClient.offFilterUpdated(memberWebSocket.handleFilterUpdated);
-      websocketClient.offFilterDeleted(memberWebSocket.handleFilterDeleted);
-      websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
-      websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
-      websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
-      websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
-      websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
-      websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
-      websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
-      websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
-      websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
-      websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
-      websocketClient.offInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
-      websocketClient.offVersionUpdated(settingsWebSocket.handleVersionUpdated);
-      websocketClient.offCommentCreated(commentWebSocket.handleCommentCreated);
-      websocketClient.offCommentUpdated(commentWebSocket.handleCommentUpdated);
-      websocketClient.offCommentDeleted(commentWebSocket.handleCommentDeleted);
-      websocketClient.offWebSocketReady(websocketConnection.handleWebSocketReady);
-      websocketClient.offConnect(websocketConnection.handleReconnect);
-      websocketClient.offDisconnect(websocketConnection.handleDisconnect);
-      window.removeEventListener('online', websocketConnection.handleBrowserOnline);
-      window.removeEventListener('offline', websocketConnection.handleBrowserOffline);
-    };
-  }, [
-    isAuthenticated,
-    // WebSocket hooks (handlers are memoized within hooks)
-    taskWebSocket,
-    commentWebSocket,
-    columnWebSocket,
-    boardWebSocket,
-    memberWebSocket,
-    settingsWebSocket,
-    websocketConnection
-  ]);
+  // Handle board selection with URL hash persistence and user preference saving
+  const handleBoardSelection = (boardId: string) => {
+    setSelectedBoard(boardId);
+    window.location.hash = boardId;
+    // Save the selected board to user preferences for future sessions
+    updateCurrentUserPreference('lastSelectedBoard', boardId);
+  };
 
   // Join board when selectedBoard changes
   useEffect(() => {
@@ -1195,14 +1086,6 @@ export default function App() {
       }
     }
   }, [columns]); // Remove selectedTask from deps to avoid infinite loops
-
-  // Handle board selection with URL hash persistence and user preference saving
-  const handleBoardSelection = (boardId: string) => {
-    setSelectedBoard(boardId);
-    window.location.hash = boardId;
-    // Save the selected board to user preferences for future sessions
-    updateCurrentUserPreference('lastSelectedBoard', boardId);
-  };
 
   // Clear filteredColumns when board changes to prevent stale data in pills
   useEffect(() => {
@@ -1216,166 +1099,6 @@ export default function App() {
     return handleInviteUserUtil(email, handleRefreshData);
   };
 
-  // ============================================================================
-  // WEBSOCKET CONNECTION EFFECT
-  // ============================================================================
-  // Register all memoized handlers and connect
-  
-  useEffect(() => {
-    if (!isAuthenticated || !localStorage.getItem('authToken')) {
-      return;
-    }
-
-    // Register handlers BEFORE connecting
-    websocketClient.onWebSocketReady(websocketConnection.handleWebSocketReady);
-    websocketClient.onConnect(websocketConnection.handleReconnect);
-    websocketClient.onDisconnect(websocketConnection.handleDisconnect);
-
-    // Listen to browser online/offline events
-    window.addEventListener('online', websocketConnection.handleBrowserOnline);
-    window.addEventListener('offline', websocketConnection.handleBrowserOffline);
-
-    // Connect to WebSocket only when we have a valid token
-    websocketClient.connect();
-    
-    // Register all event listeners
-    websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
-    websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
-    websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
-    websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
-    websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
-    websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
-    websocketClient.onColumnDeleted(columnWebSocket.handleColumnDeleted);
-    websocketClient.onColumnReordered(columnWebSocket.handleColumnReordered);
-    websocketClient.onBoardCreated(boardWebSocket.handleBoardCreated);
-    websocketClient.onBoardUpdated(boardWebSocket.handleBoardUpdated);
-    websocketClient.onBoardDeleted(boardWebSocket.handleBoardDeleted);
-    websocketClient.onBoardReordered(boardWebSocket.handleBoardReordered);
-    websocketClient.onColumnCreated(columnWebSocket.handleColumnCreated);
-    websocketClient.onTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
-    websocketClient.onTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
-    websocketClient.onTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
-    websocketClient.onTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
-    websocketClient.onMemberUpdated(memberWebSocket.handleMemberUpdated);
-    websocketClient.onMemberCreated(memberWebSocket.handleMemberCreated);
-    websocketClient.onMemberDeleted(memberWebSocket.handleMemberDeleted);
-    websocketClient.onUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
-    websocketClient.onActivityUpdated(memberWebSocket.handleActivityUpdated);
-    websocketClient.onFilterCreated(memberWebSocket.handleFilterCreated);
-    websocketClient.onFilterUpdated(memberWebSocket.handleFilterUpdated);
-    websocketClient.onFilterDeleted(memberWebSocket.handleFilterDeleted);
-    websocketClient.onTagCreated(settingsWebSocket.handleTagCreated);
-    websocketClient.onTagUpdated(settingsWebSocket.handleTagUpdated);
-    websocketClient.onTagDeleted(settingsWebSocket.handleTagDeleted);
-    websocketClient.onPriorityCreated(settingsWebSocket.handlePriorityCreated);
-    websocketClient.onPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
-    websocketClient.onPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
-    websocketClient.onPriorityReordered(settingsWebSocket.handlePriorityReordered);
-    websocketClient.onSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
-    websocketClient.onTaskTagAdded(taskWebSocket.handleTaskTagAdded);
-    websocketClient.onTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
-    websocketClient.onInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
-    websocketClient.onVersionUpdated(settingsWebSocket.handleVersionUpdated);
-    websocketClient.onCommentCreated(commentWebSocket.handleCommentCreated);
-    websocketClient.onCommentUpdated(commentWebSocket.handleCommentUpdated);
-    websocketClient.onCommentDeleted(commentWebSocket.handleCommentDeleted);
-
-    return () => {
-      // Clean up event listeners
-      websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
-      websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
-      websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
-      websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
-      websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
-      websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
-      websocketClient.offColumnDeleted(columnWebSocket.handleColumnDeleted);
-      websocketClient.offColumnReordered(columnWebSocket.handleColumnReordered);
-      websocketClient.offBoardCreated(boardWebSocket.handleBoardCreated);
-      websocketClient.offBoardUpdated(boardWebSocket.handleBoardUpdated);
-      websocketClient.offBoardDeleted(boardWebSocket.handleBoardDeleted);
-      websocketClient.offBoardReordered(boardWebSocket.handleBoardReordered);
-      websocketClient.offColumnCreated(columnWebSocket.handleColumnCreated);
-      websocketClient.offTaskWatcherAdded(taskWebSocket.handleTaskWatcherAdded);
-      websocketClient.offTaskWatcherRemoved(taskWebSocket.handleTaskWatcherRemoved);
-      websocketClient.offTaskCollaboratorAdded(taskWebSocket.handleTaskCollaboratorAdded);
-      websocketClient.offTaskCollaboratorRemoved(taskWebSocket.handleTaskCollaboratorRemoved);
-      websocketClient.offMemberUpdated(memberWebSocket.handleMemberUpdated);
-      websocketClient.offMemberCreated(memberWebSocket.handleMemberCreated);
-      websocketClient.offMemberDeleted(memberWebSocket.handleMemberDeleted);
-      websocketClient.offUserProfileUpdated(memberWebSocket.handleUserProfileUpdated);
-      websocketClient.offActivityUpdated(memberWebSocket.handleActivityUpdated);
-      websocketClient.offFilterCreated(memberWebSocket.handleFilterCreated);
-      websocketClient.offFilterUpdated(memberWebSocket.handleFilterUpdated);
-      websocketClient.offFilterDeleted(memberWebSocket.handleFilterDeleted);
-      websocketClient.offTagCreated(settingsWebSocket.handleTagCreated);
-      websocketClient.offTagUpdated(settingsWebSocket.handleTagUpdated);
-      websocketClient.offTagDeleted(settingsWebSocket.handleTagDeleted);
-      websocketClient.offPriorityCreated(settingsWebSocket.handlePriorityCreated);
-      websocketClient.offPriorityUpdated(settingsWebSocket.handlePriorityUpdated);
-      websocketClient.offPriorityDeleted(settingsWebSocket.handlePriorityDeleted);
-      websocketClient.offPriorityReordered(settingsWebSocket.handlePriorityReordered);
-      websocketClient.offSettingsUpdated(settingsWebSocket.handleSettingsUpdated);
-      websocketClient.offTaskTagAdded(taskWebSocket.handleTaskTagAdded);
-      websocketClient.offTaskTagRemoved(taskWebSocket.handleTaskTagRemoved);
-      websocketClient.offInstanceStatusUpdated(settingsWebSocket.handleInstanceStatusUpdated);
-      websocketClient.offVersionUpdated(settingsWebSocket.handleVersionUpdated);
-      websocketClient.offCommentCreated(commentWebSocket.handleCommentCreated);
-      websocketClient.offCommentUpdated(commentWebSocket.handleCommentUpdated);
-      websocketClient.offCommentDeleted(commentWebSocket.handleCommentDeleted);
-      websocketClient.offWebSocketReady(websocketConnection.handleWebSocketReady);
-      websocketClient.offConnect(websocketConnection.handleReconnect);
-      websocketClient.offDisconnect(websocketConnection.handleDisconnect);
-      window.removeEventListener('online', websocketConnection.handleBrowserOnline);
-      window.removeEventListener('offline', websocketConnection.handleBrowserOffline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated]); // Only depend on isAuthenticated - handlers are memoized with useCallback in hooks
-
-  // Join board when selectedBoard changes
-  useEffect(() => {
-    if (selectedBoard) {
-      websocketClient.joinBoardWhenReady(selectedBoard);
-    }
-  }, [selectedBoard]);
-
-  // Restore selected task from preferences when tasks are loaded
-  useEffect(() => {
-    // Load fresh preferences to get the most up-to-date selectedTaskId
-    const freshPrefs = loadUserPreferences();
-    const savedTaskId = freshPrefs.selectedTaskId;
-    
-    if (savedTaskId && !selectedTask && Object.keys(columns).length > 0) {
-      // Find the task in all columns
-      for (const column of Object.values(columns)) {
-        const foundTask = column.tasks.find(task => task.id === savedTaskId);
-        if (foundTask) {
-          setSelectedTask(foundTask);
-          break;
-        }
-      }
-    }
-  }, [columns, selectedTask]);
-
-  // Update selectedTask when columns data is refreshed (for auto-refresh comments)
-  useEffect(() => {
-    if (selectedTask && Object.keys(columns).length > 0) {
-      // Find the updated version of the selected task in the refreshed data
-      for (const column of Object.values(columns)) {
-        const updatedTask = column.tasks.find(task => task.id === selectedTask.id);
-        if (updatedTask) {
-          // Only update if the task data has actually changed
-          if (JSON.stringify(updatedTask) !== JSON.stringify(selectedTask)) {
-            // console.log('🔄 Auto-updating selectedTask with fresh data from polling', {
-            //   taskId: updatedTask.id,
-            //   commentCount: updatedTask.comments?.length || 0
-            // });
-            setSelectedTask(updatedTask);
-          }
-          break;
-        }
-      }
-    }
-  }, [columns]); // Remove selectedTask from deps to avoid infinite loops
 
 
   // Mock socket object for compatibility with existing UI (removed unused variable)
@@ -1402,18 +1125,19 @@ export default function App() {
   const handleRefreshData = async () => {
     try {
       // Refresh all data in parallel for better performance
-      const [loadedMembers, loadedPriorities, loadedTags, settingsResponse] = await Promise.all([
+      const [loadedMembers, loadedPriorities, loadedTags, loadedSprints] = await Promise.all([
         getMembers(taskFilters.includeSystem),
         getAllPriorities(),
         getAllTags(),
-        api.get('/settings')
+        getAllSprints()
       ]);
 
       // Update all state
       setMembers(loadedMembers);
       setAvailablePriorities(loadedPriorities || []);
       setAvailableTags(loadedTags || []);
-      setSiteSettings(settingsResponse.data || {});
+      setAvailableSprints(loadedSprints || []);
+      // Settings are now loaded by SettingsContext - no need to fetch here
 
       // Refresh board data (includes all boards, columns, and tasks)
       await refreshBoardData();
@@ -1914,12 +1638,12 @@ export default function App() {
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
-          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, settingsResponse, loadedActivities] = await Promise.all([
+          const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, loadedSprints, loadedActivities] = await Promise.all([
             getMembers(taskFilters.includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
-          api.get('/settings'),
+          getAllSprints(),
           getActivityFeed(20)
         ]);
           
@@ -1930,7 +1654,8 @@ export default function App() {
           setBoards(loadedBoards);
           setAvailablePriorities(loadedPriorities || []);
           setAvailableTags(loadedTags || []);
-          setSystemSettings(settingsResponse.data || {});
+          setAvailableSprints(loadedSprints || []);
+          // Settings are now loaded by SettingsContext - no need to fetch here
           activityFeed.setActivities(loadedActivities || []);
           
           // CRITICAL FIX: If no board is selected yet, immediately select one and load its columns
@@ -2002,6 +1727,23 @@ export default function App() {
     
     reloadMembers();
   }, [taskFilters.includeSystem, isAuthenticated, currentUser?.id]);
+
+  // Listen for sprint updates from admin panel
+  useEffect(() => {
+    const handleSprintsUpdated = async () => {
+      try {
+        const loadedSprints = await getAllSprints();
+        setAvailableSprints(loadedSprints || []);
+      } catch (error) {
+        console.error('Failed to refresh sprints after admin update:', error);
+      }
+    };
+
+    window.addEventListener('sprints-updated', handleSprintsUpdated);
+    return () => {
+      window.removeEventListener('sprints-updated', handleSprintsUpdated);
+    };
+  }, []);
 
   // Track board switching state to prevent task count flashing
   const [isSwitchingBoard, setIsSwitchingBoard] = useState(false);
@@ -3595,6 +3337,7 @@ export default function App() {
         selectedSprintId={taskFilters.selectedSprintId}
         onSprintChange={taskFilters.handleSprintChange}
         boards={boards}
+        sprints={availableSprints}
       />
 
       {/* Network Status Indicator */}
@@ -3617,7 +3360,7 @@ export default function App() {
                   // console.error('❌ Failed to refresh members:', error);
                 }
               }}
-              onSettingsChanged={refreshSiteSettings}
+              onSettingsChanged={refreshContextSettings} // Use context refresh instead
         loading={loading}
                     members={members}
         boards={boards}
@@ -3629,6 +3372,7 @@ export default function App() {
         dragPreview={dragPreview}
                       availablePriorities={availablePriorities}
         availableTags={availableTags}
+        availableSprints={availableSprints}
         taskViewMode={taskFilters.taskViewMode}
         isSearchActive={taskFilters.isSearchActive}
         searchFilters={taskFilters.searchFilters}
@@ -3852,5 +3596,14 @@ export default function App() {
       <ToastContainer />
       </ThemeProvider>
     </TourProvider>
+  );
+}
+
+// Main App component that wraps everything with SettingsProvider
+export default function App() {
+  return (
+    <SettingsProvider>
+      <AppContent />
+    </SettingsProvider>
   );
 }

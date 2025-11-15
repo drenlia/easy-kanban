@@ -36,7 +36,7 @@ interface UseDataPollingProps {
   currentBoards: Board[];
   currentMembers: TeamMember[];
   currentColumns: Columns;
-  currentSiteSettings: SiteSettings;
+  // currentSiteSettings removed - SettingsContext handles all settings
   currentPriorities: PriorityOption[];
   currentActivities?: ActivityItem[];
   currentSharedFilters?: SavedFilterView[];
@@ -45,7 +45,7 @@ interface UseDataPollingProps {
   onBoardsUpdate: (boards: Board[]) => void;
   onMembersUpdate: (members: TeamMember[]) => void;
   onColumnsUpdate: (columns: Columns) => void;
-  onSiteSettingsUpdate: (settings: SiteSettings) => void;
+  // onSiteSettingsUpdate removed - SettingsContext handles all settings updates
   onPrioritiesUpdate: (priorities: PriorityOption[]) => void;
   onActivitiesUpdate?: (activities: ActivityItem[]) => void;
   onSharedFiltersUpdate?: (sharedFilters: SavedFilterView[]) => void;
@@ -64,7 +64,7 @@ export const useDataPolling = ({
   currentBoards,
   currentMembers,
   currentColumns,
-  currentSiteSettings,
+  // currentSiteSettings removed - SettingsContext handles all settings
   currentPriorities,
   currentActivities = [],
   currentSharedFilters = [],
@@ -73,7 +73,7 @@ export const useDataPolling = ({
   onBoardsUpdate,
   onMembersUpdate,
   onColumnsUpdate,
-  onSiteSettingsUpdate,
+  // onSiteSettingsUpdate removed - SettingsContext handles all settings updates
   onPrioritiesUpdate,
   onActivitiesUpdate,
   onSharedFiltersUpdate,
@@ -86,7 +86,7 @@ export const useDataPolling = ({
   const currentBoardsRef = useRef(currentBoards);
   const currentMembersRef = useRef(currentMembers);
   const currentColumnsRef = useRef(currentColumns);
-  const currentSiteSettingsRef = useRef(currentSiteSettings);
+  // currentSiteSettingsRef removed - SettingsContext handles all settings
   const currentPrioritiesRef = useRef(currentPriorities);
   const currentActivitiesRef = useRef(currentActivities);
   const currentSharedFiltersRef = useRef(currentSharedFilters);
@@ -97,7 +97,7 @@ export const useDataPolling = ({
   currentBoardsRef.current = currentBoards;
   currentMembersRef.current = currentMembers;
   currentColumnsRef.current = currentColumns;
-  currentSiteSettingsRef.current = currentSiteSettings;
+  // currentSiteSettingsRef removed - SettingsContext handles all settings
   currentPrioritiesRef.current = currentPriorities;
   currentActivitiesRef.current = currentActivities;
   currentSharedFiltersRef.current = currentSharedFilters;
@@ -115,10 +115,10 @@ export const useDataPolling = ({
     const pollForUpdates = async () => {
       
       try {
-        const [loadedBoards, loadedMembers, loadedSiteSettings, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([
+        // Settings are now managed by SettingsContext - no need to fetch here
+        const [loadedBoards, loadedMembers, loadedPriorities, loadedActivities, loadedSharedFilters, loadedRelationships] = await Promise.all([
           api.getBoards(),
           api.getMembers(includeSystemRef.current), // Use ref to avoid dependency on includeSystem
-          api.getPublicSettings(),
           getAllPriorities(),
           onActivitiesUpdate ? getActivityFeed(20) : Promise.resolve([]),
           onSharedFiltersUpdate ? getSharedFilterViews() : Promise.resolve([]),
@@ -176,13 +176,8 @@ export const useDataPolling = ({
           onMembersUpdate(loadedMembers);
         }
 
-        // Update site settings if they changed
-        const currentSiteSettingsString = JSON.stringify(currentSiteSettings);
-        const newSiteSettingsString = JSON.stringify(loadedSiteSettings);
-
-        if (currentSiteSettingsString !== newSiteSettingsString) {
-          onSiteSettingsUpdate(loadedSiteSettings);
-        }
+        // Settings are now managed by SettingsContext - no need to update here
+        // SettingsContext handles all settings updates via WebSocket
 
         // Update priorities if they changed
         const currentPrioritiesString = JSON.stringify(currentPriorities);
@@ -317,7 +312,7 @@ export const useDataPolling = ({
     onBoardsUpdate,
     onMembersUpdate,
     onColumnsUpdate,
-    onSiteSettingsUpdate,
+    // onSiteSettingsUpdate removed - SettingsContext handles all settings updates
     onSharedFiltersUpdate,
     onRelationshipsUpdate,
   ]);

@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
+import redisService from '../services/redisService.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.get('/', authenticateToken, (req, res) => {
   }
 });
 
-// GET /api/admin/sprints/active - Get currently active sprint
+// GET /api/admin/sprints/active - Get currently active sprint (must come before /:id routes)
 router.get('/active', authenticateToken, (req, res) => {
   try {
     const { db } = req.app.locals;
@@ -53,8 +54,23 @@ router.get('/active', authenticateToken, (req, res) => {
   }
 });
 
+// GET /api/admin/sprints/:id/usage - Get sprint usage count (for deletion confirmation)
+router.get('/:id/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+  try {
+    const { db } = req.app.locals;
+    const { id } = req.params;
+    
+    // Count tasks that use this sprint (by sprint_id)
+    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE sprint_id = ?'), 'SELECT').get(id);
+    res.json({ count: usageCount.count });
+  } catch (error) {
+    console.error('Error fetching sprint usage:', error);
+    res.status(500).json({ error: 'Failed to fetch sprint usage' });
+  }
+});
+
 // POST /api/admin/sprints - Create a new sprint
-router.post('/', authenticateToken, requireRole(['admin']), (req, res) => {
+router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { name, start_date, end_date, is_active, description } = req.body;
@@ -107,6 +123,14 @@ router.post('/', authenticateToken, requireRole(['admin']), (req, res) => {
       'SELECT'
     ).get(sprintId);
     
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing sprint-created to Redis');
+    await redisService.publish('sprint-created', {
+      sprint: newSprint,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Sprint-created published to Redis');
+    
     res.status(201).json(newSprint);
   } catch (error) {
     console.error('Failed to create sprint:', error);
@@ -115,7 +139,7 @@ router.post('/', authenticateToken, requireRole(['admin']), (req, res) => {
 });
 
 // PUT /api/admin/sprints/:id - Update a sprint
-router.put('/:id', authenticateToken, requireRole(['admin']), (req, res) => {
+router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { id } = req.params;
@@ -175,6 +199,14 @@ router.put('/:id', authenticateToken, requireRole(['admin']), (req, res) => {
       'SELECT'
     ).get(id);
     
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing sprint-updated to Redis');
+    await redisService.publish('sprint-updated', {
+      sprint: updated,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Sprint-updated published to Redis');
+    
     res.json(updated);
   } catch (error) {
     console.error('Failed to update sprint:', error);
@@ -183,7 +215,7 @@ router.put('/:id', authenticateToken, requireRole(['admin']), (req, res) => {
 });
 
 // DELETE /api/admin/sprints/:id - Delete a sprint
-router.delete('/:id', authenticateToken, requireRole(['admin']), (req, res) => {
+router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const { db } = req.app.locals;
     const { id } = req.params;
@@ -198,12 +230,80 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), (req, res) => {
       return res.status(404).json({ error: 'Sprint not found' });
     }
     
-    wrapQuery(
-      db.prepare('DELETE FROM planning_periods WHERE id = ?'),
-      'DELETE'
-    ).run(id);
+    // Get tasks using this sprint
+    const tasksUsingSprint = wrapQuery(db.prepare(`
+      SELECT id, ticket, title, boardId
+      FROM tasks 
+      WHERE sprint_id = ?
+      ORDER BY ticket
+    `), 'SELECT').all(id);
     
-    res.json({ success: true, message: 'Sprint deleted successfully' });
+    // Use transaction to ensure atomicity
+    db.transaction(() => {
+      // If sprint is in use, set sprint_id to null for all tasks
+      if (tasksUsingSprint.length > 0) {
+        console.log(`📋 Removing sprint assignment from ${tasksUsingSprint.length} tasks`);
+        
+        wrapQuery(db.prepare(`
+          UPDATE tasks 
+          SET sprint_id = NULL
+          WHERE sprint_id = ?
+        `), 'UPDATE').run(id);
+        
+        console.log(`✅ Removed sprint assignment from ${tasksUsingSprint.length} tasks`);
+      }
+      
+      // Now delete the sprint
+      wrapQuery(
+        db.prepare('DELETE FROM planning_periods WHERE id = ?'),
+        'DELETE'
+      ).run(id);
+    })();
+    
+    // Publish to Redis for real-time updates
+    console.log('📤 Publishing sprint-deleted to Redis');
+    await redisService.publish('sprint-deleted', {
+      sprintId: id,
+      sprint: existing,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ Sprint-deleted published to Redis');
+    
+    // If tasks were updated, publish task updates for each affected board
+    if (tasksUsingSprint.length > 0) {
+      // Group tasks by board for efficient updates
+      const tasksByBoard = tasksUsingSprint.reduce((acc, task) => {
+        if (!acc[task.boardId]) acc[task.boardId] = [];
+        acc[task.boardId].push(task);
+        return acc;
+      }, {});
+      
+      // Publish updates for each board
+      for (const [boardId, tasks] of Object.entries(tasksByBoard)) {
+        console.log(`📤 Publishing ${tasks.length} task updates for board ${boardId}`);
+        
+        for (const task of tasks) {
+          // Fetch updated task data
+          const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          
+          if (updatedTask) {
+            await redisService.publish('task-updated', {
+              boardId: boardId,
+              task: updatedTask,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      console.log(`✅ Published task updates for ${tasksUsingSprint.length} tasks`);
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Sprint deleted successfully',
+      unassignedTasks: tasksUsingSprint.length
+    });
   } catch (error) {
     console.error('Failed to delete sprint:', error);
     res.status(500).json({ error: 'Failed to delete sprint' });

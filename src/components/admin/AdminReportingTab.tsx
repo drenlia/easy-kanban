@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from '../../utils/toast';
 import { Save, Trophy, TrendingUp, Settings, Database, Eye, EyeOff } from 'lucide-react';
+import { useSettings } from '../../contexts/SettingsContext';
 
 interface ReportingSettings {
   REPORTS_ENABLED: string;
@@ -24,6 +25,7 @@ interface ReportingSettings {
 
 const AdminReportingTab: React.FC = () => {
   const { t } = useTranslation('admin');
+  const { systemSettings } = useSettings(); // Use SettingsContext instead of fetching directly
   const [settings, setSettings] = useState<ReportingSettings>({
     REPORTS_ENABLED: 'true',
     REPORTS_GAMIFICATION_ENABLED: 'true',
@@ -47,35 +49,43 @@ const AdminReportingTab: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Load settings from SettingsContext when available
   useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  const fetchSettings = async () => {
-    try {
-      const response = await fetch('/api/admin/settings', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+    if (systemSettings && Object.keys(systemSettings).length > 0) {
+      const reportingSettings: Partial<ReportingSettings> = {};
+      
+      // Extract only reporting-related settings from SettingsContext
+      Object.keys(systemSettings).forEach(key => {
+        if (key.startsWith('REPORTS_')) {
+          reportingSettings[key as keyof ReportingSettings] = systemSettings[key] || settings[key as keyof ReportingSettings];
         }
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        const reportingSettings: Partial<ReportingSettings> = {};
-        
-        // Extract only reporting-related settings
-        Object.keys(data).forEach(key => {
-          if (key.startsWith('REPORTS_')) {
-            reportingSettings[key as keyof ReportingSettings] = data[key] || settings[key as keyof ReportingSettings];
-          }
-        });
-
+      if (Object.keys(reportingSettings).length > 0) {
         const mergedSettings = { ...settings, ...reportingSettings };
         setSettings(mergedSettings);
         setOriginalSettings(mergedSettings);
       }
-    } catch (error) {
-      console.error('Failed to fetch reporting settings:', error);
+    }
+  }, [systemSettings]); // Only depend on systemSettings, not settings
+
+  // Function to reset settings to original values (reload from SettingsContext)
+  const handleReset = () => {
+    if (systemSettings && Object.keys(systemSettings).length > 0) {
+      const reportingSettings: Partial<ReportingSettings> = {};
+      
+      // Extract only reporting-related settings from SettingsContext
+      Object.keys(systemSettings).forEach(key => {
+        if (key.startsWith('REPORTS_')) {
+          reportingSettings[key as keyof ReportingSettings] = systemSettings[key] || settings[key as keyof ReportingSettings];
+        }
+      });
+
+      if (Object.keys(reportingSettings).length > 0) {
+        const mergedSettings = { ...settings, ...reportingSettings };
+        setSettings(mergedSettings);
+        setOriginalSettings(mergedSettings);
+      }
     }
   };
 
@@ -207,7 +217,15 @@ const AdminReportingTab: React.FC = () => {
 
       if (response.ok) {
         const result = await response.json();
-        toast.success(t('reporting.snapshotComplete', { count: result.snapshotCount || 0, duration: result.duration || 0 }), '', 5000);
+        const totalCount = result.count || 0;
+        const newCount = result.newCount || 0;
+        const updatedCount = result.updatedCount || 0;
+        toast.success(t('reporting.snapshotComplete', { 
+          count: totalCount, 
+          newCount, 
+          updatedCount, 
+          duration: result.duration || 0 
+        }), '', 5000);
       } else {
         throw new Error('Failed to trigger snapshot');
       }
@@ -492,7 +510,7 @@ const AdminReportingTab: React.FC = () => {
       {/* Save Button */}
       <div className="flex justify-end gap-3">
         <button
-          onClick={fetchSettings}
+          onClick={handleReset}
           className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           disabled={saving || !hasChanges}
         >

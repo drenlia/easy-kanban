@@ -32,153 +32,187 @@ export const checkAllUserAchievements = async (db) => {
       WHERE u.is_active = 1
     `), 'SELECT').all();
     
-    for (const user of users) {
-      // Get user's current stats from user_points
-      const userStats = wrapQuery(
-        db.prepare(`
-          SELECT 
-            COALESCE(SUM(tasks_created), 0) as tasks_created,
-            COALESCE(SUM(tasks_completed), 0) as tasks_completed,
-            COALESCE(SUM(total_effort_completed), 0) as total_effort_completed,
-            COALESCE(SUM(comments_added), 0) as comments_added,
-            COALESCE(SUM(collaborations), 0) as collaborations,
-            COALESCE(SUM(watchers_added), 0) as watchers_added,
-            COALESCE(SUM(total_points), 0) as total_points
-          FROM user_points
-          WHERE user_id = ?
-        `),
-        'SELECT'
-      ).get(user.user_id) || {
-        tasks_created: 0,
-        tasks_completed: 0,
-        total_effort_completed: 0,
-        comments_added: 0,
-        collaborations: 0,
-        watchers_added: 0,
-        total_points: 0
-      };
-      
-      // Get badges already awarded to this user
-      const awardedBadges = wrapQuery(
-        db.prepare('SELECT badge_id FROM user_achievements WHERE user_id = ?'),
-        'SELECT'
-      ).all(user.user_id);
-      
-      const awardedBadgeIds = new Set(awardedBadges.map(ab => ab.badge_id));
-      
-      // Check each badge condition
-      for (const badge of badges) {
-        // Skip if already awarded
-        if (awardedBadgeIds.has(badge.id)) continue;
+    if (users.length === 0) {
+      console.log('ℹ️  No active users to check');
+      return { success: true, badgesAwarded: 0, pointsAwarded: 0, duration: Date.now() - startTime };
+    }
+    
+    const userIds = users.map(u => u.user_id);
+    const placeholders = userIds.map(() => '?').join(',');
+    
+    // Batch fetch all user stats (fixes N+1 problem)
+    const allUserStats = wrapQuery(
+      db.prepare(`
+        SELECT 
+          user_id,
+          COALESCE(SUM(tasks_created), 0) as tasks_created,
+          COALESCE(SUM(tasks_completed), 0) as tasks_completed,
+          COALESCE(SUM(total_effort_completed), 0) as total_effort_completed,
+          COALESCE(SUM(comments_added), 0) as comments_added,
+          COALESCE(SUM(collaborations), 0) as collaborations,
+          COALESCE(SUM(watchers_added), 0) as watchers_added,
+          COALESCE(SUM(total_points), 0) as total_points
+        FROM user_points
+        WHERE user_id IN (${placeholders})
+        GROUP BY user_id
+      `),
+      'SELECT'
+    ).all(...userIds);
+    
+    // Create map of stats by user_id
+    const statsByUserId = new Map();
+    allUserStats.forEach(stats => {
+      statsByUserId.set(stats.user_id, stats);
+    });
+    
+    // Batch fetch all awarded badges (fixes N+1 problem)
+    const allAwardedBadges = wrapQuery(
+      db.prepare(`
+        SELECT user_id, badge_id 
+        FROM user_achievements 
+        WHERE user_id IN (${placeholders})
+      `),
+      'SELECT'
+    ).all(...userIds);
+    
+    // Create map of awarded badge IDs by user_id
+    const awardedBadgesByUserId = new Map();
+    allAwardedBadges.forEach(ab => {
+      if (!awardedBadgesByUserId.has(ab.user_id)) {
+        awardedBadgesByUserId.set(ab.user_id, new Set());
+      }
+      awardedBadgesByUserId.get(ab.user_id).add(ab.badge_id);
+    });
+    
+    // Prepare statements for batch operations
+    const insertAchievementStmt = db.prepare(`
+      INSERT INTO user_achievements (
+        id, user_id, badge_id, achievement_type, badge_name, badge_icon, badge_color,
+        points_earned, earned_at, period_year, period_month
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    const insertPointsStmt = db.prepare(`
+      INSERT INTO user_points (
+        id, user_id, user_name, period_year, period_month,
+        total_points, last_updated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, period_year, period_month) 
+      DO UPDATE SET 
+        total_points = total_points + ?,
+        last_updated = ?
+    `);
+    
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    const now = new Date().toISOString();
+    
+    // Process all users and badges in a single transaction for better performance
+    db.transaction(() => {
+      for (const user of users) {
+        // Get user's stats (default to zeros if not found)
+        const userStats = statsByUserId.get(user.user_id) || {
+          tasks_created: 0,
+          tasks_completed: 0,
+          total_effort_completed: 0,
+          comments_added: 0,
+          collaborations: 0,
+          watchers_added: 0,
+          total_points: 0
+        };
         
-        // Check if user meets the condition
-        let conditionMet = false;
-        let currentValue = 0;
+        // Get badges already awarded to this user
+        const awardedBadgeIds = awardedBadgesByUserId.get(user.user_id) || new Set();
         
-        switch (badge.condition_type) {
-          case 'tasks_created':
-            currentValue = userStats.tasks_created;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'tasks_completed':
-            currentValue = userStats.tasks_completed;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'total_effort_completed':
-            currentValue = userStats.total_effort_completed;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'comments_added':
-            currentValue = userStats.comments_added;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'collaborations':
-            currentValue = userStats.collaborations;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'watchers_added':
-            currentValue = userStats.watchers_added;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-          case 'total_points':
-            currentValue = userStats.total_points;
-            conditionMet = currentValue >= badge.condition_value;
-            break;
-        }
-        
-        // Award badge if condition met
-        if (conditionMet) {
-          const achievementId = crypto.randomUUID();
-          const now = new Date().toISOString();
+        // Check each badge condition
+        for (const badge of badges) {
+          // Skip if already awarded
+          if (awardedBadgeIds.has(badge.id)) continue;
           
-          wrapQuery(
-            db.prepare(`
-              INSERT INTO user_achievements (
-                id, user_id, badge_id, achievement_type, badge_name, badge_icon, badge_color,
-                points_earned, earned_at, period_year, period_month
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `),
-            'INSERT'
-          ).run(
-            achievementId,
-            user.user_id,
-            badge.id,
-            badge.condition_type, // achievement_type (e.g. tasks_completed, comments_added, etc.)
-            badge.name,
-            badge.icon,
-            badge.color,
-            badge.points_reward,
-            now,
-            new Date().getFullYear(),
-            new Date().getMonth() + 1
-          );
+          // Check if user meets the condition
+          let conditionMet = false;
+          let currentValue = 0;
           
-          // Award bonus points if badge has a reward
-          if (badge.points_reward > 0) {
-            // Update user's points for the current period
-            const currentYear = new Date().getFullYear();
-            const currentMonth = new Date().getMonth() + 1;
-            
-            wrapQuery(
-              db.prepare(`
-                INSERT INTO user_points (
-                  id, user_id, user_name, period_year, period_month,
-                  total_points, last_updated
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(user_id, period_year, period_month) 
-                DO UPDATE SET 
-                  total_points = total_points + ?,
-                  last_updated = ?
-              `),
-              'INSERT'
-            ).run(
-              crypto.randomUUID(),
-              user.user_id,
-              user.user_name,
-              currentYear,
-              currentMonth,
-              badge.points_reward,
-              now,
-              badge.points_reward,
-              now
-            );
-            
-            pointsAwarded += badge.points_reward;
+          switch (badge.condition_type) {
+            case 'tasks_created':
+              currentValue = userStats.tasks_created;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'tasks_completed':
+              currentValue = userStats.tasks_completed;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'total_effort_completed':
+              currentValue = userStats.total_effort_completed;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'comments_added':
+              currentValue = userStats.comments_added;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'collaborations':
+              currentValue = userStats.collaborations;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'watchers_added':
+              currentValue = userStats.watchers_added;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
+            case 'total_points':
+              currentValue = userStats.total_points;
+              conditionMet = currentValue >= badge.condition_value;
+              break;
           }
           
-          badgesAwarded++;
-          newAchievements.push({
-            userId: user.user_id,
-            userName: user.user_name,
-            badge: badge.name,
-            icon: badge.icon,
-            points: badge.points_reward
-          });
-          
-          console.log(`🏆 Awarded "${badge.name}" to ${user.user_name || user.user_email} (+${badge.points_reward} points)`);
+          // Award badge if condition met
+          if (conditionMet) {
+            const achievementId = crypto.randomUUID();
+            
+            insertAchievementStmt.run(
+              achievementId,
+              user.user_id,
+              badge.id,
+              badge.condition_type, // achievement_type (e.g. tasks_completed, comments_added, etc.)
+              badge.name,
+              badge.icon,
+              badge.color,
+              badge.points_reward,
+              now,
+              currentYear,
+              currentMonth
+            );
+            
+            // Award bonus points if badge has a reward
+            if (badge.points_reward > 0) {
+              insertPointsStmt.run(
+                crypto.randomUUID(),
+                user.user_id,
+                user.user_name,
+                currentYear,
+                currentMonth,
+                badge.points_reward,
+                now,
+                badge.points_reward,
+                now
+              );
+              
+              pointsAwarded += badge.points_reward;
+            }
+            
+            badgesAwarded++;
+            newAchievements.push({
+              userId: user.user_id,
+              userName: user.user_name,
+              badge: badge.name,
+              icon: badge.icon,
+              points: badge.points_reward
+            });
+            
+            console.log(`🏆 Awarded "${badge.name}" to ${user.user_name || user.user_email} (+${badge.points_reward} points)`);
+          }
         }
       }
-    }
+    })();
     
     // Publish new achievements to WebSocket for real-time notifications
     if (newAchievements.length > 0) {

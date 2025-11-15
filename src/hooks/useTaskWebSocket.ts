@@ -699,6 +699,17 @@ export const useTaskWebSocket = ({
   const handleTaskRelationshipCreated = useCallback((data: any) => {
     // Only refresh if the relationship is for the current board
     if (data.boardId === selectedBoardRef.current) {
+      // Clear the taskRelationships cache for both tasks involved
+      // This ensures hover highlighting will reload fresh data
+      if (data.taskId && data.toTaskId) {
+        taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => {
+          const updated = { ...prev };
+          delete updated[data.taskId];
+          delete updated[data.toTaskId];
+          return updated;
+        });
+      }
+      
       // Load just the relationships instead of full refresh
       getBoardTaskRelationships(selectedBoardRef.current!)
         .then(relationships => {
@@ -712,11 +723,22 @@ export const useTaskWebSocket = ({
           }
         });
     }
-  }, [taskLinking.setBoardRelationships, selectedBoardRef, refreshBoardDataRef]);
+  }, [taskLinking.setBoardRelationships, taskLinking.setTaskRelationships, selectedBoardRef, refreshBoardDataRef]);
 
   const handleTaskRelationshipDeleted = useCallback((data: any) => {
     // Only refresh if the relationship is for the current board
     if (data.boardId === selectedBoardRef.current) {
+      // Clear the taskRelationships cache for both tasks involved
+      // This ensures hover highlighting will reload fresh data
+      if (data.taskId && data.toTaskId) {
+        taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => {
+          const updated = { ...prev };
+          delete updated[data.taskId];
+          delete updated[data.toTaskId];
+          return updated;
+        });
+      }
+      
       // Load just the relationships instead of full refresh
       getBoardTaskRelationships(selectedBoardRef.current!)
         .then(relationships => {
@@ -730,7 +752,7 @@ export const useTaskWebSocket = ({
           }
         });
     }
-  }, [taskLinking.setBoardRelationships, selectedBoardRef, refreshBoardDataRef]);
+  }, [taskLinking.setBoardRelationships, taskLinking.setTaskRelationships, selectedBoardRef, refreshBoardDataRef]);
 
   const handleTaskWatcherAdded = useCallback((data: any) => {
     // Only refresh if the task is for the current board

@@ -5,6 +5,7 @@ import { uploadAvatar, deleteAccount, getUserSettings } from '../api';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
 import api from '../api';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface ProfileProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ interface ProfileProps {
 
 export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated, isProfileBeingEdited, onProfileEditingChange, onActivityFeedToggle, onAccountDeleted }: ProfileProps) {
   const { t } = useTranslation('common');
+  const { systemSettings: contextSystemSettings } = useSettings(); // Use SettingsContext instead of fetching
   const [activeTab, setActiveTab] = useState<'profile' | 'app-settings' | 'notifications'>('profile');
   const [displayName, setDisplayName] = useState(currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [systemSettings, setSystemSettings] = useState<{ TASK_DELETE_CONFIRM?: string; SHOW_ACTIVITY_FEED?: string; MAIL_ENABLED?: string }>({});
@@ -42,21 +44,13 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   const [originalDisplayName, setOriginalDisplayName] = useState(currentUser?.displayName || currentUser?.firstName + ' ' + currentUser?.lastName || '');
   const [originalAvatarUrl, setOriginalAvatarUrl] = useState(currentUser?.googleAvatarUrl || currentUser?.avatarUrl || '');
 
-  // Load system settings when modal opens
+  // Load system settings when modal opens - use SettingsContext instead of fetching
   useEffect(() => {
-    if (isOpen) {
-      const loadSystemSettings = async () => {
-        try {
-          const response = await api.get('/settings');
-          setSystemSettings(response.data || {});
-        } catch (error) {
-          console.error('Failed to load system settings:', error);
-        }
-      };
-      
-      loadSystemSettings();
+    if (isOpen && contextSystemSettings) {
+      // Use settings from SettingsContext instead of fetching
+      setSystemSettings(contextSystemSettings);
     }
-  }, [isOpen]);
+  }, [isOpen, contextSystemSettings]);
 
   // Load user settings when system settings are available
   useEffect(() => {

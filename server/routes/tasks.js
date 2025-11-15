@@ -76,14 +76,31 @@ function fetchTaskWithRelationships(db, taskId) {
     ? [] 
     : JSON.parse(task.comments).filter(Boolean);
   
-  // Get attachments for each comment
-  for (const comment of task.comments) {
-    const attachments = wrapQuery(db.prepare(`
-      SELECT id, name, url, type, size, created_at as createdAt
-      FROM attachments
-      WHERE commentId = ?
-    `), 'SELECT').all(comment.id);
-    comment.attachments = attachments || [];
+  // Get attachments for all comments in one batch query (fixes N+1 problem)
+  if (task.comments.length > 0) {
+    const commentIds = task.comments.map(c => c.id).filter(Boolean);
+    if (commentIds.length > 0) {
+      const placeholders = commentIds.map(() => '?').join(',');
+      const allAttachments = wrapQuery(db.prepare(`
+        SELECT commentId, id, name, url, type, size, created_at as createdAt
+        FROM attachments
+        WHERE commentId IN (${placeholders})
+      `), 'SELECT').all(...commentIds);
+      
+      // Group attachments by commentId
+      const attachmentsByCommentId = new Map();
+      allAttachments.forEach(att => {
+        if (!attachmentsByCommentId.has(att.commentId)) {
+          attachmentsByCommentId.set(att.commentId, []);
+        }
+        attachmentsByCommentId.get(att.commentId).push(att);
+      });
+      
+      // Assign attachments to each comment
+      task.comments.forEach(comment => {
+        comment.attachments = attachmentsByCommentId.get(comment.id) || [];
+      });
+    }
   }
   
   task.tags = task.tags === '[null]' || !task.tags 
@@ -360,14 +377,31 @@ router.get('/:id', authenticateToken, (req, res) => {
     `), 'SELECT').all(task.id);
     console.log('📝 [TASK API] Found comments:', comments.length);
     
-    // Get attachments for each comment
-    for (const comment of comments) {
-      const attachments = wrapQuery(db.prepare(`
-        SELECT id, name, url, type, size, created_at as createdAt
-        FROM attachments
-        WHERE commentId = ?
-      `), 'SELECT').all(comment.id);
-      comment.attachments = attachments;
+    // Get attachments for all comments in one batch query (fixes N+1 problem)
+    if (comments.length > 0) {
+      const commentIds = comments.map(c => c.id).filter(Boolean);
+      if (commentIds.length > 0) {
+        const placeholders = commentIds.map(() => '?').join(',');
+        const allAttachments = wrapQuery(db.prepare(`
+          SELECT commentId, id, name, url, type, size, created_at as createdAt
+          FROM attachments
+          WHERE commentId IN (${placeholders})
+        `), 'SELECT').all(...commentIds);
+        
+        // Group attachments by commentId
+        const attachmentsByCommentId = new Map();
+        allAttachments.forEach(att => {
+          if (!attachmentsByCommentId.has(att.commentId)) {
+            attachmentsByCommentId.set(att.commentId, []);
+          }
+          attachmentsByCommentId.get(att.commentId).push(att);
+        });
+        
+        // Assign attachments to each comment
+        comments.forEach(comment => {
+          comment.attachments = attachmentsByCommentId.get(comment.id) || [];
+        });
+      }
     }
     
     // Get watchers for the task
@@ -1577,7 +1611,7 @@ router.get('/:taskId/relationships', authenticateToken, (req, res) => {
 });
 
 // Create a task relationship
-router.post('/:taskId/relationships', async (req, res) => {
+router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
     const { db } = req.app.locals;
     const t = getTranslator(db);
@@ -1622,24 +1656,43 @@ router.post('/:taskId/relationships', async (req, res) => {
       }
     }
     
-    // Insert the relationship (use regular INSERT since we've validated above)
-    const insertResult = wrapQuery(db.prepare(`
-      INSERT INTO task_rels (task_id, relationship, to_task_id)
-      VALUES (?, ?, ?)
-    `), 'INSERT').run(taskId, relationship, toTaskId);
-    
-    // For parent/child relationships, also create the inverse relationship
-    if (relationship === 'parent') {
-      wrapQuery(db.prepare(`
+    // Use a transaction to ensure atomicity
+    let insertResult;
+    db.transaction(() => {
+      // Insert the relationship (use regular INSERT since we've validated above)
+      insertResult = wrapQuery(db.prepare(`
         INSERT INTO task_rels (task_id, relationship, to_task_id)
-        VALUES (?, 'child', ?)
-      `), 'INSERT').run(toTaskId, taskId);
-    } else if (relationship === 'child') {
-      wrapQuery(db.prepare(`
-        INSERT INTO task_rels (task_id, relationship, to_task_id)
-        VALUES (?, 'parent', ?)
-      `), 'INSERT').run(toTaskId, taskId);
-    }
+        VALUES (?, ?, ?)
+      `), 'INSERT').run(taskId, relationship, toTaskId);
+      
+      // For parent/child relationships, also create the inverse relationship
+      // Check if inverse already exists to avoid UNIQUE constraint violations
+      if (relationship === 'parent') {
+        const inverseExists = wrapQuery(db.prepare(`
+          SELECT id FROM task_rels 
+          WHERE task_id = ? AND relationship = 'child' AND to_task_id = ?
+        `), 'SELECT').get(toTaskId, taskId);
+        
+        if (!inverseExists) {
+          wrapQuery(db.prepare(`
+            INSERT INTO task_rels (task_id, relationship, to_task_id)
+            VALUES (?, 'child', ?)
+          `), 'INSERT').run(toTaskId, taskId);
+        }
+      } else if (relationship === 'child') {
+        const inverseExists = wrapQuery(db.prepare(`
+          SELECT id FROM task_rels 
+          WHERE task_id = ? AND relationship = 'parent' AND to_task_id = ?
+        `), 'SELECT').get(toTaskId, taskId);
+        
+        if (!inverseExists) {
+          wrapQuery(db.prepare(`
+            INSERT INTO task_rels (task_id, relationship, to_task_id)
+            VALUES (?, 'parent', ?)
+          `), 'INSERT').run(toTaskId, taskId);
+        }
+      }
+    })();
     
     console.log(`✅ Created relationship: ${taskId} (${relationship}) → ${toTaskId}`);
     

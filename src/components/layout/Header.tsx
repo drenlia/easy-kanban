@@ -5,7 +5,7 @@ import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference } from '../../utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
 import ResetCountdown from '../ResetCountdown';
 
 interface SystemInfo {
@@ -60,6 +60,7 @@ interface HeaderProps {
       };
     };
   }>;
+  sprints?: Array<{ id: string; name: string; start_date: string; end_date: string }>; // Optional: sprints passed from parent (avoids duplicate API calls)
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -80,6 +81,7 @@ const Header: React.FC<HeaderProps> = ({
   selectedSprintId,
   onSprintChange,
   boards = [],
+  sprints: propSprints,
 }) => {
   // Extract all tasks from all boards for sprint counting
   const allTasks = useMemo(() => {
@@ -144,10 +146,8 @@ const Header: React.FC<HeaderProps> = ({
     const newValue = !showSystemPanel;
     setShowSystemPanel(newValue);
     if (currentUser) {
-      await updateUserPreference('appSettings', { 
-        ...loadUserPreferences(currentUser.id).appSettings,
-        showSystemPanel: newValue 
-      }, currentUser.id);
+      // Use updateAppSettingsPreference to save only this specific setting (avoids saving all preferences)
+      await updateAppSettingsPreference('showSystemPanel', newValue, currentUser.id);
     }
   };
 
@@ -186,23 +186,19 @@ const Header: React.FC<HeaderProps> = ({
   }, [currentUser]);
 
   // Fetch reports settings to check if reports module is enabled
+  // Use cached API function to prevent duplicate calls with Reports component
   useEffect(() => {
     const fetchReportsSettings = async () => {
       try {
         const token = localStorage.getItem('authToken');
         if (!token) return;
 
-        const response = await fetch('/api/reports/settings', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        // Use cached API function instead of direct fetch
+        const { getReportsSettings } = await import('../../api');
+        const data = await getReportsSettings();
 
-        if (response.ok) {
-          const data = await response.json();
-          setReportsEnabled(data.REPORTS_ENABLED === 'true');
-          setReportsVisibleTo(data.REPORTS_VISIBLE_TO || 'all');
-        }
+        setReportsEnabled(data.REPORTS_ENABLED === 'true');
+        setReportsVisibleTo(data.REPORTS_VISIBLE_TO || 'all');
       } catch (error) {
         console.error('Failed to fetch reports settings:', error);
         // Default to enabled on error
@@ -330,9 +326,13 @@ const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
-  // Fetch system info for admins
+  // Fetch system info with polling when system panel is visible
+  // Header is always loaded, so it handles all system info polling (Admin.tsx no longer polls)
   useEffect(() => {
-    if (!currentUser?.roles?.includes('admin')) return;
+    if (!currentUser?.roles?.includes('admin') || !showSystemPanel) {
+      setSystemInfo(null); // Clear info when panel is hidden
+      return;
+    }
 
     const fetchSystemInfo = async () => {
       try {
@@ -346,11 +346,11 @@ const Header: React.FC<HeaderProps> = ({
     // Fetch immediately
     fetchSystemInfo();
 
-    // Set up 10-second interval
-    const interval = setInterval(fetchSystemInfo, 10000);
+    // Poll every 20 seconds (consistent interval since Header is the only one polling now)
+    const interval = setInterval(fetchSystemInfo, 20000);
 
     return () => clearInterval(interval);
-  }, [currentUser?.roles]);
+  }, [currentUser?.roles, showSystemPanel]);
 
   const handleInviteClick = () => {
     setShowInviteDropdown(!showInviteDropdown);
@@ -429,6 +429,7 @@ const Header: React.FC<HeaderProps> = ({
               selectedSprintId={selectedSprintId}
               onSprintChange={onSprintChange}
               tasks={allTasks}
+              sprints={propSprints}
             />
           )}
           

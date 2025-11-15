@@ -608,6 +608,8 @@
     "demoResetsIn": "Réinitialisation de la démo dans {{minutes}}m {{seconds}}s"
   },
   "dateRangePicker": {
+    "sprint": "Sprint",
+    "applySprintDates": "Appliquer les dates du sprint",
     "title": "Sélectionner une plage de dates",
     "startDate": "Date de début",
     "endDate": "Date de fin",

@@ -48,6 +48,7 @@ interface KanbanPageProps {
   dragPreview: any;
   availablePriorities: PriorityOption[];
   availableTags: Tag[];
+  availableSprints?: any[]; // Optional for backward compatibility
   taskViewMode: TaskViewMode;
   viewMode: ViewMode;
   isSearchActive: boolean;
@@ -258,7 +259,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   isOnline = true, // Default to true if not provided
   
   // Sprint filtering
-  selectedSprintId = null
+  selectedSprintId = null,
+  availableSprints = []
 }: KanbanPageProps) => {
   // Column filtering logic - memoized to prevent unnecessary re-renders
   const visibleColumnsForCurrentBoard = useMemo(() => {
@@ -645,6 +647,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 members={members}
                 availablePriorities={availablePriorities}
                 availableTags={availableTags}
+                availableSprints={availableSprints}
                 taskViewMode={taskViewMode}
                 onSelectTask={onSelectTask}
                 selectedTask={selectedTask}
@@ -797,6 +800,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             
                             // Sprint filtering
                             selectedSprintId={selectedSprintId}
+                            availableSprints={availableSprints}
                           />
                           {/* Resize handle between columns (not after the last one) */}
                           {index < array.length - 1 && onColumnWidthResize && (
@@ -871,6 +875,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       
                       // Sprint filtering
                       selectedSprintId={selectedSprintId}
+                      availableSprints={availableSprints}
                         />
                         {/* Resize handle between columns (not after the last one) */}
                         {index < array.length - 1 && onColumnWidthResize && (

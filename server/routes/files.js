@@ -198,14 +198,31 @@ router.delete('/:id', authenticateToken, async (req, res) => {
           ? [] 
           : JSON.parse(taskWithRelationships.comments).filter(Boolean);
         
-        // Get attachments for each comment
-        for (const comment of taskWithRelationships.comments) {
-          const commentAttachments = wrapQuery(db.prepare(`
-            SELECT id, name, url, type, size, created_at as createdAt
-            FROM attachments
-            WHERE commentId = ?
-          `), 'SELECT').all(comment.id);
-          comment.attachments = commentAttachments || [];
+        // Get attachments for all comments in one batch query (fixes N+1 problem)
+        if (taskWithRelationships.comments.length > 0) {
+          const commentIds = taskWithRelationships.comments.map(c => c.id).filter(Boolean);
+          if (commentIds.length > 0) {
+            const placeholders = commentIds.map(() => '?').join(',');
+            const allAttachments = wrapQuery(db.prepare(`
+              SELECT commentId, id, name, url, type, size, created_at as createdAt
+              FROM attachments
+              WHERE commentId IN (${placeholders})
+            `), 'SELECT').all(...commentIds);
+            
+            // Group attachments by commentId
+            const attachmentsByCommentId = new Map();
+            allAttachments.forEach(att => {
+              if (!attachmentsByCommentId.has(att.commentId)) {
+                attachmentsByCommentId.set(att.commentId, []);
+              }
+              attachmentsByCommentId.get(att.commentId).push(att);
+            });
+            
+            // Assign attachments to each comment
+            taskWithRelationships.comments.forEach(comment => {
+              comment.attachments = attachmentsByCommentId.get(comment.id) || [];
+            });
+          }
         }
         
         taskWithRelationships.tags = taskWithRelationships.tags === '[null]' || !taskWithRelationships.tags 

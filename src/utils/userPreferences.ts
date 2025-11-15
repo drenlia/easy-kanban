@@ -220,12 +220,33 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
 // Admin-configurable default preferences (loaded from system settings)
 let ADMIN_DEFAULT_PREFERENCES: Partial<UserPreferences> | null = null;
 
+// Helper function to check if user is admin by checking token payload
+const checkIsAdminFromToken = (): boolean => {
+  try {
+    const token = localStorage.getItem('authToken');
+    if (!token) return false;
+    
+    // Decode JWT token to check roles (simple base64 decode, no verification needed for client-side check)
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.roles && Array.isArray(payload.roles) && payload.roles.includes('admin');
+  } catch (error) {
+    return false;
+  }
+};
+
 // Function to load admin defaults from system settings
 export const loadAdminDefaults = async (): Promise<void> => {
   try {
-    // Use the api instance to get admin-configured defaults with proper authentication
-    const response = await api.get('/admin/settings');
-    const settings = response.data;
+    // Only load admin defaults if user is actually an admin
+    // Non-admin users don't need admin-configured defaults
+    if (!checkIsAdminFromToken()) {
+      ADMIN_DEFAULT_PREFERENCES = {};
+      return;
+    }
+    
+    // Use the cached getSettings function to prevent duplicate calls with SettingsContext
+    const { getSettings } = await import('../api');
+    const settings = await getSettings();
     
     // Parse admin defaults from settings (if they exist)
     ADMIN_DEFAULT_PREFERENCES = {};
@@ -749,6 +770,46 @@ export const updateActivityFeedPreference = async <K extends keyof UserPreferenc
   }
   
   await updateUserSetting(dbKey, dbValue);
+};
+
+// Helper function to update appSettings specific settings
+export const updateAppSettingsPreference = async <K extends keyof UserPreferences['appSettings']>(
+  key: K,
+  value: UserPreferences['appSettings'][K],
+  userId: string | null = null
+): Promise<void> => {
+  const currentPrefs = loadUserPreferences(userId);
+  const updatedPrefs = {
+    ...currentPrefs,
+    appSettings: {
+      ...currentPrefs.appSettings,
+      [key]: value
+    }
+  };
+  
+  // Update cookie immediately (synchronous, fast)
+  const cookieName = getUserCookieName(userId);
+  const prefsJson = JSON.stringify(updatedPrefs);
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + COOKIE_EXPIRY_DAYS);
+  document.cookie = `${cookieName}=${encodeURIComponent(prefsJson)}; expires=${expiryDate.toUTCString()}; path=/; SameSite=Strict`;
+  
+  // Map appSettings keys to database setting keys
+  const dbKeyMap: Record<string, string> = {
+    'taskDeleteConfirm': 'taskDeleteConfirm',
+    'showActivityFeed': 'showActivityFeed',
+    'autoRefreshEnabled': 'autoRefreshEnabled',
+    'showSystemPanel': 'showSystemPanel',
+  };
+  
+  const dbKey = dbKeyMap[key];
+  if (!dbKey) {
+    console.error(`Unknown appSettings preference key: ${String(key)}`);
+    return;
+  }
+  
+  // Save ONLY this specific setting to database (single API call instead of 30+)
+  await updateUserSetting(dbKey, value);
 };
 
 // Get effective task delete confirmation setting (user preference with system fallback)
