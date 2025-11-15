@@ -468,7 +468,7 @@ const createTables = (db) => {
     CREATE INDEX IF NOT EXISTS idx_tasks_boardId ON tasks(boardId);
     CREATE INDEX IF NOT EXISTS idx_tasks_memberId ON tasks(memberId);
     CREATE INDEX IF NOT EXISTS idx_tasks_requesterId ON tasks(requesterId);
-    CREATE INDEX IF NOT EXISTS idx_tasks_priority_id ON tasks(priority_id);
+    -- Note: idx_tasks_priority_id is created by migration 10 (add_priority_id_to_tasks)
     
     -- columns table (used in WHERE clauses)
     CREATE INDEX IF NOT EXISTS idx_columns_boardId ON columns(boardId);
