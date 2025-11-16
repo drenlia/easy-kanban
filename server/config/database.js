@@ -601,6 +601,7 @@ const initializeDefaultData = (db) => {
       ['DEFAULT_TASK_PREFIX', 'TASK-'], // Default task prefix
       ['DEFAULT_FINISHED_COLUMN_NAMES', '["Done","Terminé","Completed","Complété", "Finished","Fini"]'], // Default finished column names
       ['APP_LANGUAGE', 'EN'], // Default application language (EN or FR)
+      ['SITE_OPENS_NEW_TAB', 'true'], // Default to opening links in new tab (matches current behavior)
       ['HIGHLIGHT_OVERDUE_TASKS', 'true'], // Highlight overdue tasks in light red
       ['STORAGE_LIMIT', '5368709120'], // 5GB storage limit in bytes (5 * 1024^3)
       ['STORAGE_USED', '0'], // Current storage usage in bytes
