@@ -287,17 +287,14 @@ export const uploadFile = async (file: File) => {
   const formData = new FormData();
   formData.append('file', file);
 
+  // Don't set Content-Type manually - browser will set it with boundary for FormData
   const { data } = await api.post<{
     id: string;
     name: string;
     url: string;
     type: string;
     size: number;
-  }>('/upload', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  }>('/upload', formData);
   return data;
 };
 
@@ -821,14 +818,11 @@ export const uploadAvatar = async (file: File) => {
   const formData = new FormData();
   formData.append('avatar', file);
 
+  // Don't set Content-Type manually - browser will set it with boundary for FormData
   const { data } = await api.post<{
     message: string;
     avatarUrl: string;
-  }>('/users/avatar', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  });
+  }>('/users/avatar', formData);
   return data;
 };
 

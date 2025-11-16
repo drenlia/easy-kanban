@@ -1089,12 +1089,56 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     fetchAttachments();
   }, [editedTask.comments]);
 
+  // Handle saving pending attachments using the new utility
+  // Defined early so it can be used in useEffect dependency array
+  const savePendingAttachments = useCallback(async () => {
+    if (pendingAttachments.length > 0) {
+      try {
+        console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+        
+        // Use the new upload utility
+        const uploadedAttachments = await uploadTaskFiles(task.id, {
+          currentTaskAttachments: taskAttachments,
+          currentDescription: editedTask.description,
+          onTaskAttachmentsUpdate: (updatedAttachments) => {
+            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+            setTaskAttachments(updatedAttachments);
+            
+            // Update parent component immediately with new attachment count
+            const updatedTask = { 
+              ...editedTask, 
+              attachmentCount: updatedAttachments.length 
+            };
+            setEditedTask(updatedTask);
+            onUpdate(updatedTask);
+          },
+          onDescriptionUpdate: (updatedDescription) => {
+            console.log('🔄 Updating task description with server URLs');
+            const updatedTask = { ...editedTask, description: updatedDescription };
+            setEditedTask(updatedTask);
+            saveImmediately(updatedTask);
+          },
+          onSuccess: (attachments) => {
+            console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          },
+          onError: (error) => {
+            console.error('❌ Failed to upload task attachments:', error);
+          }
+        });
+        
+        console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+      } catch (error) {
+        console.error('❌ Failed to save task attachments:', error);
+      }
+    }
+  }, [pendingAttachments, task.id, taskAttachments, editedTask, uploadTaskFiles, onUpdate, saveImmediately]);
+
   // Save attachments immediately to prevent blob URL issues
   React.useEffect(() => {
     if (pendingAttachments.length > 0) {
       savePendingAttachments();
     }
-  }, [pendingAttachments]);
+  }, [pendingAttachments, savePendingAttachments]);
 
   // Update editedTask with current attachment count whenever taskAttachments changes
   React.useEffect(() => {
@@ -1108,8 +1152,8 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
 
   // Handle attachment changes from TextEditor
   const handleAttachmentsChange = (attachments: File[]) => {
-    // Clear existing files and add new ones
-    clearFiles();
+    // TextEditor passes only NEW attachments, so just add them
+    // Don't clear first - that would cause a race condition with the useEffect
     addFiles(attachments);
   };
 
@@ -1189,49 +1233,6 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     setTimeout(() => {
       recentlyDeletedAttachmentsRef.current.delete(filename);
     }, 5000); // 5 seconds should be enough for any polling cycles
-  };
-
-  // Handle saving pending attachments using the new utility
-  const savePendingAttachments = async () => {
-    if (pendingAttachments.length > 0) {
-      try {
-        console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
-        
-        // Use the new upload utility
-        const uploadedAttachments = await uploadTaskFiles(task.id, {
-          currentTaskAttachments: taskAttachments,
-          currentDescription: editedTask.description,
-          onTaskAttachmentsUpdate: (updatedAttachments) => {
-            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
-            setTaskAttachments(updatedAttachments);
-            
-            // Update parent component immediately with new attachment count
-            const updatedTask = { 
-              ...editedTask, 
-              attachmentCount: updatedAttachments.length 
-            };
-            setEditedTask(updatedTask);
-            onUpdate(updatedTask);
-          },
-          onDescriptionUpdate: (updatedDescription) => {
-            console.log('🔄 Updating task description with server URLs');
-            const updatedTask = { ...editedTask, description: updatedDescription };
-            setEditedTask(updatedTask);
-            saveImmediately(updatedTask);
-          },
-          onSuccess: (attachments) => {
-            console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
-          },
-          onError: (error) => {
-            console.error('❌ Failed to upload task attachments:', error);
-          }
-        });
-        
-        console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
-      } catch (error) {
-        console.error('❌ Failed to save task attachments:', error);
-      }
-    }
   };
 
   // Only show saved attachments - no pending ones to avoid state sync issues

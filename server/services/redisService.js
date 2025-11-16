@@ -59,16 +59,33 @@ class RedisService {
     }
     
     try {
-      await this.subscriber.subscribe(channel, (message) => {
+      // v5: Subscribe with callback (v5 still supports callback pattern)
+      // The callback receives (message, channelName) parameters
+      await this.subscriber.subscribe(channel, (message, channelName) => {
         try {
           const data = JSON.parse(message);
           callback(data);
         } catch (parseError) {
-          console.error(`❌ Failed to parse message from ${channel}:`, parseError);
+          console.error(`❌ Failed to parse message from ${channelName || channel}:`, parseError);
         }
       });
+      
+      console.log(`📡 Subscribed to ${channel}`);
     } catch (error) {
       console.error(`❌ Redis subscribe failed for ${channel}:`, error);
+    }
+  }
+
+  async unsubscribe(channel) {
+    if (!this.isConnected) {
+      return;
+    }
+    
+    try {
+      await this.subscriber.unsubscribe(channel);
+      console.log(`📡 Unsubscribed from ${channel}`);
+    } catch (error) {
+      console.error(`❌ Redis unsubscribe failed for ${channel}:`, error);
     }
   }
 

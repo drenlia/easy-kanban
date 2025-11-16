@@ -45,21 +45,24 @@ import columnsRouter from './routes/columns.js';
 import authRouter from './routes/auth.js';
 import passwordResetRouter from './routes/password-reset.js';
 import viewsRouter from './routes/views.js';
-import adminPortalRouter from './routes/adminPortal.js';
-import reportsRouter from './routes/reports.js';
-import sprintsRouter from './routes/sprints.js';
+// Lazy loaded routes (loaded on first request to reduce startup memory)
+// import adminPortalRouter from './routes/adminPortal.js';
+// import reportsRouter from './routes/reports.js';
+// Lazy loaded admin/debug routes (loaded on first request to reduce startup memory)
+// import sprintsRouter from './routes/sprints.js';
 import commentsRouter from './routes/comments.js';
 import usersRouter from './routes/users.js';
 import filesRouter from './routes/files.js';
 import uploadRouter from './routes/upload.js';
-import debugRouter from './routes/debug.js';
+// import debugRouter from './routes/debug.js';
 import healthRouter from './routes/health.js';
-import adminUsersRouter from './routes/adminUsers.js';
-import tagsRouter from './routes/tags.js';
-import prioritiesRouter from './routes/priorities.js';
+// import adminUsersRouter from './routes/adminUsers.js';
+// Lazy loaded routes (loaded on first request to reduce startup memory)
+// import tagsRouter from './routes/tags.js';
+// import prioritiesRouter from './routes/priorities.js';
 import settingsRouter from './routes/settings.js';
-import adminSystemRouter from './routes/adminSystem.js';
-import adminNotificationQueueRouter from './routes/adminNotificationQueue.js';
+// import adminSystemRouter from './routes/adminSystem.js';
+// import adminNotificationQueueRouter from './routes/adminNotificationQueue.js';
 import taskRelationsRouter from './routes/taskRelations.js';
 import activityRouter from './routes/activity.js';
 
@@ -187,8 +190,11 @@ app.use((req, res, next) => {
 //   allowedHeaders: ['Content-Type', 'Authorization'],
 //   optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 // }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+// Body parser limits (for JSON/URL-encoded, not multipart/form-data)
+// Note: multipart/form-data is handled by Multer, which has its own limits
+// For larger uploads, also configure nginx: client_max_body_size 100m;
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 // Add instance status middleware
 app.use(checkInstanceStatus(db));
@@ -209,6 +215,58 @@ app.use(checkInstanceStatus(db));
 // API ROUTES
 // ================================
 
+// Lazy loading helper for routes (reduces startup memory)
+const lazyRouteLoader = (modulePath) => {
+  let router = null;
+  let loadingPromise = null;
+  
+  return async (req, res, next) => {
+    try {
+      // If router is already loaded, use it immediately
+      if (router) {
+        return router(req, res, next);
+      }
+      
+      // If currently loading, wait for it
+      if (loadingPromise) {
+        await loadingPromise;
+        if (router) {
+          return router(req, res, next);
+        }
+        // If loading failed, router will be null, fall through to error
+      }
+      
+      // Start loading the module
+      loadingPromise = (async () => {
+        try {
+          console.log(`📦 Lazy loading route module: ${modulePath}`);
+          const module = await import(modulePath);
+          router = module.default;
+          console.log(`✅ Route module loaded: ${modulePath}`);
+        } catch (error) {
+          console.error(`❌ Failed to load route module ${modulePath}:`, error);
+          throw error; // Re-throw to be caught by outer try-catch
+        }
+      })();
+      
+      await loadingPromise;
+      
+      // Router should be loaded now, use it
+      if (router) {
+        return router(req, res, next);
+      } else {
+        throw new Error('Router is null after loading');
+      }
+    } catch (error) {
+      console.error(`❌ Error in lazy route loader for ${modulePath}:`, error);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: 'Route module failed to load', details: error.message });
+      }
+      return next(error);
+    }
+  };
+};
+
 // Use route modules
 app.use('/api/members', membersRouter);
 app.use('/api/boards', boardsRouter);
@@ -217,32 +275,35 @@ app.use('/api/tasks', authenticateToken, tasksRouter);
 app.use('/api/views', viewsRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/password-reset', passwordResetRouter);
-app.use('/api/reports', reportsRouter);
-app.use('/api/admin/sprints', sprintsRouter);
+// Lazy loaded routes (loaded on first request to reduce startup memory)
+app.use('/api/reports', lazyRouteLoader('./routes/reports.js'));
+app.use('/api/admin/sprints', lazyRouteLoader('./routes/sprints.js'));
 app.use('/api/comments', commentsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/upload', uploadRouter); // File upload endpoint (for backward compatibility)
 app.use('/api/files', filesRouter);
 app.use('/api/attachments', filesRouter);
-app.use('/api/debug', debugRouter);
+app.use('/api/debug', lazyRouteLoader('./routes/debug.js'));
 app.use('/health', healthRouter);
-app.use('/api/admin/users', adminUsersRouter);
-app.use('/api/tags', tagsRouter);
-app.use('/api/admin/tags', tagsRouter);
-app.use('/api/admin/priorities', prioritiesRouter);
-app.use('/api/priorities', prioritiesRouter);
+app.use('/api/admin/users', lazyRouteLoader('./routes/adminUsers.js'));
+// Lazy loaded routes (loaded on first request to reduce startup memory)
+app.use('/api/tags', lazyRouteLoader('./routes/tags.js'));
+app.use('/api/admin/tags', lazyRouteLoader('./routes/tags.js'));
+app.use('/api/admin/priorities', lazyRouteLoader('./routes/priorities.js'));
+app.use('/api/priorities', lazyRouteLoader('./routes/priorities.js'));
+// Settings endpoints (eager loaded - required immediately for frontend)
 app.use('/api/settings', settingsRouter);
 app.use('/api/admin/settings', settingsRouter);
 app.use('/api/storage', settingsRouter);
-app.use('/api/admin', adminSystemRouter);
-app.use('/api/admin/notification-queue', adminNotificationQueueRouter);
+app.use('/api/admin', lazyRouteLoader('./routes/adminSystem.js'));
+app.use('/api/admin/notification-queue', lazyRouteLoader('./routes/adminNotificationQueue.js'));
 app.use('/api/tasks', taskRelationsRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
 app.use('/api/user', usersRouter); // User settings routes
 
-// Admin Portal API routes (external access using INSTANCE_TOKEN)
-app.use('/api/admin-portal', adminPortalRouter);
+// Admin Portal API routes (external access using INSTANCE_TOKEN) - Lazy loaded
+app.use('/api/admin-portal', lazyRouteLoader('./routes/adminPortal.js'));
 
 // ================================
 // ADDITIONAL ENDPOINTS
@@ -302,7 +363,8 @@ app.get('/api/version', (req, res) => {
 // ================================
 
 // Serve the React app for all non-API routes
-app.get('*', (req, res) => {
+// Express 5: catch-all route requires named wildcard parameter
+app.get('/*splat', (req, res) => {
   // Skip API routes
   if (req.path.startsWith('/api/') || req.path.startsWith('/attachments/') || req.path.startsWith('/avatars/')) {
     return res.status(404).json({ error: 'Not Found' });
@@ -360,11 +422,14 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
   
-  // Initialize storage usage tracking
-  initializeStorageUsage(db);
-  
-  // Initialize real-time services
+  // Initialize real-time services immediately (needed for WebSocket connections on login)
   await initializeServices();
+  
+  // Defer storage usage calculation to reduce startup memory
+  // Initialize after 30 seconds to allow server to stabilize
+  setTimeout(() => {
+    initializeStorageUsage(db);
+  }, 30000);
 });
 
 // Graceful shutdown handler
