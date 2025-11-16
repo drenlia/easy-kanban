@@ -35,12 +35,12 @@ ENV GIT_COMMIT=${GIT_COMMIT}
 ENV GIT_BRANCH=${GIT_BRANCH}
 ENV BUILD_TIME=${BUILD_TIME}
 ENV BUILD_NUMBER=${BUILD_NUMBER}
+ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install build dependencies and runtime tools
-# Note: We keep python3/make/g++ for better-sqlite3 compilation
-RUN apk add --no-cache python3 make g++ dumb-init curl
+# Install only runtime dependencies (no build tools needed - better-sqlite3 uses pre-built binaries)
+RUN apk add --no-cache dumb-init curl
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -49,13 +49,15 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies for Vite)
-RUN npm ci && npm cache clean --force
+# Install only production dependencies (excludes dev dependencies like vite, typescript, etc.)
+RUN npm ci --production && npm cache clean --force
 
-# Copy source code (no need for built frontend)
-COPY . .
+# Copy source code (server code only - frontend is built)
+COPY server ./server
+COPY scripts ./scripts
 
-# Note: We exclude node_modules via .dockerignore
+# Copy built frontend from builder stage
+COPY --from=frontend-builder /app/dist ./dist
 
 # Generate version.json at build time using build args
 RUN node scripts/generate-version.js
@@ -67,15 +69,15 @@ RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
 # Switch to non-root user
 USER nextjs
 
-# Expose both frontend and backend ports
-EXPOSE 3010 3222
+# Expose backend port (frontend is served by Express)
+EXPOSE 3222
 
-# Health check (check frontend port since that's what users access)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3010/ || exit 1
+# Health check (check backend port - Express serves both API and frontend)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:3222/health || exit 1
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start both frontend and backend (like development)
-CMD ["npm", "run", "dev"]
+# Start production server (serves static files from dist)
+CMD ["npm", "start"]

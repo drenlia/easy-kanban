@@ -55,7 +55,7 @@ import usersRouter from './routes/users.js';
 import filesRouter from './routes/files.js';
 import uploadRouter from './routes/upload.js';
 // import debugRouter from './routes/debug.js';
-import healthRouter from './routes/health.js';
+import healthRouter, { markServerReady, readyHandler } from './routes/health.js';
 // import adminUsersRouter from './routes/adminUsers.js';
 // Lazy loaded routes (loaded on first request to reduce startup memory)
 // import tagsRouter from './routes/tags.js';
@@ -196,6 +196,18 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
+// Serve static files from dist folder in production (built frontend)
+if (process.env.NODE_ENV === 'production') {
+  const distPath = path.join(__dirname, '../dist');
+  // Serve static assets (JS, CSS, images, etc.)
+  app.use(express.static(distPath, {
+    maxAge: '1y', // Cache static assets for 1 year
+    etag: true,
+    lastModified: true
+  }));
+  console.log(`📦 Serving static files from: ${distPath}`);
+}
+
 // Add instance status middleware
 app.use(checkInstanceStatus(db));
 
@@ -285,6 +297,9 @@ app.use('/api/files', filesRouter);
 app.use('/api/attachments', filesRouter);
 app.use('/api/debug', lazyRouteLoader('./routes/debug.js'));
 app.use('/health', healthRouter);
+// Mount ready endpoint at both /ready and /api/ready for flexibility
+app.get('/ready', readyHandler);
+app.get('/api/ready', readyHandler);
 app.use('/api/admin/users', lazyRouteLoader('./routes/adminUsers.js'));
 // Lazy loaded routes (loaded on first request to reduce startup memory)
 app.use('/api/tags', lazyRouteLoader('./routes/tags.js'));
@@ -419,11 +434,15 @@ async function initializeServices() {
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`✅ Readiness check: http://localhost:${PORT}/ready`);
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
   
   // Initialize real-time services immediately (needed for WebSocket connections on login)
   await initializeServices();
+  
+  // Mark server as ready after services are initialized
+  markServerReady();
   
   // Defer storage usage calculation to reduce startup memory
   // Initialize after 30 seconds to allow server to stabilize

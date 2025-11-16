@@ -604,6 +604,16 @@
   "networkStatusIndicator": {
     "offlineMessage": "Hors ligne - Modifications désactivées"
   },
+  "readiness": {
+    "waitingForServer": "En attente que le serveur soit prêt...",
+    "mayTakeMoment": "Cela peut prendre un moment après un déploiement ou un redémarrage",
+    "checking": "Vérification... {{current}} sur {{total}}",
+    "warning": "Avertissement",
+    "serverTakingLonger": "Le serveur met plus de temps que prévu à démarrer. L'application peut ne pas être entièrement prête.",
+    "unableToVerify": "Impossible de vérifier l'état de préparation du serveur. L'application peut ne pas être entièrement prête.",
+    "timeout": "Le délai d'attente de vérification de l'état de préparation du serveur a expiré. L'application peut ne pas être entièrement prête.",
+    "dismiss": "Fermer"
+  },
   "resetCountdown": {
     "demoResetsIn": "Réinitialisation de la démo dans {{minutes}}m {{seconds}}s"
   },

@@ -604,6 +604,16 @@
   "networkStatusIndicator": {
     "offlineMessage": "Network Offline - Changes disabled"
   },
+  "readiness": {
+    "waitingForServer": "Waiting for server to be ready...",
+    "mayTakeMoment": "This may take a moment after a deployment or restart",
+    "checking": "Checking... {{current}} of {{total}}",
+    "warning": "Warning",
+    "serverTakingLonger": "Server is taking longer than expected to start. The app may not be fully ready.",
+    "unableToVerify": "Unable to verify server readiness. The app may not be fully ready.",
+    "timeout": "Server readiness check timed out. The app may not be fully ready.",
+    "dismiss": "Dismiss"
+  },
   "resetCountdown": {
     "demoResetsIn": "Demo resets in {{minutes}}m {{seconds}}s"
   },

@@ -69,6 +69,8 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
+    // Set flag to indicate readiness check should run after refresh
+    sessionStorage.setItem('pendingVersionRefresh', 'true');
     window.location.reload();
   };
 

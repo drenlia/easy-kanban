@@ -12,6 +12,7 @@ export const checkInstanceStatus = (db) => {
       // Skip status check for essential endpoints that need to work even when suspended
       const skipPaths = [
         '/health',
+        '/ready',
         '/api/health',
         '/api/auth/instance-status',  // Allow status checking
         '/api/user/status',           // Allow user status checking
