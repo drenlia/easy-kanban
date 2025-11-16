@@ -8,7 +8,7 @@
     "dev:external": "concurrently \"vite --host 0.0.0.0 --port 3010 --https\" \"node server/index.js\"",
     "build": "node scripts/generate-version.js && tsc && vite build",
     "start": "node server/index.js",
-    "start:prod": "concurrently \"vite preview --host 0.0.0.0 --port 3010\" \"node server/index.js\"",
+    "start:prod": "concurrently \"./node_modules/.bin/vite preview --host 0.0.0.0 --port 3010\" \"node server/index.js\"",
     "version:generate": "node scripts/generate-version.js",
     "serve": "vite preview --port 3010 --host 0.0.0.0",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
