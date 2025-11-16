@@ -196,8 +196,10 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
-// Serve static files from dist folder in production (built frontend)
-if (process.env.NODE_ENV === 'production') {
+// Note: In production, Vite preview serves static files from dist and proxies API requests
+// Express no longer needs to serve static files when Vite preview is running
+// This code is kept for backward compatibility but won't be used when vite preview is active
+if (process.env.NODE_ENV === 'production' && !process.env.VITE_PREVIEW_RUNNING) {
   const distPath = path.join(__dirname, '../dist');
   // Serve static assets (JS, CSS, images, etc.)
   app.use(express.static(distPath, {

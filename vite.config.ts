@@ -66,4 +66,44 @@ export default defineConfig({
       },
     },
   },
+  // Preview server configuration (for production)
+  preview: {
+    host: '0.0.0.0',
+    port: 3010,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/ready': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/health': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/attachments': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/avatars': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/api/files/attachments': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/api/files/avatars': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+      },
+      '/socket.io': {
+        target: 'http://localhost:3222',
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
+      },
+    },
+  },
 });

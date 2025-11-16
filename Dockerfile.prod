@@ -49,12 +49,19 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies (excludes dev dependencies like vite, typescript, etc.)
-RUN npm ci --production && npm cache clean --force
+# Install production dependencies + vite and plugin-react (needed for vite preview + proxy)
+# Vite preview is needed to serve built frontend and proxy API requests to backend
+# Note: concurrently is already in dependencies, so it will be installed with --production
+RUN npm ci --production && \
+    npm install --save vite@7.2.2 @vitejs/plugin-react@5.1.1 && \
+    npm cache clean --force
 
 # Copy source code (server code only - frontend is built)
 COPY server ./server
 COPY scripts ./scripts
+
+# Copy vite.config.ts (needed for vite preview proxy configuration)
+COPY vite.config.ts ./
 
 # Copy built frontend from builder stage
 COPY --from=frontend-builder /app/dist ./dist
@@ -69,15 +76,16 @@ RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
 # Switch to non-root user
 USER nextjs
 
-# Expose backend port (frontend is served by Express)
-EXPOSE 3222
+# Expose both frontend (Vite preview) and backend (Node/Express) ports
+EXPOSE 3010 3222
 
-# Health check (check backend port - Express serves both API and frontend)
+# Health check (check frontend port - Vite preview serves frontend and proxies to backend)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:3222/health || exit 1
+  CMD curl -f http://localhost:3010/ || exit 1
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start production server (serves static files from dist)
-CMD ["npm", "start"]
+# Start both Vite preview (port 3010) and Node server (port 3222)
+# Vite preview serves the built frontend and proxies API requests to the backend
+CMD ["npm", "run", "start:prod"]
