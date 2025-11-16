@@ -49,12 +49,10 @@ RUN addgroup -g 1001 -S nodejs && \
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies + vite and plugin-react (needed for vite preview + proxy)
+# Install dependencies including dev dependencies (vite is needed for preview server)
 # Vite preview is needed to serve built frontend and proxy API requests to backend
-# Note: concurrently is already in dependencies, so it will be installed with --production
-RUN npm ci --production && \
-    npm install --save vite@7.2.2 @vitejs/plugin-react@5.1.1 && \
-    npm cache clean --force
+# Using --include=dev ensures vite and @vitejs/plugin-react are available
+RUN npm ci --include=dev && npm cache clean --force
 
 # Copy source code (server code only - frontend is built)
 COPY server ./server
@@ -70,8 +68,11 @@ COPY --from=frontend-builder /app/dist ./dist
 RUN node scripts/generate-version.js
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars && \
-    chown -R nextjs:nodejs /app
+RUN mkdir -p /app/server/data /app/server/attachments /app/server/avatars
+
+# Change ownership of all files to nextjs user (including node_modules)
+# This must happen after npm install so vite binary is accessible
+RUN chown -R nextjs:nodejs /app
 
 # Switch to non-root user
 USER nextjs
