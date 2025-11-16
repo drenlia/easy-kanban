@@ -1895,9 +1895,15 @@ export default function ListView({
                         tempDiv.innerHTML = fixedContent;
                         
                         const links = tempDiv.querySelectorAll('a');
+                        const opensInNewTab = siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true';
+                        
                         links.forEach(link => {
-                          link.setAttribute('target', '_blank');
-                          link.setAttribute('rel', 'noopener noreferrer');
+                          if (opensInNewTab) {
+                            link.setAttribute('target', '_blank');
+                            link.setAttribute('rel', 'noopener noreferrer');
+                          } else {
+                            link.removeAttribute('target');
+                          }
                           link.style.color = '#60a5fa';
                           link.style.textDecoration = 'underline';
                           link.style.wordBreak = 'break-all';
@@ -1905,7 +1911,11 @@ export default function ListView({
                           
                           link.addEventListener('click', (e) => {
                             e.stopPropagation();
-                            window.open(link.href, '_blank', 'noopener,noreferrer');
+                            if (opensInNewTab) {
+                              window.open(link.href, '_blank', 'noopener,noreferrer');
+                            } else {
+                              window.location.href = link.href;
+                            }
                           });
                         });
                         

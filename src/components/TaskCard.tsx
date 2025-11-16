@@ -1682,8 +1682,9 @@ const TaskCard = React.memo(function TaskCard({
                       <a
                         key={attachment.id}
                         href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        {...(siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true' 
+                          ? { target: '_blank', rel: 'noopener noreferrer' } 
+                          : {})}
                         onClick={(e) => e.stopPropagation()}
                         className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                       >
@@ -1890,9 +1891,15 @@ const TaskCard = React.memo(function TaskCard({
                           
                           // Find all links and update their attributes for safety
                           const links = tempDiv.querySelectorAll('a');
+                          const opensInNewTab = siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true';
+                          
                           links.forEach(link => {
-                            link.setAttribute('target', '_blank');
-                            link.setAttribute('rel', 'noopener noreferrer');
+                            if (opensInNewTab) {
+                              link.setAttribute('target', '_blank');
+                              link.setAttribute('rel', 'noopener noreferrer');
+                            } else {
+                              link.removeAttribute('target');
+                            }
                             link.style.color = '#60a5fa'; // text-blue-400
                             link.style.textDecoration = 'underline';
                             link.style.wordBreak = 'break-all';
@@ -1901,7 +1908,11 @@ const TaskCard = React.memo(function TaskCard({
                             // Add click handler
                             link.addEventListener('click', (e) => {
                               e.stopPropagation();
-                              window.open(link.href, '_blank', 'noopener,noreferrer');
+                              if (opensInNewTab) {
+                                window.open(link.href, '_blank', 'noopener,noreferrer');
+                              } else {
+                                window.location.href = link.href;
+                              }
                             });
                             
                             link.addEventListener('mousedown', (e) => {

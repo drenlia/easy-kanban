@@ -14,7 +14,7 @@ services:
       # JWT Secret for authentication (will be replaced by build.sh with random value)
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Allowed origins for CORS
-      - ALLOWED_ORIGINS=localhost,127.0.0.1,kanban.drenlia.dev
+      - ALLOWED_ORIGINS=localhost,127.0.0.1,kanban.drenlia.dev,admin.ezkan.cloud
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
       - DEMO_ENABLED=false
       # License settings (PRO PLAN)

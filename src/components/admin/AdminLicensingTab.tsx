@@ -558,7 +558,15 @@ const AdminLicensingTab: React.FC<AdminLicensingTabProps> = ({ currentUser, sett
             
             {hasWebsiteUrl ? (
               <button
-                onClick={() => window.open(websiteUrl, '_blank', 'noopener,noreferrer')}
+                onClick={() => {
+                  // Check SITE_OPENS_NEW_TAB setting (default to true if not set)
+                  const opensInNewTab = settings?.SITE_OPENS_NEW_TAB === undefined || settings?.SITE_OPENS_NEW_TAB === 'true';
+                  if (opensInNewTab) {
+                    window.open(websiteUrl, '_blank', 'noopener,noreferrer');
+                  } else {
+                    window.location.href = websiteUrl;
+                  }
+                }}
                 className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
               >
                 {t('licensing.openCustomerPortal')}

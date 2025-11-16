@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '../i18n/config';
+import { useSettings } from '../contexts/SettingsContext';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -170,12 +171,15 @@ export default function TextEditor({
   imageDisplayMode = 'full'
 }: TextEditorProps) {
   const { t } = useTranslation('common');
+  const { siteSettings } = useSettings();
+  // Default to true if setting is undefined (matches current behavior)
+  const opensInNewTab = siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true';
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkText, setLinkText] = useState('');
   const [hasSelectedText, setHasSelectedText] = useState(false);
   const [isEditingExistingLink, setIsEditingExistingLink] = useState(false);
-  const [openInNewWindow, setOpenInNewWindow] = useState(true);
+  const [openInNewWindow, setOpenInNewWindow] = useState(opensInNewTab);
   const [showHeadingDropdown, setShowHeadingDropdown] = useState(false);
   const [showTableDropdown, setShowTableDropdown] = useState(false);
   // Handle both new files and existing attachments
@@ -196,6 +200,11 @@ export default function TextEditor({
 
   // Track previous existingAttachments to prevent infinite updates
   const prevExistingAttachmentsRef = React.useRef<string>('');
+  
+  // Sync openInNewWindow checkbox with siteSettings when it changes
+  useEffect(() => {
+    setOpenInNewWindow(opensInNewTab);
+  }, [opensInNewTab]);
   
   // Initialize displayed attachments when existingAttachments changes
   React.useEffect(() => {
@@ -334,7 +343,8 @@ export default function TextEditor({
         HTMLAttributes: {
           class: 'text-blue-500 hover:text-blue-700 underline cursor-pointer',
           rel: 'noopener noreferrer',
-          target: '_blank'
+          // target will be set dynamically based on SITE_OPENS_NEW_TAB setting
+          ...(opensInNewTab ? { target: '_blank' } : {})
         },
         protocols: ['http', 'https', 'mailto'],
         validate: href => /^https?:\/\//.test(href)
@@ -656,8 +666,12 @@ export default function TextEditor({
             event.preventDefault();
             event.stopPropagation();
             
-            // Open the link
-            window.open(link.attrs.href, '_blank', 'noopener,noreferrer');
+            // Open the link based on SITE_OPENS_NEW_TAB setting
+            if (opensInNewTab) {
+              window.open(link.attrs.href, '_blank', 'noopener,noreferrer');
+            } else {
+              window.location.href = link.attrs.href;
+            }
             return true; // Handled
           }
         }

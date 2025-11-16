@@ -210,7 +210,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     isMinimized: false,
     position: { x: 10, y: 220 }, // Position on left side with 10px margin
     width: 160, // Default width (now supports 120-600px range)
-    height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400, // Dynamic default height
+    height: 400, // Default height (matches database default)
     lastSeenActivityId: 0,
     clearActivityId: 0,
     filterText: ''

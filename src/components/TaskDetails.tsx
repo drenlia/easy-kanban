@@ -2058,8 +2058,9 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                           <Paperclip size={14} />
                           <a
                             href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            {...(siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true' 
+                              ? { target: '_blank', rel: 'noopener noreferrer' } 
+                              : {})}
                             className="hover:text-blue-500"
                           >
                             {attachment.name}

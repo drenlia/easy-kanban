@@ -975,8 +975,9 @@ export default function TaskPage({
                       <div className="flex items-center space-x-2">
                         <a
                           href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                          {...(siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true' 
+                            ? { target: '_blank', rel: 'noopener noreferrer' } 
+                            : {})}
                           className="text-blue-600 hover:text-blue-800 text-sm"
                         >
                           {t('taskPage.view')}
@@ -1162,8 +1163,9 @@ export default function TaskPage({
                                     <Paperclip size={14} />
                                     <a
                                       href={getAuthenticatedAttachmentUrl(attachment.url) || attachment.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
+                                      {...(siteSettings?.SITE_OPENS_NEW_TAB === undefined || siteSettings?.SITE_OPENS_NEW_TAB === 'true' 
+                                        ? { target: '_blank', rel: 'noopener noreferrer' } 
+                                        : {})}
                                       className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline"
                                     >
                                       {attachment.name}

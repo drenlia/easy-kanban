@@ -1059,6 +1059,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
               onSettingsChange={setEditingSettings}
               onSave={handleSaveSettings}
               onCancel={handleCancelSettings}
+              onAutoSave={handleAutoSaveSetting}
             />
           )}
 

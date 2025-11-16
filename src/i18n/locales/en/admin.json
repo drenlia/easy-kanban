@@ -215,6 +215,10 @@
     "siteUrl": "Site URL",
     "websiteUrl": "Website URL (Customer Portal)",
     "websiteUrlDescription": "URL to your customer portal for subscription management. This value is set during instance purchase and is read-only.",
+    "opensNewTab": "Open Links in New Tab",
+    "opensNewTabDescription": "When enabled, links will open in a new browser tab. When disabled, links will open in the same page. Default: enabled.",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
     "saveChanges": "Save Changes",
     "cancel": "Cancel"
   },

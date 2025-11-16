@@ -216,6 +216,10 @@
     "siteUrl": "URL du site",
     "websiteUrl": "URL du site web (Portail client)",
     "websiteUrlDescription": "URL vers votre portail client pour la gestion des abonnements. Cette valeur est définie lors de l'achat de l'instance et est en lecture seule.",
+    "opensNewTab": "Ouvrir les liens dans un nouvel onglet",
+    "opensNewTabDescription": "Lorsqu'activé, les liens s'ouvriront dans un nouvel onglet du navigateur. Lorsque désactivé, les liens s'ouvriront dans la même page.",
+    "enabled": "Activé",
+    "disabled": "Désactivé",
     "saveChanges": "Enregistrer les modifications",
     "cancel": "Annuler"
   },

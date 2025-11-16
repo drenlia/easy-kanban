@@ -40,7 +40,7 @@ export const useActivityFeed = (currentUserId: string | null): UseActivityFeedRe
   });
   const [activityFeedDimensions, setActivityFeedDimensions] = useState<{ width: number; height: number }>({
     width: 208,
-    height: typeof window !== 'undefined' ? window.innerHeight - 200 : 400
+    height: 400
   });
   const [activities, setActivities] = useState<any[]>([]);
   const [lastSeenActivityId, setLastSeenActivityId] = useState<number>(0);
