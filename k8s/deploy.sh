@@ -6,24 +6,23 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan> <app_version>"
+    echo "Usage: $0 <instance_name> <instance_token> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
     echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
-    echo "  app_version   - Application version (e.g., 1.0.0)"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic 1.0.0"
-    echo "  $0 enterprise kanban-token-67890 pro 1.2.3"
+    echo "  $0 my-company kanban-token-12345 basic"
+    echo "  $0 enterprise kanban-token-67890 pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
     exit 1
 }
 
 # Check parameters
-if [ $# -ne 4 ]; then
+if [ $# -ne 3 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
@@ -32,7 +31,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
 PLAN="$3"
-APP_VERSION="$4"
 NAMESPACE="easy-kanban-${INSTANCE_NAME}"
 DOMAIN="ezkan.cloud"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
@@ -73,7 +71,6 @@ echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
 echo "🔑 Instance Token: ${INSTANCE_TOKEN}"
 echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
-echo "📦 App Version: ${APP_VERSION}"
 echo "👥 User Limit: ${USER_LIMIT}"
 echo "📝 Task Limit: ${TASK_LIMIT}"
 echo "📊 Board Limit: ${BOARD_LIMIT}"
@@ -213,8 +210,8 @@ check_pod_health() {
     sleep 3
     
     while [ $elapsed -lt $timeout ]; do
-        # Check if pod exists
-        local pod_count=$(kubectl get pods -n "${namespace}" -l app=easy-kanban --no-headers 2>/dev/null | wc -l)
+        # Check if pod exists - use deployment name as label selector (deployment name matches the app label)
+        local pod_count=$(kubectl get pods -n "${namespace}" -l app="${deployment_name}" --no-headers 2>/dev/null | wc -l)
         if [ "$pod_count" -eq 0 ]; then
             if [ $elapsed -lt 30 ]; then
                 # Pod might not be created yet, wait a bit more
@@ -231,10 +228,10 @@ check_pod_health() {
             fi
         fi
         
-        # Get pod status
-        local pod_status=$(kubectl get pods -n "${namespace}" -l app=easy-kanban -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
-        local pod_ready=$(kubectl get pods -n "${namespace}" -l app=easy-kanban -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
-        local pod_name=$(kubectl get pods -n "${namespace}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        # Get pod status - use deployment name as label selector
+        local pod_status=$(kubectl get pods -n "${namespace}" -l app="${deployment_name}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "")
+        local pod_ready=$(kubectl get pods -n "${namespace}" -l app="${deployment_name}" -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "False")
+        local pod_name=$(kubectl get pods -n "${namespace}" -l app="${deployment_name}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
         
         if [ -z "$pod_name" ]; then
             sleep $check_interval
@@ -256,7 +253,7 @@ check_pod_health() {
             fi
             echo ""
             echo "📋 Pod Details:"
-            kubectl get pods -n "${namespace}" -l app=easy-kanban
+            kubectl get pods -n "${namespace}" -l app="${deployment_name}"
             echo ""
             echo "📋 Pod Events:"
             kubectl describe pod "${pod_name}" -n "${namespace}" | grep -A 20 "Events:" || true
@@ -274,7 +271,7 @@ check_pod_health() {
             fi
             echo ""
             echo "📋 Pod Details:"
-            kubectl get pods -n "${namespace}" -l app=easy-kanban
+            kubectl get pods -n "${namespace}" -l app="${deployment_name}"
             echo ""
             echo "📋 Pod Logs (last 50 lines):"
             kubectl logs "${pod_name}" -n "${namespace}" --tail=50 2>&1 || true
@@ -296,8 +293,8 @@ check_pod_health() {
             return 0
         fi
         
-        # Show progress
-        if [ $((elapsed % 15)) -eq 0 ]; then
+        # Show progress every 10 seconds (more frequent updates)
+        if [ $((elapsed % 10)) -eq 0 ]; then
             echo "   ⏳ Waiting for pod to be ready... (${elapsed}s / ${timeout}s)"
             echo "      Current status: ${pod_status}, Ready: ${pod_ready}"
             if [ -n "$waiting_reason" ] && [ "$waiting_reason" != "<no value>" ]; then
@@ -314,7 +311,7 @@ check_pod_health() {
     echo "❌ Error: Pod did not become ready within ${timeout} seconds"
     echo ""
     echo "📋 Pod Status:"
-    kubectl get pods -n "${namespace}" -l app=easy-kanban
+    kubectl get pods -n "${namespace}" -l app="${deployment_name}"
     echo ""
     if [ -n "$pod_name" ]; then
         echo "📋 Pod Details:"
@@ -357,7 +354,7 @@ generate_manifests() {
         -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
         -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
         -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
-        -e "s/APP_VERSION_PLACEHOLDER/${APP_VERSION}/g" \
+        -e "s/APP_VERSION_PLACEHOLDER//g" \
         ${SCRIPT_DIR}/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
     # Generate app deployment
@@ -425,7 +422,12 @@ kubectl apply -f "${TEMP_DIR}/redis-deployment.yaml"
 
 # Wait for Redis to be ready
 echo "⏳ Waiting for Redis to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}"
+if kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}" 2>&1; then
+    echo "✅ Redis is ready"
+else
+    echo "❌ Redis failed to become ready"
+    exit 1
+fi
 
 # Apply ConfigMap
 echo "⚙️  Creating ConfigMap..."
@@ -464,10 +466,10 @@ if ! check_pod_health "easy-kanban-${INSTANCE_NAME}" "${NAMESPACE}"; then
     echo "❌ Deployment failed: Pod did not become healthy"
     echo ""
     echo "💡 Troubleshooting steps:"
-    echo "   1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban"
-    echo "   2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban"
+    echo "   1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
+    echo "   2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
     echo "   3. Check resource constraints: kubectl top nodes"
-    echo "   4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban -o jsonpath='{.items[0].spec.containers[0].image}'"
+    echo "   4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME} -o jsonpath='{.items[0].spec.containers[0].image}'"
     exit 1
 fi
 

@@ -7,17 +7,16 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan> <app_version>"
+    echo "Usage: $0 <instance_name> <instance_token> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
     echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
-    echo "  app_version   - Application version (e.g., 1.0.0)"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic 1.0.0"
-    echo "  $0 enterprise kanban-token-67890 pro 1.2.3"
+    echo "  $0 my-company kanban-token-12345 basic"
+    echo "  $0 enterprise kanban-token-67890 pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
     echo ""
@@ -27,7 +26,7 @@ usage() {
 }
 
 # Check parameters
-if [ $# -ne 4 ]; then
+if [ $# -ne 3 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
@@ -35,17 +34,16 @@ fi
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
 PLAN="$3"
-APP_VERSION="$4"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Run the main deployment script
-echo "🚀 Starting deployment for instance: ${INSTANCE_NAME} (${PLAN} plan) version ${APP_VERSION}"
+echo "🚀 Starting deployment for instance: ${INSTANCE_NAME} (${PLAN} plan)"
 echo ""
 
 # Capture the output and extract the deployment result
-DEPLOY_OUTPUT=$("${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$INSTANCE_TOKEN" "$PLAN" "$APP_VERSION" 2>&1)
+DEPLOY_OUTPUT=$("${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$INSTANCE_TOKEN" "$PLAN" 2>&1)
 DEPLOY_EXIT_CODE=$?
 
 if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
