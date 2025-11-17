@@ -35,10 +35,17 @@ router.use(adminPortalRateLimit);
 router.get('/info', authenticateAdminPortal, (req, res) => {
   try {
     const db = req.app.locals.db;
+    
+    // Read APP_URL from database settings (not modifiable by users, set by frontend on first login)
+    const appUrlSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('APP_URL');
+    
     const instanceInfo = {
       instanceName: process.env.INSTANCE_NAME || 'unknown',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
-      domain: process.env.SITE_URL || 'not-configured',
+      domain: appUrlSetting?.value || 'not-configured',
       version: process.env.APP_VERSION || '1.0.0',
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString()
