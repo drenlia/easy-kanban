@@ -89,6 +89,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
 
-# Start both Vite preview (port 3010) and Node server (port 3222)
+# CRITICAL: Start both Vite preview (port 3010) and Node server (port 3222) concurrently
+# This MUST be "npm run start:prod" NOT "npm start" 
+# "npm start" only starts the Express server (port 3222) without Vite preview (port 3010)
 # Vite preview serves the built frontend and proxies API requests to the backend
+# Without Vite preview, the health check on port 3010 will fail with 502 errors
 CMD ["npm", "run", "start:prod"]
