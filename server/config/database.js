@@ -75,26 +75,47 @@ function createLetterAvatar(letter, userId, role = 'user') {
   }
 }
 
+// Check if multi-tenant mode is enabled
+const isMultiTenant = () => {
+  return process.env.MULTI_TENANT === 'true';
+};
+
 // Database path configuration
-const getDbPath = () => {
-  // In Docker, use the data volume path; otherwise use local path
-  return process.env.DOCKER_ENV === 'true'
-    ? '/app/server/data/kanban.db'
-    : join(dirname(__dirname), 'kanban.db');
+// Supports both single-tenant (Docker) and multi-tenant (Kubernetes) modes
+export const getDbPath = (tenantId = null) => {
+  const basePath = process.env.DOCKER_ENV === 'true'
+    ? '/app/server/data'
+    : join(dirname(__dirname), '..');
+  
+  // Multi-tenant mode: use tenant-specific path
+  if (tenantId && isMultiTenant()) {
+    return join(basePath, 'tenants', tenantId, 'kanban.db');
+  }
+  
+  // Single-tenant mode: backward compatible path
+  return join(basePath, 'kanban.db');
 };
 
 // Initialize database connection
-export const initializeDatabase = () => {
-  const dbPath = getDbPath();
+// Supports both single-tenant and multi-tenant modes
+// tenantId: optional tenant identifier (for multi-tenant mode)
+export const initializeDatabase = (tenantId = null) => {
+  const dbPath = getDbPath(tenantId);
   
   // Ensure the directory exists
   const dbDir = dirname(dbPath);
   if (!fs.existsSync(dbDir)) {
     fs.mkdirSync(dbDir, { recursive: true });
+    if (tenantId) {
+      console.log(`📁 Created tenant directory: ${dbDir}`);
+    }
   }
 
   if (!fs.existsSync(dbPath)) {
     fs.writeFileSync(dbPath, '');
+    if (tenantId) {
+      console.log(`📊 Created tenant database: ${dbPath}`);
+    }
   }
 
   const db = new Database(dbPath);
@@ -164,15 +185,19 @@ export const initializeDatabase = () => {
   }
   
   // Initialize default data and capture version info (must run AFTER migrations)
-  const versionInfo = initializeDefaultData(db);
+  const versionInfo = initializeDefaultData(db, tenantId);
   
   // Return both db and version info for broadcasting
   return { 
     db, 
     appVersion: versionInfo?.appVersion || null,
-    versionChanged: versionInfo?.versionChanged || false
+    versionChanged: versionInfo?.versionChanged || false,
+    tenantId: tenantId || null
   };
 };
+
+// Export utility function for tenant routing
+export { isMultiTenant };
 
 // Create database tables
 const createTables = (db) => {
@@ -533,7 +558,8 @@ const initializeDefaultPriorities = (db) => {
 };
 
 // Initialize default data
-const initializeDefaultData = (db) => {
+// tenantId: optional tenant identifier (for multi-tenant mode)
+const initializeDefaultData = (db, tenantId = null) => {
   // Initialize authentication data if no roles exist
   const rolesCount = db.prepare('SELECT COUNT(*) as count FROM roles').get().count;
   if (rolesCount === 0) {

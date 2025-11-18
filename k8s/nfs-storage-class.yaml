@@ -1,0 +1,10 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: easy-kanban-nfs
+provisioner: example.com/nfs
+parameters:
+  archiveOnDelete: "false"
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+

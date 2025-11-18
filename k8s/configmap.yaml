@@ -33,6 +33,14 @@ data:
   # Application version
   APP_VERSION: "APP_VERSION_PLACEHOLDER"
   
+  # Multi-tenant configuration
+  # Set to "true" for shared pods with multiple tenants, "false" for single-tenant
+  MULTI_TENANT: "false"
+  # Tenant domain for extracting tenant ID from hostname
+  # Example: If TENANT_DOMAIN=ezkan.cloud, then customer1.ezkan.cloud -> tenant ID: customer1
+  # This should match your ingress domain configuration
+  TENANT_DOMAIN: "ezkan.cloud"
+  
   # Email configuration (optional - can be set later)
   # EMAIL_HOST: "smtp.gmail.com"
   # EMAIL_PORT: "587"

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: easy-kanban-shared-storage
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+    storage-type: shared
+spec:
+  capacity:
+    storage: 500Gi  # Adjust based on your needs
+  accessModes:
+    - ReadWriteMany  # Multiple pods can mount simultaneously
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: easy-kanban-nfs
+  nfs:
+    server: nfs-server.easy-kanban.svc.cluster.local  # Service name in namespace
+    path: /exports/easy-kanban
+

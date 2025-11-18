@@ -17,6 +17,11 @@ services:
       - ALLOWED_ORIGINS=mydomainname.tld
       # Enable demo mode to show countdown timer for hourly resets (demo environments only)
       - DEMO_ENABLED=false
+      # Multi-tenant configuration (set to false for single-tenant Docker deployments)
+      - MULTI_TENANT=false
+      # Tenant domain (only used in multi-tenant mode, for extracting tenant ID from hostname)
+      # Example: If TENANT_DOMAIN=ezkan.cloud, then customer1.ezkan.cloud -> tenant ID: customer1
+      - TENANT_DOMAIN=ezkan.cloud
       # Application version (optional, will override database value if set)
       - APP_VERSION=1.0.0
     volumes:
