@@ -42,9 +42,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "🚀 Starting deployment for instance: ${INSTANCE_NAME} (${PLAN} plan)"
 echo ""
 
-# Capture the output and extract the deployment result
-DEPLOY_OUTPUT=$("${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$INSTANCE_TOKEN" "$PLAN" 2>&1)
-DEPLOY_EXIT_CODE=$?
+# Create a temporary file to capture output while streaming in real-time
+TEMP_OUTPUT=$(mktemp)
+trap "rm -f '$TEMP_OUTPUT'" EXIT
+
+# Run deploy.sh, stream output to stdout AND capture to temp file
+"${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$INSTANCE_TOKEN" "$PLAN" 2>&1 | tee "$TEMP_OUTPUT"
+DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
+
+# Read captured output for parsing
+DEPLOY_OUTPUT=$(cat "$TEMP_OUTPUT")
 
 if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
     # Extract the deployment result section

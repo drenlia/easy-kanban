@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: easy-kanban-shared-pvc-data
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+    storage-type: shared
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Gi
+  storageClassName: easy-kanban-nfs
+  volumeName: easy-kanban-shared-storage-data
+

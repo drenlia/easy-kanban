@@ -7,10 +7,11 @@ metadata:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 1  # Single replica required due to SQLite3 database
+  replicas: 1  # Can be scaled for multi-tenant (all pods share NFS storage)
   selector:
     matchLabels:
       app: easy-kanban
+      component: frontend
   template:
     metadata:
       labels:
@@ -22,8 +23,10 @@ spec:
         image: IMAGE_NAME_PLACEHOLDER
         imagePullPolicy: IfNotPresent  # Use local image if available
         ports:
+        - containerPort: 3010
+          name: frontend
         - containerPort: 3222
-          name: http
+          name: backend
         envFrom:
         - configMapRef:
             name: easy-kanban-config
@@ -60,13 +63,13 @@ spec:
       volumes:
       - name: app-data
         persistentVolumeClaim:
-          claimName: easy-kanban-data-pvc
+          claimName: easy-kanban-shared-pvc-data
       - name: app-attachments
         persistentVolumeClaim:
-          claimName: easy-kanban-attachments-pvc
+          claimName: easy-kanban-shared-pvc-attachments
       - name: app-avatars
         persistentVolumeClaim:
-          claimName: easy-kanban-avatars-pvc
+          claimName: easy-kanban-shared-pvc-avatars
       tolerations:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists

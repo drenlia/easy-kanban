@@ -10,6 +10,11 @@ import { getTranslator } from '../utils/i18n.js';
 
 const router = express.Router();
 
+// Helper function to get tenantId from request (for Redis channel isolation)
+const getTenantId = (req) => {
+  return req.tenantId || null;
+};
+
 // Helper function to fetch a task with all relationships (comments, watchers, collaborators, tags, attachmentCount)
 function fetchTaskWithRelationships(db, taskId) {
   const task = wrapQuery(
@@ -536,7 +541,9 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       t('activity.createdTask', { taskTitle: task.title, taskRef, boardTitle }),
       { 
         columnId: task.columnId,
-        boardId: task.boardId 
+        boardId: task.boardId,
+        tenantId: getTenantId(req),
+        db: db
       }
     );
     
@@ -563,7 +570,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       boardId: task.boardId,
       task: taskResponse || task, // Use taskResponse if available, fallback to task
       timestamp: publishTimestamp
-    });
+    }, getTenantId(req));
     
     console.log(`✅ [${publishTimestamp}] task-created published to Redis successfully`);
     
@@ -638,7 +645,9 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
       `created task "${task.title}" at top of column`,
       { 
         columnId: task.columnId,
-        boardId: task.boardId 
+        boardId: task.boardId,
+        tenantId: getTenantId(req),
+        db: db
       }
     );
     
@@ -665,7 +674,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
       boardId: task.boardId,
       task: taskResponse || task, // Use taskResponse if available, fallback to task
       timestamp: publishTimestamp
-    });
+    }, getTenantId(req));
     
     console.log(`✅ [${publishTimestamp}] task-created (at top) published to Redis successfully`);
     
@@ -754,7 +763,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (priorityChanged) {
       const oldPriority = currentPriorityName || 'Unknown';
       const newPriority = priorityName || 'Unknown';
-      changes.push(generateTaskUpdateDetails('priorityId', oldPriority, newPriority));
+      changes.push(generateTaskUpdateDetails('priorityId', oldPriority, newPriority, '', db));
     }
     
     fieldsToTrack.forEach(field => {
@@ -772,7 +781,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
           changes.push(movedTaskText);
         } else {
-          changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field]));
+          changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field], '', db));
         }
       }
     });
@@ -811,7 +820,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
           columnId: task.columnId,
           boardId: task.boardId,
           oldValue,
-          newValue
+          newValue,
+          tenantId: getTenantId(req),
+          db: db
         }
       );
       
@@ -848,7 +859,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       },
       timestamp: new Date().toISOString()
     };
-    await redisService.publish('task-updated', webSocketData);
+    await redisService.publish('task-updated', webSocketData, getTenantId(req));
     
     res.json(taskResponse);
   } catch (error) {
@@ -891,12 +902,27 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const { fileURLToPath } = await import('url');
     const { dirname } = await import('path');
     const __filename = fileURLToPath(import.meta.url);
-    const __dirname = dirname(__filename);
+    // Get tenant-specific storage paths (set by tenant routing middleware)
+    const getStoragePaths = (req) => {
+      if (req.app.locals?.tenantStoragePaths) {
+        return req.app.locals.tenantStoragePaths;
+      }
+      // Fallback to base paths (single-tenant mode)
+      const basePath = process.env.DOCKER_ENV === 'true'
+        ? '/app/server'
+        : dirname(dirname(__filename));
+      return {
+        attachments: path.join(basePath, 'attachments'),
+        avatars: path.join(basePath, 'avatars')
+      };
+    };
+    
+    const storagePaths = getStoragePaths(req);
     
     for (const attachment of attachments) {
-      // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
-      const filename = attachment.url.replace('/attachments/', '');
-      const filePath = path.join(__dirname, '..', 'attachments', filename);
+      // Extract filename from URL (e.g., "/attachments/filename.ext" or "/api/files/attachments/filename.ext" -> "filename.ext")
+      const filename = attachment.url.replace('/attachments/', '').replace('/api/files/attachments/', '');
+      const filePath = path.join(storagePaths.attachments, filename);
       try {
         await fs.promises.unlink(filePath);
         console.log(`✅ Deleted file: ${filename}`);
@@ -907,6 +933,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Delete the task (cascades to attachments and comments)
     wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
+    
+    // Update storage usage after deleting task (which cascades to attachments)
+    // Import updateStorageUsage dynamically to avoid circular dependencies
+    const { updateStorageUsage } = await import('../utils/storageUtils.js');
+    updateStorageUsage(db);
     
     // Renumber remaining tasks in the same column sequentially from 0
     const remainingTasksStmt = db.prepare(`
@@ -932,7 +963,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }),
       {
         columnId: task.columnId,
-        boardId: task.boardId
+        boardId: task.boardId,
+        tenantId: getTenantId(req),
+        db: db
       }
     );
     
@@ -941,7 +974,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       boardId: task.boardId,
       taskId: id,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     
     res.json({ message: 'Task and attachments deleted successfully' });
   } catch (error) {
@@ -1064,7 +1097,9 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
           }),
           {
             columnId: move.columnId,
-            boardId: move.previousBoardId
+            boardId: move.previousBoardId,
+            tenantId: getTenantId(req),
+            db: db
           }
         );
         
@@ -1097,13 +1132,14 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     });
     
     // Publish individual events (WebSocket is fast, the bottleneck was HTTP/DB)
+    const tenantId = getTenantId(req);
     await Promise.all(Array.from(tasksByBoard.entries()).flatMap(([boardId, tasks]) =>
       tasks.map(task =>
         redisService.publish('task-updated', {
           boardId,
           task, // Single task per event (WebSocket handler expects this format)
           timestamp: now
-        })
+        }, tenantId)
       )
     ));
     
@@ -1173,7 +1209,9 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       }),
       {
         columnId: columnId,
-        boardId: currentTask.boardId
+        boardId: currentTask.boardId,
+        tenantId: getTenantId(req),
+        db: db
       }
     );
     
@@ -1203,7 +1241,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
 
     res.json({ message: 'Task reordered successfully' });
   } catch (error) {
@@ -1346,7 +1384,9 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       moveDetails,
       {
         columnId: targetColumn.id,
-        boardId: targetBoardId
+        boardId: targetBoardId,
+        tenantId: getTenantId(req),
+        db: db
       }
     );
     
@@ -1367,6 +1407,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     // Includes complete task data with relationships
+    const tenantId = getTenantId(req);
     await redisService.publish('task-updated', {
       boardId: originalBoardId,
       task: {
@@ -1374,7 +1415,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     
     await redisService.publish('task-updated', {
       boardId: targetBoardId,
@@ -1383,7 +1424,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         updatedBy: userId
       },
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     
     res.json({ 
       success: true, 
@@ -1454,7 +1495,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     
     res.json({ success: true });
   } catch (error) {
@@ -1488,7 +1529,7 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     
     res.json({ success: true });
   } catch (error) {
@@ -1527,7 +1568,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     
     res.json({ success: true });
   } catch (error) {
@@ -1561,7 +1602,7 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
       taskId: taskId,
       memberId: memberId,
       timestamp: new Date().toISOString()
-    });
+    }, getTenantId(req));
     
     res.json({ success: true });
   } catch (error) {
@@ -1706,6 +1747,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
+    const tenantId = getTenantId(req);
     if (sourceTask?.boardId) {
       await redisService.publish('task-relationship-created', {
         boardId: sourceTask.boardId,
@@ -1713,7 +1755,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
         relationship: relationship,
         toTaskId: toTaskId,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     }
     
     if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
@@ -1723,7 +1765,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
         relationship: relationship,
         toTaskId: toTaskId,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     }
     
     res.json({ success: true, message: 'Task relationship created successfully' });
@@ -1775,6 +1817,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
     const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(relationship.to_task_id);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
+    const tenantId = getTenantId(req);
     if (sourceTask?.boardId) {
       await redisService.publish('task-relationship-deleted', {
         boardId: sourceTask.boardId,
@@ -1782,7 +1825,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
         relationship: relationship.relationship,
         toTaskId: relationship.to_task_id,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     }
     
     if (targetTask?.boardId && targetTask.boardId !== sourceTask?.boardId) {
@@ -1792,7 +1835,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
         relationship: relationship.relationship,
         toTaskId: relationship.to_task_id,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     }
     
     res.json({ success: true, message: 'Task relationship deleted successfully' });

@@ -10,6 +10,7 @@ import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -42,10 +43,16 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
       'SELECT'
     ).get('APP_URL');
     
+    // In multi-tenant mode, get tenant ID from hostname
+    const hostname = req.get('host') || req.hostname;
+    const tenantId = req.tenantId || null;
+    
     const instanceInfo = {
-      instanceName: process.env.INSTANCE_NAME || 'unknown',
+      instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
       domain: appUrlSetting?.value || 'not-configured',
+      hostname: hostname,
+      tenantId: tenantId, // Include tenant ID in multi-tenant mode
       version: process.env.APP_VERSION || '1.0.0',
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString()
@@ -448,6 +455,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     `), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated to Redis for admin portal user update');
     await redisService.publish('user-updated', {
       user: {
@@ -462,7 +470,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-updated event:', err);
     });
     
@@ -473,7 +481,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         userId: userId,
         role: role,
         timestamp: new Date().toISOString()
-      }).catch(err => {
+      }, tenantId).catch(err => {
         console.error('Failed to publish user-role-updated event:', err);
       });
     }
@@ -951,10 +959,11 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
     console.log(`✅ Admin portal updated instance status to: ${status}`);
 
     // Publish instance status update to Redis for real-time updates
+    const tenantId = getTenantId(req);
     redisService.publish('instance-status-updated', {
       status,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
 
     res.json({
       success: true,
@@ -1068,6 +1077,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     `), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
     await redisService.publish('user-updated', {
       user: {
@@ -1082,7 +1092,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-updated event:', err);
     });
     
@@ -1091,7 +1101,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       userId: userId,
       role: role,
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-role-updated event:', err);
     });
     
@@ -1165,9 +1175,32 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const siteNameSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
     const siteName = siteNameSetting?.value || 'Easy Kanban';
     
-    // Generate invitation URL using instance-specific hostname
-    const instanceName = process.env.INSTANCE_NAME;
-    const baseUrl = process.env.BASE_URL || `https://${instanceName}.ezkan.cloud`;
+    // Generate invitation URL using tenant-specific URL
+    // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
+    const appUrlSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
+    let baseUrl = process.env.BASE_URL;
+    
+    if (!baseUrl) {
+      if (appUrlSetting?.value) {
+        // Use APP_URL from database (most reliable - tenant-specific)
+        baseUrl = appUrlSetting.value;
+      } else {
+        // Construct from tenantId if available (multi-tenant mode)
+        const tenantId = req.tenantId;
+        if (tenantId) {
+          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          baseUrl = `https://${tenantId}.${domain}`;
+        } else {
+          // Single-tenant fallback
+          const instanceName = process.env.INSTANCE_NAME || 'easy-kanban-app';
+          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          baseUrl = `https://${instanceName}.${domain}`;
+        }
+      }
+    }
+    
+    // Remove trailing slash if present
+    baseUrl = baseUrl.replace(/\/$/, '');
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
     
     // Send invitation email using a fresh notification service instance

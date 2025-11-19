@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: easy-kanban-shared-storage
+  name: easy-kanban-shared-storage-attachments
 spec:
   capacity:
     storage: 500Gi
@@ -11,9 +11,10 @@ spec:
   storageClassName: easy-kanban-nfs
   nfs:
     server: 10.99.114.55
-    path: "/exports"
+    path: "/exports/attachments"
   mountOptions:
     - vers=3
     - nolock
     - hard
     - intr
+

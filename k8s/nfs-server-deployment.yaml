@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: nfs-server
   namespace: easy-kanban
-  labels:
-    app: nfs-server
 spec:
   replicas: 1
   selector:
@@ -15,26 +13,41 @@ spec:
       labels:
         app: nfs-server
     spec:
+      initContainers:
+      - name: create-export-dirs
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          mkdir -p /exports/data /exports/attachments /exports/avatars
+          chmod 777 /exports/data /exports/attachments /exports/avatars
+        volumeMounts:
+        - mountPath: /exports
+          name: nfs-data
       containers:
       - name: nfs-server
-        image: itsthenetwork/nfs-server-alpine:latest
+        image: erichough/nfs-server:latest
+        env:
+        - name: NFS_EXPORT_0
+          value: "/exports/data *(rw,sync,no_subtree_check,no_root_squash,insecure)"
+        - name: NFS_EXPORT_1
+          value: "/exports/attachments *(rw,sync,no_subtree_check,no_root_squash,insecure)"
+        - name: NFS_EXPORT_2
+          value: "/exports/avatars *(rw,sync,no_subtree_check,no_root_squash,insecure)"
         ports:
         - name: nfs
           containerPort: 2049
         - name: mountd
-          containerPort: 20048
+          containerPort: 32767
+        - name: statd
+          containerPort: 32765
         - name: rpcbind
           containerPort: 111
         securityContext:
           privileged: true
         volumeMounts:
-        - name: nfs-data
-          mountPath: /exports
-        env:
-        - name: SHARED_DIRECTORY
-          value: "/exports"
-        - name: PERMITTED
-          value: "*(rw,sync,no_subtree_check,no_root_squash)"
+        - mountPath: /exports
+          name: nfs-data
       volumes:
       - name: nfs-data
         hostPath:
@@ -46,20 +59,35 @@ kind: Service
 metadata:
   name: nfs-server
   namespace: easy-kanban
-  labels:
-    app: nfs-server
 spec:
   ports:
   - name: nfs
     port: 2049
+    protocol: TCP
     targetPort: 2049
   - name: mountd
-    port: 20048
-    targetPort: 20048
+    port: 32767
+    protocol: TCP
+    targetPort: 32767
+  - name: mountd-udp
+    port: 32767
+    protocol: UDP
+    targetPort: 32767
+  - name: statd
+    port: 32765
+    protocol: TCP
+    targetPort: 32765
+  - name: statd-udp
+    port: 32765
+    protocol: UDP
+    targetPort: 32765
   - name: rpcbind
     port: 111
+    protocol: TCP
+    targetPort: 111
+  - name: rpcbind-udp
+    port: 111
+    protocol: UDP
     targetPort: 111
   selector:
     app: nfs-server
-  clusterIP: None  # Headless service for direct pod access
-

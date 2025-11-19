@@ -73,7 +73,7 @@ router.post('/', authenticateToken, async (req, res) => {
         comment.id,
         comment.taskId,
         `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
-        { commentContent: comment.text }
+        { commentContent: comment.text, db: db }
       );
       
       // Log to reporting system
@@ -195,7 +195,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       COMMENT_ACTIONS.UPDATE,
       id,
       originalComment.taskId,
-      `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`
+      `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`,
+      { db: db }
     );
     
     // Get the task's board ID for Redis publishing
@@ -262,11 +263,28 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE commentId = ?');
     const attachments = attachmentsStmt.all(id);
 
+    // Get tenant-specific storage paths (set by tenant routing middleware)
+    const getStoragePaths = (req) => {
+      if (req.app.locals?.tenantStoragePaths) {
+        return req.app.locals.tenantStoragePaths;
+      }
+      // Fallback to base paths (single-tenant mode)
+      const basePath = process.env.DOCKER_ENV === 'true'
+        ? '/app/server'
+        : dirname(__dirname);
+      return {
+        attachments: path.join(basePath, 'attachments'),
+        avatars: path.join(basePath, 'avatars')
+      };
+    };
+    
+    const storagePaths = getStoragePaths(req);
+    
     // Delete the files from disk
     for (const attachment of attachments) {
-      // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
-      const filename = attachment.url.replace('/attachments/', '');
-      const filePath = path.join(__dirname, '..', 'attachments', filename);
+      // Extract filename from URL (e.g., "/attachments/filename.ext" or "/api/files/attachments/filename.ext" -> "filename.ext")
+      const filename = attachment.url.replace('/attachments/', '').replace('/api/files/attachments/', '');
+      const filePath = path.join(storagePaths.attachments, filename);
       try {
         await fs.promises.unlink(filePath);
         console.log(`✅ Deleted file: ${filename}`);
@@ -278,6 +296,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Delete the comment (cascades to attachments)
     const stmt = db.prepare('DELETE FROM comments WHERE id = ?');
     stmt.run(id);
+    
+    // Update storage usage after deleting comment (which cascades to attachments)
+    updateStorageUsage(db);
 
     // Log comment deletion activity
     await logCommentActivity(
@@ -285,7 +306,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       COMMENT_ACTIONS.DELETE,
       id,
       commentToDelete.taskId,
-      `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`
+      `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`,
+      { db: db }
     );
 
     // Get the task's board ID for Redis publishing

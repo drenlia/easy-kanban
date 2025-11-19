@@ -8,6 +8,7 @@ metadata:
 spec:
   selector:
     app: easy-kanban
+    component: frontend
   ports:
   - name: frontend
     port: 80
@@ -29,6 +30,7 @@ metadata:
 spec:
   selector:
     app: easy-kanban
+    component: frontend
   ports:
   - name: frontend
     port: 80

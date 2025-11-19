@@ -77,7 +77,7 @@ import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorage
 import { getLicenseManager } from './config/license.js';
 
 // Import tenant routing middleware
-import { tenantRouting, isMultiTenant, closeAllTenantDatabases } from './middleware/tenantRouting.js';
+import { tenantRouting, isMultiTenant, closeAllTenantDatabases, getTenantDatabase } from './middleware/tenantRouting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -87,6 +87,7 @@ let versionInfo = { appVersion: null, versionChanged: false };
 
 // For single-tenant mode (Docker), initialize database immediately
 // For multi-tenant mode (Kubernetes), database will be initialized per-request via middleware
+// Optionally, can pre-initialize a tenant at startup using STARTUP_TENANT_ID env var
 if (!isMultiTenant()) {
   const dbInit = initializeDatabase();
   defaultDb = dbInit.db;
@@ -103,6 +104,22 @@ if (!isMultiTenant()) {
   console.log('✅ Single-tenant mode: Database initialized');
 } else {
   console.log('✅ Multi-tenant mode: Database will be initialized per-request');
+  
+  // Optionally pre-initialize a tenant at startup (useful for first tenant or testing)
+  const startupTenantId = process.env.STARTUP_TENANT_ID;
+  if (startupTenantId) {
+    console.log(`🔧 Pre-initializing tenant database for: ${startupTenantId}`);
+    try {
+      const dbInfo = getTenantDatabase(startupTenantId);
+      console.log(`✅ Tenant '${startupTenantId}' database pre-initialized at startup`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to pre-initialize tenant '${startupTenantId}':`, error.message);
+    }
+  }
+  
+  // Initialize scheduler for multi-tenant mode (will run jobs for all tenants)
+  // Pass null as db parameter - scheduler will use getAllTenantDatabases() instead
+  initializeScheduler(null);
 }
 
 // Clear translation cache on startup to ensure fresh translations are loaded
@@ -443,13 +460,14 @@ async function initializeServices() {
     // Broadcast app version to all connected clients
     // If version changed, broadcast immediately; otherwise wait briefly for WebSocket connections
     const broadcastVersion = () => {
-      // In multi-tenant mode, version updates are per-tenant
-      // For now, we'll only broadcast if we have a default database (single-tenant mode)
+      // In single-tenant mode, broadcast version from default database
       if (defaultDb) {
         const appVersion = getAppVersion(defaultDb);
-        redisService.publish('version-updated', { version: appVersion });
+        redisService.publish('version-updated', { version: appVersion }, null);
         console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
       }
+      // In multi-tenant mode, version updates are broadcast per-tenant when databases are initialized
+      // (handled in tenantRouting middleware)
     };
     
     if (versionInfo.versionChanged && versionInfo.appVersion) {
@@ -481,9 +499,14 @@ server.listen(PORT, '0.0.0.0', async () => {
   
   // Defer storage usage calculation to reduce startup memory
   // Initialize after 30 seconds to allow server to stabilize
-  setTimeout(() => {
-    initializeStorageUsage(db);
-  }, 30000);
+  // Only initialize for single-tenant mode (multi-tenant databases are created per-request)
+  if (!isMultiTenant() && defaultDb) {
+    setTimeout(() => {
+      initializeStorageUsage(defaultDb);
+    }, 30000);
+  } else {
+    console.log('📊 Multi-tenant mode: Storage usage will be calculated per-tenant on first request');
+  }
 });
 
 // Graceful shutdown handler

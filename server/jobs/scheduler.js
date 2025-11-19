@@ -2,10 +2,11 @@ import cron from 'node-cron';
 import { createDailyTaskSnapshots, cleanupOldSnapshots } from './taskSnapshots.js';
 import { checkAllUserAchievements } from './achievements.js';
 import { getNotificationThrottler } from '../services/notificationThrottler.js';
+import { isMultiTenant, getAllTenantDatabases } from '../middleware/tenantRouting.js';
 
 /**
  * Initialize all scheduled background jobs
- * @param {Database} db - SQLite database instance
+ * @param {Database} db - SQLite database instance (for single-tenant mode)
  */
 export const initializeScheduler = (db) => {
   console.log('📅 Initializing background job scheduler...');
@@ -16,7 +17,22 @@ export const initializeScheduler = (db) => {
     cron.schedule('0 0 * * *', async () => {
       console.log('📸 [CRON] Running daily task snapshots job...');
       try {
-        await createDailyTaskSnapshots(db);
+        if (isMultiTenant()) {
+          // Multi-tenant: run for all tenant databases
+          const tenantDbs = getAllTenantDatabases();
+          console.log(`📸 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
+          for (const { tenantId, db: tenantDb } of tenantDbs) {
+            try {
+              await createDailyTaskSnapshots(tenantDb);
+              console.log(`✅ [CRON] Snapshots created for tenant: ${tenantId || 'default'}`);
+            } catch (error) {
+              console.error(`❌ [CRON] Failed for tenant ${tenantId || 'default'}:`, error.message);
+            }
+          }
+        } else {
+          // Single-tenant: run for default database
+          await createDailyTaskSnapshots(db);
+        }
       } catch (error) {
         console.error('❌ [CRON] Daily task snapshots job failed:', error);
       }
@@ -31,7 +47,22 @@ export const initializeScheduler = (db) => {
     cron.schedule('0 * * * *', async () => {
       console.log('🏆 [CRON] Running achievement check job...');
       try {
-        await checkAllUserAchievements(db);
+        if (isMultiTenant()) {
+          // Multi-tenant: run for all tenant databases
+          const tenantDbs = getAllTenantDatabases();
+          console.log(`🏆 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
+          for (const { tenantId, db: tenantDb } of tenantDbs) {
+            try {
+              await checkAllUserAchievements(tenantDb);
+              console.log(`✅ [CRON] Achievements checked for tenant: ${tenantId || 'default'}`);
+            } catch (error) {
+              console.error(`❌ [CRON] Failed for tenant ${tenantId || 'default'}:`, error.message);
+            }
+          }
+        } else {
+          // Single-tenant: run for default database
+          await checkAllUserAchievements(db);
+        }
       } catch (error) {
         console.error('❌ [CRON] Achievement check job failed:', error);
       }
@@ -46,7 +77,22 @@ export const initializeScheduler = (db) => {
     cron.schedule('0 2 1 * *', async () => {
       console.log('🧹 [CRON] Running snapshot cleanup job...');
       try {
-        await cleanupOldSnapshots(db, 730); // Keep 2 years of snapshots
+        if (isMultiTenant()) {
+          // Multi-tenant: run for all tenant databases
+          const tenantDbs = getAllTenantDatabases();
+          console.log(`🧹 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
+          for (const { tenantId, db: tenantDb } of tenantDbs) {
+            try {
+              await cleanupOldSnapshots(tenantDb, 730); // Keep 2 years of snapshots
+              console.log(`✅ [CRON] Cleanup completed for tenant: ${tenantId || 'default'}`);
+            } catch (error) {
+              console.error(`❌ [CRON] Failed for tenant ${tenantId || 'default'}:`, error.message);
+            }
+          }
+        } else {
+          // Single-tenant: run for default database
+          await cleanupOldSnapshots(db, 730); // Keep 2 years of snapshots
+        }
       } catch (error) {
         console.error('❌ [CRON] Snapshot cleanup job failed:', error);
       }

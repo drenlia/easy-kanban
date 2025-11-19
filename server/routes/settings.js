@@ -3,6 +3,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -109,13 +110,14 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     }
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing settings-updated to Redis');
     console.log('📤 Broadcasting value:', { key, value });
     await redisService.publish('settings-updated', {
       key: key,
       value: value,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     console.log('✅ Settings-updated published to Redis');
     
     res.json({ message: 'Setting updated successfully' });
@@ -260,13 +262,14 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     clearSettings();
     
     // Publish to Redis for real-time updates (single message for all changes)
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing mail-settings-cleared to Redis');
     await redisService.publish('settings-updated', {
       key: 'MAIL_SETTINGS_CLEARED',
       value: 'all',
       timestamp: new Date().toISOString(),
       clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']
-    });
+    }, tenantId);
     console.log('✅ Mail settings cleared and published to Redis');
     
     res.json({ 

@@ -96,13 +96,15 @@ echo ""
 
 # Create exports directory structure
 echo "📁 Setting up NFS exports directory structure..."
-NFS_POD=$(kubectl get pod -n easy-kanban -l app=nfs-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-if [ -n "$NFS_POD" ]; then
-    kubectl exec -n easy-kanban "$NFS_POD" -- mkdir -p /exports/easy-kanban
-    kubectl exec -n easy-kanban "$NFS_POD" -- chmod 777 /exports/easy-kanban
-    echo "✅ Directory structure created"
+# Since the NFS server uses hostPath volume, create directory directly on host
+# This avoids exec issues with privileged containers
+if sudo mkdir -p /data/nfs-server/easy-kanban 2>/dev/null; then
+    sudo chmod 777 /data/nfs-server/easy-kanban 2>/dev/null || true
+    echo "✅ Directory structure created on host: /data/nfs-server/easy-kanban"
 else
-    echo "⚠️  Warning: Could not find NFS pod to create directory structure"
+    echo "⚠️  Warning: Could not create directory structure on host"
+    echo "   You may need to create /data/nfs-server/easy-kanban manually"
+    echo "   Or the directory may already exist"
 fi
 echo ""
 

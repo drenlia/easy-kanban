@@ -31,9 +31,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
 INSTANCE_TOKEN="$2"
 PLAN="$3"
-NAMESPACE="easy-kanban-${INSTANCE_NAME}"
+# Use shared namespace for multi-tenancy with NFS
+# All tenants share the same namespace, deployment, and storage
+NAMESPACE="easy-kanban"
 DOMAIN="ezkan.cloud"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
+# Tenant ID is the instance name (extracted from hostname by middleware)
+TENANT_ID="${INSTANCE_NAME}"
 
 # Validate instance name (alphanumeric and hyphens only)
 if [[ ! "$INSTANCE_NAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
@@ -204,9 +208,12 @@ check_pod_health() {
     local elapsed=0
     local check_interval=5
     
+    echo ""
     echo "🔍 Monitoring pod health for ${deployment_name}..."
+    echo "   Timeout: ${timeout}s, Check interval: ${check_interval}s"
     
     # Wait a moment for pod to be created
+    echo "   ⏳ Waiting 3 seconds for pod to be created..."
     sleep 3
     
     while [ $elapsed -lt $timeout ]; do
@@ -293,12 +300,14 @@ check_pod_health() {
             return 0
         fi
         
-        # Show progress every 10 seconds (more frequent updates)
-        if [ $((elapsed % 10)) -eq 0 ]; then
-            echo "   ⏳ Waiting for pod to be ready... (${elapsed}s / ${timeout}s)"
-            echo "      Current status: ${pod_status}, Ready: ${pod_ready}"
+        # Show progress every 5 seconds (more frequent updates)
+        if [ $((elapsed % 5)) -eq 0 ]; then
+            echo "   ⏳ [${elapsed}s/${timeout}s] Status: ${pod_status:-Unknown}, Ready: ${pod_ready:-False}"
             if [ -n "$waiting_reason" ] && [ "$waiting_reason" != "<no value>" ]; then
-                echo "      Waiting reason: ${waiting_reason}"
+                echo "      ⚠️  Waiting reason: ${waiting_reason}"
+            fi
+            if [ -n "$pod_name" ]; then
+                echo "      📦 Pod: ${pod_name}"
             fi
         fi
         
@@ -334,166 +343,165 @@ fi
 TEMP_DIR=$(mktemp -d)
 echo "📁 Using temporary directory: ${TEMP_DIR}"
 
-# Function to generate manifests with instance-specific values
+# Function to generate manifests for shared multi-tenant deployment
 generate_manifests() {
-    echo "🔧 Generating instance-specific manifests..."
+    echo ""
+    echo "🔧 Generating Kubernetes manifests..."
+    echo "   📝 Creating deployment manifests in ${TEMP_DIR}..."
     
     # Generate namespace
     sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/namespace.yaml > "${TEMP_DIR}/namespace.yaml"
     
-    # Generate Redis deployment
+    # Generate Redis deployment (shared)
     sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/redis-deployment.yaml > "${TEMP_DIR}/redis-deployment.yaml"
     
-    # Generate ConfigMap with instance token and plan-specific values
+    # Generate shared ConfigMap for multi-tenant mode
+    # All tenants share the same ConfigMap with MULTI_TENANT=true
+    # Note: License limits (USER_LIMIT, etc.) are NOT in ConfigMap - they're stored per-tenant in database
+    # INSTANCE_NAME is set to generic "easy-kanban-app" (tenant hostnames come from request)
+    # STARTUP_TENANT_ID is set to the current instance's tenant ID to pre-initialize its database
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
         -e "s/INSTANCE_TOKEN_PLACEHOLDER/${INSTANCE_TOKEN}/g" \
         -e "s/JWT_SECRET_PLACEHOLDER/${JWT_SECRET}/g" \
-        -e "s/USER_LIMIT_PLACEHOLDER/${USER_LIMIT}/g" \
-        -e "s/TASK_LIMIT_PLACEHOLDER/${TASK_LIMIT}/g" \
-        -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
         -e "s/APP_VERSION_PLACEHOLDER//g" \
+        -e "s/MULTI_TENANT: \"false\"/MULTI_TENANT: \"true\"/g" \
+        -e "s/STARTUP_TENANT_ID: \"\"/STARTUP_TENANT_ID: \"${TENANT_ID}\"/g" \
         ${SCRIPT_DIR}/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
-    # Generate app deployment
+    # Generate shared app deployment (deployed once for all tenants)
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban-${INSTANCE_NAME}/g" \
+        -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban/g" \
         -e "s/IMAGE_NAME_PLACEHOLDER/easy-kanban:latest/g" \
+        -e "s/name: easy-kanban-config-INSTANCE_NAME_PLACEHOLDER/name: easy-kanban-config/g" \
         ${SCRIPT_DIR}/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
     
-    # Generate services
-    sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/service.yaml > "${TEMP_DIR}/service.yaml"
+    # Generate shared services (one service for all tenants)
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/instance: INSTANCE_NAME_PLACEHOLDER/app: easy-kanban/g" \
+        ${SCRIPT_DIR}/service.yaml > "${TEMP_DIR}/service.yaml"
     
-    # Generate ingress with dynamic hostname
+    # Generate ingress rule for this specific tenant hostname
+    # Each tenant gets their own ingress rule pointing to the shared service
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/easy-kanban.local/${FULL_HOSTNAME}/g" \
+        -e "s/name: easy-kanban-ingress/name: easy-kanban-ingress-${INSTANCE_NAME}/g" \
         ${SCRIPT_DIR}/ingress.yaml > "${TEMP_DIR}/ingress.yaml"
     
-    # Create storage directories
-    echo "📁 Creating storage directories for ${INSTANCE_NAME}..."
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-    
-    # Generate persistent volumes
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        ${SCRIPT_DIR}/persistent-volume-template.yaml > "${TEMP_DIR}/persistent-volume.yaml"
-    
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        ${SCRIPT_DIR}/persistent-volume-attachments-template.yaml > "${TEMP_DIR}/persistent-volume-attachments.yaml"
-    
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        ${SCRIPT_DIR}/persistent-volume-avatars-template.yaml > "${TEMP_DIR}/persistent-volume-avatars.yaml"
-    
-    # Generate persistent volume claims
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim.yaml > "${TEMP_DIR}/persistent-volume-claim.yaml"
-    
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim-attachments.yaml > "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
-    
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim-avatars.yaml > "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
+    echo "   ✅ Manifests generated successfully"
 }
 
 # Generate manifests
 generate_manifests
 
-# Apply the namespace first
-echo "📦 Creating namespace..."
+# Apply the namespace first (shared namespace for multi-tenancy)
+echo ""
+echo "📦 Step 1/7: Applying namespace..."
+echo "   Using shared namespace: ${NAMESPACE}"
 kubectl apply -f "${TEMP_DIR}/namespace.yaml"
+echo "   ✅ Namespace ready"
 
-# Apply Redis deployment
-echo "🗄️  Deploying Redis..."
-kubectl apply -f "${TEMP_DIR}/redis-deployment.yaml"
-
-# Wait for Redis to be ready
-echo "⏳ Waiting for Redis to be ready..."
-if kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}" 2>&1; then
-    echo "✅ Redis is ready"
+# Check if Redis already exists in shared namespace (shared Redis for multi-tenancy)
+echo ""
+echo "📦 Step 2/7: Checking Redis deployment..."
+if kubectl get deployment redis -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🗄️  Redis already exists in shared namespace, reusing it..."
 else
-    echo "❌ Redis failed to become ready"
-    exit 1
+    echo "   🗄️  Deploying Redis (shared for all instances)..."
+    kubectl apply -f "${TEMP_DIR}/redis-deployment.yaml"
+    
+    # Wait for Redis to be ready
+    echo "   ⏳ Waiting for Redis to be ready (timeout: 300s)..."
+    if kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}" 2>&1; then
+        echo "   ✅ Redis is ready"
+    else
+        echo "   ❌ Redis failed to become ready"
+        exit 1
+    fi
 fi
 
-# Apply ConfigMap
-echo "⚙️  Creating ConfigMap..."
-kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+# Apply shared ConfigMap (only if it doesn't exist)
+echo ""
+echo "📦 Step 3/7: Applying ConfigMap..."
+if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
+    echo "   ⚙️  Shared ConfigMap already exists, updating if needed..."
+    kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+else
+    echo "   ⚙️  Creating shared ConfigMap..."
+    kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+fi
+echo "   ✅ ConfigMap ready"
 
-# Create storage class
-echo "📁 Creating storage class..."
-kubectl apply -f "${SCRIPT_DIR}/storage-class.yaml"
-
-# Create persistent volumes
-echo "💾 Creating persistent volumes..."
-kubectl apply -f "${TEMP_DIR}/persistent-volume.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-attachments.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-avatars.yaml"
-
-# Create persistent volume claims
-echo "🔗 Creating persistent volume claims..."
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
-
-# Fix ownership before deploying the application
-echo "🔧 Setting correct ownership for storage directories..."
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-
-# Apply the main application
-echo "🎯 Deploying Easy Kanban application..."
-kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
-
-# Wait for the app to be ready and check pod health
-echo "⏳ Waiting for Easy Kanban to be ready..."
-if ! check_pod_health "easy-kanban-${INSTANCE_NAME}" "${NAMESPACE}"; then
-    echo ""
-    echo "❌ Deployment failed: Pod did not become healthy"
-    echo ""
-    echo "💡 Troubleshooting steps:"
-    echo "   1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
-    echo "   2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
-    echo "   3. Check resource constraints: kubectl top nodes"
-    echo "   4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME} -o jsonpath='{.items[0].spec.containers[0].image}'"
-    exit 1
+# Skip instance-specific storage for multi-tenant mode with shared NFS
+# All instances use the shared NFS PVC (easy-kanban-shared-pvc) which is already created
+echo ""
+echo "📦 Step 4/7: Checking storage..."
+echo "   📦 Using shared NFS storage for multi-tenant deployment"
+echo "   Shared PVC: easy-kanban-shared-pvc (already exists)"
+echo "   Tenant data will be stored at: /app/server/data/tenants/${TENANT_ID}/"
+if kubectl get pvc easy-kanban-shared-pvc -n "${NAMESPACE}" &>/dev/null; then
+    echo "   ✅ Shared PVC exists"
+else
+    echo "   ⚠️  Warning: Shared PVC not found, deployment may fail"
 fi
 
-# Apply services
-echo "🌐 Creating services..."
-kubectl apply -f "${TEMP_DIR}/service.yaml"
+# Deploy shared application (only if not already deployed)
+echo ""
+echo "📦 Step 5/7: Deploying application..."
+if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🎯 Application already deployed (shared for all tenants), skipping..."
+    echo "   To update the application, use: kubectl rollout restart deployment/easy-kanban -n ${NAMESPACE}"
+else
+    echo "   🎯 Deploying shared Easy Kanban application (for all tenants)..."
+    kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
+    echo "   ✅ Deployment manifest applied"
+    
+    # Wait for the app to be ready and check pod health
+    if ! check_pod_health "easy-kanban" "${NAMESPACE}"; then
+        echo ""
+        echo "   ❌ Deployment failed: Pod did not become healthy"
+        echo ""
+        echo "   💡 Troubleshooting steps:"
+        echo "      1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban"
+        echo "      2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban"
+        echo "      3. Check resource constraints: kubectl top nodes"
+        echo "      4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban -o jsonpath='{.items[0].spec.containers[0].image}'"
+        exit 1
+    fi
+    echo "   ✅ Application is ready"
+fi
 
-# Apply ingress
-echo "🔗 Creating ingress..."
+# Apply shared services (only if not already deployed)
+echo ""
+echo "📦 Step 6/7: Applying services..."
+if kubectl get service easy-kanban-service -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🔗 Shared services already exist, skipping..."
+else
+    echo "   🔗 Creating shared services..."
+    kubectl apply -f "${TEMP_DIR}/service.yaml"
+    echo "   ✅ Services created"
+fi
+
+# Apply ingress rule for this tenant (each tenant gets their own ingress rule)
+echo ""
+echo "📦 Step 7/7: Applying ingress..."
+echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
 kubectl apply -f "${TEMP_DIR}/ingress.yaml"
+echo "   ✅ Ingress rule created"
 
+echo ""
 echo "✅ Deployment completed successfully!"
 
 # Extract IP and port information
 echo ""
-echo "🔍 Extracting deployment information..."
+echo "📊 Gathering deployment details..."
 
 # Get the external IP and NodePort information
 EXTERNAL_IP=""
 NODEPORT=""
-INGRESS_IP=$(kubectl get ingress easy-kanban-${INSTANCE_NAME}-ingress -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+INGRESS_IP=$(kubectl get ingress easy-kanban-ingress-${INSTANCE_NAME} -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Always get NodePort information for admin portal (frontend port for web access)
-NODEPORT=$(kubectl get service easy-kanban-${INSTANCE_NAME}-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="frontend")].nodePort}' 2>/dev/null || echo "")
+NODEPORT=$(kubectl get service easy-kanban-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="frontend")].nodePort}' 2>/dev/null || echo "")
 if [ -n "$NODEPORT" ]; then
     # Get node IP for NodePort access
     NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null)

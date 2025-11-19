@@ -12,6 +12,24 @@ import redisService from '../services/redisService.js';
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// Get storage paths (tenant-aware in multi-tenant mode, fallback to base paths)
+const getStoragePaths = (req) => {
+  // Use tenant storage paths if available (set by tenant routing middleware)
+  if (req.app.locals?.tenantStoragePaths) {
+    return req.app.locals.tenantStoragePaths;
+  }
+  
+  // Fallback to base paths (single-tenant mode)
+  const basePath = process.env.DOCKER_ENV === 'true'
+    ? '/app/server'
+    : dirname(__dirname);
+  
+  return {
+    attachments: path.join(basePath, 'attachments'),
+    avatars: path.join(basePath, 'avatars')
+  };
+};
+
 // Helper function to determine content type
 function getContentType(filename) {
   const ext = path.extname(filename).toLowerCase();
@@ -32,7 +50,7 @@ function getContentType(filename) {
   return contentTypes[ext] || 'application/octet-stream';
 }
 
-// Serve attachment files
+// Serve attachment files (tenant-aware in multi-tenant mode)
 router.get('/attachments/:filename', (req, res) => {
   const { filename } = req.params;
   const token = req.query.token;
@@ -45,7 +63,9 @@ router.get('/attachments/:filename', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     // Token is valid, serve the file
     
-    const filePath = path.join(__dirname, '..', 'attachments', filename);
+    // Use tenant-specific path if in multi-tenant mode
+    const storagePaths = getStoragePaths(req);
+    const filePath = path.join(storagePaths.attachments, filename);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
@@ -61,7 +81,7 @@ router.get('/attachments/:filename', (req, res) => {
   }
 });
 
-// Serve avatar files
+// Serve avatar files (tenant-aware in multi-tenant mode)
 router.get('/avatars/:filename', (req, res) => {
   const { filename } = req.params;
   const token = req.query.token;
@@ -74,7 +94,9 @@ router.get('/avatars/:filename', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     // Token is valid, serve the file
     
-    const filePath = path.join(__dirname, '..', 'avatars', filename);
+    // Use tenant-specific path if in multi-tenant mode
+    const storagePaths = getStoragePaths(req);
+    const filePath = path.join(storagePaths.avatars, filename);
     
     if (!fs.existsSync(filePath)) {
       return res.status(404).json({ error: 'File not found' });
@@ -104,8 +126,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     // Extract filename from URL (e.g., "/attachments/filename.ext" -> "filename.ext")
-    const filename = attachment.url.replace('/attachments/', '');
-    const filePath = path.join(__dirname, '..', 'attachments', filename);
+    const filename = attachment.url.replace('/attachments/', '').replace('/api/files/attachments/', '');
+    // Use tenant-specific path if in multi-tenant mode
+    const storagePaths = getStoragePaths(req);
+    const filePath = path.join(storagePaths.attachments, filename);
     
     // Delete the physical file if it exists
     if (fs.existsSync(filePath)) {
@@ -244,21 +268,23 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         };
         
         // Publish task-updated event with complete task data (includes updated attachmentCount)
+        const tenantId = req.tenantId || null;
         await redisService.publish('task-updated', {
           boardId: task.boardId,
           task: taskResponse,
           timestamp: new Date().toISOString()
-        });
+        }, tenantId);
       }
       
       // Also publish attachment-deleted for any handlers that might need it
       console.log('📤 Publishing attachment-deleted to Redis for board:', task.boardId);
+      const tenantId = req.tenantId || null;
       await redisService.publish('attachment-deleted', {
         boardId: task.boardId,
         taskId: attachment.taskId,
         attachmentId: id,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Attachment-deleted published to Redis');
     }
     

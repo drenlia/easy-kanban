@@ -8,6 +8,7 @@
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { initializeDatabase, getDbPath } from '../config/database.js';
+import redisService from '../services/redisService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -113,6 +114,21 @@ const getTenantDatabase = (tenantId) => {
   // Initialize database (creates tables, runs migrations, etc.)
   const dbInfo = initializeDatabaseForTenant(tenantId);
   
+  // If version changed, broadcast to this tenant
+  if (dbInfo.versionChanged && dbInfo.appVersion) {
+    redisService.publish('version-updated', { version: dbInfo.appVersion }, tenantId);
+    console.log(`📦 Broadcasting version update to tenant ${tenantId || 'default'}: ${dbInfo.appVersion}`);
+  }
+  
+  // Initialize storage usage for this tenant (only on first database creation, not on cache hits)
+  // This ensures STORAGE_USED is accurate from the start
+  // Initialize asynchronously to avoid blocking the request
+  import('../utils/storageUtils.js').then(({ initializeStorageUsage }) => {
+    initializeStorageUsage(dbInfo.db);
+  }).catch(err => {
+    console.warn(`⚠️ Failed to initialize storage usage for tenant ${tenantId || 'default'}:`, err.message);
+  });
+  
   // Cache the connection
   dbCache.set(cacheKey, dbInfo);
   
@@ -123,14 +139,36 @@ const getTenantDatabase = (tenantId) => {
 export const tenantRouting = (req, res, next) => {
   try {
     // Extract tenant ID from hostname
-    const hostname = req.get('host') || req.hostname;
-    const tenantId = extractTenantId(hostname);
+    // Check X-Forwarded-Host first (set by ingress/proxy), then Host header, then req.hostname
+    const hostname = req.get('x-forwarded-host') || req.get('host') || req.hostname;
+    let tenantId = extractTenantId(hostname);
+    
+    // Debug logging for tenant extraction
+    if (isMultiTenant()) {
+      console.log(`🔍 Tenant routing - Hostname: ${hostname}, Extracted tenantId: ${tenantId || 'null (single-tenant)'}`);
+    }
+    
+    // For admin portal routes, allow tenant to be specified via query parameter or header
+    // This allows admin portal to access any tenant's database
+    if (req.path.startsWith('/api/admin-portal') && isMultiTenant()) {
+      const queryTenantId = req.query.tenantId || req.headers['x-tenant-id'];
+      if (queryTenantId && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(queryTenantId)) {
+        tenantId = queryTenantId;
+        console.log(`🔑 Admin portal accessing tenant via parameter: ${tenantId}`);
+      }
+    }
     
     // Store tenant ID in request for use in routes
     req.tenantId = tenantId;
     
     // Get or create tenant database
     const dbInfo = getTenantDatabase(tenantId);
+    
+    // Log database path for debugging
+    if (isMultiTenant() && tenantId) {
+      const dbPath = getTenantDbPath(tenantId);
+      console.log(`📊 Using tenant database: ${dbPath}`);
+    }
     
     // Make database available to routes (replaces app.locals.db)
     req.app.locals.db = dbInfo.db;
@@ -187,6 +225,22 @@ export const closeAllTenantDatabases = () => {
   dbCache.clear();
 };
 
+// Get all cached tenant databases (for scheduled jobs in multi-tenant mode)
+export const getAllTenantDatabases = () => {
+  const databases = [];
+  for (const [tenantId, dbInfo] of dbCache.entries()) {
+    try {
+      // Verify database is still open
+      dbInfo.db.prepare('SELECT 1').get();
+      databases.push({ tenantId: tenantId === 'default' ? null : tenantId, db: dbInfo.db });
+    } catch (error) {
+      // Database closed, skip it
+      console.warn(`⚠️ Skipping closed database for tenant: ${tenantId}`);
+    }
+  }
+  return databases;
+};
+
 // Export utility functions
-export { getTenantDbPath, getTenantStoragePaths, isMultiTenant };
+export { getTenantDbPath, getTenantStoragePaths, isMultiTenant, extractTenantId, getTenantDatabase };
 
