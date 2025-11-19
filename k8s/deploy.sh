@@ -423,33 +423,80 @@ fi
 echo ""
 echo "📦 Step 3/7: Applying ConfigMap..."
 if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
-    echo "   ⚙️  Shared ConfigMap already exists, updating if needed..."
-    kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+    echo "   ⚙️  Shared ConfigMap already exists"
+    # Check if STARTUP_TENANT_ID is already set
+    CURRENT_STARTUP_TENANT=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.STARTUP_TENANT_ID}' 2>/dev/null || echo "")
+    CURRENT_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+    
+    # Preserve existing INSTANCE_TOKEN to avoid pod restart
+    # INSTANCE_TOKEN is shared across all tenants in multi-tenant mode
+    if [ -n "$CURRENT_INSTANCE_TOKEN" ]; then
+        echo "   ℹ️  INSTANCE_TOKEN already set (shared for all tenants, preserving to avoid pod restart)"
+        # Update the new ConfigMap to preserve existing INSTANCE_TOKEN
+        sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${CURRENT_INSTANCE_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+    fi
+    
+    if [ -z "$CURRENT_STARTUP_TENANT" ]; then
+        # No STARTUP_TENANT_ID set yet - set it to this tenant (first tenant)
+        echo "   📝 Setting STARTUP_TENANT_ID to '${TENANT_ID}' (first tenant)"
+        kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+        CONFIGMAP_UPDATED=true
+    else
+        # STARTUP_TENANT_ID already set - only update other fields, don't change STARTUP_TENANT_ID
+        # This avoids restarting pods for every new tenant
+        echo "   ℹ️  STARTUP_TENANT_ID already set to '${CURRENT_STARTUP_TENANT}' (preserving to avoid pod restart)"
+        echo "   📝 Updating other ConfigMap fields only..."
+        # Update the new ConfigMap to preserve existing STARTUP_TENANT_ID
+        if [ -n "$CURRENT_STARTUP_TENANT" ]; then
+            sed -i "s/STARTUP_TENANT_ID: \"${TENANT_ID}\"/STARTUP_TENANT_ID: \"${CURRENT_STARTUP_TENANT}\"/g" "${TEMP_DIR}/configmap.yaml"
+        fi
+        kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+        CONFIGMAP_UPDATED=false
+    fi
 else
     echo "   ⚙️  Creating shared ConfigMap..."
     kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+    CONFIGMAP_UPDATED=false
 fi
 echo "   ✅ ConfigMap ready"
 
 # Skip instance-specific storage for multi-tenant mode with shared NFS
-# All instances use the shared NFS PVC (easy-kanban-shared-pvc) which is already created
+# All instances use the shared NFS PVCs (data, attachments, avatars) which are already created
 echo ""
 echo "📦 Step 4/7: Checking storage..."
 echo "   📦 Using shared NFS storage for multi-tenant deployment"
-echo "   Shared PVC: easy-kanban-shared-pvc (already exists)"
+echo "   Shared PVCs: easy-kanban-shared-pvc-data, easy-kanban-shared-pvc-attachments, easy-kanban-shared-pvc-avatars"
 echo "   Tenant data will be stored at: /app/server/data/tenants/${TENANT_ID}/"
-if kubectl get pvc easy-kanban-shared-pvc -n "${NAMESPACE}" &>/dev/null; then
-    echo "   ✅ Shared PVC exists"
+PVC_DATA_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-data -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+PVC_ATTACHMENTS_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-attachments -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+PVC_AVATARS_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-avatars -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+
+if [ "$PVC_DATA_EXISTS" = "yes" ] && [ "$PVC_ATTACHMENTS_EXISTS" = "yes" ] && [ "$PVC_AVATARS_EXISTS" = "yes" ]; then
+    echo "   ✅ All shared PVCs exist"
 else
-    echo "   ⚠️  Warning: Shared PVC not found, deployment may fail"
+    echo "   ⚠️  Warning: Some shared PVCs not found:"
+    [ "$PVC_DATA_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-data missing"
+    [ "$PVC_ATTACHMENTS_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-attachments missing"
+    [ "$PVC_AVATARS_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-avatars missing"
+    echo "      Deployment may fail"
 fi
 
 # Deploy shared application (only if not already deployed)
 echo ""
 echo "📦 Step 5/7: Deploying application..."
 if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
-    echo "   🎯 Application already deployed (shared for all tenants), skipping..."
-    echo "   To update the application, use: kubectl rollout restart deployment/easy-kanban -n ${NAMESPACE}"
+    echo "   🎯 Application already deployed (shared for all tenants)"
+    # Only restart pods if STARTUP_TENANT_ID was actually updated (first tenant only)
+    if [ "$CONFIGMAP_UPDATED" = "true" ]; then
+        echo "   🔄 ConfigMap updated with STARTUP_TENANT_ID='${TENANT_ID}', restarting pods to apply changes..."
+        kubectl rollout restart deployment/easy-kanban -n "${NAMESPACE}"
+        echo "   ⏳ Waiting for pods to restart..."
+        sleep 5
+        # Wait for rollout to complete (but don't fail if it takes a while)
+        kubectl rollout status deployment/easy-kanban -n "${NAMESPACE}" --timeout=120s || echo "   ⚠️  Rollout may still be in progress"
+    else
+        echo "   ℹ️  No pod restart needed - tenant database will be created on first request"
+    fi
 else
     echo "   🎯 Deploying shared Easy Kanban application (for all tenants)..."
     kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
@@ -484,9 +531,16 @@ fi
 # Apply ingress rule for this tenant (each tenant gets their own ingress rule)
 echo ""
 echo "📦 Step 7/7: Applying ingress..."
-echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
-kubectl apply -f "${TEMP_DIR}/ingress.yaml"
-echo "   ✅ Ingress rule created"
+INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
+if kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🌐 Ingress rule '${INGRESS_NAME}' already exists, updating..."
+    kubectl apply -f "${TEMP_DIR}/ingress.yaml"
+    echo "   ✅ Ingress rule updated"
+else
+    echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
+    kubectl apply -f "${TEMP_DIR}/ingress.yaml"
+    echo "   ✅ Ingress rule created"
+fi
 
 echo ""
 echo "✅ Deployment completed successfully!"
@@ -525,6 +579,16 @@ echo ""
 echo "🔗 Ingress:"
 kubectl get ingress -n "${NAMESPACE}"
 
+# Get the actual INSTANCE_TOKEN being used
+# This is the token that's actually in the ConfigMap (which the pod will use)
+# If ConfigMap exists, use its token (may be preserved from previous deployment)
+# Otherwise, use the token passed as parameter (new deployment)
+ACTUAL_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null)
+if [ -z "$ACTUAL_INSTANCE_TOKEN" ]; then
+    # ConfigMap doesn't exist or token not set - use the one passed in
+    ACTUAL_INSTANCE_TOKEN="${INSTANCE_TOKEN}"
+fi
+
 echo ""
 echo "🎉 Easy Kanban instance '${INSTANCE_NAME}' is now running!"
 echo ""
@@ -533,7 +597,7 @@ echo "   Instance Name: ${INSTANCE_NAME}"
 echo "   Namespace: ${NAMESPACE}"
 echo "   Hostname: ${FULL_HOSTNAME}"
 echo "   External Access: ${EXTERNAL_IP}"
-echo "   Instance Token: ${INSTANCE_TOKEN}"
+echo "   Instance Token: ${ACTUAL_INSTANCE_TOKEN}"
 echo ""
 echo "💾 Storage Paths:"
 echo "   Database: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
@@ -564,7 +628,7 @@ echo "NAMESPACE=${NAMESPACE}"
 echo "HOSTNAME=${FULL_HOSTNAME}"
 echo "EXTERNAL_IP=${EXTERNAL_IP}"
 echo "NODEPORT=${NODEPORT}"
-echo "INSTANCE_TOKEN=${INSTANCE_TOKEN}"
+echo "INSTANCE_TOKEN=${ACTUAL_INSTANCE_TOKEN}"
 echo "STORAGE_DATA_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
 echo "STORAGE_ATTACHMENTS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
 echo "STORAGE_AVATARS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
