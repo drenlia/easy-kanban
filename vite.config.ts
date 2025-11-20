@@ -70,37 +70,11 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: 3010,
-    // Extract hostnames from ALLOWED_ORIGINS and TENANT_DOMAIN for multi-tenant support
-    // In multi-tenant mode, we need to allow all subdomains of TENANT_DOMAIN (e.g., *.ezkan.cloud)
-    allowedHosts: (() => {
-      const defaultHosts = ['localhost', '127.0.0.1'];
-      const hosts = new Set(defaultHosts);
-      
-      // If TENANT_DOMAIN is set, allow all subdomains by using 'all' (Vite doesn't support wildcards)
-      // This is safe because nginx reverse proxy validates hostnames before forwarding
-      if (process.env.TENANT_DOMAIN) {
-        // For multi-tenant, we need to allow all subdomains dynamically
-        // Since Vite doesn't support wildcards in allowedHosts, we use 'all'
-        // Security is enforced by nginx which validates hostnames
-        return 'all';
-      }
-      
-      // Extract hostnames from ALLOWED_ORIGINS (fallback for single-tenant)
-      if (process.env.ALLOWED_ORIGINS) {
-        process.env.ALLOWED_ORIGINS.split(',').forEach(origin => {
-          const hostname = origin.trim()
-            .replace(/^https?:\/\//, '')
-            .replace(/:\d+$/, '')
-            .split('/')[0];
-          if (hostname && hostname !== 'true' && hostname !== 'false') {
-            hosts.add(hostname);
-          }
-        });
-        return Array.from(hosts);
-      }
-      
-      return defaultHosts;
-    })(),
+    // Allow all hosts in preview mode (needed for multi-tenant deployments)
+    // In multi-tenant mode, we don't know all hostnames in advance (e.g., daniel.ezkan.cloud, app.ezkan.cloud, etc.)
+    // Security is handled by nginx reverse proxy which validates hostnames before forwarding requests
+    // Use true to disable host checking (allows all hosts)
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3222',
