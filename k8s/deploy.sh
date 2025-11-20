@@ -530,7 +530,7 @@ fi
 
 # Apply ingress rule for this tenant (each tenant gets their own ingress rule)
 echo ""
-echo "📦 Step 7/7: Applying ingress..."
+echo "📦 Step 7/8: Applying ingress..."
 INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
 if kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
     echo "   🌐 Ingress rule '${INGRESS_NAME}' already exists, updating..."
@@ -540,6 +540,90 @@ else
     echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
     kubectl apply -f "${TEMP_DIR}/ingress.yaml"
     echo "   ✅ Ingress rule created"
+fi
+
+# Initialize tenant database by making a request to the app
+# This ensures the database exists before the admin portal tries to connect
+echo ""
+echo "📦 Step 8/8: Initializing tenant database..."
+echo "   🔄 Waiting for pod to be ready..."
+POD_READY=false
+MAX_WAIT=60
+WAIT_COUNT=0
+POD_NAME=""
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$POD_NAME" ]; then
+        POD_STATUS=$(kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        if [ "$POD_STATUS" = "Running" ]; then
+            READY=$(kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+            if [ "$READY" = "true" ]; then
+                POD_READY=true
+                break
+            fi
+        fi
+    fi
+    sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $((WAIT_COUNT % 5)) -eq 0 ]; then
+        echo "   ⏳ Still waiting... (${WAIT_COUNT}s)"
+    fi
+done
+
+if [ "$POD_READY" = "true" ] && [ -n "$POD_NAME" ]; then
+    echo "   ✅ Pod is ready"
+    echo "   🔄 Triggering database initialization for tenant '${TENANT_ID}'..."
+    
+    # Make a request to the health endpoint from within the pod
+    # This will trigger the tenantRouting middleware which creates the database if needed
+    # We use the service ClusterIP and set the Host header to the tenant's hostname
+    SERVICE_URL="http://easy-kanban-service.${NAMESPACE}.svc.cluster.local"
+    
+    # Try using Node.js to make the request (Node.js is definitely available in the pod)
+    INIT_SUCCESS=false
+    INIT_OUTPUT=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- \
+        node -e "
+        const http = require('http');
+        const options = {
+            hostname: 'easy-kanban-service.${NAMESPACE}.svc.cluster.local',
+            port: 80,
+            path: '/health',
+            method: 'GET',
+            headers: {
+                'Host': '${FULL_HOSTNAME}',
+                'X-Forwarded-Host': '${FULL_HOSTNAME}'
+            },
+            timeout: 5000
+        };
+        const req = http.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                if (res.statusCode === 200 || res.statusCode === 503) {
+                    console.log('SUCCESS');
+                } else {
+                    console.log('FAILED: ' + res.statusCode);
+                }
+            });
+        });
+        req.on('error', (e) => { console.log('ERROR: ' + e.message); });
+        req.on('timeout', () => { req.destroy(); console.log('TIMEOUT'); });
+        req.end();
+        " 2>&1)
+    
+    if echo "$INIT_OUTPUT" | grep -q "SUCCESS"; then
+        INIT_SUCCESS=true
+    fi
+    
+    if [ "$INIT_SUCCESS" = "true" ]; then
+        echo "   ✅ Tenant database initialized successfully"
+    else
+        echo "   ⚠️  Could not verify database initialization (will be created on first request)"
+        echo "   ℹ️  Database will be automatically created when admin portal connects"
+    fi
+else
+    echo "   ⚠️  Pod not ready after ${MAX_WAIT}s, database will be created on first request"
+    echo "   ℹ️  Database will be automatically created when admin portal connects"
 fi
 
 echo ""
