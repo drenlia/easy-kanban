@@ -9,6 +9,7 @@ import redisService from '../services/redisService.js';
 import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -163,6 +164,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     `), 'SELECT').get(invitation.user_id);
     
     // Publish to Redis for real-time updates to admin panel
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated to Redis for account activation');
     redisService.publish('user-updated', {
       user: {
@@ -177,7 +179,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-updated event:', err);
     });
     
@@ -251,7 +253,9 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
       .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
     
     // Generate default avatar with matching background color
-    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor);
+    // Use tenant-specific path if in multi-tenant mode
+    const tenantId = getTenantId(req);
+    const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor, tenantId);
     if (avatarPath) {
       wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
@@ -635,6 +639,7 @@ router.get('/google/callback', async (req, res) => {
             console.log('📤 Publishing user-updated and member-updated to Redis for Google OAuth activation');
             
             // Publish user-updated for admin panel
+            const tenantId = getTenantId(req);
             redisService.publish('user-updated', {
               user: {
                 id: user.id,
@@ -648,7 +653,7 @@ router.get('/google/callback', async (req, res) => {
                 joined: user.created_at
               },
               timestamp: new Date().toISOString()
-            }).catch(err => {
+            }, tenantId).catch(err => {
               console.error('Failed to publish user-updated event:', err);
             });
             
@@ -663,7 +668,7 @@ router.get('/google/callback', async (req, res) => {
                   userId: user.id
                 },
                 timestamp: new Date().toISOString()
-              }).catch(err => {
+              }, tenantId).catch(err => {
                 console.error('Failed to publish member-updated event:', err);
               });
             }

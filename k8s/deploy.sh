@@ -6,31 +6,46 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan>"
+    echo "Usage: $0 <instance_name> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
-    echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic"
-    echo "  $0 enterprise kanban-token-67890 pro"
+    echo "  $0 my-company basic"
+    echo "  $0 enterprise pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
+    echo ""
+    echo "Note: Instance token is automatically generated on first deployment"
+    echo "      and preserved for all subsequent deployments."
     exit 1
 }
 
+# Function to generate a secure random token
+generate_instance_token() {
+    # Generate a 64-character hexadecimal token (256 bits of entropy)
+    if command -v openssl &> /dev/null; then
+        openssl rand -hex 32
+    elif command -v shuf &> /dev/null; then
+        # Fallback: use /dev/urandom with shuf
+        cat /dev/urandom | tr -dc 'a-f0-9' | fold -w 64 | head -n 1
+    else
+        # Last resort: use /dev/urandom with od
+        od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+    fi
+}
+
 # Check parameters
-if [ $# -ne 3 ]; then
+if [ $# -ne 2 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
-INSTANCE_TOKEN="$2"
-PLAN="$3"
+PLAN="$2"
 # Use shared namespace for multi-tenancy with NFS
 # All tenants share the same namespace, deployment, and storage
 NAMESPACE="easy-kanban"
@@ -73,7 +88,8 @@ JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
 echo "🚀 Deploying Easy Kanban instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
-echo "🔑 Instance Token: ${INSTANCE_TOKEN}"
+# Instance token will be generated or retrieved from ConfigMap
+# Don't display it here as it may not be set yet
 echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
 echo "👥 User Limit: ${USER_LIMIT}"
 echo "📝 Task Limit: ${TASK_LIMIT}"
@@ -430,10 +446,44 @@ if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
     
     # Preserve existing INSTANCE_TOKEN to avoid pod restart
     # INSTANCE_TOKEN is shared across all tenants in multi-tenant mode
+    # CRITICAL: Token only changes when a new pod is created (first deployment)
+    # If pod already exists, we MUST preserve the existing token
     if [ -n "$CURRENT_INSTANCE_TOKEN" ]; then
         echo "   ℹ️  INSTANCE_TOKEN already set (shared for all tenants, preserving to avoid pod restart)"
         # Update the new ConfigMap to preserve existing INSTANCE_TOKEN
         sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${CURRENT_INSTANCE_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+    else
+        # ConfigMap exists but token is missing - check if pod exists
+        # If pod exists, try to get the token from the pod's environment
+        # If no pod exists, we can generate a new token
+        if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+            echo "   ⚠️  Warning: ConfigMap exists but INSTANCE_TOKEN is missing, and pod already exists"
+            echo "   🔍 Attempting to recover INSTANCE_TOKEN from running pod..."
+            
+            # Try to get token from pod's environment variable
+            POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [ -n "$POD_NAME" ]; then
+                POD_TOKEN=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- printenv INSTANCE_TOKEN 2>/dev/null || echo "")
+                if [ -n "$POD_TOKEN" ]; then
+                    echo "   ✅ Recovered INSTANCE_TOKEN from pod environment"
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${POD_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                else
+                    echo "   ⚠️  Could not recover token from pod - generating new one"
+                    echo "   ⚠️  Note: This will require pod restart and admin portal will need to update token"
+                    GENERATED_TOKEN=$(generate_instance_token)
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                fi
+            else
+                echo "   ⚠️  No running pod found - generating new token"
+                GENERATED_TOKEN=$(generate_instance_token)
+                sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+            fi
+        else
+            echo "   ℹ️  ConfigMap exists but INSTANCE_TOKEN is missing, and no pod exists yet"
+            echo "   🔑 Generating new INSTANCE_TOKEN (new deployment)"
+            GENERATED_TOKEN=$(generate_instance_token)
+            sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+        fi
     fi
     
     if [ -z "$CURRENT_STARTUP_TENANT" ]; then
@@ -455,10 +505,29 @@ if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
     fi
 else
     echo "   ⚙️  Creating shared ConfigMap..."
+    # First deployment: generate a new token
+    echo "   🔑 Generating new INSTANCE_TOKEN (first deployment)"
+    GENERATED_TOKEN=$(generate_instance_token)
+    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
     kubectl apply -f "${TEMP_DIR}/configmap.yaml"
     CONFIGMAP_UPDATED=false
 fi
 echo "   ✅ ConfigMap ready"
+
+# CRITICAL: After ConfigMap is applied, re-read the actual token from ConfigMap
+# This ensures we always output the token that's actually in the ConfigMap (preserved or new)
+# This is the token that pods will use (after restart if needed)
+ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ]; then
+    # ConfigMap has a token - this is the one that's actually configured
+    # Store it for later output (this is the source of truth)
+    ACTUAL_INSTANCE_TOKEN="$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP"
+else
+    # ConfigMap doesn't have a token (shouldn't happen after apply, but fallback)
+    # Generate a token as fallback (though this shouldn't be needed)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap after apply, generating fallback"
+    ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
+fi
 
 # Skip instance-specific storage for multi-tenant mode with shared NFS
 # All instances use the shared NFS PVCs (data, attachments, avatars) which are already created
@@ -664,13 +733,14 @@ echo "🔗 Ingress:"
 kubectl get ingress -n "${NAMESPACE}"
 
 # Get the actual INSTANCE_TOKEN being used
-# This is the token that's actually in the ConfigMap (which the pod will use)
-# If ConfigMap exists, use its token (may be preserved from previous deployment)
-# Otherwise, use the token passed as parameter (new deployment)
+# This should already be set from the ConfigMap read above (after ConfigMap was applied)
+# But re-read it here to be absolutely sure we have the latest value from ConfigMap
+# This is the token that's actually in the ConfigMap (which the pod will use after restart)
 ACTUAL_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null)
 if [ -z "$ACTUAL_INSTANCE_TOKEN" ]; then
-    # ConfigMap doesn't exist or token not set - use the one passed in
-    ACTUAL_INSTANCE_TOKEN="${INSTANCE_TOKEN}"
+    # ConfigMap doesn't exist or token not set - generate one (shouldn't happen after apply)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap, generating fallback"
+    ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
 fi
 
 echo ""

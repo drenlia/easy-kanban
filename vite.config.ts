@@ -78,36 +78,135 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false, // Preserve original Host header for tenant routing
+        headers: {
+          // Preserve the original Host header from the incoming request
+          // This allows tenant routing to extract tenant ID from hostname
+        },
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Preserve X-Forwarded-Host header from ingress (most reliable)
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            
+            if (hostToUse) {
+              // Set both headers to ensure tenant routing works
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+              // Also set X-Original-Host as fallback
+              if (originalHost && originalHost !== hostToUse) {
+                proxyReq.setHeader('X-Original-Host', originalHost);
+              }
+            }
+          });
+        },
       },
       '/ready': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/health': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/attachments': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/avatars': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/api/files/attachments': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/api/files/avatars': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
       '/socket.io': {
         target: 'http://localhost:3222',
-        changeOrigin: true,
+        changeOrigin: false,
         ws: true, // Enable WebSocket proxying
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            const forwardedHost = req.headers['x-forwarded-host'];
+            const originalHost = req.headers['host'];
+            const hostToUse = forwardedHost || originalHost;
+            if (hostToUse) {
+              proxyReq.setHeader('X-Forwarded-Host', hostToUse);
+              proxyReq.setHeader('Host', hostToUse);
+            }
+          });
+        },
       },
     },
   },

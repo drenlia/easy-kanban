@@ -7,18 +7,20 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan>"
+    echo "Usage: $0 <instance_name> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
-    echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic"
-    echo "  $0 enterprise kanban-token-67890 pro"
+    echo "  $0 my-company basic"
+    echo "  $0 enterprise pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
+    echo ""
+    echo "Note: Instance token is automatically generated on first deployment"
+    echo "      and preserved for all subsequent deployments."
     echo ""
     echo "Output:"
     echo "  The script will output JSON with deployment details on success"
@@ -26,14 +28,13 @@ usage() {
 }
 
 # Check parameters
-if [ $# -ne 3 ]; then
+if [ $# -ne 2 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
 
 INSTANCE_NAME="$1"
-INSTANCE_TOKEN="$2"
-PLAN="$3"
+PLAN="$2"
 
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,7 +48,7 @@ TEMP_OUTPUT=$(mktemp)
 trap "rm -f '$TEMP_OUTPUT'" EXIT
 
 # Run deploy.sh, stream output to stdout AND capture to temp file
-"${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$INSTANCE_TOKEN" "$PLAN" 2>&1 | tee "$TEMP_OUTPUT"
+"${SCRIPT_DIR}/deploy.sh" "$INSTANCE_NAME" "$PLAN" 2>&1 | tee "$TEMP_OUTPUT"
 DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
 
 # Read captured output for parsing

@@ -7,8 +7,8 @@ import { wrapQuery } from './queryLogger.js';
  */
 export const getAdminFileSettings = async (db) => {
   try {
-    const settings = await wrapQuery(db, 'SELECT key, value FROM settings WHERE key IN (?, ?, ?)', 
-      ['UPLOAD_MAX_FILESIZE', 'UPLOAD_FILETYPES', 'UPLOAD_LIMITS_ENFORCED']);
+    const settings = wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?)'), 'SELECT')
+      .all('UPLOAD_MAX_FILESIZE', 'UPLOAD_FILETYPES', 'UPLOAD_LIMITS_ENFORCED');
     
     const settingsMap = {};
     settings.forEach(row => {
@@ -24,10 +24,26 @@ export const getAdminFileSettings = async (db) => {
     // Parse allowed file types (default all enabled)
     let allowedTypes = {};
     try {
-      allowedTypes = JSON.parse(settingsMap.UPLOAD_FILETYPES || '{}');
+      const fileTypesJson = settingsMap.UPLOAD_FILETYPES;
+      if (fileTypesJson) {
+        allowedTypes = JSON.parse(fileTypesJson);
+        // If parsed result is empty object {}, use defaults (backward compatibility)
+        if (Object.keys(allowedTypes).length === 0) {
+          console.log('⚠️ UPLOAD_FILETYPES is empty object, using default file types');
+          allowedTypes = null; // Signal to use defaults
+        }
+      } else {
+        // No UPLOAD_FILETYPES in database, use defaults
+        allowedTypes = null;
+      }
     } catch (error) {
       console.error('Error parsing UPLOAD_FILETYPES:', error);
       // Default to all enabled if parsing fails
+      allowedTypes = null; // Signal to use defaults
+    }
+    
+    // Use default file types if not set or empty
+    if (allowedTypes === null) {
       allowedTypes = {
         // Images
         'image/jpeg': true,
@@ -153,10 +169,17 @@ export const validateFile = (file, settings) => {
   }
   
   // Check allowed MIME types (only if limits enforced and admin has configured them)
+  // If allowedTypes is empty {}, allow all types (backward compatibility)
+  // If allowedTypes has keys, only allow types explicitly set to true
   if (Object.keys(allowedTypes).length > 0) {
-    const isAllowed = allowedTypes[file.mimetype] === true;
+    // Normalize MIME type (remove charset, parameters, etc.)
+    // Example: "image/gif; charset=binary" -> "image/gif"
+    const normalizedMimeType = file.mimetype.split(';')[0].trim().toLowerCase();
+    const isAllowed = allowedTypes[normalizedMimeType] === true || allowedTypes[file.mimetype] === true;
     if (!isAllowed) {
-      return { valid: false, error: `File type "${file.mimetype}" is not supported` };
+      // Log the rejection for debugging
+      console.log(`❌ File type "${file.mimetype}" (normalized: "${normalizedMimeType}") not in allowed types. Allowed types:`, Object.keys(allowedTypes).filter(k => allowedTypes[k] === true));
+      return { valid: false, error: `File type "${file.mimetype}" is not supported. Please contact your administrator to enable this file type.` };
     }
   }
   

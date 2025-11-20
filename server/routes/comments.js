@@ -10,6 +10,7 @@ import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import redisService from '../services/redisService.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -73,7 +74,7 @@ router.post('/', authenticateToken, async (req, res) => {
         comment.id,
         comment.taskId,
         `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
-        { commentContent: comment.text, db: db }
+        { commentContent: comment.text, db: db, tenantId: getTenantId(req) }
       );
       
       // Log to reporting system
@@ -142,13 +143,14 @@ router.post('/', authenticateToken, async (req, res) => {
       
       // Publish to Redis for real-time updates
       if (task?.boardId) {
+        const tenantId = getTenantId(req);
         console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
         await redisService.publish('comment-created', {
           boardId: task.boardId,
           taskId: comment.taskId,
           comment: createdComment,
           timestamp: new Date().toISOString()
-        });
+        }, tenantId);
         console.log('✅ Comment-created published to Redis');
       } else {
         console.warn('⚠️ Cannot publish comment-created: task boardId not found for taskId:', comment.taskId);
@@ -196,7 +198,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       id,
       originalComment.taskId,
       `updated comment from: "${originalComment.text.length > 30 ? originalComment.text.substring(0, 30) + '...' : originalComment.text}" to: "${text.length > 30 ? text.substring(0, 30) + '...' : text}"`,
-      { db: db }
+      { db: db, tenantId: getTenantId(req) }
     );
     
     // Get the task's board ID for Redis publishing
@@ -228,13 +230,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-updated to Redis for board:', task.boardId);
       await redisService.publish('comment-updated', {
         boardId: task.boardId,
         taskId: originalComment.taskId,
         comment: updatedComment,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Comment-updated published to Redis');
     }
     
@@ -307,7 +310,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       id,
       commentToDelete.taskId,
       `deleted comment: "${commentToDelete.text.length > 50 ? commentToDelete.text.substring(0, 50) + '...' : commentToDelete.text}"`,
-      { db: db }
+      { db: db, tenantId: getTenantId(req) }
     );
 
     // Get the task's board ID for Redis publishing
@@ -315,13 +318,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-deleted to Redis for board:', task.boardId);
       await redisService.publish('comment-deleted', {
         boardId: task.boardId,
         taskId: commentToDelete.taskId,
         commentId: id,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Comment-deleted published to Redis');
     }
 

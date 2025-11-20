@@ -2,41 +2,58 @@ import express from 'express';
 import crypto from 'crypto';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { avatarUpload, createAttachmentUpload } from '../config/multer.js';
+import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
-// File upload endpoint
-router.post('/upload', authenticateToken, async (req, res) => {
+// Middleware factory: creates multer middleware dynamically based on admin settings
+// This must run BEFORE the route handler so multer can process the multipart stream
+const createUploadMiddleware = async (req, res, next) => {
   try {
     const db = req.app.locals.db;
-    // Create multer instance with admin settings
-    const attachmentUploadWithValidation = await createAttachmentUpload(db);
+    // Create multer instance with admin settings (pre-loaded for synchronous filter)
+    const attachmentUploadWithValidation = await createAttachmentUploadMiddleware(db);
     
-    // Use the validated multer instance
+    // Use multer as middleware - this processes the multipart stream
     attachmentUploadWithValidation.single('file')(req, res, (err) => {
       if (err) {
         console.error('File upload validation error:', err.message);
+        // Handle multer errors (file too large, invalid type, etc.)
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'File too large' });
+        }
         return res.status(400).json({ error: err.message });
       }
-      
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
+      // File processed successfully, continue to route handler
+      next();
+    });
+  } catch (error) {
+    console.error('File upload middleware error:', error);
+    res.status(500).json({ error: 'File upload failed' });
+  }
+};
 
-      // Generate authenticated URL with token
-      const token = req.headers.authorization?.replace('Bearer ', '');
-      const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
-      
-      res.json({
-        id: crypto.randomUUID(),
-        name: req.file.originalname,
-        url: authenticatedUrl,
-        type: req.file.mimetype,
-        size: req.file.size
-      });
+// File upload endpoint
+// Note: Multer middleware must run BEFORE the route handler to process multipart stream
+router.post('/upload', authenticateToken, createUploadMiddleware, async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Generate authenticated URL with token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    const authenticatedUrl = token ? `/api/files/attachments/${req.file.filename}?token=${encodeURIComponent(token)}` : `/attachments/${req.file.filename}`;
+    
+    res.json({
+      id: crypto.randomUUID(),
+      name: req.file.originalname,
+      url: authenticatedUrl,
+      type: req.file.mimetype,
+      size: req.file.size
     });
   } catch (error) {
     console.error('File upload error:', error);
@@ -60,13 +77,14 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
     
     // Publish to Redis for real-time updates
     if (member) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
       await redisService.publish('user-profile-updated', {
         userId: req.user.id,
         memberId: member.id,
         avatarPath: avatarPath,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ User-profile-updated published to Redis');
     }
     
@@ -95,13 +113,14 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     if (member) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
       await redisService.publish('user-profile-updated', {
         userId: req.user.id,
         memberId: member.id,
         avatarPath: null,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ User-profile-updated published to Redis');
     }
     
@@ -149,13 +168,14 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     if (member) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
       await redisService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         displayName: trimmedDisplayName,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ User-profile-updated published to Redis');
     }
     
@@ -299,11 +319,12 @@ router.delete('/account', authenticateToken, (req, res) => {
             updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
             updatedTask.priorityColor = updatedTask.priorityColor || null;
             
+            const tenantId = getTenantId(req);
             redisService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()
-            }).catch(err => {
+            }, tenantId).catch(err => {
               console.error('Failed to publish task-updated event:', err);
             });
           }
@@ -315,6 +336,7 @@ router.delete('/account', authenticateToken, (req, res) => {
     }
     
     // Publish to Redis for real-time updates to admins viewing user list
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);
     
     // Publish member-deleted for task/member updates
@@ -324,7 +346,7 @@ router.delete('/account', authenticateToken, (req, res) => {
       userName: `${user.first_name} ${user.last_name}`,
       userEmail: user.email,
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish member-deleted event:', err);
       // Don't fail the deletion if Redis publish fails
     });
@@ -339,7 +361,7 @@ router.delete('/account', authenticateToken, (req, res) => {
         last_name: user.last_name
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-deleted event:', err);
       // Don't fail the deletion if Redis publish fails
     });

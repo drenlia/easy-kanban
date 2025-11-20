@@ -440,7 +440,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       .run(memberId, memberName, memberColor, userId);
     
     // Generate default avatar SVG for new local users with matching background color
-    const avatarPath = createDefaultAvatar(memberName, userId, memberColor);
+    // Use tenant-specific path if in multi-tenant mode
+    const tenantId = getTenantId(req);
+    const avatarPath = createDefaultAvatar(memberName, userId, memberColor, tenantId);
     if (avatarPath) {
       // Update user with default avatar path
       wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);

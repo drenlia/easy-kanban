@@ -139,8 +139,21 @@ const getTenantDatabase = (tenantId) => {
 export const tenantRouting = (req, res, next) => {
   try {
     // Extract tenant ID from hostname
-    // Check X-Forwarded-Host first (set by ingress/proxy), then Host header, then req.hostname
-    const hostname = req.get('x-forwarded-host') || req.get('host') || req.hostname;
+    // Priority order:
+    // 1. X-Forwarded-Host (set by ingress/nginx) - most reliable for multi-tenant
+    // 2. X-Original-Host (some proxies set this)
+    // 3. Host header
+    // 4. req.hostname
+    const forwardedHost = req.get('x-forwarded-host');
+    const originalHost = req.get('x-original-host');
+    const hostHeader = req.get('host');
+    const hostname = forwardedHost || originalHost || hostHeader || req.hostname;
+    
+    // Debug: log all hostname sources for troubleshooting
+    if (isMultiTenant()) {
+      console.log(`🔍 Tenant routing - X-Forwarded-Host: ${forwardedHost || 'none'}, X-Original-Host: ${originalHost || 'none'}, Host: ${hostHeader || 'none'}, hostname: ${req.hostname || 'none'}, Using: ${hostname}`);
+    }
+    
     let tenantId = extractTenantId(hostname);
     
     // Debug logging for tenant extraction

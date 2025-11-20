@@ -184,7 +184,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     // Debug logging
 
     // Insert activity into database
-    const stmt = db.prepare(`
+    const stmt = database.prepare(`
       INSERT INTO activity (
         userId, roleId, action, taskId, columnId, boardId, tagId, details, 
         created_at, updated_at
@@ -319,7 +319,7 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
     // since they may contain dynamic content that's already formatted
 
     // Insert activity into database
-    const stmt = db.prepare(`
+    const stmt = database.prepare(`
       INSERT INTO activity (
         userId, roleId, action, taskId, columnId, boardId, tagId, details, 
         created_at, updated_at
@@ -337,6 +337,38 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       translatedDetails
     );
 
+    // Publish activity update to Redis for real-time updates
+    try {
+      if (redisService) {
+        // Get the latest activities for the activity feed
+        const latestActivities = database.prepare(`
+          SELECT 
+            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+            datetime(a.created_at) || 'Z' as created_at,
+            a.updated_at,
+            m.name as member_name,
+            r.name as role_name,
+            b.title as board_title,
+            c.title as column_title
+          FROM activity a
+          LEFT JOIN members m ON a.userId = m.user_id
+          LEFT JOIN roles r ON a.roleId = r.id
+          LEFT JOIN boards b ON a.boardId = b.id
+          LEFT JOIN columns c ON a.columnId = c.id
+          ORDER BY a.created_at DESC
+          LIMIT 20
+        `).all();
+
+        // Get tenantId from additionalData if provided (for multi-tenant isolation)
+        const tenantId = additionalData.tenantId || null;
+        await redisService.publish('activity-updated', {
+          activities: latestActivities,
+          timestamp: new Date().toISOString()
+        }, tenantId);
+      }
+    } catch (redisError) {
+      console.warn('Failed to publish activity update to Redis:', redisError.message);
+    }
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -679,6 +711,39 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     );
 
     console.log('Comment activity logged successfully');
+    
+    // Publish activity update to Redis for real-time updates
+    try {
+      if (redisService) {
+        // Get the latest activities for the activity feed
+        const latestActivities = database.prepare(`
+          SELECT 
+            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+            datetime(a.created_at) || 'Z' as created_at,
+            a.updated_at,
+            m.name as member_name,
+            r.name as role_name,
+            b.title as board_title,
+            c.title as column_title
+          FROM activity a
+          LEFT JOIN members m ON a.userId = m.user_id
+          LEFT JOIN roles r ON a.roleId = r.id
+          LEFT JOIN boards b ON a.boardId = b.id
+          LEFT JOIN columns c ON a.columnId = c.id
+          ORDER BY a.created_at DESC
+          LIMIT 20
+        `).all();
+
+        // Get tenantId from additionalData if provided (for multi-tenant isolation)
+        const tenantId = additionalData.tenantId || null;
+        await redisService.publish('activity-updated', {
+          activities: latestActivities,
+          timestamp: new Date().toISOString()
+        }, tenantId);
+      }
+    } catch (redisError) {
+      console.warn('Failed to publish comment activity update to Redis:', redisError.message);
+    }
     
     // Send notification email for comment activities in the background (fire-and-forget)
     // This improves UX by not blocking the API response while emails are being sent

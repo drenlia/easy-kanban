@@ -4,7 +4,7 @@ import fs from 'fs';
 import { mkdir } from 'fs/promises';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { createFileFilter, createMulterLimits } from '../utils/fileValidation.js';
+import { createFileFilter, createMulterLimits, getAdminFileSettings, validateFile } from '../utils/fileValidation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -146,6 +146,7 @@ export const avatarUpload = multer({
 });
 
 // Create attachment upload with admin settings
+// Note: fileFilter is async, but multer handles it correctly
 export const createAttachmentUpload = async (db) => {
   const limits = await createMulterLimits(db);
   const fileFilter = createFileFilter(db);
@@ -153,6 +154,36 @@ export const createAttachmentUpload = async (db) => {
   return multer({
     storage: attachmentStorage,
     fileFilter: fileFilter,
+    limits: limits
+  });
+};
+
+// Create a middleware factory that pre-loads settings and creates multer instance
+export const createAttachmentUploadMiddleware = async (db) => {
+  const limits = await createMulterLimits(db);
+  const settings = await getAdminFileSettings(db);
+  
+  // Create a synchronous file filter using pre-loaded settings
+  const syncFileFilter = (req, file, cb) => {
+    try {
+      console.log(`🔍 File filter checking: ${file.originalname}, type: ${file.mimetype}, size: ${file.size} bytes`);
+      const validation = validateFile(file, settings);
+      if (validation.valid) {
+        console.log(`✅ File filter passed: ${file.originalname}`);
+        cb(null, true);
+      } else {
+        console.error(`❌ File filter rejected: ${file.originalname} - ${validation.error}`);
+        cb(new Error(validation.error), false);
+      }
+    } catch (error) {
+      console.error('❌ Error in file filter:', error);
+      cb(new Error('File validation failed'), false);
+    }
+  };
+  
+  return multer({
+    storage: attachmentStorage,
+    fileFilter: syncFileFilter,
     limits: limits
   });
 };

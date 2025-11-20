@@ -39,7 +39,8 @@ const generateRandomPassword = (length = 12) => {
 };
 
 // Function to create default letter-based avatars
-function createLetterAvatar(letter, userId, role = 'user') {
+// tenantId: optional tenant identifier (for multi-tenant mode)
+function createLetterAvatar(letter, userId, role = 'user', tenantId = null) {
   try {
     const colors = {
       admin: '#FF6B6B',
@@ -57,17 +58,31 @@ function createLetterAvatar(letter, userId, role = 'user') {
     </svg>`;
     
     const filename = `default-${role}-${letter.toLowerCase()}-${Date.now()}.svg`;
-    const avatarsDir = join(dirname(__dirname), 'avatars');
+    
+    // Get tenant-specific avatar directory if in multi-tenant mode
+    let avatarsDir;
+    if (tenantId && isMultiTenant()) {
+      const basePath = process.env.DOCKER_ENV === 'true'
+        ? '/app/server'
+        : join(dirname(__dirname), '..');
+      avatarsDir = join(basePath, 'avatars', 'tenants', tenantId);
+    } else {
+      // Single-tenant: backward compatible path
+      avatarsDir = join(dirname(__dirname), 'avatars');
+    }
     
     // Ensure avatars directory exists
     if (!fs.existsSync(avatarsDir)) {
       fs.mkdirSync(avatarsDir, { recursive: true });
+      if (tenantId) {
+        console.log(`📁 Created tenant avatar directory: ${avatarsDir}`);
+      }
     }
     
     const filePath = join(avatarsDir, filename);
     fs.writeFileSync(filePath, svg);
     
-    console.log(`✅ Created default ${role} avatar: ${filename}`);
+    console.log(`✅ Created default ${role} avatar: ${filename}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
     return `/avatars/${filename}`;
   } catch (error) {
     console.error(`❌ Error creating ${role} avatar:`, error);
@@ -560,6 +575,60 @@ const initializeDefaultPriorities = (db) => {
 // Initialize default data
 // tenantId: optional tenant identifier (for multi-tenant mode)
 const initializeDefaultData = (db, tenantId = null) => {
+  // Always ensure UPLOAD_FILETYPES is initialized (even if roles already exist)
+  // This is important for multi-tenant databases that may have been created before this setting was added
+  const uploadFileTypes = db.prepare('SELECT value FROM settings WHERE key = ?').get('UPLOAD_FILETYPES');
+  if (!uploadFileTypes || !uploadFileTypes.value || uploadFileTypes.value === '{}') {
+    // Initialize UPLOAD_FILETYPES with default file types
+    const defaultFileTypes = JSON.stringify({
+      // Images
+      'image/jpeg': true,
+      'image/png': true,
+      'image/gif': true,
+      'image/webp': true,
+      'image/svg+xml': true,
+      'image/bmp': true,
+      'image/tiff': true,
+      'image/ico': true,
+      'image/heic': true,
+      'image/heif': true,
+      'image/avif': true,
+      // Videos
+      'video/mp4': true,
+      'video/webm': true,
+      'video/ogg': true,
+      'video/quicktime': true,
+      'video/x-msvideo': true,
+      'video/x-ms-wmv': true,
+      'video/x-matroska': true,
+      'video/mpeg': true,
+      'video/3gpp': true,
+      // Documents
+      'application/pdf': true,
+      'text/plain': true,
+      'text/csv': true,
+      // Office Documents
+      'application/msword': true,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': true,
+      'application/vnd.ms-excel': true,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': true,
+      'application/vnd.ms-powerpoint': true,
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': true,
+      // Archives
+      'application/zip': true,
+      'application/x-rar-compressed': true,
+      'application/x-7z-compressed': true,
+      // Code Files
+      'text/javascript': true,
+      'text/css': true,
+      'text/html': true,
+      'application/json': true
+    });
+    db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
+      .run('UPLOAD_FILETYPES', defaultFileTypes);
+    console.log('✅ Initialized UPLOAD_FILETYPES with default file types (including GIF)');
+  }
+  
   // Initialize authentication data if no roles exist
   const rolesCount = db.prepare('SELECT COUNT(*) as count FROM roles').get().count;
   if (rolesCount === 0) {
@@ -577,8 +646,8 @@ const initializeDefaultData = (db, tenantId = null) => {
     const adminId = crypto.randomUUID();
     const adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
     
-    // Create admin avatar
-    const adminAvatarPath = createLetterAvatar('A', adminId, 'admin');
+    // Create admin avatar (with tenant-specific path if in multi-tenant mode)
+    const adminAvatarPath = createLetterAvatar('A', adminId, 'admin', tenantId);
     
     db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
@@ -707,9 +776,26 @@ const initializeDefaultData = (db, tenantId = null) => {
       })] // Allowed file types as JSON object
     ];
 
+    // Use INSERT OR IGNORE for most settings, but ensure UPLOAD_FILETYPES is always initialized
+    // If UPLOAD_FILETYPES is missing or empty, initialize it with defaults
     const settingsStmt = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
+    const uploadFileTypesStmt = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+    
     defaultSettings.forEach(([key, value]) => {
-      settingsStmt.run(key, value);
+      if (key === 'UPLOAD_FILETYPES') {
+        // Check if UPLOAD_FILETYPES exists and is not empty
+        const existing = db.prepare('SELECT value FROM settings WHERE key = ?').get('UPLOAD_FILETYPES');
+        if (!existing || !existing.value || existing.value === '{}') {
+          // Initialize or update with default file types
+          uploadFileTypesStmt.run(key, value);
+          console.log('✅ Initialized UPLOAD_FILETYPES with default file types');
+        } else {
+          // Already exists with a value, keep it (admin may have configured it)
+          console.log('ℹ️  UPLOAD_FILETYPES already configured, keeping existing value');
+        }
+      } else {
+        settingsStmt.run(key, value);
+      }
     });
 
     // Override APP_VERSION from environment variable if present (during initial setup)
@@ -761,8 +847,8 @@ const initializeDefaultData = (db, tenantId = null) => {
     const systemMemberId = '00000000-0000-0000-0000-000000000001';
     const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
     
-    // Create system avatar (computer icon)
-    const systemAvatarPath = createLetterAvatar('S', systemUserId, 'system');
+    // Create system avatar (with tenant-specific path if in multi-tenant mode)
+    const systemAvatarPath = createLetterAvatar('S', systemUserId, 'system', tenantId);
     
     // Check if system user already exists
     const existingSystemUser = db.prepare('SELECT id FROM users WHERE id = ?').get(systemUserId);
