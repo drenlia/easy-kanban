@@ -116,6 +116,18 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
   const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
   const [lastSavedDescription, setLastSavedDescription] = useState(task.description || '');
+  const isUploadingRef = useRef(false);
+  const taskAttachmentsRef = useRef(taskAttachments);
+  const editedTaskRef = useRef(editedTask);
+  
+  // Keep refs in sync with state
+  useEffect(() => {
+    taskAttachmentsRef.current = taskAttachments;
+  }, [taskAttachments]);
+  
+  useEffect(() => {
+    editedTaskRef.current = editedTask;
+  }, [editedTask]);
   
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
@@ -1092,70 +1104,73 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   // Handle saving pending attachments using the new utility
   // Defined early so it can be used in useEffect dependency array
   const savePendingAttachments = useCallback(async () => {
-    if (pendingAttachments.length > 0) {
-      try {
-        console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
-        
-        // Use the new upload utility
-        const uploadedAttachments = await uploadTaskFiles(task.id, {
-          currentTaskAttachments: taskAttachments,
-          currentDescription: editedTask.description,
-          onTaskAttachmentsUpdate: (updatedAttachments) => {
-            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
-            setTaskAttachments(updatedAttachments);
-            
-            // Update parent component immediately with new attachment count
-            const updatedTask = { 
-              ...editedTask, 
-              attachmentCount: updatedAttachments.length 
-            };
-            setEditedTask(updatedTask);
-            onUpdate(updatedTask);
-          },
-          onDescriptionUpdate: (updatedDescription) => {
-            console.log('🔄 Updating task description with server URLs');
-            const updatedTask = { ...editedTask, description: updatedDescription };
-            setEditedTask(updatedTask);
-            saveImmediately(updatedTask);
-          },
-          onSuccess: (attachments) => {
-            console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
-            // Clear pending attachments on success
-            clearFiles();
-          },
-          onError: (error) => {
-            console.error('❌ Failed to upload task attachments:', error);
-            // Clear pending attachments on error to prevent retry loop
-            // Show user-friendly error message
-            const errorMessage = error.response?.status === 413 
-              ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-              : error.message || 'Failed to upload files. Please try again.';
-            console.error('Upload error details:', errorMessage);
-            clearFiles(); // Clear to prevent infinite retry loop
-          }
-        });
-        
-        console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
-      } catch (error: any) {
-        console.error('❌ Failed to save task attachments:', error);
-        // Clear pending attachments on error to prevent retry loop
-        clearFiles();
-        
-        // Show user-friendly error message
-        const errorMessage = error.response?.status === 413 
-          ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-          : error.message || 'Failed to upload files. Please try again.';
-        console.error('Upload error details:', errorMessage);
-      }
+    if (pendingAttachments.length === 0 || isUploadingRef.current) return;
+    
+    isUploadingRef.current = true;
+    try {
+      console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+      
+      // Use the new upload utility
+      const uploadedAttachments = await uploadTaskFiles(task.id, {
+        currentTaskAttachments: taskAttachmentsRef.current,
+        currentDescription: editedTaskRef.current.description,
+        onTaskAttachmentsUpdate: (updatedAttachments) => {
+          console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+          setTaskAttachments(updatedAttachments);
+          
+          // Update parent component immediately with new attachment count
+          const updatedTask = { 
+            ...editedTask, 
+            attachmentCount: updatedAttachments.length 
+          };
+          setEditedTask(updatedTask);
+          onUpdate(updatedTask);
+        },
+        onDescriptionUpdate: (updatedDescription) => {
+          console.log('🔄 Updating task description with server URLs');
+          const updatedTask = { ...editedTask, description: updatedDescription };
+          setEditedTask(updatedTask);
+          saveImmediately(updatedTask);
+        },
+        onSuccess: (attachments) => {
+          console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          // Clear pending attachments on success
+          clearFiles();
+        },
+        onError: (error) => {
+          console.error('❌ Failed to upload task attachments:', error);
+          // Clear pending attachments on error to prevent retry loop
+          // Show user-friendly error message
+          const errorMessage = error.response?.status === 413 
+            ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+            : error.message || 'Failed to upload files. Please try again.';
+          console.error('Upload error details:', errorMessage);
+          clearFiles(); // Clear to prevent infinite retry loop
+        }
+      });
+      
+      console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+    } catch (error: any) {
+      console.error('❌ Failed to save task attachments:', error);
+      // Clear pending attachments on error to prevent retry loop
+      clearFiles();
+      
+      // Show user-friendly error message
+      const errorMessage = error.response?.status === 413 
+        ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+        : error.message || 'Failed to upload files. Please try again.';
+      console.error('Upload error details:', errorMessage);
+    } finally {
+      isUploadingRef.current = false;
     }
-  }, [pendingAttachments, task.id, taskAttachments, editedTask, uploadTaskFiles, onUpdate, saveImmediately, clearFiles]);
+  }, [pendingAttachments.length, task.id, uploadTaskFiles, onUpdate, saveImmediately, clearFiles]);
 
   // Save attachments immediately to prevent blob URL issues
   React.useEffect(() => {
     if (pendingAttachments.length > 0) {
       savePendingAttachments();
     }
-  }, [pendingAttachments, savePendingAttachments]);
+  }, [pendingAttachments.length, savePendingAttachments]);
 
   // Update editedTask with current attachment count whenever taskAttachments changes
   React.useEffect(() => {

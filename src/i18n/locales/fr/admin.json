@@ -50,7 +50,7 @@
   "defaultPriorityUpdatedSuccessfully": "Priorité par défaut mise à jour avec succès",
   "failedToSetDefaultPriority": "Échec de la définition de la priorité par défaut",
   "failedToRemoveAvatar": "Échec de la suppression de l'avatar",
-  "settingsSavedSuccessfully": "Paramètres enregistrés avec succès ! Les modifications sont appliquées immédiatement.",
+  "settingsSavedSuccessfully": "Paramètres enregistrés avec succès.",
   "noChangesToSave": "Aucune modification à enregistrer",
   "failedToSaveSettings": "Échec de l'enregistrement des paramètres",
   "settingSavedAutomatically": "Paramètre {{key}} enregistré automatiquement !",

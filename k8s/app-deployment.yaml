@@ -7,7 +7,7 @@ metadata:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 1  # Can be scaled for multi-tenant (all pods share NFS storage)
+  replicas: 3  # Can be scaled for multi-tenant (all pods share NFS storage)
   selector:
     matchLabels:
       app: easy-kanban
@@ -47,12 +47,12 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /ready
             port: 3222
-          initialDelaySeconds: 20
+          initialDelaySeconds: 30
           periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
         volumeMounts:
         - name: app-data
           mountPath: /app/server/data

@@ -616,54 +616,57 @@ export default function TaskPage({
   }, [taskAttachments, task?.id, handleTaskUpdate]);
 
   const savePendingAttachments = useCallback(async () => {
-    if (pendingAttachments.length > 0) {
-      try {
-        console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
-        
-        // Use the new upload utility
-        const uploadedAttachments = await uploadTaskFiles(task?.id || '', {
-          currentTaskAttachments: taskAttachments,
-          currentDescription: editedTask.description,
-          onTaskAttachmentsUpdate: (updatedAttachments) => {
-            console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
-            setTaskAttachments(updatedAttachments);
-            // Update the task with the new attachment count
-            handleTaskUpdate({ attachmentCount: updatedAttachments.length });
-          },
-          onDescriptionUpdate: (updatedDescription) => {
-            console.log('🔄 Updating task description with server URLs');
-            handleTaskUpdate({ description: updatedDescription });
-          },
-          onSuccess: (attachments) => {
-            console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
-            // Clear pending attachments on success
-            clearFiles();
-          },
-          onError: (error) => {
-            console.error('❌ Failed to upload task attachments:', error);
-            // Clear pending attachments on error to prevent retry loop
-            const errorMessage = error.response?.status === 413 
-              ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-              : error.message || 'Failed to upload files. Please try again.';
-            console.error('Upload error details:', errorMessage);
-            clearFiles(); // Clear to prevent infinite retry loop
-          }
-        });
-        
-        console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
-      } catch (error: any) {
-        console.error('❌ Failed to save task attachments:', error);
-        // Clear pending attachments on error to prevent retry loop
-        clearFiles();
-        
-        // Show user-friendly error message
-        const errorMessage = error.response?.status === 413 
-          ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
-          : error.message || 'Failed to upload files. Please try again.';
-        console.error('Upload error details:', errorMessage);
-      }
+    if (pendingAttachments.length === 0 || isUploadingRef.current) return;
+    
+    isUploadingRef.current = true;
+    try {
+      console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+      
+      // Use the new upload utility
+      const uploadedAttachments = await uploadTaskFiles(task?.id || '', {
+        currentTaskAttachments: taskAttachments,
+        currentDescription: editedTask.description,
+        onTaskAttachmentsUpdate: (updatedAttachments) => {
+          console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+          setTaskAttachments(updatedAttachments);
+          // Update the task with the new attachment count
+          handleTaskUpdate({ attachmentCount: updatedAttachments.length });
+        },
+        onDescriptionUpdate: (updatedDescription) => {
+          console.log('🔄 Updating task description with server URLs');
+          handleTaskUpdate({ description: updatedDescription });
+        },
+        onSuccess: (attachments) => {
+          console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          // Clear pending attachments on success
+          clearFiles();
+        },
+        onError: (error) => {
+          console.error('❌ Failed to upload task attachments:', error);
+          // Clear pending attachments on error to prevent retry loop
+          const errorMessage = error.response?.status === 413 
+            ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+            : error.message || 'Failed to upload files. Please try again.';
+          console.error('Upload error details:', errorMessage);
+          clearFiles(); // Clear to prevent infinite retry loop
+        }
+      });
+      
+      console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+    } catch (error: any) {
+      console.error('❌ Failed to save task attachments:', error);
+      // Clear pending attachments on error to prevent retry loop
+      clearFiles();
+      
+      // Show user-friendly error message
+      const errorMessage = error.response?.status === 413 
+        ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+        : error.message || 'Failed to upload files. Please try again.';
+      console.error('Upload error details:', errorMessage);
+    } finally {
+      isUploadingRef.current = false;
     }
-  }, [pendingAttachments, task?.id, taskAttachments, editedTask.description, uploadTaskFiles, handleTaskUpdate, clearFiles]);
+  }, [pendingAttachments.length, task?.id, uploadTaskFiles, handleTaskUpdate, clearFiles]);
 
   // Only show saved attachments - no pending ones to avoid state sync issues
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
@@ -691,11 +694,8 @@ export default function TaskPage({
   // Use a ref to track if we're currently uploading to prevent retry loops
   const isUploadingRef = React.useRef(false);
   useEffect(() => {
-    if (pendingAttachments.length > 0 && !isUploadingRef.current) {
-      isUploadingRef.current = true;
-      savePendingAttachments().finally(() => {
-        isUploadingRef.current = false;
-      });
+    if (pendingAttachments.length > 0) {
+      savePendingAttachments();
     }
   }, [pendingAttachments.length, savePendingAttachments]); // Only depend on length, not the array itself
 

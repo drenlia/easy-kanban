@@ -134,21 +134,32 @@ const AdminReportingTab: React.FC = () => {
     try {
       setSaving(true);
 
-      // Save each setting individually (server expects key/value pairs)
-      const settingsToSave = Object.entries(settings);
-      for (const [key, value] of settingsToSave) {
-        const response = await fetch('/api/admin/settings', {
+      // Only save changed settings (batch all changes in a single transaction)
+      const changedSettings: { [key: string]: string } = {};
+      for (const [key, value] of Object.entries(settings)) {
+        if (settings[key as keyof ReportingSettings] !== originalSettings[key as keyof ReportingSettings]) {
+          changedSettings[key] = value;
+        }
+      }
+
+      // Save all changed settings in a single batch (one API call per setting, but only changed ones)
+      const savePromises = Object.entries(changedSettings).map(([key, value]) =>
+        fetch('/api/admin/settings', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${localStorage.getItem('authToken')}`
           },
           body: JSON.stringify({ key, value })
-        });
+        })
+      );
 
-        if (!response.ok) {
-          throw new Error(`Failed to save ${key}`);
-        }
+      const responses = await Promise.all(savePromises);
+      
+      // Check if any failed
+      const failedResponses = responses.filter(r => !r.ok);
+      if (failedResponses.length > 0) {
+        throw new Error(`Failed to save ${failedResponses.length} setting(s)`);
       }
 
       setOriginalSettings(settings);

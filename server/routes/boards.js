@@ -4,6 +4,7 @@ import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
+import { getTenantId } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -226,6 +227,8 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const defaultColumns = getDefaultBoardColumns(db);
     const columnStmt = db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
     
+    const tenantId = getTenantId(req);
+    
     defaultColumns.forEach((col, index) => {
       const columnId = `${col.id}-${id}`;
       const isFinished = col.id === 'completed';
@@ -246,7 +249,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
         },
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     });
     
     const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
@@ -256,7 +259,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
       boardId: id,
       board: newBoard,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     
     res.json(newBoard);
   } catch (error) {
@@ -307,13 +310,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-updated to Redis for board:', id);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-updated', {
       boardId: id,
       board: { id, title },
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-updated published to Redis');
+    }, tenantId);
     
     res.json({ id, title });
   } catch (error) {
@@ -332,12 +334,11 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-deleted to Redis for board:', id);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-deleted', {
       boardId: id,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-deleted published to Redis');
+    }, tenantId);
     
     res.json({ message: 'Board deleted successfully' });
   } catch (error) {
@@ -383,13 +384,12 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     })();
 
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-reordered to Redis for board:', boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-reordered', {
       boardId: boardId,
       newPosition: newPosition,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-reordered published to Redis');
+    }, tenantId);
 
     res.json({ message: 'Board reordered successfully' });
   } catch (error) {
