@@ -8,6 +8,7 @@ import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
+import { isMultiTenant } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -61,6 +62,23 @@ router.get('/attachments/:filename', (req, res) => {
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // In multi-tenant mode, verify user exists in the current tenant's database
+    if (isMultiTenant() && req.app.locals.db) {
+      try {
+        const db = req.app.locals.db;
+        const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+        
+        if (!userInDb) {
+          console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
+          return res.status(401).json({ error: 'Invalid token for this tenant' });
+        }
+      } catch (dbError) {
+        console.error('❌ Error checking user in tenant database for file access:', dbError);
+        return res.status(401).json({ error: 'Authentication failed' });
+      }
+    }
+    
     // Token is valid, serve the file
     
     // Use tenant-specific path if in multi-tenant mode
@@ -92,6 +110,23 @@ router.get('/avatars/:filename', (req, res) => {
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    
+    // In multi-tenant mode, verify user exists in the current tenant's database
+    if (isMultiTenant() && req.app.locals.db) {
+      try {
+        const db = req.app.locals.db;
+        const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+        
+        if (!userInDb) {
+          console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
+          return res.status(401).json({ error: 'Invalid token for this tenant' });
+        }
+      } catch (dbError) {
+        console.error('❌ Error checking user in tenant database for file access:', dbError);
+        return res.status(401).json({ error: 'Authentication failed' });
+      }
+    }
+    
     // Token is valid, serve the file
     
     // Use tenant-specific path if in multi-tenant mode

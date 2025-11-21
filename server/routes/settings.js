@@ -79,6 +79,12 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       return res.status(403).json({ error: 'WEBSITE_URL is read-only and cannot be updated' });
     }
     
+    // Prevent updates to APP_URL through general settings endpoint - it's owner-only
+    // Use the dedicated /api/settings/app-url endpoint which enforces owner check
+    if (key === 'APP_URL') {
+      return res.status(403).json({ error: 'APP_URL can only be updated by the owner using the dedicated endpoint' });
+    }
+    
     // Convert value to string for SQLite (SQLite only accepts strings, numbers, bigints, buffers, and null)
     // Booleans, undefined, and objects need to be converted
     let safeValue = value;

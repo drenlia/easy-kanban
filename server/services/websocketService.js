@@ -1,16 +1,20 @@
 import { Server as SocketIOServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient } from 'redis';
 import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
 import { JWT_SECRET } from '../middleware/auth.js';
-import { extractTenantId } from '../middleware/tenantRouting.js';
+import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
 
 class WebSocketService {
   constructor() {
     this.io = null;
     this.connectedClients = new Map();
+    this.redisPubClient = null;
+    this.redisSubClient = null;
   }
 
-  initialize(server) {
+  async initialize(server) {
     // CORS configuration for WebSocket
     // In multi-tenant mode, nginx handles CORS validation for HTTP requests
     // For WebSocket, we allow all origins in multi-tenant mode (nginx will validate)
@@ -29,8 +33,43 @@ class WebSocketService {
       pingInterval: 25000, // 25 seconds - how often to ping
       upgradeTimeout: 30000, // 30 seconds - time to wait for upgrade
       transports: ['polling', 'websocket'], // Try polling first for better compatibility
-      allowEIO3: true // Allow Engine.IO v3 clients
+      allowEIO3: true, // Allow Engine.IO v3 clients
+      // Add error handling for Socket.IO requests
+      allowRequest: (req, callback) => {
+        // Log request details for debugging
+        if (process.env.MULTI_TENANT === 'true') {
+          const hostname = req.headers.host || req.headers['x-forwarded-host'] || '';
+          const tenantId = extractTenantId(hostname);
+          console.log(`🔍 Socket.IO request - Host: ${req.headers.host}, X-Forwarded-Host: ${req.headers['x-forwarded-host']}, Tenant: ${tenantId || 'none'}`);
+        }
+        callback(null, true); // Allow all requests (authentication happens in middleware)
+      }
     });
+
+    // Configure Redis adapter for Socket.IO to share sessions across multiple pods
+    // This is critical for multi-pod deployments where load balancing can route
+    // Socket.IO polling requests to different pods than where the session was created
+    try {
+      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+      
+      // Create separate Redis clients for Socket.IO adapter (pub/sub pattern)
+      this.redisPubClient = createClient({ url: redisUrl });
+      this.redisSubClient = this.redisPubClient.duplicate();
+      
+      await Promise.all([
+        this.redisPubClient.connect(),
+        this.redisSubClient.connect()
+      ]);
+      
+      // Set up the Redis adapter
+      this.io.adapter(createAdapter(this.redisPubClient, this.redisSubClient));
+      console.log('✅ Socket.IO Redis adapter configured - sessions will be shared across all pods');
+    } catch (error) {
+      console.error('❌ Failed to configure Socket.IO Redis adapter:', error);
+      console.warn('⚠️ Socket.IO will use in-memory adapter (sessions not shared across pods)');
+      // Continue without Redis adapter - Socket.IO will use default in-memory adapter
+      // This is acceptable for single-pod deployments but will cause issues with multiple pods
+    }
     
     
     // Add authentication middleware
@@ -52,6 +91,29 @@ class WebSocketService {
         const hostname = socket.handshake.headers.host || socket.handshake.headers['x-forwarded-host'] || '';
         const tenantId = extractTenantId(hostname);
         
+        // In multi-tenant mode, verify user exists in the tenant's database
+        if (process.env.MULTI_TENANT === 'true' && tenantId) {
+          try {
+            const dbInfo = getTenantDatabase(tenantId);
+            if (dbInfo && dbInfo.db) {
+              const userInDb = dbInfo.db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+              if (!userInDb) {
+                console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in tenant ${tenantId}'s database`);
+                return next(new Error('Invalid token for this tenant'));
+              }
+              console.log(`✅ WebSocket tenant validation passed: User ${decoded.email} exists in tenant ${tenantId}`);
+            } else {
+              console.warn(`⚠️ WebSocket auth: Could not get database for tenant ${tenantId}`);
+            }
+          } catch (dbError) {
+            console.error('❌ Error checking user in tenant database for WebSocket:', dbError);
+            console.error('❌ Error details:', dbError.message, dbError.stack);
+            return next(new Error('Authentication failed'));
+          }
+        } else if (process.env.MULTI_TENANT === 'true' && !tenantId) {
+          console.warn(`⚠️ WebSocket auth: Multi-tenant mode but no tenant ID extracted from hostname: ${hostname}`);
+        }
+        
         // Attach user info to socket
         socket.userId = decoded.id;
         socket.userEmail = decoded.email;
@@ -65,15 +127,27 @@ class WebSocketService {
     });
     
 
+    // Handle connection errors
+    this.io.engine.on('connection_error', (err) => {
+      console.error('❌ Socket.IO connection error:', err);
+      console.error('❌ Error details:', err.message, err.context);
+    });
+
     // Handle connections
     this.io.on('connection', (socket) => {
       console.log(`🔌 Client connected: ${socket.id} (${socket.userEmail})`);
+      
+      // Log tenant context for debugging
+      if (socket.tenantId) {
+        console.log(`   📍 Tenant context: ${socket.tenantId}`);
+      }
       
       this.connectedClients.set(socket.id, { 
         socketId: socket.id, 
         userId: socket.userId,
         userEmail: socket.userEmail,
-        userRole: socket.userRole
+        userRole: socket.userRole,
+        tenantId: socket.tenantId
       });
 
       // Join tenant namespace (for tenant-wide broadcasts in multi-tenant mode)
@@ -598,6 +672,32 @@ class WebSocketService {
 
   getBoardClientCount(boardId) {
     return Array.from(this.connectedClients.values()).filter(client => client.boardId === boardId).length;
+  }
+
+  // Cleanup: Disconnect Redis adapter clients (for graceful shutdown)
+  async disconnect() {
+    try {
+      // Close Socket.IO server
+      if (this.io) {
+        this.io.close();
+        console.log('✅ Socket.IO server closed');
+      }
+
+      // Disconnect Redis adapter clients
+      if (this.redisPubClient) {
+        await this.redisPubClient.disconnect();
+        console.log('✅ Socket.IO Redis pub client disconnected');
+      }
+      
+      if (this.redisSubClient) {
+        await this.redisSubClient.disconnect();
+        console.log('✅ Socket.IO Redis sub client disconnected');
+      }
+
+      this.connectedClients.clear();
+    } catch (error) {
+      console.error('❌ Error disconnecting WebSocket service:', error);
+    }
   }
 }
 

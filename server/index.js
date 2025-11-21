@@ -452,8 +452,8 @@ async function initializeServices() {
     // Initialize Redis
     await redisService.connect();
     
-    // Initialize WebSocket
-    websocketService.initialize(server);
+    // Initialize WebSocket (now async due to Redis adapter setup)
+    await websocketService.initialize(server);
     
     console.log('✅ Real-time services initialized');
     
@@ -510,9 +510,7 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 // Graceful shutdown handler
-process.on('SIGINT', async () => {
-  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
-  
+const gracefulShutdown = async () => {
   // Close all tenant database connections (multi-tenant mode)
   if (isMultiTenant()) {
     closeAllTenantDatabases();
@@ -535,35 +533,22 @@ process.on('SIGINT', async () => {
     await throttler.flushAllNotifications();
   }
   
+  // Disconnect WebSocket service (closes Socket.IO server and Redis adapter clients)
+  await websocketService.disconnect();
+  
+  // Disconnect Redis service
+  await redisService.disconnect();
+  
   console.log('✅ Graceful shutdown complete');
   process.exit(0);
+};
+
+process.on('SIGINT', async () => {
+  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
+  await gracefulShutdown();
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
-  
-  // Close all tenant database connections (multi-tenant mode)
-  if (isMultiTenant()) {
-    closeAllTenantDatabases();
-  }
-  
-  // Close default database (single-tenant mode)
-  if (defaultDb) {
-    try {
-      defaultDb.close();
-      console.log('✅ Closed default database');
-    } catch (error) {
-      console.error('❌ Error closing default database:', error);
-    }
-  }
-  
-  // Stop notification processing and flush pending notifications
-  const throttler = getNotificationThrottler();
-  if (throttler) {
-    throttler.stopProcessing();
-    await throttler.flushAllNotifications();
-  }
-  
-  console.log('✅ Graceful shutdown complete');
-  process.exit(0);
+  await gracefulShutdown();
 });

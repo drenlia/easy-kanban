@@ -85,6 +85,9 @@ fi
 # Generate random JWT secret
 JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
 
+# Initialize RECOVERED_TOKEN variable (used as fallback if ConfigMap read fails)
+RECOVERED_TOKEN=""
+
 echo "🚀 Deploying Easy Kanban instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
@@ -448,41 +451,46 @@ if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
     # INSTANCE_TOKEN is shared across all tenants in multi-tenant mode
     # CRITICAL: Token only changes when a new pod is created (first deployment)
     # If pod already exists, we MUST preserve the existing token
-    if [ -n "$CURRENT_INSTANCE_TOKEN" ]; then
+    if [ -n "$CURRENT_INSTANCE_TOKEN" ] && [ "$CURRENT_INSTANCE_TOKEN" != "" ]; then
         echo "   ℹ️  INSTANCE_TOKEN already set (shared for all tenants, preserving to avoid pod restart)"
         # Update the new ConfigMap to preserve existing INSTANCE_TOKEN
         sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${CURRENT_INSTANCE_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+        RECOVERED_TOKEN="$CURRENT_INSTANCE_TOKEN"
     else
-        # ConfigMap exists but token is missing - check if pod exists
+        # ConfigMap exists but token is missing or empty - check if pod exists
         # If pod exists, try to get the token from the pod's environment
         # If no pod exists, we can generate a new token
         if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
-            echo "   ⚠️  Warning: ConfigMap exists but INSTANCE_TOKEN is missing, and pod already exists"
+            echo "   ⚠️  Warning: ConfigMap exists but INSTANCE_TOKEN is missing or empty, and pod already exists"
             echo "   🔍 Attempting to recover INSTANCE_TOKEN from running pod..."
             
             # Try to get token from pod's environment variable
             POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
             if [ -n "$POD_NAME" ]; then
                 POD_TOKEN=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- printenv INSTANCE_TOKEN 2>/dev/null || echo "")
-                if [ -n "$POD_TOKEN" ]; then
-                    echo "   ✅ Recovered INSTANCE_TOKEN from pod environment"
+                if [ -n "$POD_TOKEN" ] && [ "$POD_TOKEN" != "" ]; then
+                    echo "   ✅ Recovered INSTANCE_TOKEN from pod environment: ${POD_TOKEN:0:20}..."
                     sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${POD_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    RECOVERED_TOKEN="$POD_TOKEN"
                 else
                     echo "   ⚠️  Could not recover token from pod - generating new one"
                     echo "   ⚠️  Note: This will require pod restart and admin portal will need to update token"
                     GENERATED_TOKEN=$(generate_instance_token)
                     sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    RECOVERED_TOKEN="$GENERATED_TOKEN"
                 fi
             else
                 echo "   ⚠️  No running pod found - generating new token"
                 GENERATED_TOKEN=$(generate_instance_token)
                 sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                RECOVERED_TOKEN="$GENERATED_TOKEN"
             fi
         else
             echo "   ℹ️  ConfigMap exists but INSTANCE_TOKEN is missing, and no pod exists yet"
             echo "   🔑 Generating new INSTANCE_TOKEN (new deployment)"
             GENERATED_TOKEN=$(generate_instance_token)
             sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+            RECOVERED_TOKEN="$GENERATED_TOKEN"
         fi
     fi
     
@@ -509,6 +517,7 @@ else
     echo "   🔑 Generating new INSTANCE_TOKEN (first deployment)"
     GENERATED_TOKEN=$(generate_instance_token)
     sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+    RECOVERED_TOKEN="$GENERATED_TOKEN"
     kubectl apply -f "${TEMP_DIR}/configmap.yaml"
     CONFIGMAP_UPDATED=false
 fi
@@ -518,14 +527,19 @@ echo "   ✅ ConfigMap ready"
 # This ensures we always output the token that's actually in the ConfigMap (preserved or new)
 # This is the token that pods will use (after restart if needed)
 ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
-if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ]; then
+if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ] && [ "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" != "" ]; then
     # ConfigMap has a token - this is the one that's actually configured
     # Store it for later output (this is the source of truth)
     ACTUAL_INSTANCE_TOKEN="$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP"
+elif [ -n "$RECOVERED_TOKEN" ] && [ "$RECOVERED_TOKEN" != "" ]; then
+    # ConfigMap doesn't have a token but we recovered one from pod
+    # Use the recovered token (it should be in ConfigMap after apply, but use recovered as fallback)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap after apply, using recovered token"
+    ACTUAL_INSTANCE_TOKEN="$RECOVERED_TOKEN"
 else
-    # ConfigMap doesn't have a token (shouldn't happen after apply, but fallback)
-    # Generate a token as fallback (though this shouldn't be needed)
-    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap after apply, generating fallback"
+    # ConfigMap doesn't have a token and we couldn't recover one (shouldn't happen, but fallback)
+    # Generate a token as last resort
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap and couldn't recover from pod, generating fallback"
     ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
 fi
 
@@ -736,10 +750,17 @@ kubectl get ingress -n "${NAMESPACE}"
 # This should already be set from the ConfigMap read above (after ConfigMap was applied)
 # But re-read it here to be absolutely sure we have the latest value from ConfigMap
 # This is the token that's actually in the ConfigMap (which the pod will use after restart)
-ACTUAL_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null)
-if [ -z "$ACTUAL_INSTANCE_TOKEN" ]; then
-    # ConfigMap doesn't exist or token not set - generate one (shouldn't happen after apply)
-    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap, generating fallback"
+ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ] && [ "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" != "" ]; then
+    # ConfigMap has a valid token - use it
+    ACTUAL_INSTANCE_TOKEN="$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP"
+elif [ -n "$RECOVERED_TOKEN" ] && [ "$RECOVERED_TOKEN" != "" ]; then
+    # ConfigMap doesn't have a token but we recovered one earlier - use it
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap, using recovered token from pod"
+    ACTUAL_INSTANCE_TOKEN="$RECOVERED_TOKEN"
+else
+    # Last resort: generate a new token (shouldn't happen)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap and couldn't recover, generating fallback"
     ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
 fi
 
