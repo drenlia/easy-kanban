@@ -166,17 +166,14 @@ export const createAttachmentUploadMiddleware = async (db) => {
   // Create a synchronous file filter using pre-loaded settings
   const syncFileFilter = (req, file, cb) => {
     try {
-      console.log(`🔍 File filter checking: ${file.originalname}, type: ${file.mimetype}, size: ${file.size} bytes`);
       const validation = validateFile(file, settings);
       if (validation.valid) {
-        console.log(`✅ File filter passed: ${file.originalname}`);
         cb(null, true);
       } else {
-        console.error(`❌ File filter rejected: ${file.originalname} - ${validation.error}`);
         cb(new Error(validation.error), false);
       }
     } catch (error) {
-      console.error('❌ Error in file filter:', error);
+      console.error('Error in file filter:', error);
       cb(new Error('File validation failed'), false);
     }
   };

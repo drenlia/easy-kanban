@@ -1120,18 +1120,35 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           },
           onSuccess: (attachments) => {
             console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+            // Clear pending attachments on success
+            clearFiles();
           },
           onError: (error) => {
             console.error('❌ Failed to upload task attachments:', error);
+            // Clear pending attachments on error to prevent retry loop
+            // Show user-friendly error message
+            const errorMessage = error.response?.status === 413 
+              ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+              : error.message || 'Failed to upload files. Please try again.';
+            console.error('Upload error details:', errorMessage);
+            clearFiles(); // Clear to prevent infinite retry loop
           }
         });
         
         console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Failed to save task attachments:', error);
+        // Clear pending attachments on error to prevent retry loop
+        clearFiles();
+        
+        // Show user-friendly error message
+        const errorMessage = error.response?.status === 413 
+          ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+          : error.message || 'Failed to upload files. Please try again.';
+        console.error('Upload error details:', errorMessage);
       }
     }
-  }, [pendingAttachments, task.id, taskAttachments, editedTask, uploadTaskFiles, onUpdate, saveImmediately]);
+  }, [pendingAttachments, task.id, taskAttachments, editedTask, uploadTaskFiles, onUpdate, saveImmediately, clearFiles]);
 
   // Save attachments immediately to prevent blob URL issues
   React.useEffect(() => {

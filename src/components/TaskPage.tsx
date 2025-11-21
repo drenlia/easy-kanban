@@ -636,18 +636,34 @@ export default function TaskPage({
           },
           onSuccess: (attachments) => {
             console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+            // Clear pending attachments on success
+            clearFiles();
           },
           onError: (error) => {
             console.error('❌ Failed to upload task attachments:', error);
+            // Clear pending attachments on error to prevent retry loop
+            const errorMessage = error.response?.status === 413 
+              ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+              : error.message || 'Failed to upload files. Please try again.';
+            console.error('Upload error details:', errorMessage);
+            clearFiles(); // Clear to prevent infinite retry loop
           }
         });
         
         console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Failed to save task attachments:', error);
+        // Clear pending attachments on error to prevent retry loop
+        clearFiles();
+        
+        // Show user-friendly error message
+        const errorMessage = error.response?.status === 413 
+          ? 'File(s) too large. Please reduce file size or upload fewer files at once.'
+          : error.message || 'Failed to upload files. Please try again.';
+        console.error('Upload error details:', errorMessage);
       }
     }
-  }, [pendingAttachments, task?.id, taskAttachments, editedTask.description, uploadTaskFiles, handleTaskUpdate]);
+  }, [pendingAttachments, task?.id, taskAttachments, editedTask.description, uploadTaskFiles, handleTaskUpdate, clearFiles]);
 
   // Only show saved attachments - no pending ones to avoid state sync issues
   const displayAttachments = React.useMemo(() => taskAttachments, [taskAttachments]);
@@ -672,11 +688,16 @@ export default function TaskPage({
   }, [handleTaskUpdate]);
 
   // Auto-upload pending attachments (matching TaskDetails)
+  // Use a ref to track if we're currently uploading to prevent retry loops
+  const isUploadingRef = React.useRef(false);
   useEffect(() => {
-    if (pendingAttachments.length > 0) {
-      savePendingAttachments();
+    if (pendingAttachments.length > 0 && !isUploadingRef.current) {
+      isUploadingRef.current = true;
+      savePendingAttachments().finally(() => {
+        isUploadingRef.current = false;
+      });
     }
-  }, [pendingAttachments, savePendingAttachments]);
+  }, [pendingAttachments.length, savePendingAttachments]); // Only depend on length, not the array itself
 
   // Load task attachments when task changes
   useEffect(() => {

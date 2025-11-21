@@ -6,6 +6,11 @@
 - [ ] Kubernetes cluster running (k3s, minikube, or full k8s)
 - [ ] `kubectl` configured and working
 - [ ] Ingress controller installed (nginx recommended)
+- [ ] **Configure ingress controller for file uploads** (REQUIRED):
+  ```bash
+  ./k8s/setup-ingress-controller.sh
+  ```
+  This sets `client-max-body-size: 100m` in the ingress controller ConfigMap to allow file uploads up to 100MB.
 
 ### 2. Storage Setup (Automated)
 - [ ] Run storage setup:

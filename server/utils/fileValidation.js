@@ -54,6 +54,7 @@ export const getAdminFileSettings = async (db) => {
         'image/bmp': true,
         'image/tiff': true,
         'image/ico': true,
+        'image/vnd.microsoft.icon': true, // .ico files (alternative MIME type)
         'image/heic': true,
         'image/heif': true,
         'image/avif': true,

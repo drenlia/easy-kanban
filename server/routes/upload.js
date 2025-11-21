@@ -10,32 +10,30 @@ const router = express.Router();
 const createUploadMiddleware = async (req, res, next) => {
   try {
     const db = req.app.locals.db;
+    if (!db) {
+      console.error('Database not available in req.app.locals.db');
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
     // Create multer instance with admin settings (pre-loaded for synchronous filter)
     const attachmentUploadWithValidation = await createAttachmentUploadMiddleware(db);
     
     // Use multer as middleware - this processes the multipart stream
     attachmentUploadWithValidation.single('file')(req, res, (err) => {
       if (err) {
-        console.error('❌ File upload validation error:', err.message);
-        console.error('   Error code:', err.code);
-        console.error('   Error field:', err.field);
         // Handle multer errors (file too large, invalid type, etc.)
         if (err.code === 'LIMIT_FILE_SIZE') {
-          console.error('   File size limit exceeded');
           return res.status(413).json({ error: 'File too large' });
         }
-        console.error('   Returning 400 error to client');
         return res.status(400).json({ error: err.message });
       }
       // File processed successfully, continue to route handler
-      if (req.file) {
-        console.log(`✅ File uploaded successfully: ${req.file.originalname}, type: ${req.file.mimetype}, size: ${req.file.size} bytes`);
-      }
       next();
     });
   } catch (error) {
     console.error('File upload middleware error:', error);
-    res.status(500).json({ error: 'File upload failed' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'File upload failed' });
+    }
   }
 };
 
