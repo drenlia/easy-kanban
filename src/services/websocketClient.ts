@@ -68,7 +68,7 @@ class WebSocketClient {
 
     this.socket = io(serverUrl, {
       auth: { token }, // Add authentication token
-      transports: ['polling', 'websocket'], // Try polling first, then websocket
+      transports: ['websocket'], // Use WebSocket only to avoid session ID issues with load balancing
       timeout: 20000,
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,

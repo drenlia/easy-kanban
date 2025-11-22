@@ -53,7 +53,7 @@ export const initializeSocket = (token: string): Promise<Socket> => {
 
     globalSocket = io(window.location.origin, {
       auth: { token },
-      transports: ['polling', 'websocket'], // Try polling first for better reliability
+      transports: ['websocket'], // Use WebSocket only to avoid session ID issues with load balancing
       timeout: 30000, // Increased timeout to 30 seconds
       reconnection: true, // Enable automatic reconnection
       reconnectionAttempts: 5, // Try up to 5 times

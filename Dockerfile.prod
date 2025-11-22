@@ -13,7 +13,8 @@ RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 
 # Install all dependencies (including dev dependencies for build)
-RUN npm ci --include=dev
+# Try npm ci first (deterministic), fall back to npm install if lock file is out of sync
+RUN npm ci --include=dev || npm install --include=dev
 
 # Copy source code
 COPY . .
@@ -58,7 +59,8 @@ COPY vite.config.ts ./
 # Install dependencies including dev dependencies (vite is needed for preview server)
 # Vite preview is needed to serve built frontend and proxy API requests to backend
 # Using --include=dev ensures vite and @vitejs/plugin-react are available
-RUN npm ci --include=dev && npm cache clean --force
+# Try npm ci first (deterministic), fall back to npm install if lock file is out of sync
+RUN (npm ci --include=dev || npm install --include=dev) && npm cache clean --force
 
 # Verify vite is installed and accessible
 RUN ls -la node_modules/.bin/vite && node_modules/.bin/vite --version

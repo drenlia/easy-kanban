@@ -62,8 +62,13 @@ class WebSocketService {
       ]);
       
       // Set up the Redis adapter
-      this.io.adapter(createAdapter(this.redisPubClient, this.redisSubClient));
+      // Note: The adapter automatically handles session storage in Redis
+      // Sessions are stored with keys like "socket.io#/#" prefix
+      const adapter = createAdapter(this.redisPubClient, this.redisSubClient);
+      this.io.adapter(adapter);
       console.log('✅ Socket.IO Redis adapter configured - sessions will be shared across all pods');
+      console.log('   Redis URL:', redisUrl);
+      console.log('   Adapter type:', adapter.constructor.name);
     } catch (error) {
       console.error('❌ Failed to configure Socket.IO Redis adapter:', error);
       console.warn('⚠️ Socket.IO will use in-memory adapter (sessions not shared across pods)');

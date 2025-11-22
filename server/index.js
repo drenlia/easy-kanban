@@ -446,13 +446,15 @@ const PORT = process.env.PORT || 3222;
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize real-time services
+// Initialize real-time services BEFORE server starts listening
+// This ensures the Redis adapter is configured before any connections are accepted
 async function initializeServices() {
   try {
     // Initialize Redis
     await redisService.connect();
     
     // Initialize WebSocket (now async due to Redis adapter setup)
+    // CRITICAL: This must happen BEFORE server.listen() to ensure adapter is ready
     await websocketService.initialize(server);
     
     console.log('✅ Real-time services initialized');
@@ -483,16 +485,17 @@ async function initializeServices() {
   }
 }
 
-// Start server
+// Initialize services BEFORE starting the server
+// This ensures the Redis adapter is configured before any Socket.IO connections are accepted
+await initializeServices();
+
+// Start server AFTER services are initialized
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`✅ Readiness check: http://localhost:${PORT}/ready`);
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
-  
-  // Initialize real-time services immediately (needed for WebSocket connections on login)
-  await initializeServices();
   
   // Mark server as ready after services are initialized
   markServerReady();

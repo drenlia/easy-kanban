@@ -92,8 +92,8 @@ if [ $DEPLOY_EXIT_CODE -eq 0 ]; then
   },
   "management_commands": {
     "view_logs": "kubectl logs -f deployment/easy-kanban -n ${NAMESPACE_RESULT}",
-    "delete_instance": "kubectl delete namespace ${NAMESPACE_RESULT}",
-    "scale_replicas": "kubectl scale deployment easy-kanban --replicas=1 -n ${NAMESPACE_RESULT}"
+    "remove_instance": "./k8s/remove-instance.sh ${INSTANCE_NAME_RESULT}",
+    "scale_replicas": "kubectl scale deployment easy-kanban --replicas=3 -n ${NAMESPACE_RESULT}"
   }
 }
 EOF

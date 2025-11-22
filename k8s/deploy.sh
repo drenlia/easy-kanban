@@ -379,8 +379,8 @@ generate_manifests() {
     # Note: License limits (USER_LIMIT, etc.) are NOT in ConfigMap - they're stored per-tenant in database
     # INSTANCE_NAME is set to generic "easy-kanban-app" (tenant hostnames come from request)
     # STARTUP_TENANT_ID is set to the current instance's tenant ID to pre-initialize its database
+    # NOTE: INSTANCE_TOKEN_PLACEHOLDER will be replaced later after checking existing ConfigMap
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_TOKEN_PLACEHOLDER/${INSTANCE_TOKEN}/g" \
         -e "s/JWT_SECRET_PLACEHOLDER/${JWT_SECRET}/g" \
         -e "s/APP_VERSION_PLACEHOLDER//g" \
         -e "s/MULTI_TENANT: \"false\"/MULTI_TENANT: \"true\"/g" \
@@ -451,10 +451,13 @@ if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
     # INSTANCE_TOKEN is shared across all tenants in multi-tenant mode
     # CRITICAL: Token only changes when a new pod is created (first deployment)
     # If pod already exists, we MUST preserve the existing token
-    if [ -n "$CURRENT_INSTANCE_TOKEN" ] && [ "$CURRENT_INSTANCE_TOKEN" != "" ]; then
+    # Check if token exists and is not empty (handle both null and empty string cases)
+    if [ -n "$CURRENT_INSTANCE_TOKEN" ] && [ "$CURRENT_INSTANCE_TOKEN" != "" ] && [ "$CURRENT_INSTANCE_TOKEN" != '""' ]; then
         echo "   ℹ️  INSTANCE_TOKEN already set (shared for all tenants, preserving to avoid pod restart)"
         # Update the new ConfigMap to preserve existing INSTANCE_TOKEN
-        sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${CURRENT_INSTANCE_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+        # Escape special characters for sed
+        ESCAPED_TOKEN=$(echo "$CURRENT_INSTANCE_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
         RECOVERED_TOKEN="$CURRENT_INSTANCE_TOKEN"
     else
         # ConfigMap exists but token is missing or empty - check if pod exists
@@ -470,26 +473,34 @@ if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
                 POD_TOKEN=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- printenv INSTANCE_TOKEN 2>/dev/null || echo "")
                 if [ -n "$POD_TOKEN" ] && [ "$POD_TOKEN" != "" ]; then
                     echo "   ✅ Recovered INSTANCE_TOKEN from pod environment: ${POD_TOKEN:0:20}..."
-                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${POD_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    # Escape special characters for sed
+                    ESCAPED_TOKEN=$(echo "$POD_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
                     RECOVERED_TOKEN="$POD_TOKEN"
                 else
                     echo "   ⚠️  Could not recover token from pod - generating new one"
                     echo "   ⚠️  Note: This will require pod restart and admin portal will need to update token"
                     GENERATED_TOKEN=$(generate_instance_token)
-                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    # Escape special characters for sed
+                    ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
                     RECOVERED_TOKEN="$GENERATED_TOKEN"
                 fi
             else
                 echo "   ⚠️  No running pod found - generating new token"
                 GENERATED_TOKEN=$(generate_instance_token)
-                sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                # Escape special characters for sed
+                ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
                 RECOVERED_TOKEN="$GENERATED_TOKEN"
             fi
         else
             echo "   ℹ️  ConfigMap exists but INSTANCE_TOKEN is missing, and no pod exists yet"
             echo "   🔑 Generating new INSTANCE_TOKEN (new deployment)"
             GENERATED_TOKEN=$(generate_instance_token)
-            sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+            # Escape special characters for sed
+            ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
             RECOVERED_TOKEN="$GENERATED_TOKEN"
         fi
     fi
@@ -516,7 +527,9 @@ else
     # First deployment: generate a new token
     echo "   🔑 Generating new INSTANCE_TOKEN (first deployment)"
     GENERATED_TOKEN=$(generate_instance_token)
-    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${GENERATED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+    # Escape special characters for sed
+    ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
     RECOVERED_TOKEN="$GENERATED_TOKEN"
     kubectl apply -f "${TEMP_DIR}/configmap.yaml"
     CONFIGMAP_UPDATED=false
@@ -617,8 +630,17 @@ echo "📦 Step 7/8: Applying ingress..."
 INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
 if kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
     echo "   🌐 Ingress rule '${INGRESS_NAME}' already exists, updating..."
+    # Remove any CORS annotations that might have been manually added
+    # We don't use CORS annotations - nginx accepts all origins internally
+    kubectl annotate ingress "${INGRESS_NAME}" -n "${NAMESPACE}" \
+        nginx.ingress.kubernetes.io/enable-cors- \
+        nginx.ingress.kubernetes.io/cors-allow-origin- \
+        nginx.ingress.kubernetes.io/cors-allow-methods- \
+        nginx.ingress.kubernetes.io/cors-allow-headers- \
+        nginx.ingress.kubernetes.io/cors-allow-credentials- \
+        2>/dev/null || true
     kubectl apply -f "${TEMP_DIR}/ingress.yaml"
-    echo "   ✅ Ingress rule updated"
+    echo "   ✅ Ingress rule updated (CORS annotations removed if present)"
 else
     echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
     kubectl apply -f "${TEMP_DIR}/ingress.yaml"
@@ -709,13 +731,6 @@ else
     echo "   ℹ️  Database will be automatically created when admin portal connects"
 fi
 
-echo ""
-echo "✅ Deployment completed successfully!"
-
-# Extract IP and port information
-echo ""
-echo "📊 Gathering deployment details..."
-
 # Get the external IP and NodePort information
 EXTERNAL_IP=""
 NODEPORT=""
@@ -734,17 +749,6 @@ if [ -n "$NODEPORT" ]; then
     fi
     EXTERNAL_IP="$NODE_IP:$NODEPORT"
 fi
-
-# Show status
-echo ""
-echo "📊 Deployment Status:"
-kubectl get pods -n "${NAMESPACE}"
-echo ""
-echo "🌐 Services:"
-kubectl get services -n "${NAMESPACE}"
-echo ""
-echo "🔗 Ingress:"
-kubectl get ingress -n "${NAMESPACE}"
 
 # Get the actual INSTANCE_TOKEN being used
 # This should already be set from the ConfigMap read above (after ConfigMap was applied)
@@ -765,37 +769,13 @@ else
 fi
 
 echo ""
-echo "🎉 Easy Kanban instance '${INSTANCE_NAME}' is now running!"
-echo ""
-echo "📍 Instance Details:"
-echo "   Instance Name: ${INSTANCE_NAME}"
-echo "   Namespace: ${NAMESPACE}"
-echo "   Hostname: ${FULL_HOSTNAME}"
-echo "   External Access: ${EXTERNAL_IP}"
-echo "   Instance Token: ${ACTUAL_INSTANCE_TOKEN}"
-echo ""
-echo "💾 Storage Paths:"
-echo "   Database: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-echo "   Attachments: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-echo "   Avatars: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
-echo ""
-echo "🌐 Access URLs:"
-echo "   - Primary: https://${FULL_HOSTNAME}"
-if [ -n "$NODEPORT" ]; then
-    echo "   - Direct: http://${EXTERNAL_IP}"
-fi
-echo ""
-echo "🔧 Management Commands:"
-echo "   View logs: kubectl logs -f deployment/easy-kanban-${INSTANCE_NAME} -n ${NAMESPACE}"
-echo "   Delete instance: kubectl delete namespace ${NAMESPACE}"
-echo "   Scale replicas: kubectl scale deployment easy-kanban-${INSTANCE_NAME} --replicas=1 -n ${NAMESPACE}"
+echo "✅ Deployment completed successfully!"
 
 # Clean up temporary files
-echo ""
-echo "🧹 Cleaning up temporary files..."
 rm -rf "${TEMP_DIR}"
 
 # Return the IP and port information for programmatic use
+# Note: In multi-tenant mode, storage is shared NFS at /data/nfs-server/{type}/tenants/{tenant-id}/
 echo ""
 echo "📤 DEPLOYMENT_RESULT:"
 echo "INSTANCE_NAME=${INSTANCE_NAME}"
@@ -804,6 +784,6 @@ echo "HOSTNAME=${FULL_HOSTNAME}"
 echo "EXTERNAL_IP=${EXTERNAL_IP}"
 echo "NODEPORT=${NODEPORT}"
 echo "INSTANCE_TOKEN=${ACTUAL_INSTANCE_TOKEN}"
-echo "STORAGE_DATA_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-echo "STORAGE_ATTACHMENTS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-echo "STORAGE_AVATARS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+echo "STORAGE_DATA_PATH=/data/nfs-server/data/tenants/${INSTANCE_NAME}"
+echo "STORAGE_ATTACHMENTS_PATH=/data/nfs-server/attachments/tenants/${INSTANCE_NAME}"
+echo "STORAGE_AVATARS_PATH=/data/nfs-server/avatars/tenants/${INSTANCE_NAME}"
