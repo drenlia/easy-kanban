@@ -49,31 +49,46 @@ class WebSocketService {
     // Configure Redis adapter for Socket.IO to share sessions across multiple pods
     // This is critical for multi-pod deployments where load balancing can route
     // Socket.IO polling requests to different pods than where the session was created
-    try {
-      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-      
-      // Create separate Redis clients for Socket.IO adapter (pub/sub pattern)
-      this.redisPubClient = createClient({ url: redisUrl });
-      this.redisSubClient = this.redisPubClient.duplicate();
-      
-      await Promise.all([
-        this.redisPubClient.connect(),
-        this.redisSubClient.connect()
-      ]);
-      
-      // Set up the Redis adapter
-      // Note: The adapter automatically handles session storage in Redis
-      // Sessions are stored with keys like "socket.io#/#" prefix
-      const adapter = createAdapter(this.redisPubClient, this.redisSubClient);
-      this.io.adapter(adapter);
-      console.log('✅ Socket.IO Redis adapter configured - sessions will be shared across all pods');
-      console.log('   Redis URL:', redisUrl);
-      console.log('   Adapter type:', adapter.constructor.name);
-    } catch (error) {
-      console.error('❌ Failed to configure Socket.IO Redis adapter:', error);
-      console.warn('⚠️ Socket.IO will use in-memory adapter (sessions not shared across pods)');
-      // Continue without Redis adapter - Socket.IO will use default in-memory adapter
-      // This is acceptable for single-pod deployments but will cause issues with multiple pods
+    // 
+    // Only use Redis adapter when:
+    // 1. Multi-tenant mode is enabled (always needs adapter for pod scaling)
+    // 2. Explicitly enabled via USE_REDIS_ADAPTER env var (for multi-pod single-tenant deployments)
+    // 
+    // In single-tenant Docker with single instance, use in-memory adapter (faster, simpler)
+    const useRedisAdapter = process.env.MULTI_TENANT === 'true' || process.env.USE_REDIS_ADAPTER === 'true';
+    
+    if (useRedisAdapter) {
+      try {
+        const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+        
+        // Create separate Redis clients for Socket.IO adapter (pub/sub pattern)
+        this.redisPubClient = createClient({ url: redisUrl });
+        this.redisSubClient = this.redisPubClient.duplicate();
+        
+        await Promise.all([
+          this.redisPubClient.connect(),
+          this.redisSubClient.connect()
+        ]);
+        
+        // Set up the Redis adapter
+        // Note: The adapter automatically handles session storage in Redis
+        // Sessions are stored with keys like "socket.io#/#" prefix
+        const adapter = createAdapter(this.redisPubClient, this.redisSubClient);
+        this.io.adapter(adapter);
+        console.log('✅ Socket.IO Redis adapter configured - sessions will be shared across all pods');
+        console.log('   Redis URL:', redisUrl);
+        console.log('   Adapter type:', adapter.constructor.name);
+        console.log('   Mode:', process.env.MULTI_TENANT === 'true' ? 'multi-tenant' : 'multi-pod single-tenant');
+      } catch (error) {
+        console.error('❌ Failed to configure Socket.IO Redis adapter:', error);
+        console.warn('⚠️ Socket.IO will use in-memory adapter (sessions not shared across pods)');
+        // Continue without Redis adapter - Socket.IO will use default in-memory adapter
+        // This is acceptable for single-pod deployments but will cause issues with multiple pods
+      }
+    } else {
+      console.log('ℹ️ Socket.IO using in-memory adapter (single-instance mode)');
+      console.log('   Redis is still used for pub/sub messaging (real-time updates)');
+      console.log('   To enable Redis adapter for multi-pod deployments, set USE_REDIS_ADAPTER=true');
     }
     
     
