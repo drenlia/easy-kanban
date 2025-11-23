@@ -8,6 +8,7 @@ export default defineConfig({
   },
   define: {
     'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED),
+    'process.env.MULTI_TENANT': JSON.stringify(process.env.MULTI_TENANT),
   },
   server: {
     host: '0.0.0.0',
