@@ -51,6 +51,12 @@ fi
 echo -e "${GREEN}✓ Docker is running${NC}"
 echo ""
 
+# Check if Dockerfile.prod exists
+if [ ! -f "Dockerfile.prod" ]; then
+    echo -e "${RED}❌ Dockerfile.prod not found in ${PROJECT_ROOT}${NC}"
+    exit 1
+fi
+
 # Get git information
 echo -e "${YELLOW}📋 Gathering version information...${NC}"
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -68,7 +74,11 @@ echo -e "${BLUE}🔨 Building Docker image...${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
-docker build -t easy-kanban:latest .
+docker build -f Dockerfile.prod -t easy-kanban:latest \
+  --build-arg GIT_COMMIT="${GIT_COMMIT}" \
+  --build-arg GIT_BRANCH="${GIT_BRANCH}" \
+  --build-arg BUILD_TIME="${BUILD_TIME}" \
+  .
 
 if [ $? -eq 0 ]; then
     echo ""
@@ -78,6 +88,14 @@ else
     echo -e "${RED}❌ Docker build failed!${NC}"
     exit 1
 fi
+
+# Get image information
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}📦 Image Information${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+docker images easy-kanban:latest --format "Image: {{.Repository}}:{{.Tag}}\nImage ID: {{.ID}}\nCreated: {{.CreatedSince}}\nSize: {{.Size}}"
+echo ""
 
 # Get registry service IP for port-forward
 REGISTRY_IP=$(kubectl get svc internal-registry -n kube-system -o jsonpath='{.spec.clusterIP}')

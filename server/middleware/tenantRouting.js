@@ -183,15 +183,23 @@ export const tenantRouting = (req, res, next) => {
       console.log(`📊 Using tenant database: ${dbPath}`);
     }
     
-    // Make database available to routes (replaces app.locals.db)
-    req.app.locals.db = dbInfo.db;
-    
-    // Store tenant storage paths
-    req.app.locals.tenantStoragePaths = getTenantStoragePaths(tenantId);
-    
-    // Log tenant access (only in multi-tenant mode)
+    // Make database available to routes
+    // CRITICAL: Use req.locals for per-request data to avoid race conditions
+    // req.app.locals is SHARED across all requests, causing database mix-ups in multi-tenant mode
+    if (!req.locals) {
+      req.locals = {};
+    }
+    req.locals.db = dbInfo.db;
+    req.locals.tenantStoragePaths = getTenantStoragePaths(tenantId);
     if (isMultiTenant() && tenantId) {
-      req.app.locals.currentTenant = tenantId;
+      req.locals.currentTenant = tenantId;
+    }
+    
+    // DO NOT set req.app.locals.db in multi-tenant mode - it's shared and causes race conditions!
+    // Only set it in single-tenant mode for backward compatibility
+    if (!isMultiTenant()) {
+      req.app.locals.db = dbInfo.db;
+      req.app.locals.tenantStoragePaths = getTenantStoragePaths(tenantId);
     }
     
     next();
@@ -252,6 +260,12 @@ export const getAllTenantDatabases = () => {
     }
   }
   return databases;
+};
+
+// Helper function to get database from request (avoids race conditions)
+// Prefers req.locals.db (per-request) over req.app.locals.db (shared)
+export const getRequestDatabase = (req, defaultDb = null) => {
+  return req.locals?.db || req.app.locals?.db || defaultDb;
 };
 
 // Export utility functions

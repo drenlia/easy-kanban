@@ -9,14 +9,14 @@ import redisService from '../services/redisService.js';
 import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // Login endpoint
 router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required' });
@@ -99,7 +99,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 // Account activation endpoint
 router.post('/activate-account', activationLimiter, async (req, res) => {
   const { token, email, newPassword } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!token || !email || !newPassword) {
     return res.status(400).json({ error: 'Token, email, and new password are required' });
@@ -204,7 +204,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
 // Register endpoint (admin only)
 router.post('/register', registrationLimiter, authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!email || !password || !firstName || !lastName || !role) {
     return res.status(400).json({ error: 'All fields are required' });
@@ -274,7 +274,7 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
 // Get current user endpoint
 router.get('/me', authenticateToken, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
     
     if (!user) {
@@ -334,7 +334,7 @@ router.get('/me', authenticateToken, (req, res) => {
 // Check if default admin exists
 router.get('/check-default-admin', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
     res.json({ exists: !!defaultAdmin });
   } catch (error) {
@@ -346,7 +346,7 @@ router.get('/check-default-admin', (req, res) => {
 // Check if demo user exists
 router.get('/check-demo-user', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
     res.json({ exists: !!demoUser });
   } catch (error) {
@@ -358,7 +358,7 @@ router.get('/check-demo-user', (req, res) => {
 // Get demo credentials
 router.get('/demo-credentials', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const adminPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
     const demoPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
     
@@ -422,7 +422,7 @@ function getOAuthSettings(db) {
 // Google OAuth endpoints
 router.get('/google/url', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settingsObj = getOAuthSettings(db);
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Starting Google OAuth URL generation...');
@@ -471,7 +471,7 @@ router.get('/google/url', (req, res) => {
 router.get('/google/callback', async (req, res) => {
   try {
     const { code, error, error_description } = req.query;
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Get OAuth settings first to check debug mode
     const settingsObj = getOAuthSettings(db);
@@ -819,7 +819,7 @@ router.get('/test/callback', (req, res) => {
 router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
     console.log('🔍 [DEBUG] OAuth configuration debug requested by admin');
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settingsObj = getOAuthSettings(db);
     
     const debugInfo = {
@@ -856,7 +856,7 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
 // Check instance status for logged-in users
 router.get('/instance-status', authenticateToken, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
@@ -893,7 +893,7 @@ router.get('/instance-status', authenticateToken, (req, res) => {
 // Check if current user is instance owner
 router.get('/is-owner', authenticateToken, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
@@ -916,7 +916,7 @@ router.get('/is-owner', authenticateToken, (req, res) => {
 // License info endpoint (Admin only)
 router.get('/license-info', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const licenseManager = getLicenseManager(req.app.locals.db);
+    const licenseManager = getLicenseManager(getRequestDatabase(req));
     const licenseInfo = await licenseManager.getLicenseInfo();
     
     res.json(licenseInfo);

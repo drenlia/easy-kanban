@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import websocketService from '../services/websocketService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -75,7 +76,7 @@ router.get('/ready', readyHandler);
 // Health check endpoint (liveness probe - checks if server is running)
 router.get('/', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
     res.status(200).json({ 
       status: 'healthy', 

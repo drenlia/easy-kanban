@@ -3,7 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTranslator } from '../utils/i18n.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ const router = express.Router();
 router.post('/', authenticateToken, async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Check for duplicate column name within the same board
@@ -71,7 +71,7 @@ router.post('/', authenticateToken, async (req, res) => {
     res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });
   } catch (error) {
     console.error('Error creating column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateColumn') });
   }
@@ -82,7 +82,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title, is_finished, is_archived } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Get the column's board ID
@@ -147,7 +147,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });
   } catch (error) {
     console.error('Error updating column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateColumn') });
   }
@@ -157,7 +157,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Get the column's board ID before deleting
@@ -180,7 +180,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Column deleted successfully' });
   } catch (error) {
     console.error('Error deleting column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteColumn') });
   }
@@ -190,7 +190,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.post('/reorder', authenticateToken, async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const currentColumn = wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
     if (!currentColumn) {
@@ -238,7 +238,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     res.json({ message: 'Column reordered successfully' });
   } catch (error) {
     console.error('Error reordering column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderColumn') });
   }
@@ -248,7 +248,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 router.post('/renumber', authenticateToken, async (req, res) => {
   const { boardId } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     db.transaction(() => {
       // Get all columns for this board ordered by current position
@@ -269,7 +269,7 @@ router.post('/renumber', authenticateToken, async (req, res) => {
     res.json({ message: 'Columns renumbered successfully' });
   } catch (error) {
     console.error('Error renumbering columns:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRenumberColumns') });
   }

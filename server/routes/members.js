@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkUserLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ router.get('/', authenticateToken, (req, res) => {
       'Expires': '0'
     });
     
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Check if user is admin and if includeSystem parameter is true
     const isAdmin = req.user && req.user.roles && req.user.roles.includes('admin');
@@ -61,7 +62,7 @@ router.get('/', authenticateToken, (req, res) => {
 router.post('/', checkUserLimit, async (req, res) => {
   const { id, name, color } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Check for duplicate member name
     const existingMember = wrapQuery(
@@ -94,7 +95,7 @@ router.post('/', checkUserLimit, async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     wrapQuery(db.prepare('DELETE FROM members WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates

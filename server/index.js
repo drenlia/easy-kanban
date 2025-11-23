@@ -77,7 +77,7 @@ import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorage
 import { getLicenseManager } from './config/license.js';
 
 // Import tenant routing middleware
-import { tenantRouting, isMultiTenant, closeAllTenantDatabases, getTenantDatabase } from './middleware/tenantRouting.js';
+import { tenantRouting, isMultiTenant, closeAllTenantDatabases, getTenantDatabase, getRequestDatabase } from './middleware/tenantRouting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -159,7 +159,7 @@ app.use((req, res, next) => {
 // Add app version header to all responses
 app.use((req, res, next) => {
   // Use database from request (set by tenantRouting in multi-tenant mode)
-  const db = req.app.locals.db || defaultDb;
+  const db = getRequestDatabase(req, defaultDb);
   if (db) {
     res.setHeader('X-App-Version', getAppVersion(db));
   }
@@ -250,9 +250,9 @@ if (isMultiTenant()) {
   console.log('✅ Tenant routing middleware enabled');
 }
 
-// Add instance status middleware (uses database from req.app.locals.db)
+// Add instance status middleware (uses database from request)
 app.use((req, res, next) => {
-  const db = req.app.locals.db || defaultDb;
+  const db = getRequestDatabase(req, defaultDb);
   if (db) {
     return checkInstanceStatus(db)(req, res, next);
   }

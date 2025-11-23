@@ -9,14 +9,14 @@ import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js
 import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // Get all users (admin only)
 router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Prevent browser caching of admin user data
     res.set({
       'Cache-Control': 'no-store, no-cache, must-revalidate, private',
@@ -61,7 +61,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
 // Admin member name update endpoint (MUST come before /:userId route)
 router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { userId } = req.params;
     const { displayName } = req.body;
@@ -129,7 +129,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
 router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { email, firstName, lastName, isActive } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   const { getTranslator } = await import('../utils/i18n.js');
   const t = getTranslator(db);
   
@@ -205,7 +205,7 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
 router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { role } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!role) {
     return res.status(400).json({ error: 'Role is required' });
@@ -262,7 +262,7 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
 // Check if user can be created (for pre-validation)
 router.get('/can-create', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Check if licensing is enabled first (before creating license manager)
     // If LICENSE_ENABLED is not set or is 'false', treat as disabled
@@ -322,7 +322,7 @@ router.get('/can-create', authenticateToken, requireRole(['admin']), async (req,
 // Create new user
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { email, password, firstName, lastName, role, displayName, baseUrl: baseUrlFromBody, isActive } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   const t = getTranslator(db);
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
@@ -539,7 +539,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { baseUrl: baseUrlFromBody } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   // Get baseUrl for invitation emails - use APP_URL from database (tenant-specific)
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
@@ -649,7 +649,7 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
 // Get task count for a user (for deletion confirmation)
 router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), (req, res) => {
   const { userId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Count tasks where this user is either the assignee (memberId) or requester (requesterId)
@@ -673,7 +673,7 @@ router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), (re
 // Delete user
 router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if user is trying to delete themselves
@@ -888,7 +888,7 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
 router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const { color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!color) {
     return res.status(400).json({ error: 'Color is required' });
@@ -933,7 +933,7 @@ router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (r
 // Admin avatar upload endpoint
 router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatarUpload.single('avatar'), async (req, res) => {
   const { userId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!req.file) {
     return res.status(400).json({ error: 'No avatar file uploaded' });
@@ -972,7 +972,7 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
 // Admin avatar removal endpoint
 router.delete('/:userId/avatar', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Clear avatar_path in database

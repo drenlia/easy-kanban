@@ -8,7 +8,7 @@ import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
-import { isMultiTenant } from '../middleware/tenantRouting.js';
+import { isMultiTenant, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Get storage paths (tenant-aware in multi-tenant mode, fallback to base paths)
 const getStoragePaths = (req) => {
   // Use tenant storage paths if available (set by tenant routing middleware)
+  // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
+  if (req.locals?.tenantStoragePaths) {
+    return req.locals.tenantStoragePaths;
+  }
   if (req.app.locals?.tenantStoragePaths) {
     return req.app.locals.tenantStoragePaths;
   }
@@ -64,9 +68,9 @@ router.get('/attachments/:filename', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     
     // In multi-tenant mode, verify user exists in the current tenant's database
-    if (isMultiTenant() && req.app.locals.db) {
+    const db = getRequestDatabase(req);
+    if (isMultiTenant() && db) {
       try {
-        const db = req.app.locals.db;
         const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
         
         if (!userInDb) {
@@ -112,9 +116,9 @@ router.get('/avatars/:filename', (req, res) => {
     const decoded = jwt.verify(token, JWT_SECRET);
     
     // In multi-tenant mode, verify user exists in the current tenant's database
-    if (isMultiTenant() && req.app.locals.db) {
+    const db = getRequestDatabase(req);
+    if (isMultiTenant() && db) {
       try {
-        const db = req.app.locals.db;
         const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
         
         if (!userInDb) {
@@ -150,7 +154,7 @@ router.get('/avatars/:filename', (req, res) => {
 // Delete attachment endpoint
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // First, get the attachment info to find the file path

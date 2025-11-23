@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { getRequestDatabase } from './tenantRouting.js';
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -28,9 +29,9 @@ export const authenticateToken = (req, res, next) => {
     
     // In multi-tenant mode, verify user exists in the current tenant's database
     // This ensures tokens from one tenant cannot be used on another tenant
-    if (process.env.MULTI_TENANT === 'true' && req.app.locals.db) {
+    const db = getRequestDatabase(req);
+    if (process.env.MULTI_TENANT === 'true' && db) {
       try {
-        const db = req.app.locals.db;
         const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(user.id);
         
         if (!userInDb) {

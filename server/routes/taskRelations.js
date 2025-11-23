@@ -10,7 +10,7 @@ import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import redisService from '../services/redisService.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -19,7 +19,7 @@ const router = express.Router();
 // Task-Tag association endpoints
 router.get('/:taskId/tags', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const taskTags = wrapQuery(db.prepare(`
@@ -39,7 +39,7 @@ router.get('/:taskId/tags', authenticateToken, (req, res) => {
 router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -129,7 +129,7 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
 router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get tag and task details for logging before deletion
@@ -183,7 +183,7 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
 // Task-Watchers association endpoints
 router.get('/:taskId/watchers', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const watchers = wrapQuery(db.prepare(`
@@ -203,7 +203,7 @@ router.get('/:taskId/watchers', authenticateToken, (req, res) => {
 router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -256,7 +256,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
 
 router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
   const { taskId, memberId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const result = wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
@@ -275,7 +275,7 @@ router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
 // Task-Collaborators association endpoints
 router.get('/:taskId/collaborators', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const collaborators = wrapQuery(db.prepare(`
@@ -295,7 +295,7 @@ router.get('/:taskId/collaborators', authenticateToken, (req, res) => {
 router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -348,7 +348,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
 
 router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
   const { taskId, memberId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const result = wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
@@ -367,7 +367,7 @@ router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) 
 // Task-Attachments association endpoints
 router.get('/:taskId/attachments', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const attachments = db.prepare(`
@@ -388,7 +388,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const { attachments } = req.body;
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Begin transaction

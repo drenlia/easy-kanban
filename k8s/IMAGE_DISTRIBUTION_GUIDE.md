@@ -48,7 +48,7 @@ When you have multiple nodes (k8s and k8s2), images built on one node are not au
 
 3. **Build and push image:**
    ```bash
-   ./k8s/push-to-registry.sh
+   ./k8s/build-and-push-to-registry.sh
    ```
 
 4. **Update deployment to use registry:**
@@ -180,7 +180,7 @@ If you want to switch to internal registry:
 
 3. **Push existing image:**
    ```bash
-   ./k8s/push-to-registry.sh
+   ./k8s/build-and-push-to-registry.sh
    ```
 
 4. **Update deployments:**

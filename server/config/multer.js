@@ -39,6 +39,10 @@ ensureDirectories();
 // Falls back to base paths for single-tenant mode
 const getStoragePaths = (req) => {
   // Check if tenant routing middleware has set tenant storage paths
+  // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
+  if (req.locals?.tenantStoragePaths) {
+    return req.locals.tenantStoragePaths;
+  }
   if (req.app.locals?.tenantStoragePaths) {
     return req.app.locals.tenantStoragePaths;
   }

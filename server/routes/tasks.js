@@ -7,6 +7,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -279,7 +280,7 @@ const logReportingActivity = async (db, eventType, userId, taskId, metadata = {}
 // Get all tasks
 router.get('/', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const tasks = wrapQuery(db.prepare(`
       SELECT t.*, 
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -302,7 +303,7 @@ router.get('/', authenticateToken, (req, res) => {
     res.json(tasksWithCamelCase);
   } catch (error) {
     console.error('Error fetching tasks:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTasks') });
   }
@@ -311,7 +312,7 @@ router.get('/', authenticateToken, (req, res) => {
 // Get task by ID or ticket
 router.get('/:id', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { id } = req.params;
     
     console.log('🔍 [TASK API] Getting task by ID:', { id, url: req.url });
@@ -471,7 +472,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     res.json(taskResponse);
   } catch (error) {
     console.error('Error fetching task:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTask') });
   }
@@ -483,7 +484,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
   const userId = req.user?.id || 'system'; // Fallback for now
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const now = new Date().toISOString();
     
     // Generate task ticket number
@@ -577,7 +578,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     res.json(task);
   } catch (error) {
     console.error('Error creating task:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateTask') });
   }
@@ -589,7 +590,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
   const userId = req.user?.id || 'system';
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const now = new Date().toISOString();
     
     // Generate task ticket number
@@ -681,7 +682,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     res.json(task);
   } catch (error) {
     console.error('Error creating task at top:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateTaskAtTop') });
   }
@@ -694,7 +695,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const userId = req.user?.id || 'system';
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const now = new Date().toISOString();
     
@@ -864,7 +865,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     res.json(taskResponse);
   } catch (error) {
     console.error('Error updating task:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateTask') });
   }
@@ -876,7 +877,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const userId = req.user?.id || 'system';
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Get task details before deletion for logging
     const t = getTranslator(db);
@@ -904,6 +905,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const __filename = fileURLToPath(import.meta.url);
     // Get tenant-specific storage paths (set by tenant routing middleware)
     const getStoragePaths = (req) => {
+      // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
+      if (req.locals?.tenantStoragePaths) {
+        return req.locals.tenantStoragePaths;
+      }
       if (req.app.locals?.tenantStoragePaths) {
         return req.app.locals.tenantStoragePaths;
       }
@@ -979,7 +984,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Task and attachments deleted successfully' });
   } catch (error) {
     console.error('Error deleting task:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteTask') });
   }
@@ -995,7 +1000,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const now = new Date().toISOString();
     
@@ -1146,7 +1151,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     res.json({ message: `Updated ${updates.length} task positions successfully` });
   } catch (error) {
     console.error('Error batch updating task positions:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateTask') });
   }
@@ -1158,7 +1163,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const userId = req.user?.id || 'system';
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const currentTask = wrapQuery(db.prepare('SELECT position, columnId, boardId, title FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
 
@@ -1246,7 +1251,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     res.json({ message: 'Task reordered successfully' });
   } catch (error) {
     console.error('Error reordering task:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderTask') });
   }
@@ -1264,7 +1269,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Get the task to move
@@ -1436,7 +1441,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     
   } catch (error) {
     console.error('Error moving task to board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToMoveTaskToBoard') });
   }
@@ -1446,7 +1451,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
 router.get('/by-board/:boardId', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const tasks = wrapQuery(db.prepare(`
       SELECT t.*, 
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -1461,7 +1466,7 @@ router.get('/by-board/:boardId', authenticateToken, (req, res) => {
     res.json(tasks);
   } catch (error) {
     console.error('Error getting tasks by board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToGetTasks') });
   }
@@ -1470,7 +1475,7 @@ router.get('/by-board/:boardId', authenticateToken, (req, res) => {
 // Add watcher to task
 router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
     
@@ -1500,7 +1505,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
     res.json({ success: true });
   } catch (error) {
     console.error('Error adding watcher:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToAddWatcher') });
   }
@@ -1509,7 +1514,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
 // Remove watcher from task
 router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId, memberId } = req.params;
     
@@ -1534,7 +1539,7 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing watcher:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRemoveWatcher') });
   }
@@ -1543,7 +1548,7 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
 // Add collaborator to task
 router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
@@ -1573,7 +1578,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
     res.json({ success: true });
   } catch (error) {
     console.error('Error adding collaborator:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToAddCollaborator') });
   }
@@ -1582,7 +1587,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
 // Remove collaborator from task
 router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId, memberId } = req.params;
     
@@ -1607,7 +1612,7 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing collaborator:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRemoveCollaborator') });
   }
@@ -1618,7 +1623,7 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
 // Get all relationships for a task
 router.get('/:taskId/relationships', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { taskId } = req.params;
     
     // Get all relationships where this task is involved (as either task_id or to_task_id)
@@ -1645,7 +1650,7 @@ router.get('/:taskId/relationships', authenticateToken, (req, res) => {
     res.json(relationships);
   } catch (error) {
     console.error('Error fetching task relationships:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTaskRelationships') });
   }
@@ -1654,7 +1659,7 @@ router.get('/:taskId/relationships', authenticateToken, (req, res) => {
 // Create a task relationship
 router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId } = req.params;
     const { relationship, toTaskId } = req.body;
@@ -1770,7 +1775,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     
     res.json({ success: true, message: 'Task relationship created successfully' });
   } catch (error) {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return res.status(409).json({ error: t('errors.relationshipAlreadyExists') });
@@ -1783,7 +1788,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
 // Delete a task relationship
 router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId, relationshipId } = req.params;
     
@@ -1841,7 +1846,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
     res.json({ success: true, message: 'Task relationship deleted successfully' });
   } catch (error) {
     console.error('Error deleting task relationship:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteTaskRelationship') });
   }
@@ -1850,7 +1855,7 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
 // Get tasks available for creating relationships (excludes current task and already related tasks)
 router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { taskId } = req.params;
     
@@ -1872,7 +1877,7 @@ router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) 
     res.json(availableTasks);
   } catch (error) {
     console.error('Error fetching available tasks for relationship:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchAvailableTasks') });
   }
@@ -1882,7 +1887,7 @@ router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) 
 router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     console.log(`🌳 FlowChart API: Building flow chart for task: ${taskId}`);
@@ -2049,7 +2054,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
     
   } catch (error) {
     console.error('❌ FlowChart API: Error getting flow chart data:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToGetFlowChartData') });
   }

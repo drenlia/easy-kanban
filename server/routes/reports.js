@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getLeaderboard } from '../jobs/achievements.js';
 import { getTranslator, t as translate } from '../utils/i18n.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ const router = express.Router();
  */
 router.get('/settings', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Fetch only report-related settings (no sensitive admin settings)
     const reportSettings = wrapQuery(db.prepare(`
@@ -46,7 +47,7 @@ router.get('/settings', authenticateToken, (req, res) => {
  */
 router.get('/user-points', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { userId, lang } = req.query;
     const targetUserId = userId || req.user.id;
     
@@ -246,7 +247,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
  */
 router.get('/leaderboard', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { year, month } = req.query;
     
     const leaderboard = getLeaderboard(
@@ -285,7 +286,7 @@ router.get('/leaderboard', authenticateToken, (req, res) => {
  */
 router.get('/burndown', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { startDate, endDate, boardId } = req.query;
     
     if (!startDate || !endDate) {
@@ -471,7 +472,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
  */
 router.get('/team-performance', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { startDate, endDate, boardId } = req.query;
     
     if (!startDate || !endDate) {
@@ -600,7 +601,7 @@ router.get('/team-performance', authenticateToken, (req, res) => {
  */
 router.get('/task-list', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { startDate, endDate, boardId, status, assigneeId, priorityName } = req.query;
     
     let query = `

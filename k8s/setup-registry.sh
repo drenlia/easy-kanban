@@ -161,7 +161,7 @@ echo "🎉 Internal registry setup complete!"
 echo ""
 echo "📋 Next steps:"
 echo "   1. Configure containerd on all nodes (see above)"
-echo "   2. Build and push image: ./k8s/push-to-registry.sh"
+echo "   2. Build and push image: ./k8s/build-and-push-to-registry.sh"
 echo "   3. Update deployment to use: ${REGISTRY_HOST}/easy-kanban:latest"
 echo ""
 

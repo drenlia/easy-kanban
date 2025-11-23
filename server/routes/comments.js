@@ -10,7 +10,7 @@ import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import redisService from '../services/redisService.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 router.post('/', authenticateToken, async (req, res) => {
   const comment = req.body;
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Begin transaction
@@ -173,7 +173,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get original comment first
@@ -252,7 +252,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get comment details before deleting
@@ -268,6 +268,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 
     // Get tenant-specific storage paths (set by tenant routing middleware)
     const getStoragePaths = (req) => {
+      // Check req.locals first (multi-tenant mode) then req.app.locals (single-tenant mode)
+      if (req.locals?.tenantStoragePaths) {
+        return req.locals.tenantStoragePaths;
+      }
       if (req.app.locals?.tenantStoragePaths) {
         return req.app.locals.tenantStoragePaths;
       }
@@ -339,7 +343,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 // Get comment attachments endpoint
 router.get('/:commentId/attachments', authenticateToken, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const attachments = db.prepare(`
       SELECT 
         id,

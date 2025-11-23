@@ -2,6 +2,7 @@ import express from 'express';
 import crypto from 'crypto';
 import { authenticateToken } from '../middleware/auth.js';
 import { createAttachmentUploadMiddleware } from '../config/multer.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -9,9 +10,9 @@ const router = express.Router();
 // This must run BEFORE the route handler so multer can process the multipart stream
 const createUploadMiddleware = async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     if (!db) {
-      console.error('Database not available in req.app.locals.db');
+      console.error('Database not available from getRequestDatabase');
       return res.status(500).json({ error: 'Database not initialized' });
     }
     // Create multer instance with admin settings (pre-loaded for synchronous filter)

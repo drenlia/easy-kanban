@@ -5,7 +5,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -13,7 +13,7 @@ const router = express.Router();
 // This must run BEFORE the route handler so multer can process the multipart stream
 const createUploadMiddleware = async (req, res, next) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Create multer instance with admin settings (pre-loaded for synchronous filter)
     const attachmentUploadWithValidation = await createAttachmentUploadMiddleware(db);
     
@@ -68,7 +68,7 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
   }
 
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const avatarPath = `/avatars/${req.file.filename}`;
     wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
     
@@ -105,7 +105,7 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 // Delete avatar endpoint
 router.delete('/avatar', authenticateToken, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
     
     // Get the member ID for Redis publishing
@@ -134,7 +134,7 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
 // Update user profile (display name)
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { displayName } = req.body;
     const userId = req.user.id;
@@ -192,7 +192,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
 // Delete user account
 router.delete('/account', authenticateToken, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const userId = req.user.id;
     
     // Security validation: ensure user can only delete their own account
@@ -385,7 +385,7 @@ router.delete('/account', authenticateToken, (req, res) => {
 // User Settings endpoints
 router.get('/settings', authenticateToken, (req, res) => {
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Create user_settings table if it doesn't exist
@@ -438,7 +438,7 @@ router.get('/settings', authenticateToken, (req, res) => {
 router.put('/settings', authenticateToken, (req, res) => {
   const userId = req.user.id;
   const { setting_key, setting_value } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Handle undefined values (skip them)

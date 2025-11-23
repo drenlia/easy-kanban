@@ -15,7 +15,7 @@ Now that the internal registry is set up, here's your new deployment workflow.
 ### Step 1: Build and Push to Registry
 
 ```bash
-./k8s/push-to-registry.sh
+./k8s/build-and-push-to-registry.sh
 ```
 
 This script:
@@ -63,7 +63,7 @@ git add .
 git commit -m "New feature"
 
 # 2. Build and push new image
-./k8s/push-to-registry.sh
+./k8s/build-and-push-to-registry.sh
 
 # 3. Restart deployment to use new image
 kubectl rollout restart deployment/easy-kanban -n easy-kanban
@@ -115,7 +115,7 @@ kubectl rollout restart deployment/easy-kanban -n easy-kanban
 ### New Workflow (Registry)
 ```bash
 # Build and push (one command!)
-./k8s/push-to-registry.sh
+./k8s/build-and-push-to-registry.sh
 
 # Restart deployment
 kubectl rollout restart deployment/easy-kanban -n easy-kanban
@@ -167,7 +167,7 @@ kubectl patch deployment easy-kanban -n easy-kanban -p \
 **Yes, use `push-to-registry.sh` for new deployments!**
 
 The workflow is now:
-1. `./k8s/push-to-registry.sh` - Build and push
+1. `./k8s/build-and-push-to-registry.sh` - Build and push
 2. `kubectl rollout restart` - Deploy new image
 
 That's it! Much simpler than before. 🎉

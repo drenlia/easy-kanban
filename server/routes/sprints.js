@@ -3,13 +3,14 @@ import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import redisService from '../services/redisService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // GET /api/admin/sprints - Get all planning periods/sprints (accessible to all authenticated users for filtering)
 router.get('/', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     const sprints = wrapQuery(
       db.prepare(`
@@ -30,7 +31,7 @@ router.get('/', authenticateToken, (req, res) => {
 // GET /api/admin/sprints/active - Get currently active sprint (must come before /:id routes)
 router.get('/active', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     const activeSprint = wrapQuery(
       db.prepare(`
@@ -57,7 +58,7 @@ router.get('/active', authenticateToken, (req, res) => {
 // GET /api/admin/sprints/:id/usage - Get sprint usage count (for deletion confirmation)
 router.get('/:id/usage', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { id } = req.params;
     
     // Count tasks that use this sprint (by sprint_id)
@@ -72,7 +73,7 @@ router.get('/:id/usage', authenticateToken, requireRole(['admin']), (req, res) =
 // POST /api/admin/sprints - Create a new sprint
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { name, start_date, end_date, is_active, description } = req.body;
     
     // Validation
@@ -141,7 +142,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 // PUT /api/admin/sprints/:id - Update a sprint
 router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { id } = req.params;
     const { name, start_date, end_date, is_active, description } = req.body;
     
@@ -217,7 +218,7 @@ router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) =
 // DELETE /api/admin/sprints/:id - Delete a sprint
 router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const { id } = req.params;
     
     // Check if sprint exists

@@ -3,7 +3,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
-import { getTenantId } from '../middleware/tenantRouting.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ router.get('/', (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
@@ -37,7 +37,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     
@@ -67,7 +67,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     return next(); // Let other routes handle it
   }
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key, value } = req.body;
     
     if (!key) {
@@ -138,7 +138,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
 router.put('/app-url', authenticateToken, async (req, res) => {
   try {
     console.log('📞 APP_URL update endpoint called');
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { appUrl } = req.body;
     const userId = req.user.id;
     
@@ -236,7 +236,7 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Define all mail-related settings to clear (empty strings)
     const mailSettingsToClear = [
@@ -296,7 +296,7 @@ router.get('/info', authenticateToken, (req, res, next) => {
     return next(); // Let other routes handle it
   }
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const usage = getStorageUsage(db);
     const limit = getStorageLimit(db);
     const remaining = limit - usage;

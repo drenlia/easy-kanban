@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Find user by email
     const user = wrapQuery(
@@ -155,7 +156,7 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Find valid reset token
     const resetToken = wrapQuery(
@@ -211,7 +212,7 @@ router.get('/verify/:token', (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Check if token is valid
     const resetToken = wrapQuery(
