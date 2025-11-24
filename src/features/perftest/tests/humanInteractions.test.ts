@@ -65,10 +65,9 @@ export async function runHumanInteractionsTest() {
     // Test 3: Create a task relationship (if we have at least 2 tasks)
     if (tasks.length >= 2) {
       const task2 = tasks[1];
-      await api.post('/task-relationships', {
-        sourceTaskId: task.id,
-        targetTaskId: task2.id,
-        relationshipType: 'blocks'
+      await api.post(`/tasks/${task.id}/relationships`, {
+        relationship: 'related',
+        toTaskId: task2.id
       });
       actions.push('Created task relationship');
     }
@@ -96,7 +95,7 @@ export async function runHumanInteractionsTest() {
       const relationshipsResponse = await api.get(`/tasks/${task.id}/relationships`);
       const relationships = relationshipsResponse.data;
       if (relationships.length > 0) {
-        await api.delete(`/task-relationships/${relationships[0].id}`);
+        await api.delete(`/tasks/${task.id}/relationships/${relationships[0].id}`);
         actions.push('Deleted task relationship');
       }
     }

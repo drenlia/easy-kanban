@@ -177,6 +177,16 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
                           {result.message}
                         </div>
                       )}
+                      {result.details?.actions && Array.isArray(result.details.actions) && result.details.actions.length > 0 && (
+                        <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-1 space-y-0.5">
+                          <div className="font-medium">Actions:</div>
+                          <ul className="list-disc list-inside ml-1 space-y-0.5">
+                            {result.details.actions.map((action: string, idx: number) => (
+                              <li key={idx}>{action}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
