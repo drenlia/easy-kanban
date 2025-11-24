@@ -4,6 +4,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { initializeDemoData, createDemoUsers } from '../config/demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getDefaultBoardColumns } from '../utils/i18n.js';
 
 const router = express.Router();
 
@@ -13,16 +14,59 @@ const router = express.Router();
  * All routes require admin authentication
  */
 
-// Helper to get a default board and columns
-function getDefaultBoardAndColumns(db) {
-  const board = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY position LIMIT 1'), 'SELECT').get();
-  if (!board) {
-    throw new Error('No board found. Please create a board first.');
+// Helper function to generate project identifiers
+function generateProjectIdentifier(db, prefix = 'PROJ-') {
+  const result = wrapQuery(db.prepare(`
+    SELECT project FROM boards 
+    WHERE project IS NOT NULL AND project LIKE ?
+    ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
+    LIMIT 1
+  `), 'SELECT').get(`${prefix}%`, prefix.length + 1);
+  
+  let nextNumber = 1;
+  if (result && result.project) {
+    const currentNumber = parseInt(result.project.substring(prefix.length));
+    nextNumber = currentNumber + 1;
   }
   
-  const columns = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 'SELECT').all(board.id);
+  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+}
+
+// Helper to get a default board and columns, creating them if they don't exist
+function getDefaultBoardAndColumns(db) {
+  let board = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY position LIMIT 1'), 'SELECT').get();
+  
+  // Create board if it doesn't exist
+  if (!board) {
+    const boardId = crypto.randomUUID();
+    const projectIdentifier = generateProjectIdentifier(db);
+    wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(
+      boardId, 
+      'Project Board', 
+      projectIdentifier,
+      0
+    );
+    board = wrapQuery(db.prepare('SELECT * FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    console.log(`✅ Created default board: ${projectIdentifier} for demo content`);
+  }
+  
+  // Get columns for the board
+  let columns = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 'SELECT').all(board.id);
+  
+  // Create default columns if none exist
   if (columns.length === 0) {
-    throw new Error('No columns found. Please create columns first.');
+    const defaultColumns = getDefaultBoardColumns(db);
+    const columnStmt = db.prepare('INSERT INTO columns (id, boardId, title, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
+    
+    defaultColumns.forEach((col, index) => {
+      const columnId = `${col.id}-${board.id}`;
+      const isFinished = col.id === 'completed';
+      const isArchived = col.id === 'archive';
+      columnStmt.run(columnId, board.id, col.title, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
+    });
+    
+    columns = wrapQuery(db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 'SELECT').all(board.id);
+    console.log(`✅ Created ${columns.length} default columns for demo content`);
   }
   
   return { board, columns };
@@ -225,6 +269,23 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
   }
 });
 
+// Helper function to generate task ticket numbers (same as in tasks.js)
+function generateTaskTicket(db, prefix = 'TASK-') {
+  const result = wrapQuery(db.prepare(`
+    SELECT ticket FROM tasks
+    WHERE ticket IS NOT NULL AND ticket LIKE ?
+    ORDER BY CAST(SUBSTR(ticket, ?) AS INTEGER) DESC
+    LIMIT 1
+  `), 'SELECT').get(`${prefix}%`, prefix.length + 1);
+
+  let nextNumber = 1;
+  if (result && result.ticket) {
+    const currentNumber = parseInt(result.ticket.substring(prefix.length));
+    nextNumber = currentNumber + 1;
+  }
+  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
+}
+
 /**
  * POST /api/admin/perftest/bulk-tasks
  * Create 50-100 tasks across multiple columns/boards
@@ -252,19 +313,54 @@ router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req
     const today = new Date().toISOString().split('T')[0];
     const priority = wrapQuery(db.prepare('SELECT id, priority FROM priorities ORDER BY position LIMIT 1'), 'SELECT').get();
     
-    let ticketNumber = 1;
+    // Get the task prefix from settings
+    const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
+    
+    // Find the last "Bulk Task" number to continue the sequence
+    const lastBulkTask = wrapQuery(db.prepare(`
+      SELECT title FROM tasks 
+      WHERE title LIKE 'Bulk Task %' 
+      ORDER BY CAST(SUBSTR(title, 12) AS INTEGER) DESC 
+      LIMIT 1
+    `), 'SELECT').get();
+    
+    let startTaskNumber = 1;
+    if (lastBulkTask && lastBulkTask.title) {
+      const lastNumber = parseInt(lastBulkTask.title.substring(11)); // "Bulk Task ".length = 11
+      if (!isNaN(lastNumber)) {
+        startTaskNumber = lastNumber + 1;
+      }
+    }
+    
+    // Get the starting ticket number (query once, then increment in the loop)
+    const lastTicketResult = wrapQuery(db.prepare(`
+      SELECT ticket FROM tasks
+      WHERE ticket IS NOT NULL AND ticket LIKE ?
+      ORDER BY CAST(SUBSTR(ticket, ?) AS INTEGER) DESC
+      LIMIT 1
+    `), 'SELECT').get(`${taskPrefix}%`, taskPrefix.length + 1);
+    
+    let nextTicketNumber = 1;
+    if (lastTicketResult && lastTicketResult.ticket) {
+      const currentNumber = parseInt(lastTicketResult.ticket.substring(taskPrefix.length));
+      nextTicketNumber = currentNumber + 1;
+    }
+    
     const createdTasks = [];
     
     for (let i = 0; i < count; i++) {
       const taskId = crypto.randomUUID();
       const columnIndex = i % columns.length;
       const positionInColumn = Math.floor(i / columns.length);
-      const ticket = `TASK-${String(ticketNumber++).padStart(5, '0')}`;
+      
+      // Generate ticket in sequence (no need to query DB for each task)
+      const ticket = `${taskPrefix}${String(nextTicketNumber++).padStart(5, '0')}`;
+      const taskNumber = startTaskNumber + i;
       
       wrapQuery(taskStmt, 'INSERT').run(
         taskId,
-        `Bulk Task ${i + 1}`,
-        `Performance test task ${i + 1}`,
+        `Bulk Task ${taskNumber}`,
+        `Performance test task ${taskNumber}`,
         ticket,
         member.id,
         member.id,
