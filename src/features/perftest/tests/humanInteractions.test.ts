@@ -9,6 +9,11 @@ import { Board, Task, Column } from '../../../types';
 export async function runHumanInteractionsTest() {
   const actions: string[] = [];
   const startTime = performance.now();
+  
+  // Store original state for restoration
+  let originalTaskState: Task | null = null;
+  let originalTaskPositions: Array<{ taskId: string; position: number; columnId: string }> = [];
+  let createdRelationshipId: string | null = null;
 
   try {
     // Get boards
@@ -45,6 +50,14 @@ export async function runHumanInteractionsTest() {
     const task = tasks[0];
     const sourceColumn = columns[0];
     const targetColumn = columns[1];
+    
+    // Store original task state
+    originalTaskState = { ...task };
+    originalTaskPositions = tasks.slice(0, 3).map(t => ({
+      taskId: t.id,
+      position: t.position || 0,
+      columnId: t.columnId
+    }));
 
     // Test 1: Move a task between columns
     await api.put(`/tasks/${task.id}`, {
@@ -70,6 +83,13 @@ export async function runHumanInteractionsTest() {
         toTaskId: task2.id
       });
       actions.push('Created task relationship');
+      
+      // Get the relationship ID for cleanup
+      const relationshipsResponse = await api.get(`/tasks/${task.id}/relationships`);
+      const relationships = relationshipsResponse.data;
+      if (relationships.length > 0) {
+        createdRelationshipId = relationships[relationships.length - 1].id;
+      }
     }
 
     // Test 4: Update a column
@@ -91,22 +111,42 @@ export async function runHumanInteractionsTest() {
       actions.push('Reordered tasks');
     }
 
-    // Test 6: Delete a task relationship (if we created one)
-    if (tasks.length >= 2) {
-      const relationshipsResponse = await api.get(`/tasks/${task.id}/relationships`);
-      const relationships = relationshipsResponse.data;
-      if (relationships.length > 0) {
-        await api.delete(`/tasks/${task.id}/relationships/${relationships[0].id}`);
-        actions.push('Deleted task relationship');
-      }
-    }
-
+    // Restore original state
+    actions.push('Restoring original state...');
+    
     // Restore original column title
     await api.put(`/columns/${sourceColumn.id}`, {
-      title: sourceColumn.title.replace(' (test)', ''),
+      title: sourceColumn.title,
       is_finished: sourceColumn.is_finished,
       is_archived: sourceColumn.is_archived
     });
+    actions.push('Restored column title');
+    
+    // Restore original task state
+    if (originalTaskState) {
+      await api.put(`/tasks/${originalTaskState.id}`, {
+        ...originalTaskState,
+        title: originalTaskState.title.replace(' (edited)', ''),
+        description: originalTaskState.description?.replace('\n\nEdited during performance test', '') || originalTaskState.description
+      });
+      actions.push('Restored task title and description');
+    }
+    
+    // Restore original task positions
+    if (originalTaskPositions.length > 0) {
+      await api.post('/tasks/batch-update-positions', { updates: originalTaskPositions });
+      actions.push('Restored task positions');
+    }
+    
+    // Delete created relationship
+    if (createdRelationshipId) {
+      try {
+        await api.delete(`/tasks/${task.id}/relationships/${createdRelationshipId}`);
+        actions.push('Deleted created relationship');
+      } catch (error) {
+        // Relationship might have been deleted already, ignore
+      }
+    }
 
     const endTime = performance.now();
     const duration = endTime - startTime;
@@ -121,6 +161,33 @@ export async function runHumanInteractionsTest() {
       }
     };
   } catch (error: any) {
+    // Try to restore state even on error
+    if (originalTaskState) {
+      try {
+        await api.put(`/tasks/${originalTaskState.id}`, {
+          ...originalTaskState,
+          title: originalTaskState.title.replace(' (edited)', ''),
+          description: originalTaskState.description?.replace('\n\nEdited during performance test', '') || originalTaskState.description
+        });
+      } catch (restoreError) {
+        // Ignore restore errors
+      }
+    }
+    if (originalTaskPositions.length > 0) {
+      try {
+        await api.post('/tasks/batch-update-positions', { updates: originalTaskPositions });
+      } catch (restoreError) {
+        // Ignore restore errors
+      }
+    }
+    if (createdRelationshipId && originalTaskState) {
+      try {
+        await api.delete(`/tasks/${originalTaskState.id}/relationships/${createdRelationshipId}`);
+      } catch (restoreError) {
+        // Ignore restore errors
+      }
+    }
+    
     throw new Error(`Human interactions test failed: ${error.message}`);
   }
 }

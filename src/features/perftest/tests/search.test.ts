@@ -25,7 +25,7 @@ export async function runSearchTest() {
     // Get all tasks first (baseline)
     const allTasksStart = performance.now();
     const allTasksResponse = await api.get(`/tasks/by-board/${board.id}`);
-    const allTasks = allTasksResponse.data;
+    const allTasks = allTasksResponse?.data || [];
     const allTasksDuration = performance.now() - allTasksStart;
     
     results.push({

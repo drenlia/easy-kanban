@@ -127,7 +127,8 @@ router.post('/tags', authenticateToken, requireRole(['admin']), async (req, res)
       duration: duration,
       tagsCreated: createdTags.length,
       associationsCreated: createdTags.length,
-      message: `Created ${createdTags.length} tags and associated them to tasks`
+      message: `Created ${createdTags.length} tags and associated them to tasks`,
+      createdTagIds: createdTags.map(t => t.id) // Return IDs for cleanup
     });
   } catch (error) {
     console.error('Error creating tags:', error);
@@ -199,12 +200,24 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
     const endTime = Date.now();
     const duration = endTime - startTime;
     
+    // Store task IDs that were assigned to sprints for cleanup
+    const assignedTaskIds = [];
+    for (let i = 1; i <= 3; i++) {
+      const tasksPerSprint = 10;
+      for (let j = 0; j < tasksPerSprint && j < tasks.length; j++) {
+        const taskIndex = ((i - 1) * tasksPerSprint + j) % tasks.length;
+        assignedTaskIds.push(tasks[taskIndex].id);
+      }
+    }
+    
     res.json({
       success: true,
       duration: duration,
       sprintsCreated: createdSprints.length,
       associationsCreated: createdSprints.length * 10,
-      message: `Created ${createdSprints.length} sprints and associated tasks`
+      message: `Created ${createdSprints.length} sprints and associated tasks`,
+      createdSprintIds: createdSprints.map(s => s.id), // Return IDs for cleanup
+      assignedTaskIds: assignedTaskIds // Return task IDs for cleanup
     });
   } catch (error) {
     console.error('Error creating sprints:', error);
@@ -231,13 +244,13 @@ router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req
     }
     
     const taskStmt = db.prepare(`
-      INSERT INTO tasks (id, title, description, ticket, assignee_id, requester_id, startDate, dueDate, effort, priority_id, columnId, boardId, position, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, priority_id, columnId, boardId, position, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
     const now = new Date().toISOString();
     const today = new Date().toISOString().split('T')[0];
-    const priority = wrapQuery(db.prepare('SELECT id FROM priorities ORDER BY position LIMIT 1'), 'SELECT').get();
+    const priority = wrapQuery(db.prepare('SELECT id, priority FROM priorities ORDER BY position LIMIT 1'), 'SELECT').get();
     
     let ticketNumber = 1;
     const createdTasks = [];
@@ -248,7 +261,7 @@ router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req
       const positionInColumn = Math.floor(i / columns.length);
       const ticket = `TASK-${String(ticketNumber++).padStart(5, '0')}`;
       
-      taskStmt.run(
+      wrapQuery(taskStmt, 'INSERT').run(
         taskId,
         `Bulk Task ${i + 1}`,
         `Performance test task ${i + 1}`,
@@ -257,8 +270,9 @@ router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req
         member.id,
         today,
         null,
-        null,
-        priority?.id || null,
+        0, // effort (required, default to 0)
+        priority?.priority || 'medium', // priority name (required)
+        priority?.id || null, // priority_id
         columns[columnIndex].id,
         board.id,
         positionInColumn,
