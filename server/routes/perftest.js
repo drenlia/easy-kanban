@@ -35,7 +35,7 @@ function getDefaultBoardAndColumns(db) {
 router.post('/demo-content', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { boardId } = req.body;
+    const { boardId } = req.body || {};
     
     // Get board and columns
     let board, columns;
@@ -226,7 +226,7 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
 router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { count = 50 } = req.body;
+    const { count = 50 } = req.body || {};
     const startTime = Date.now();
     
     const { board, columns } = getDefaultBoardAndColumns(db);
