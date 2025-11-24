@@ -38,6 +38,16 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
     }
 
     // Clear the flag immediately so it doesn't run again on subsequent loads
+    // Also check if we've already timed out before (to prevent repeated timeouts)
+    const hasTimedOut = sessionStorage.getItem('readinessCheckTimedOut');
+    if (hasTimedOut === 'true') {
+      // Already timed out before, skip the check this time
+      sessionStorage.removeItem('pendingVersionRefresh');
+      sessionStorage.removeItem('readinessCheckTimedOut');
+      setIsReady(true);
+      return;
+    }
+    
     sessionStorage.removeItem('pendingVersionRefresh');
 
     let isMounted = true;
@@ -135,6 +145,8 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
       console.warn('⏱️ Readiness check timeout - allowing app to continue');
       setError(t('readiness.timeout'));
       setIsReady(true);
+      // Mark that we've timed out so we don't keep running this check
+      sessionStorage.setItem('readinessCheckTimedOut', 'true');
       if (checkInterval) {
         clearInterval(checkInterval);
       }

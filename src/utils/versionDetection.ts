@@ -15,12 +15,16 @@ class VersionDetectionService {
 
   /**
    * Set the initial app version (called on first API response)
+   * Can also be called to update the version after a refresh
    */
   setInitialVersion(version: string) {
-    if (!this.isInitialized) {
-      this.initialVersion = version;
-      this.isInitialized = true;
+    const wasInitialized = this.isInitialized;
+    this.initialVersion = version;
+    this.isInitialized = true;
+    if (!wasInitialized) {
       console.log(`📦 Initial app version: ${version}`);
+    } else {
+      console.log(`📦 Updated app version: ${version}`);
     }
   }
 

@@ -69,13 +69,23 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
+    // Update the version detection service to the new version so it doesn't keep showing the banner
+    if (versionInfo.newVersion) {
+      versionDetection.setInitialVersion(versionInfo.newVersion);
+    }
     // Set flag to indicate readiness check should run after refresh
     sessionStorage.setItem('pendingVersionRefresh', 'true');
+    // Clear the banner before refresh
+    setShowVersionBanner(false);
     window.location.reload();
   };
 
   const handleDismissVersionBanner = () => {
     setShowVersionBanner(false);
+    // Update version detection to the new version so it doesn't show again
+    if (versionInfo.newVersion) {
+      versionDetection.setInitialVersion(versionInfo.newVersion);
+    }
   };
   
   // Instance Status Banner Component
