@@ -360,6 +360,7 @@ app.use('/api/admin/settings', settingsRouter);
 app.use('/api/storage', settingsRouter);
 app.use('/api/admin', lazyRouteLoader('./routes/adminSystem.js'));
 app.use('/api/admin/notification-queue', lazyRouteLoader('./routes/adminNotificationQueue.js'));
+app.use('/api/admin/perftest', lazyRouteLoader('./routes/perftest.js'));
 app.use('/api/tasks', taskRelationsRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
