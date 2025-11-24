@@ -25,3 +25,8 @@ export async function runBulkTasksTest() {
   return response.data;
 }
 
+export async function runDeleteAllContentTest() {
+  const response = await api.post('/admin/perftest/delete-all-content');
+  return response.data;
+}
+

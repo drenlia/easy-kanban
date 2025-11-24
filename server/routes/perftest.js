@@ -291,5 +291,231 @@ router.post('/bulk-tasks', authenticateToken, requireRole(['admin']), async (req
   }
 });
 
+/**
+ * POST /api/admin/perftest/delete-all-content
+ * Delete all content except the currently logged-in user and essential system data
+ */
+router.post('/delete-all-content', authenticateToken, requireRole(['admin']), async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const currentUserId = req.user.id; // Get current user from auth middleware
+    const startTime = Date.now();
+    
+    // Get current user's member ID to preserve it
+    const currentUserMember = wrapQuery(
+      db.prepare('SELECT id FROM members WHERE user_id = ?'),
+      'SELECT'
+    ).get(currentUserId);
+    
+    const stats = {
+      tasksDeleted: 0,
+      boardsDeleted: 0,
+      columnsDeleted: 0,
+      tagsDeleted: 0,
+      membersDeleted: 0,
+      usersDeleted: 0,
+      commentsDeleted: 0,
+      attachmentsDeleted: 0,
+      activityDeleted: 0,
+      viewsDeleted: 0,
+      sprintsDeleted: 0,
+      otherDeleted: 0
+    };
+    
+    // Delete in order to respect foreign key constraints
+    
+    // 1. Delete all tasks (cascades to: comments, attachments, task_tags, watchers, collaborators, task_rels)
+    const tasksDeleted = wrapQuery(
+      db.prepare('DELETE FROM tasks'),
+      'DELETE'
+    ).changes();
+    stats.tasksDeleted = tasksDeleted;
+    
+    // 2. Delete all task_sprints associations (if table exists)
+    try {
+      const taskSprintsDeleted = wrapQuery(
+        db.prepare('DELETE FROM task_sprints'),
+        'DELETE'
+      ).changes();
+      stats.otherDeleted += taskSprintsDeleted;
+    } catch (error) {
+      // Table might not exist, ignore
+    }
+    
+    // 3. Delete all planning_periods (sprints)
+    const sprintsDeleted = wrapQuery(
+      db.prepare('DELETE FROM planning_periods'),
+      'DELETE'
+    ).changes();
+    stats.sprintsDeleted = sprintsDeleted;
+    
+    // 4. Delete all boards (cascades to columns)
+    const boardsDeleted = wrapQuery(
+      db.prepare('DELETE FROM boards'),
+      'DELETE'
+    ).changes();
+    stats.boardsDeleted = boardsDeleted;
+    
+    // 5. Delete all columns (in case any remain)
+    const columnsDeleted = wrapQuery(
+      db.prepare('DELETE FROM columns'),
+      'DELETE'
+    ).changes();
+    stats.columnsDeleted = columnsDeleted;
+    
+    // 6. Delete all tags
+    const tagsDeleted = wrapQuery(
+      db.prepare('DELETE FROM tags'),
+      'DELETE'
+    ).changes();
+    stats.tagsDeleted = tagsDeleted;
+    
+    // 7. Delete all comments (in case any remain)
+    const commentsDeleted = wrapQuery(
+      db.prepare('DELETE FROM comments'),
+      'DELETE'
+    ).changes();
+    stats.commentsDeleted = commentsDeleted;
+    
+    // 8. Delete all attachments (in case any remain)
+    const attachmentsDeleted = wrapQuery(
+      db.prepare('DELETE FROM attachments'),
+      'DELETE'
+    ).changes();
+    stats.attachmentsDeleted = attachmentsDeleted;
+    
+    // 9. Delete all members except current user's member
+    if (currentUserMember) {
+      const membersDeleted = wrapQuery(
+        db.prepare('DELETE FROM members WHERE user_id != ?'),
+        'DELETE'
+      ).run(currentUserId).changes();
+      stats.membersDeleted = membersDeleted;
+    } else {
+      // No member for current user, delete all
+      const membersDeleted = wrapQuery(
+        db.prepare('DELETE FROM members'),
+        'DELETE'
+      ).changes();
+      stats.membersDeleted = membersDeleted;
+    }
+    
+    // 10. Delete all users except current user
+    const usersDeleted = wrapQuery(
+      db.prepare('DELETE FROM users WHERE id != ?'),
+      'DELETE'
+    ).run(currentUserId).changes();
+    stats.usersDeleted = usersDeleted;
+    
+    // 11. Delete all user_roles except current user's
+    const userRolesDeleted = wrapQuery(
+      db.prepare('DELETE FROM user_roles WHERE user_id != ?'),
+      'DELETE'
+    ).run(currentUserId).changes();
+    stats.otherDeleted += userRolesDeleted;
+    
+    // 12. Delete all user_settings except current user's
+    const userSettingsDeleted = wrapQuery(
+      db.prepare('DELETE FROM user_settings WHERE userId != ?'),
+      'DELETE'
+    ).run(currentUserId).changes();
+    stats.otherDeleted += userSettingsDeleted;
+    
+    // 13. Delete all views (saved filters)
+    const viewsDeleted = wrapQuery(
+      db.prepare('DELETE FROM views WHERE userId != ?'),
+      'DELETE'
+    ).run(currentUserId).changes();
+    stats.viewsDeleted = viewsDeleted;
+    
+    // 14. Delete all user_invitations
+    const invitationsDeleted = wrapQuery(
+      db.prepare('DELETE FROM user_invitations'),
+      'DELETE'
+    ).changes();
+    stats.otherDeleted += invitationsDeleted;
+    
+    // 15. Delete all password_reset_tokens
+    const tokensDeleted = wrapQuery(
+      db.prepare('DELETE FROM password_reset_tokens'),
+      'DELETE'
+    ).changes();
+    stats.otherDeleted += tokensDeleted;
+    
+    // 16. Delete all activity records
+    const activityDeleted = wrapQuery(
+      db.prepare('DELETE FROM activity'),
+      'DELETE'
+    ).changes();
+    stats.activityDeleted = activityDeleted;
+    
+    // 17. Delete migration tables if they exist
+    try {
+      const activityEventsDeleted = wrapQuery(
+        db.prepare('DELETE FROM activity_events'),
+        'DELETE'
+      ).changes();
+      stats.otherDeleted += activityEventsDeleted;
+    } catch (error) {
+      // Table might not exist, ignore
+    }
+    
+    try {
+      const taskSnapshotsDeleted = wrapQuery(
+        db.prepare('DELETE FROM task_snapshots'),
+        'DELETE'
+      ).changes();
+      stats.otherDeleted += taskSnapshotsDeleted;
+    } catch (error) {
+      // Table might not exist, ignore
+    }
+    
+    try {
+      const userAchievementsDeleted = wrapQuery(
+        db.prepare('DELETE FROM user_achievements'),
+        'DELETE'
+      ).changes();
+      stats.otherDeleted += userAchievementsDeleted;
+    } catch (error) {
+      // Table might not exist, ignore
+    }
+    
+    try {
+      const userPointsDeleted = wrapQuery(
+        db.prepare('DELETE FROM user_points'),
+        'DELETE'
+      ).changes();
+      stats.otherDeleted += userPointsDeleted;
+    } catch (error) {
+      // Table might not exist, ignore
+    }
+    
+    // 18. Reset STORAGE_USED in settings
+    wrapQuery(
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'),
+      'INSERT'
+    ).run('STORAGE_USED', '0');
+    
+    // 19. Delete demo password settings
+    wrapQuery(
+      db.prepare("DELETE FROM settings WHERE key LIKE 'DEMO_PASSWORD_%'"),
+      'DELETE'
+    ).changes();
+    
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    res.json({
+      success: true,
+      duration: duration,
+      message: 'All content deleted successfully (current user preserved)',
+      stats
+    });
+  } catch (error) {
+    console.error('Error deleting all content:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete all content' });
+  }
+});
+
 export default router;
 

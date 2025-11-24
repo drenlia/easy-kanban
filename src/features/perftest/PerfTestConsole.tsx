@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Play, Trash2, Loader2 } from 'lucide-react';
+import { X, Play, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { usePerfTest, TestResult } from './hooks/usePerfTest';
-import { runDemoContentTest, runTagsTest, runSprintsTest, runBulkTasksTest } from './tests/backendTests';
+import { runDemoContentTest, runTagsTest, runSprintsTest, runBulkTasksTest, runDeleteAllContentTest } from './tests/backendTests';
 import { runHumanInteractionsTest } from './tests/humanInteractions.test';
 import { runRealtimeTest } from './tests/realtime.test';
 import { runSearchTest } from './tests/search.test';
@@ -33,6 +33,34 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
     { name: 'Real-time Updates', fn: runRealtimeTest, description: 'Test WebSocket broadcast latency' },
     { name: 'Search/Filter', fn: runSearchTest, description: 'Test search with large dataset' },
   ];
+
+  const deleteAllContent = async () => {
+    const warningMessage = 
+      '⚠️ WARNING: This will delete ALL content except your user account and member record.\n\n' +
+      'This will permanently delete:\n' +
+      '• All tasks, boards, columns\n' +
+      '• All users (except you)\n' +
+      '• All tags, sprints, comments, attachments\n' +
+      '• All activity history, views, and saved filters\n\n' +
+      'This action CANNOT be undone!\n\n' +
+      'Are you absolutely sure you want to continue?';
+    
+    if (!confirm(warningMessage)) {
+      return;
+    }
+    
+    // Second confirmation
+    const finalMessage = 
+      '⚠️ FINAL CONFIRMATION\n\n' +
+      'You are about to delete ALL content. This is your last chance to cancel.\n\n' +
+      'Click OK to proceed with deletion, or Cancel to abort.';
+    
+    if (!confirm(finalMessage)) {
+      return;
+    }
+    
+    await runTest('Delete All Content', runDeleteAllContentTest);
+  };
 
   return (
     <div className="fixed top-0 left-0 z-50 m-2">
@@ -87,6 +115,28 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
                   )}
                 </button>
               ))}
+              
+              {/* Delete All Content Button - Separated with warning style */}
+              <div className="pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={deleteAllContent}
+                  disabled={isRunning}
+                  className="w-full text-left px-2 py-1.5 text-xs bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 rounded border border-red-200 dark:border-red-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-between"
+                >
+                  <div className="flex-1 flex items-center space-x-2">
+                    <AlertTriangle className="w-3 h-3 text-red-500" />
+                    <div>
+                      <div className="font-medium text-red-900 dark:text-red-100">Delete All Content</div>
+                      <div className="text-[10px] text-red-600 dark:text-red-400">Remove all data except your account</div>
+                    </div>
+                  </div>
+                  {currentTest === 'Delete All Content' ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-red-500 ml-2" />
+                  ) : (
+                    <Trash2 className="w-3 h-3 text-red-500 ml-2" />
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Results */}
