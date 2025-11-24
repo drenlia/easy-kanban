@@ -328,7 +328,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
     const tasksDeleted = wrapQuery(
       db.prepare('DELETE FROM tasks'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.tasksDeleted = tasksDeleted;
     
     // 2. Delete all task_sprints associations (if table exists)
@@ -336,7 +336,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const taskSprintsDeleted = wrapQuery(
         db.prepare('DELETE FROM task_sprints'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.otherDeleted += taskSprintsDeleted;
     } catch (error) {
       // Table might not exist, ignore
@@ -346,42 +346,42 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
     const sprintsDeleted = wrapQuery(
       db.prepare('DELETE FROM planning_periods'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.sprintsDeleted = sprintsDeleted;
     
     // 4. Delete all boards (cascades to columns)
     const boardsDeleted = wrapQuery(
       db.prepare('DELETE FROM boards'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.boardsDeleted = boardsDeleted;
     
     // 5. Delete all columns (in case any remain)
     const columnsDeleted = wrapQuery(
       db.prepare('DELETE FROM columns'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.columnsDeleted = columnsDeleted;
     
     // 6. Delete all tags
     const tagsDeleted = wrapQuery(
       db.prepare('DELETE FROM tags'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.tagsDeleted = tagsDeleted;
     
     // 7. Delete all comments (in case any remain)
     const commentsDeleted = wrapQuery(
       db.prepare('DELETE FROM comments'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.commentsDeleted = commentsDeleted;
     
     // 8. Delete all attachments (in case any remain)
     const attachmentsDeleted = wrapQuery(
       db.prepare('DELETE FROM attachments'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.attachmentsDeleted = attachmentsDeleted;
     
     // 9. Delete all members except current user's member
@@ -389,14 +389,14 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const membersDeleted = wrapQuery(
         db.prepare('DELETE FROM members WHERE user_id != ?'),
         'DELETE'
-      ).run(currentUserId).changes();
+      ).run(currentUserId).changes;
       stats.membersDeleted = membersDeleted;
     } else {
       // No member for current user, delete all
       const membersDeleted = wrapQuery(
         db.prepare('DELETE FROM members'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.membersDeleted = membersDeleted;
     }
     
@@ -404,49 +404,49 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
     const usersDeleted = wrapQuery(
       db.prepare('DELETE FROM users WHERE id != ?'),
       'DELETE'
-    ).run(currentUserId).changes();
+    ).run(currentUserId).changes;
     stats.usersDeleted = usersDeleted;
     
     // 11. Delete all user_roles except current user's
     const userRolesDeleted = wrapQuery(
       db.prepare('DELETE FROM user_roles WHERE user_id != ?'),
       'DELETE'
-    ).run(currentUserId).changes();
+    ).run(currentUserId).changes;
     stats.otherDeleted += userRolesDeleted;
     
     // 12. Delete all user_settings except current user's
     const userSettingsDeleted = wrapQuery(
       db.prepare('DELETE FROM user_settings WHERE userId != ?'),
       'DELETE'
-    ).run(currentUserId).changes();
+    ).run(currentUserId).changes;
     stats.otherDeleted += userSettingsDeleted;
     
     // 13. Delete all views (saved filters)
     const viewsDeleted = wrapQuery(
       db.prepare('DELETE FROM views WHERE userId != ?'),
       'DELETE'
-    ).run(currentUserId).changes();
+    ).run(currentUserId).changes;
     stats.viewsDeleted = viewsDeleted;
     
     // 14. Delete all user_invitations
     const invitationsDeleted = wrapQuery(
       db.prepare('DELETE FROM user_invitations'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.otherDeleted += invitationsDeleted;
     
     // 15. Delete all password_reset_tokens
     const tokensDeleted = wrapQuery(
       db.prepare('DELETE FROM password_reset_tokens'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.otherDeleted += tokensDeleted;
     
     // 16. Delete all activity records
     const activityDeleted = wrapQuery(
       db.prepare('DELETE FROM activity'),
       'DELETE'
-    ).changes();
+    ).run().changes;
     stats.activityDeleted = activityDeleted;
     
     // 17. Delete migration tables if they exist
@@ -454,7 +454,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const activityEventsDeleted = wrapQuery(
         db.prepare('DELETE FROM activity_events'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.otherDeleted += activityEventsDeleted;
     } catch (error) {
       // Table might not exist, ignore
@@ -464,7 +464,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const taskSnapshotsDeleted = wrapQuery(
         db.prepare('DELETE FROM task_snapshots'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.otherDeleted += taskSnapshotsDeleted;
     } catch (error) {
       // Table might not exist, ignore
@@ -474,7 +474,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const userAchievementsDeleted = wrapQuery(
         db.prepare('DELETE FROM user_achievements'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.otherDeleted += userAchievementsDeleted;
     } catch (error) {
       // Table might not exist, ignore
@@ -484,7 +484,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
       const userPointsDeleted = wrapQuery(
         db.prepare('DELETE FROM user_points'),
         'DELETE'
-      ).changes();
+      ).run().changes;
       stats.otherDeleted += userPointsDeleted;
     } catch (error) {
       // Table might not exist, ignore
