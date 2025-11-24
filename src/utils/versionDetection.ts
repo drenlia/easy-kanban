@@ -2,51 +2,73 @@
  * Version Detection Utility
  * 
  * Tracks app version changes and notifies listeners when a new version is detected.
- * The initial version is stored in-memory when the app first loads, and subsequent
- * API responses are checked for version changes via the X-App-Version header.
+ * The initial version is stored per-session (in sessionStorage) when the app first loads,
+ * and subsequent API responses are checked for version changes via the X-App-Version header.
+ * 
+ * IMPORTANT: Version tracking is per-session, not per-tenant. Each user session must
+ * independently refresh when a new version is deployed, regardless of which tenant
+ * they belong to or what other users have done.
  */
 
 type VersionChangeCallback = (oldVersion: string, newVersion: string) => void;
 
 class VersionDetectionService {
-  private initialVersion: string | null = null;
   private listeners: VersionChangeCallback[] = [];
-  private isInitialized = false;
+  private readonly SESSION_STORAGE_KEY = 'app_initial_version';
+  
+  /**
+   * Get the initial version for this session from sessionStorage
+   */
+  private getInitialVersionFromStorage(): string | null {
+    if (typeof window === 'undefined' || !window.sessionStorage) return null;
+    return sessionStorage.getItem(this.SESSION_STORAGE_KEY);
+  }
+  
+  /**
+   * Store the initial version for this session in sessionStorage
+   */
+  private setInitialVersionInStorage(version: string): void {
+    if (typeof window === 'undefined' || !window.sessionStorage) return;
+    sessionStorage.setItem(this.SESSION_STORAGE_KEY, version);
+  }
 
   /**
-   * Set the initial app version (called on first API response)
+   * Set the initial app version for this session (called on first API response)
    * Can also be called to update the version after a refresh
    */
   setInitialVersion(version: string) {
-    const wasInitialized = this.isInitialized;
-    this.initialVersion = version;
-    this.isInitialized = true;
+    const storedVersion = this.getInitialVersionFromStorage();
+    const wasInitialized = storedVersion !== null;
+    
+    this.setInitialVersionInStorage(version);
+    
     if (!wasInitialized) {
-      console.log(`📦 Initial app version: ${version}`);
+      console.log(`📦 Initial app version for this session: ${version}`);
     } else {
-      console.log(`📦 Updated app version: ${version}`);
+      console.log(`📦 Updated app version for this session: ${version}`);
     }
   }
 
   /**
-   * Check if a new version has been detected
+   * Check if a new version has been detected for this session
+   * Each user session tracks its own version independently
    */
   checkVersion(newVersion: string): boolean {
-    if (!this.isInitialized || !this.initialVersion) {
-      // First response, store as initial version
+    const initialVersion = this.getInitialVersionFromStorage();
+    
+    if (!initialVersion) {
+      // First response for this session, store as initial version
       this.setInitialVersion(newVersion);
       return false;
     }
 
     // Only trigger version change if the new version is actually different
-    // and we haven't already updated to this version
-    if (newVersion !== this.initialVersion) {
-      console.log(`🔄 Version change detected: ${this.initialVersion} → ${newVersion}`);
-      // Update the initial version immediately to prevent repeated notifications
-      // This ensures that if the same version change is detected again (e.g., from different API calls),
-      // it won't trigger the banner again
-      this.initialVersion = newVersion;
-      this.notifyListeners(this.initialVersion, newVersion);
+    // This ensures each user session sees the banner when their version differs
+    if (newVersion !== initialVersion) {
+      console.log(`🔄 Version change detected for this session: ${initialVersion} → ${newVersion}`);
+      // Don't update the stored version yet - let the user dismiss/refresh first
+      // This ensures the banner persists until the user takes action
+      this.notifyListeners(initialVersion, newVersion);
       return true;
     }
 
@@ -81,18 +103,19 @@ class VersionDetectionService {
   }
 
   /**
-   * Get the current initial version
+   * Get the current initial version for this session
    */
   getInitialVersion(): string | null {
-    return this.initialVersion;
+    return this.getInitialVersionFromStorage();
   }
 
   /**
-   * Reset the version detection (useful for testing)
+   * Reset the version detection for this session (useful for testing)
    */
   reset() {
-    this.initialVersion = null;
-    this.isInitialized = false;
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      sessionStorage.removeItem(this.SESSION_STORAGE_KEY);
+    }
     this.listeners = [];
   }
 }
