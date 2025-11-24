@@ -100,30 +100,23 @@ router.post('/tags', authenticateToken, requireRole(['admin']), async (req, res)
     }
     
     const createdTags = [];
-    const tagStmt = db.prepare('INSERT INTO tags (id, name, color, board_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-    const taskTagStmt = db.prepare('INSERT INTO task_tags (task_id, tag_id) VALUES (?, ?)');
+    const tagStmt = db.prepare('INSERT INTO tags (tag, color) VALUES (?, ?)');
+    const taskTagStmt = db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)');
     
     const colors = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#84CC16'];
-    const now = new Date().toISOString();
-    
-    // Get a default board
-    const board = wrapQuery(db.prepare('SELECT id FROM boards ORDER BY position LIMIT 1'), 'SELECT').get();
-    if (!board) {
-      return res.status(400).json({ error: 'No board found' });
-    }
     
     // Create 20 tags
     for (let i = 1; i <= 20; i++) {
-      const tagId = crypto.randomUUID();
       const tagName = `Tag ${i}`;
       const color = colors[i % colors.length];
       
-      tagStmt.run(tagId, tagName, color, board.id, now, now);
-      createdTags.push({ id: tagId, name: tagName });
+      const result = wrapQuery(tagStmt, 'INSERT').run(tagName, color);
+      const tagId = result.lastInsertRowid;
+      createdTags.push({ id: tagId, tag: tagName });
       
       // Associate tag to a task (round-robin)
       const taskIndex = (i - 1) % tasks.length;
-      taskTagStmt.run(tasks[taskIndex].id, tagId);
+      wrapQuery(taskTagStmt, 'INSERT').run(tasks[taskIndex].id, tagId);
     }
     
     const endTime = Date.now();
@@ -168,7 +161,7 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
       INSERT INTO planning_periods (id, name, start_date, end_date, description, is_active, board_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    const taskSprintStmt = db.prepare('INSERT INTO task_sprints (task_id, sprint_id) VALUES (?, ?)');
+    const taskSprintUpdateStmt = db.prepare('UPDATE tasks SET sprint_id = ? WHERE id = ?');
     
     const now = new Date().toISOString();
     const today = new Date();
@@ -181,7 +174,7 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
       const endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 13); // 2 week sprints
       
-      sprintStmt.run(
+      wrapQuery(sprintStmt, 'INSERT').run(
         sprintId,
         `Sprint ${i}`,
         startDate.toISOString().split('T')[0],
@@ -199,7 +192,7 @@ router.post('/sprints', authenticateToken, requireRole(['admin']), async (req, r
       const tasksPerSprint = 10;
       for (let j = 0; j < tasksPerSprint && j < tasks.length; j++) {
         const taskIndex = ((i - 1) * tasksPerSprint + j) % tasks.length;
-        taskSprintStmt.run(tasks[taskIndex].id, sprintId);
+        wrapQuery(taskSprintUpdateStmt, 'UPDATE').run(sprintId, tasks[taskIndex].id);
       }
     }
     

@@ -33,7 +33,7 @@ export async function runHumanInteractionsTest() {
     actions.push('Fetched columns');
 
     // Get tasks
-    const tasksResponse = await api.get(`/boards/${board.id}/tasks`);
+    const tasksResponse = await api.get(`/tasks/by-board/${board.id}`);
     const tasks: Task[] = tasksResponse.data;
     
     if (tasks.length === 0) {

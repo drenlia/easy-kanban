@@ -21,7 +21,7 @@ export async function runRealtimeTest() {
     }
 
     const board = boards[0];
-    const tasksResponse = await api.get(`/boards/${board.id}/tasks`);
+    const tasksResponse = await api.get(`/tasks/by-board/${board.id}`);
     const tasks = tasksResponse.data;
     
     if (tasks.length === 0) {

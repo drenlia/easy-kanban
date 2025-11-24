@@ -1,4 +1,5 @@
 import api from '../../../api';
+import { filterTasks } from '../../../utils/taskUtils';
 
 /**
  * Search/Filter Performance Test
@@ -21,48 +22,49 @@ export async function runSearchTest() {
     const board = boards[0];
     const results: any[] = [];
 
-    // Test 1: Search tasks
-    for (const query of searchQueries) {
-      const searchStart = performance.now();
-      const searchResponse = await api.get(`/boards/${board.id}/tasks?search=${query}`);
-      const searchDuration = performance.now() - searchStart;
-      
-      results.push({
-        type: 'search',
-        query,
-        duration: searchDuration,
-        resultsCount: searchResponse.data.length
-      });
-    }
-
-    // Test 2: Filter by status (if we have columns)
-    const columnsResponse = await api.get(`/boards/${board.id}/columns`);
-    const columns = columnsResponse.data;
-    
-    if (columns.length > 0) {
-      const filterStart = performance.now();
-      const filterResponse = await api.get(`/boards/${board.id}/tasks?columnId=${columns[0].id}`);
-      const filterDuration = performance.now() - filterStart;
-      
-      results.push({
-        type: 'filter',
-        filter: 'column',
-        duration: filterDuration,
-        resultsCount: filterResponse.data.length
-      });
-    }
-
-    // Test 3: Get all tasks (baseline)
+    // Get all tasks first (baseline)
     const allTasksStart = performance.now();
-    const allTasksResponse = await api.get(`/boards/${board.id}/tasks`);
+    const allTasksResponse = await api.get(`/tasks/by-board/${board.id}`);
+    const allTasks = allTasksResponse.data;
     const allTasksDuration = performance.now() - allTasksStart;
     
     results.push({
       type: 'baseline',
       operation: 'getAll',
       duration: allTasksDuration,
-      resultsCount: allTasksResponse.data.length
+      resultsCount: allTasks.length
     });
+
+    // Test 1: Client-side search (simulating app behavior)
+    for (const query of searchQueries) {
+      const searchStart = performance.now();
+      const filteredTasks = filterTasks(allTasks, { text: query }, true);
+      const searchDuration = performance.now() - searchStart;
+      
+      results.push({
+        type: 'search',
+        query,
+        duration: searchDuration,
+        resultsCount: filteredTasks.length
+      });
+    }
+
+    // Test 2: Filter by column (client-side)
+    const columnsResponse = await api.get(`/boards/${board.id}/columns`);
+    const columns = columnsResponse.data;
+    
+    if (columns.length > 0) {
+      const filterStart = performance.now();
+      const filteredTasks = allTasks.filter(task => task.columnId === columns[0].id);
+      const filterDuration = performance.now() - filterStart;
+      
+      results.push({
+        type: 'filter',
+        filter: 'column',
+        duration: filterDuration,
+        resultsCount: filteredTasks.length
+      });
+    }
 
     const endTime = performance.now();
     const duration = endTime - startTime;
@@ -77,7 +79,7 @@ export async function runSearchTest() {
       details: {
         searchQueries: searchQueries.length,
         avgSearchTime: Math.round(avgSearchTime),
-        totalTasks: allTasksResponse.data.length,
+        totalTasks: allTasks.length,
         results
       }
     };
