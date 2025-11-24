@@ -187,6 +187,16 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
                           </ul>
                         </div>
                       )}
+                      {result.details?.avgLatency !== undefined && (
+                        <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-1 space-y-0.5">
+                          <div className="font-medium">WebSocket Latency:</div>
+                          <div className="ml-1">
+                            Avg: {result.details.avgLatency}ms | 
+                            Min: {result.details.minLatency}ms | 
+                            Max: {result.details.maxLatency}ms
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
