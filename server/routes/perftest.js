@@ -500,7 +500,7 @@ router.post('/delete-all-content', authenticateToken, requireRole(['admin']), as
     wrapQuery(
       db.prepare("DELETE FROM settings WHERE key LIKE 'DEMO_PASSWORD_%'"),
       'DELETE'
-    ).changes();
+    ).run().changes;
     
     const endTime = Date.now();
     const duration = endTime - startTime;
