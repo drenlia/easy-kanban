@@ -54,6 +54,17 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
   useEffect(() => {
     const handleVersionChange = (oldVersion: string, newVersion: string) => {
       console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
+      
+      // Check if we've already dismissed this version change
+      // Use sessionStorage to persist dismissal across page navigations
+      const dismissedVersion = sessionStorage.getItem('dismissedVersion');
+      if (dismissedVersion === newVersion) {
+        console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
+        // Still update the version info but don't show banner
+        setVersionInfo({ currentVersion: oldVersion, newVersion });
+        return;
+      }
+      
       setVersionInfo({ currentVersion: oldVersion, newVersion });
       setShowVersionBanner(true);
     };
@@ -72,6 +83,8 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
     // Update the version detection service to the new version so it doesn't keep showing the banner
     if (versionInfo.newVersion) {
       versionDetection.setInitialVersion(versionInfo.newVersion);
+      // Store dismissed version in sessionStorage to persist across page navigations
+      sessionStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
     // Set flag to indicate readiness check should run after refresh
     sessionStorage.setItem('pendingVersionRefresh', 'true');
@@ -85,6 +98,8 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
     // Update version detection to the new version so it doesn't show again
     if (versionInfo.newVersion) {
       versionDetection.setInitialVersion(versionInfo.newVersion);
+      // Store dismissed version in sessionStorage to persist across page navigations
+      sessionStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
   };
   

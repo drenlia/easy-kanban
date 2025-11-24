@@ -38,8 +38,14 @@ class VersionDetectionService {
       return false;
     }
 
+    // Only trigger version change if the new version is actually different
+    // and we haven't already updated to this version
     if (newVersion !== this.initialVersion) {
       console.log(`🔄 Version change detected: ${this.initialVersion} → ${newVersion}`);
+      // Update the initial version immediately to prevent repeated notifications
+      // This ensures that if the same version change is detected again (e.g., from different API calls),
+      // it won't trigger the banner again
+      this.initialVersion = newVersion;
       this.notifyListeners(this.initialVersion, newVersion);
       return true;
     }
