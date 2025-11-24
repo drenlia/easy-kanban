@@ -74,15 +74,16 @@ export async function runHumanInteractionsTest() {
 
     // Test 4: Update a column
     await api.put(`/columns/${sourceColumn.id}`, {
-      ...sourceColumn,
-      title: `${sourceColumn.title} (test)`
+      title: `${sourceColumn.title} (test)`,
+      is_finished: sourceColumn.is_finished,
+      is_archived: sourceColumn.is_archived
     });
     actions.push('Updated column');
 
     // Test 5: Reorder tasks
     if (tasks.length >= 2) {
       const updates = tasks.slice(0, 3).map((t, index) => ({
-        id: t.id,
+        taskId: t.id,
         position: index,
         columnId: t.columnId
       }));
@@ -102,8 +103,9 @@ export async function runHumanInteractionsTest() {
 
     // Restore original column title
     await api.put(`/columns/${sourceColumn.id}`, {
-      ...sourceColumn,
-      title: sourceColumn.title.replace(' (test)', '')
+      title: sourceColumn.title.replace(' (test)', ''),
+      is_finished: sourceColumn.is_finished,
+      is_archived: sourceColumn.is_archived
     });
 
     const endTime = performance.now();
