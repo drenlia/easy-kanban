@@ -55,11 +55,20 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
     const handleVersionChange = (oldVersion: string, newVersion: string) => {
       console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
       
-      // Check if we've already dismissed this version change for this session
-      // Use sessionStorage to persist dismissal across page navigations within the same session
-      const dismissedVersion = sessionStorage.getItem('dismissedVersion');
+      // Check if we've already dismissed this specific version
+      // Use localStorage to persist dismissal across page navigations and browser sessions
+      const dismissedVersion = localStorage.getItem('dismissedVersion');
+      
+      // If the dismissed version is different from the new version, clear it
+      // This ensures that when a new version is deployed, users see the banner
+      if (dismissedVersion && dismissedVersion !== newVersion) {
+        console.log(`🧹 Clearing old dismissed version ${dismissedVersion} (new version: ${newVersion})`);
+        localStorage.removeItem('dismissedVersion');
+      }
+      
+      // Only skip showing banner if this exact version was already dismissed
       if (dismissedVersion === newVersion) {
-        console.log(`🔕 Version ${newVersion} was already dismissed in this session, not showing banner`);
+        console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
         // Still update the version info but don't show banner
         setVersionInfo({ currentVersion: oldVersion, newVersion });
         return;
@@ -80,11 +89,11 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
-    // Update the version detection service to the new version for this session
+    // Update the version detection service to the new version so it doesn't keep showing the banner
     if (versionInfo.newVersion) {
       versionDetection.setInitialVersion(versionInfo.newVersion);
-      // Store dismissed version in sessionStorage to persist across page navigations within this session
-      sessionStorage.setItem('dismissedVersion', versionInfo.newVersion);
+      // Store dismissed version in localStorage to persist across page navigations and sessions
+      localStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
     // Set flag to indicate readiness check should run after refresh
     sessionStorage.setItem('pendingVersionRefresh', 'true');
@@ -95,11 +104,11 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   const handleDismissVersionBanner = () => {
     setShowVersionBanner(false);
-    // Update version detection to the new version for this session so it doesn't show again
+    // Update version detection to the new version so it doesn't show again
     if (versionInfo.newVersion) {
       versionDetection.setInitialVersion(versionInfo.newVersion);
-      // Store dismissed version in sessionStorage to persist across page navigations within this session
-      sessionStorage.setItem('dismissedVersion', versionInfo.newVersion);
+      // Store dismissed version in localStorage to persist across page navigations and sessions
+      localStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
   };
   
