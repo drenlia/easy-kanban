@@ -10,6 +10,7 @@ import { getNotificationService } from '../services/notificationService.js';
 import redisService from '../services/redisService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -34,7 +35,7 @@ router.use(adminPortalRateLimit);
 // Get instance information
 router.get('/info', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Read APP_URL from database settings (not modifiable by users, set by frontend on first login)
     const appUrlSetting = wrapQuery(
@@ -42,10 +43,16 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
       'SELECT'
     ).get('APP_URL');
     
+    // In multi-tenant mode, get tenant ID from hostname
+    const hostname = req.get('host') || req.hostname;
+    const tenantId = req.tenantId || null;
+    
     const instanceInfo = {
-      instanceName: process.env.INSTANCE_NAME || 'unknown',
+      instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
       domain: appUrlSetting?.value || 'not-configured',
+      hostname: hostname,
+      tenantId: tenantId, // Include tenant ID in multi-tenant mode
       version: process.env.APP_VERSION || '1.0.0',
       environment: process.env.NODE_ENV || 'development',
       timestamp: new Date().toISOString()
@@ -57,7 +64,7 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance info:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -74,7 +81,7 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
 // Get instance owner information
 router.get('/owner-info', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
     const ownerEmail = ownerSetting ? ownerSetting.value : null;
     
@@ -87,7 +94,7 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching owner info:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -99,7 +106,7 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
 // Set instance owner (admin portal only)
 router.put('/owner', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { email } = req.body;
     const t = getTranslator(db);
     
@@ -135,7 +142,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error setting instance owner:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -147,7 +154,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
 // Get all settings
 router.get('/settings', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     settings.forEach(setting => {
@@ -160,7 +167,7 @@ router.get('/settings', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching settings:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -172,7 +179,7 @@ router.get('/settings', authenticateAdminPortal, (req, res) => {
 // Update a single setting
 router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key } = req.params;
     const { value } = req.body;
     
@@ -199,7 +206,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating setting:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -211,7 +218,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
 // Update multiple settings
 router.put('/settings', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = req.body;
     
     const t = getTranslator(db);
@@ -244,7 +251,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating settings:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -260,7 +267,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 // Get all users
 router.get('/users', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const users = wrapQuery(db.prepare(`
       SELECT 
         u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
@@ -289,7 +296,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching users:', error);
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ 
       success: false,
@@ -301,7 +308,7 @@ router.get('/users', authenticateAdminPortal, (req, res) => {
 // Create a new user
 router.post('/users', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { email, password, firstName, lastName, role, sendInvitation = true, isActive = false } = req.body;
     
     // Validate required fields
@@ -387,7 +394,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
 // Update user
 router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
@@ -448,6 +455,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     `), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated to Redis for admin portal user update');
     await redisService.publish('user-updated', {
       user: {
@@ -462,7 +470,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-updated event:', err);
     });
     
@@ -473,7 +481,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         userId: userId,
         role: role,
         timestamp: new Date().toISOString()
-      }).catch(err => {
+      }, tenantId).catch(err => {
         console.error('Failed to publish user-role-updated event:', err);
       });
     }
@@ -498,7 +506,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
 // Delete user
 router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { userId } = req.params;
     
     const t = getTranslator(db);
@@ -538,7 +546,7 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
 // Health check endpoint
 router.get('/health', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Check database connection
     const dbCheck = wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
     
@@ -567,7 +575,7 @@ router.get('/health', authenticateAdminPortal, (req, res) => {
 // Get plan information and limits
 router.get('/plan', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Get LicenseManager instance
     const licenseManager = getLicenseManager(db);
     
@@ -736,7 +744,7 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
 // Update plan setting
 router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key } = req.params;
     const { value } = req.body;
 
@@ -793,7 +801,7 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
 // Delete plan setting (remove database override)
 router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key } = req.params;
 
     const t = getTranslator(db);
@@ -842,7 +850,7 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
 // Delete a setting
 router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key } = req.params;
 
     const t = getTranslator(db);
@@ -874,7 +882,7 @@ router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
 // Add a new setting
 router.post('/settings', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key, value } = req.body;
 
     const t = getTranslator(db);
@@ -923,7 +931,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
 // Update instance status in settings
 router.put('/instance-status', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { status } = req.body;
 
     const t = getTranslator(db);
@@ -951,10 +959,11 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
     console.log(`✅ Admin portal updated instance status to: ${status}`);
 
     // Publish instance status update to Redis for real-time updates
+    const tenantId = getTenantId(req);
     redisService.publish('instance-status-updated', {
       status,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
 
     res.json({
       success: true,
@@ -974,7 +983,7 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
 // Get current instance status
 router.get('/instance-status', authenticateAdminPortal, (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
 
@@ -999,7 +1008,7 @@ router.get('/instance-status', authenticateAdminPortal, (req, res) => {
 // Update user
 router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
@@ -1068,6 +1077,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     `), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
     await redisService.publish('user-updated', {
       user: {
@@ -1082,7 +1092,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-updated event:', err);
     });
     
@@ -1091,7 +1101,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       userId: userId,
       role: role,
       timestamp: new Date().toISOString()
-    }).catch(err => {
+    }, tenantId).catch(err => {
       console.error('Failed to publish user-role-updated event:', err);
     });
     
@@ -1122,7 +1132,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
 // Send invitation email to user
 router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { email, adminName } = req.body;
     
     const t = getTranslator(db);
@@ -1165,9 +1175,32 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const siteNameSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
     const siteName = siteNameSetting?.value || 'Easy Kanban';
     
-    // Generate invitation URL using instance-specific hostname
-    const instanceName = process.env.INSTANCE_NAME;
-    const baseUrl = process.env.BASE_URL || `https://${instanceName}.ezkan.cloud`;
+    // Generate invitation URL using tenant-specific URL
+    // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
+    const appUrlSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
+    let baseUrl = process.env.BASE_URL;
+    
+    if (!baseUrl) {
+      if (appUrlSetting?.value) {
+        // Use APP_URL from database (most reliable - tenant-specific)
+        baseUrl = appUrlSetting.value;
+      } else {
+        // Construct from tenantId if available (multi-tenant mode)
+        const tenantId = req.tenantId;
+        if (tenantId) {
+          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          baseUrl = `https://${tenantId}.${domain}`;
+        } else {
+          // Single-tenant fallback
+          const instanceName = process.env.INSTANCE_NAME || 'easy-kanban-app';
+          const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+          baseUrl = `https://${instanceName}.${domain}`;
+        }
+      }
+    }
+    
+    // Remove trailing slash if present
+    baseUrl = baseUrl.replace(/\/$/, '');
     const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
     
     // Send invitation email using a fresh notification service instance

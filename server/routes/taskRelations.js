@@ -10,6 +10,7 @@ import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import redisService from '../services/redisService.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,7 +19,7 @@ const router = express.Router();
 // Task-Tag association endpoints
 router.get('/:taskId/tags', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const taskTags = wrapQuery(db.prepare(`
@@ -38,7 +39,7 @@ router.get('/:taskId/tags', authenticateToken, (req, res) => {
 router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -64,7 +65,9 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
           taskId: taskId,
           tagId: parseInt(tagId),
           columnId: task.columnId,
-          boardId: task.boardId
+          boardId: task.boardId,
+          tenantId: getTenantId(req),
+          db: db
         }
       );
       
@@ -104,6 +107,7 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing task-tag-added to Redis for board:', task.boardId);
       await redisService.publish('task-tag-added', {
         boardId: task.boardId,
@@ -111,7 +115,7 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Task-tag-added published to Redis');
     }
     
@@ -125,7 +129,7 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
 router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const { taskId, tagId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get tag and task details for logging before deletion
@@ -148,13 +152,16 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
           taskId: taskId,
           tagId: parseInt(tagId),
           columnId: task.columnId,
-          boardId: task.boardId
+          boardId: task.boardId,
+          tenantId: getTenantId(req),
+          db: db
         }
       );
     }
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
+      const tenantId = getTenantId(req);
       console.log('📤 Publishing task-tag-removed to Redis for board:', task.boardId);
       await redisService.publish('task-tag-removed', {
         boardId: task.boardId,
@@ -162,7 +169,7 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
       console.log('✅ Task-tag-removed published to Redis');
     }
     
@@ -176,7 +183,7 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
 // Task-Watchers association endpoints
 router.get('/:taskId/watchers', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const watchers = wrapQuery(db.prepare(`
@@ -196,7 +203,7 @@ router.get('/:taskId/watchers', authenticateToken, (req, res) => {
 router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -249,7 +256,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
 
 router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
   const { taskId, memberId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const result = wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
@@ -268,7 +275,7 @@ router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
 // Task-Collaborators association endpoints
 router.get('/:taskId/collaborators', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const collaborators = wrapQuery(db.prepare(`
@@ -288,7 +295,7 @@ router.get('/:taskId/collaborators', authenticateToken, (req, res) => {
 router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const userId = req.user?.id || 'system';
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if association already exists
@@ -341,7 +348,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
 
 router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
   const { taskId, memberId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const result = wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
@@ -360,7 +367,7 @@ router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) 
 // Task-Attachments association endpoints
 router.get('/:taskId/attachments', authenticateToken, (req, res) => {
   const { taskId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const attachments = db.prepare(`
@@ -381,7 +388,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const { attachments } = req.body;
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Begin transaction
@@ -531,6 +538,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
           };
           
           // Publish task-updated event with complete task data (includes updated attachmentCount)
+          const tenantId = getTenantId(req);
           await redisService.publish('task-updated', {
             boardId: task.boardId,
             task: {
@@ -538,17 +546,18 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
               updatedBy: userId
             },
             timestamp: new Date().toISOString()
-          });
+          }, tenantId);
         }
         
         // Also publish task-attachments-added for any handlers that might need it
+        const tenantId = getTenantId(req);
         console.log('📤 Publishing task-attachments-added to Redis for board:', task.boardId);
         await redisService.publish('task-attachments-added', {
           boardId: task.boardId,
           taskId: taskId,
           attachments: insertedAttachments,
           timestamp: new Date().toISOString()
-        });
+        }, tenantId);
         console.log('✅ Task-attachments-added published to Redis');
       }
       

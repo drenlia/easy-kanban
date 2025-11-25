@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getNotificationService } from '../services/notificationService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
  */
 router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Get all notification queue items with human-readable data
     const notifications = wrapQuery(
@@ -116,7 +117,7 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
       return res.status(400).json({ error: 'Notification IDs are required' });
     }
 
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const notificationService = getNotificationService();
 
     if (!notificationService) {
@@ -211,7 +212,7 @@ router.delete('/', authenticateToken, requireRole(['admin']), async (req, res) =
       return res.status(400).json({ error: 'Notification IDs are required' });
     }
 
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const placeholders = notificationIds.map(() => '?').join(',');
 
     const result = wrapQuery(

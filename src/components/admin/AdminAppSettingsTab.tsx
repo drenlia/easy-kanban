@@ -124,14 +124,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       APP_LANGUAGE: value
     });
     
-    // Auto-save the app language change
+    // Auto-save the app language change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           APP_LANGUAGE: value
         });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save app language:', error);
       }
@@ -144,14 +144,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       TASK_DELETE_CONFIRM: value
     });
     
-    // Auto-save the task delete confirm change
+    // Auto-save the task delete confirm change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           TASK_DELETE_CONFIRM: value
         });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save task delete confirm:', error);
       }
@@ -164,14 +164,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       SHOW_ACTIVITY_FEED: value
     });
     
-    // Auto-save the activity feed visibility change
+    // Auto-save the activity feed visibility change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           SHOW_ACTIVITY_FEED: value
         });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save activity feed visibility:', error);
       }
@@ -184,14 +184,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       DEFAULT_VIEW_MODE: value
     });
     
-    // Auto-save the default view mode change
+    // Auto-save the default view mode change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           DEFAULT_VIEW_MODE: value
         });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save default view mode:', error);
       }
@@ -204,38 +204,27 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       DEFAULT_TASK_VIEW_MODE: value
     });
     
-    // Auto-save the default task view mode change
+    // Auto-save the default task view mode change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           DEFAULT_TASK_VIEW_MODE: value
         });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save default task view mode:', error);
       }
     }, 100);
   };
 
+  // Manual save fields (no auto-save) - position, width, height
   const handleDefaultActivityFeedPositionChange = (value: string) => {
     onSettingsChange({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_POSITION: value
     });
-    
-    // Auto-save the activity feed position change
-    setTimeout(async () => {
-      try {
-        await onSave({
-          ...editingSettings,
-          DEFAULT_ACTIVITY_FEED_POSITION: value
-        });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
-      } catch (error) {
-        console.error('Failed to save activity feed position:', error);
-      }
-    }, 100);
+    // No auto-save - user must click Save button
   };
 
   const handleDefaultActivityFeedWidthChange = (value: string) => {
@@ -243,19 +232,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_WIDTH: value
     });
-    
-    // Auto-save the activity feed width change
-    setTimeout(async () => {
-      try {
-        await onSave({
-          ...editingSettings,
-          DEFAULT_ACTIVITY_FEED_WIDTH: value
-        });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
-      } catch (error) {
-        console.error('Failed to save activity feed width:', error);
-      }
-    }, 100);
+    // No auto-save - user must click Save button
   };
 
   const handleDefaultActivityFeedHeightChange = (value: string) => {
@@ -263,19 +240,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       ...editingSettings,
       DEFAULT_ACTIVITY_FEED_HEIGHT: value
     });
-    
-    // Auto-save the activity feed height change
-    setTimeout(async () => {
-      try {
-        await onSave({
-          ...editingSettings,
-          DEFAULT_ACTIVITY_FEED_HEIGHT: value
-        });
-        showAutosaveSuccess(t('appSettings.settingSaved'));
-      } catch (error) {
-        console.error('Failed to save activity feed height:', error);
-      }
-    }, 100);
+    // No auto-save - user must click Save button
   };
 
   const handleNotificationDelayChange = (value: string) => {
@@ -284,14 +249,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       NOTIFICATION_DELAY: value
     });
     
-    // Auto-save the notification delay change
+    // Auto-save the notification delay change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           NOTIFICATION_DELAY: value
         });
-        showAutosaveSuccess(t('appSettings.emailThrottlingDelaySaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save notification delay:', error);
       }
@@ -322,14 +287,14 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
       NOTIFICATION_DEFAULTS: JSON.stringify(newDefaults)
     });
     
-    // Auto-save the notification defaults change
+    // Auto-save the notification defaults change (silent - no toast, parent will show one)
     setTimeout(async () => {
       try {
         await onSave({
           ...editingSettings,
           NOTIFICATION_DEFAULTS: JSON.stringify(newDefaults)
         });
-        showAutosaveSuccess(t('appSettings.notificationDefaultsSaved'));
+        // Don't show toast here - parent handleSaveSettings will show one
       } catch (error) {
         console.error('Failed to save notification defaults:', error);
       }
@@ -595,26 +560,24 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
           </div>
         </div>
 
-            {/* Action Buttons */}
-            {hasChanges() && (
-              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={onCancel}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                  {t('appSettings.cancel')}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={isSaving}
-                      className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                  {isSaving ? t('appSettings.saving') : t('appSettings.saveChanges')}
-                </button>
-                  </div>
-            )}
+            {/* Action Buttons - Always show for manual save fields (position, width, height) */}
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                {t('appSettings.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isSaving || !hasChanges()}
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? t('appSettings.saving') : t('appSettings.saveChanges')}
+              </button>
+            </div>
           </div>
         </>
       ) : activeSubTab === 'notification-queue' ? (
@@ -727,26 +690,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons */}
-          {hasChanges() && (
-            <div className="mt-6 flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
-          )}
+          {/* Action Buttons - Notifications tab doesn't need manual save buttons (all auto-save) */}
         </>
       ) : (
         <AdminFileUploadsTab

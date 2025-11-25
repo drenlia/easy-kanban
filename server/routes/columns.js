@@ -3,6 +3,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTranslator } from '../utils/i18n.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -10,7 +11,7 @@ const router = express.Router();
 router.post('/', authenticateToken, async (req, res) => {
   const { id, title, boardId, position } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Check for duplicate column name within the same board
@@ -59,19 +60,18 @@ router.post('/', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, isArchived ? 1 : 0);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing column-created to Redis for board:', boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('column-created', {
       boardId: boardId,
       column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Column-created published to Redis');
+    }, tenantId);
     
     res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });
   } catch (error) {
     console.error('Error creating column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateColumn') });
   }
@@ -82,7 +82,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title, is_finished, is_archived } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Get the column's board ID
@@ -136,19 +136,18 @@ router.put('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ?, is_archived = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinishedValue ? 1 : 0, finalIsArchived ? 1 : 0, id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing column-updated to Redis for board:', column.boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('column-updated', {
       boardId: column.boardId,
       column: { id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Column-updated published to Redis');
+    }, tenantId);
     
     res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });
   } catch (error) {
     console.error('Error updating column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateColumn') });
   }
@@ -158,7 +157,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Get the column's board ID before deleting
@@ -170,19 +169,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing column-deleted to Redis for board:', column.boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('column-deleted', {
       boardId: column.boardId,
       columnId: id,
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Column-deleted published to Redis');
+    }, tenantId);
     
     res.json({ message: 'Column deleted successfully' });
   } catch (error) {
     console.error('Error deleting column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteColumn') });
   }
@@ -192,7 +190,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.post('/reorder', authenticateToken, async (req, res) => {
   const { columnId, newPosition, boardId } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const currentColumn = wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
     if (!currentColumn) {
@@ -227,7 +225,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     ).all(boardId);
 
     // Publish to Redis for real-time updates - include all columns
-    console.log('📤 Publishing column-reordered to Redis for board:', boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('column-reordered', {
       boardId: boardId,
       columnId: columnId,
@@ -235,13 +233,12 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       columns: updatedColumns, // Send all updated columns
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Column-reordered published to Redis');
+    }, tenantId);
 
     res.json({ message: 'Column reordered successfully' });
   } catch (error) {
     console.error('Error reordering column:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderColumn') });
   }
@@ -251,7 +248,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 router.post('/renumber', authenticateToken, async (req, res) => {
   const { boardId } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     db.transaction(() => {
       // Get all columns for this board ordered by current position
@@ -272,7 +269,7 @@ router.post('/renumber', authenticateToken, async (req, res) => {
     res.json({ message: 'Columns renumbered successfully' });
   } catch (error) {
     console.error('Error renumbering columns:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRenumberColumns') });
   }

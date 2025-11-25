@@ -670,6 +670,11 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           continue;
         }
         
+        // Skip APP_URL - it's owner-only and must be updated via dedicated endpoint
+        if (key === 'APP_URL') {
+          continue;
+        }
+        
         if (value !== settings[key]) {
           // Skip console log for NOTIFICATION_* settings to reduce noise
           if (!key.startsWith('NOTIFICATION_')) {

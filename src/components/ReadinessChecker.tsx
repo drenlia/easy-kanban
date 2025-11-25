@@ -18,7 +18,7 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
   const [error, setError] = useState<string | null>(null);
   const [isErrorDismissed, setIsErrorDismissed] = useState(false);
   const [checkCount, setCheckCount] = useState(0);
-  const maxChecks = 15; // Maximum 15 checks (30 seconds at 2s intervals)
+  const maxChecks = 8; // Maximum 8 checks (16 seconds at 2s intervals, timeout at 15s)
 
   useEffect(() => {
     // Check if we're in development mode - skip readiness check
@@ -38,6 +38,16 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
     }
 
     // Clear the flag immediately so it doesn't run again on subsequent loads
+    // Also check if we've already timed out before (to prevent repeated timeouts)
+    const hasTimedOut = sessionStorage.getItem('readinessCheckTimedOut');
+    if (hasTimedOut === 'true') {
+      // Already timed out before, skip the check this time
+      sessionStorage.removeItem('pendingVersionRefresh');
+      sessionStorage.removeItem('readinessCheckTimedOut');
+      setIsReady(true);
+      return;
+    }
+    
     sessionStorage.removeItem('pendingVersionRefresh');
 
     let isMounted = true;
@@ -129,16 +139,19 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
     // Then check every 2 seconds
     checkInterval = setInterval(checkReadiness, 2000);
 
-    // Timeout after 30 seconds
+    // Timeout after 15 seconds (reduced from 30 to be less aggressive)
+    // Most servers should be ready within 5-10 seconds after deployment
     timeoutId = setTimeout(() => {
       if (!isMounted) return;
       console.warn('⏱️ Readiness check timeout - allowing app to continue');
       setError(t('readiness.timeout'));
       setIsReady(true);
+      // Mark that we've timed out so we don't keep running this check
+      sessionStorage.setItem('readinessCheckTimedOut', 'true');
       if (checkInterval) {
         clearInterval(checkInterval);
       }
-    }, 30000); // 30 seconds
+    }, 15000); // 15 seconds (reduced from 30)
 
     return () => {
       isMounted = false;

@@ -1,5 +1,6 @@
 // License configuration and management
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getStorageUsage as getStorageUsageFromUtils } from '../utils/storageUtils.js';
 
 class LicenseManager {
   constructor(db) {
@@ -115,15 +116,12 @@ class LicenseManager {
     }
   }
 
-  // Get storage usage (placeholder - would need actual file size calculation)
+  // Get storage usage (uses STORAGE_USED setting which is maintained by storageUtils)
   async getStorageUsage() {
     try {
-      // This is a placeholder - in a real implementation, you'd calculate actual file sizes
-      const result = wrapQuery(
-        this.db.prepare('SELECT SUM(size) as total_size FROM attachments'),
-        'SELECT'
-      ).get();
-      return result.total_size || 0;
+      // Use the storageUtils function which reads from STORAGE_USED setting
+      // This is maintained by updateStorageUsage() whenever attachments are added/removed
+      return getStorageUsageFromUtils(this.db);
     } catch (error) {
       console.error('Error getting storage usage:', error);
       return 0;
@@ -276,13 +274,24 @@ class LicenseManager {
   }
 }
 
-// Create singleton instance
-let licenseManager = null;
+// Cache LicenseManager instances per database
+// In multi-tenant mode, each tenant needs its own LicenseManager instance
+// Use a WeakMap to cache instances per database object
+const licenseManagerCache = new WeakMap();
 
 export const getLicenseManager = (db) => {
-  if (!licenseManager) {
-    licenseManager = new LicenseManager(db);
+  if (!db) {
+    throw new Error('Database is required for LicenseManager');
   }
+  
+  // Check if we already have a LicenseManager for this database
+  if (licenseManagerCache.has(db)) {
+    return licenseManagerCache.get(db);
+  }
+  
+  // Create new LicenseManager instance for this database
+  const licenseManager = new LicenseManager(db);
+  licenseManagerCache.set(db, licenseManager);
   return licenseManager;
 };
 

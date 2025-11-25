@@ -1,9 +1,10 @@
 // License checking middleware
 import { getLicenseManager } from '../config/license.js';
+import { getRequestDatabase } from './tenantRouting.js';
 
 // Middleware to check user limit before creating users
 export const checkUserLimit = (req, res, next) => {
-  const licenseManager = getLicenseManager(req.app.locals.db);
+  const licenseManager = getLicenseManager(getRequestDatabase(req));
   
   if (!licenseManager.isEnabled()) {
     return next(); // Skip license checks when disabled
@@ -22,7 +23,7 @@ export const checkUserLimit = (req, res, next) => {
 
 // Middleware to check task limit before creating tasks
 export const checkTaskLimit = (req, res, next) => {
-  const licenseManager = getLicenseManager(req.app.locals.db);
+  const licenseManager = getLicenseManager(getRequestDatabase(req));
   
   if (!licenseManager.isEnabled()) {
     return next(); // Skip license checks when disabled
@@ -46,7 +47,7 @@ export const checkTaskLimit = (req, res, next) => {
 
 // Middleware to check board limit before creating boards
 export const checkBoardLimit = (req, res, next) => {
-  const licenseManager = getLicenseManager(req.app.locals.db);
+  const licenseManager = getLicenseManager(getRequestDatabase(req));
   
   if (!licenseManager.isEnabled()) {
     return next(); // Skip license checks when disabled
@@ -65,7 +66,7 @@ export const checkBoardLimit = (req, res, next) => {
 
 // Middleware to check storage limit before file uploads
 export const checkStorageLimit = (req, res, next) => {
-  const licenseManager = getLicenseManager(req.app.locals.db);
+  const licenseManager = getLicenseManager(getRequestDatabase(req));
   
   if (!licenseManager.isEnabled()) {
     return next(); // Skip license checks when disabled
@@ -84,7 +85,7 @@ export const checkStorageLimit = (req, res, next) => {
 
 // Middleware to inject license info into request
 export const injectLicenseInfo = async (req, res, next) => {
-  const licenseManager = getLicenseManager(req.app.locals.db);
+  const licenseManager = getLicenseManager(getRequestDatabase(req));
   req.licenseInfo = await licenseManager.getLicenseInfo();
   next();
 };

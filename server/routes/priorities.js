@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get('/', authenticateToken, (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const priorities = wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
     res.json(priorities);
   } catch (error) {
@@ -26,7 +27,7 @@ router.get('/', authenticateToken, (req, res, next) => {
 // Get priority usage count (for deletion confirmation)
 router.get('/:priorityId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
   const { priorityId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // First get the priority name from the priority ID
@@ -46,7 +47,7 @@ router.get('/:priorityId/usage', authenticateToken, requireRole(['admin']), (req
 
 // Get batch priority usage counts (fixes N+1 problem)
 router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res) => {
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get all priority IDs from query params
@@ -97,7 +98,7 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res)
 // Admin priorities endpoints
 router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const priorities = wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
     res.json(priorities);
   } catch (error) {
@@ -108,7 +109,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
 
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priority, color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!priority || !color) {
     return res.status(400).json({ error: 'Priority name and color are required' });
@@ -147,7 +148,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 // Reorder priorities (must come before :priorityId route)
 router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorities } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     if (!Array.isArray(priorities)) {
@@ -188,7 +189,7 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
 router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
   const { priority, color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!priority || !color) {
     return res.status(400).json({ error: 'Priority name and color are required' });
@@ -221,7 +222,7 @@ router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req
 
 router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { priorityId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get priority info before deletion for Redis publishing
@@ -325,7 +326,7 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
 
 router.put('/:priorityId/set-default', authenticateToken, requireRole(['admin']), (req, res) => {
   const { priorityId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Check if priority exists

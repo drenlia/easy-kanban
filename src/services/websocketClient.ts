@@ -11,6 +11,17 @@ class WebSocketClient {
   private eventCallbacks: Map<string, Function[]> = new Map();
   private pendingBoardJoin: string | null = null; // Store board to join when ready
 
+  /**
+   * Detects if we're in multi-tenant mode.
+   * Uses the MULTI_TENANT environment variable injected at build time.
+   */
+  private isMultiTenantMode(): boolean {
+    // Use the MULTI_TENANT env var injected at build time via Vite
+    // This matches the server-side process.env.MULTI_TENANT
+    const multiTenant = (process.env.MULTI_TENANT as string) === 'true';
+    return multiTenant;
+  }
+
   connect() {
     if (this.socket?.connected) {
       return;
@@ -66,27 +77,62 @@ class WebSocketClient {
     // Use the same URL as the frontend - the frontend will proxy WebSocket connections to the backend
     const serverUrl = window.location.origin;
 
-    this.socket = io(serverUrl, {
+    // Determine transport strategy based on deployment mode
+    // Multi-tenant: Use websocket ONLY (Redis adapter handles session sharing across pods)
+    //   - MUST use websocket only to avoid session ID issues with load balancing
+    //   - Polling transport requires sticky sessions which are complex to configure
+    // Single-tenant: Use polling + websocket (more reliable through proxies, no session issues)
+    const isMultiTenant = this.isMultiTenantMode();
+    const transports = isMultiTenant 
+      ? ['websocket'] // Multi-tenant: websocket ONLY - no polling fallback
+      : ['polling', 'websocket']; // Single-tenant: polling first, then upgrade to websocket
+
+    console.log(`🔌 WebSocket transport config: ${isMultiTenant ? 'multi-tenant' : 'single-tenant'} mode, using transports: [${transports.join(', ')}]`);
+
+    // Socket.IO options - in multi-tenant mode, enforce websocket-only strictly
+    const socketOptions: any = {
       auth: { token }, // Add authentication token
-      transports: ['polling', 'websocket'], // Try polling first, then websocket
+      transports,
       timeout: 20000,
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: this.reconnectDelay,
       forceNew: true, // Force a new connection
-    });
+    };
+
+    // In multi-tenant mode, prevent any transport upgrades/fallbacks
+    // This ensures we NEVER use polling transport in multi-tenant deployments
+    if (isMultiTenant) {
+      socketOptions.upgrade = false; // Disable transport upgrades (prevents fallback to polling)
+      socketOptions.rememberUpgrade = false; // Don't remember previous transport
+    }
+
+    this.socket = io(serverUrl, socketOptions);
 
     this.socket.on('connect', () => {
+      // Validate transport in multi-tenant mode - must be websocket
+      if (isMultiTenant && this.socket?.io?.engine?.transport?.name !== 'websocket') {
+        console.error('❌ CRITICAL: Multi-tenant mode detected polling transport! Disconnecting...');
+        this.socket.disconnect();
+        this.isConnected = false;
+        return;
+      }
+      
       this.isConnected = true;
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000; // Reset delay
+      
+      console.log(`✅ WebSocket connected (transport: ${this.socket?.io?.engine?.transport?.name || 'unknown'})`);
       
       // Re-register all event listeners
       this.reregisterEventListeners();
       
       // Add a general event listener to debug all events
-      this.socket.onAny((eventName, ...args) => {
-      });
+      if (this.socket) {
+        this.socket.onAny(() => {
+          // Event listener for debugging (currently no-op)
+        });
+      }
       
       // Trigger ready callbacks directly
       this.readyCallbacks.forEach((callback, index) => {
@@ -126,13 +172,25 @@ class WebSocketClient {
 
     this.socket.on('connect_error', (error) => {
       // Suppress errors during page unload/refresh - these are expected
-      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+      const readyState = document.readyState as string;
+      if (readyState === 'unloading' || readyState === 'loading') {
         return;
       }
       
       // Suppress "WebSocket is closed before the connection is established" errors
       // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
       if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
+      // Suppress timeout errors - these are common during initial connection when server is still starting
+      // Socket.IO will automatically retry with reconnection logic
+      if (error.message && (error.message === 'timeout' || error.message.toLowerCase().includes('timeout'))) {
+        // Only log once per connection attempt to avoid spam
+        if (this.reconnectAttempts === 0) {
+          console.log('⏳ WebSocket connection timeout (will retry automatically)');
+        }
+        this.isConnected = false;
         return;
       }
       
@@ -162,13 +220,24 @@ class WebSocketClient {
 
     this.socket.on('reconnect_error', (error) => {
       // Suppress errors during page unload/refresh
-      if (document.readyState === 'unloading' || document.readyState === 'loading') {
+      const readyState = document.readyState as string;
+      if (readyState === 'unloading' || readyState === 'loading') {
         return;
       }
       
       // Suppress "WebSocket is closed before the connection is established" errors
       // This is common during page refreshes when Socket.IO is upgrading from polling to websocket
       if (error.message && error.message.includes('WebSocket is closed before the connection is established')) {
+        return;
+      }
+      
+      // Suppress timeout errors during reconnection - Socket.IO will continue retrying
+      if (error.message && (error.message === 'timeout' || error.message.toLowerCase().includes('timeout'))) {
+        // Only log occasionally to avoid spam during reconnection attempts
+        if (this.reconnectAttempts % 3 === 0) {
+          console.log(`⏳ WebSocket reconnection timeout (attempt ${this.reconnectAttempts + 1}, will continue retrying)`);
+        }
+        this.reconnectAttempts++;
         return;
       }
       

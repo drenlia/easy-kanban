@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: easy-kanban-shared-storage
+spec:
+  capacity:
+    storage: 500Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: easy-kanban-nfs
+  nfs:
+    server: 10.99.114.55
+    path: "/exports"
+  mountOptions:
+    - vers=3
+    - nolock
+    - hard
+    - intr

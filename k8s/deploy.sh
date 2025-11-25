@@ -6,34 +6,53 @@ set -e
 
 # Function to display usage
 usage() {
-    echo "Usage: $0 <instance_name> <instance_token> <plan>"
+    echo "Usage: $0 <instance_name> <plan>"
     echo ""
     echo "Parameters:"
     echo "  instance_name  - The instance hostname (e.g., my-instance-name)"
-    echo "  instance_token - Token for admin portal database access"
     echo "  plan          - License plan: 'basic' or 'pro'"
     echo ""
     echo "Example:"
-    echo "  $0 my-company kanban-token-12345 basic"
-    echo "  $0 enterprise kanban-token-67890 pro"
+    echo "  $0 my-company basic"
+    echo "  $0 enterprise pro"
     echo ""
     echo "This will deploy Easy Kanban accessible at: https://my-company.ezkan.cloud"
+    echo ""
+    echo "Note: Instance token is automatically generated on first deployment"
+    echo "      and preserved for all subsequent deployments."
     exit 1
 }
 
+# Function to generate a secure random token
+generate_instance_token() {
+    # Generate a 64-character hexadecimal token (256 bits of entropy)
+    if command -v openssl &> /dev/null; then
+        openssl rand -hex 32
+    elif command -v shuf &> /dev/null; then
+        # Fallback: use /dev/urandom with shuf
+        cat /dev/urandom | tr -dc 'a-f0-9' | fold -w 64 | head -n 1
+    else
+        # Last resort: use /dev/urandom with od
+        od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+    fi
+}
+
 # Check parameters
-if [ $# -ne 3 ]; then
+if [ $# -ne 2 ]; then
     echo "❌ Error: Missing required parameters"
     usage
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTANCE_NAME="$1"
-INSTANCE_TOKEN="$2"
-PLAN="$3"
-NAMESPACE="easy-kanban-${INSTANCE_NAME}"
+PLAN="$2"
+# Use shared namespace for multi-tenancy with NFS
+# All tenants share the same namespace, deployment, and storage
+NAMESPACE="easy-kanban"
 DOMAIN="ezkan.cloud"
 FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
+# Tenant ID is the instance name (extracted from hostname by middleware)
+TENANT_ID="${INSTANCE_NAME}"
 
 # Validate instance name (alphanumeric and hyphens only)
 if [[ ! "$INSTANCE_NAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
@@ -66,10 +85,14 @@ fi
 # Generate random JWT secret
 JWT_SECRET=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-32)
 
+# Initialize RECOVERED_TOKEN variable (used as fallback if ConfigMap read fails)
+RECOVERED_TOKEN=""
+
 echo "🚀 Deploying Easy Kanban instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE}"
 echo "🌐 Hostname: ${FULL_HOSTNAME}"
-echo "🔑 Instance Token: ${INSTANCE_TOKEN}"
+# Instance token will be generated or retrieved from ConfigMap
+# Don't display it here as it may not be set yet
 echo "📋 Plan: ${PLAN} (${SUPPORT_TYPE})"
 echo "👥 User Limit: ${USER_LIMIT}"
 echo "📝 Task Limit: ${TASK_LIMIT}"
@@ -204,9 +227,12 @@ check_pod_health() {
     local elapsed=0
     local check_interval=5
     
+    echo ""
     echo "🔍 Monitoring pod health for ${deployment_name}..."
+    echo "   Timeout: ${timeout}s, Check interval: ${check_interval}s"
     
     # Wait a moment for pod to be created
+    echo "   ⏳ Waiting 3 seconds for pod to be created..."
     sleep 3
     
     while [ $elapsed -lt $timeout ]; do
@@ -293,12 +319,14 @@ check_pod_health() {
             return 0
         fi
         
-        # Show progress every 10 seconds (more frequent updates)
-        if [ $((elapsed % 10)) -eq 0 ]; then
-            echo "   ⏳ Waiting for pod to be ready... (${elapsed}s / ${timeout}s)"
-            echo "      Current status: ${pod_status}, Ready: ${pod_ready}"
+        # Show progress every 5 seconds (more frequent updates)
+        if [ $((elapsed % 5)) -eq 0 ]; then
+            echo "   ⏳ [${elapsed}s/${timeout}s] Status: ${pod_status:-Unknown}, Ready: ${pod_ready:-False}"
             if [ -n "$waiting_reason" ] && [ "$waiting_reason" != "<no value>" ]; then
-                echo "      Waiting reason: ${waiting_reason}"
+                echo "      ⚠️  Waiting reason: ${waiting_reason}"
+            fi
+            if [ -n "$pod_name" ]; then
+                echo "      📦 Pod: ${pod_name}"
             fi
         fi
         
@@ -334,166 +362,382 @@ fi
 TEMP_DIR=$(mktemp -d)
 echo "📁 Using temporary directory: ${TEMP_DIR}"
 
-# Function to generate manifests with instance-specific values
+# Function to generate manifests for shared multi-tenant deployment
 generate_manifests() {
-    echo "🔧 Generating instance-specific manifests..."
+    echo ""
+    echo "🔧 Generating Kubernetes manifests..."
+    echo "   📝 Creating deployment manifests in ${TEMP_DIR}..."
     
     # Generate namespace
     sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/namespace.yaml > "${TEMP_DIR}/namespace.yaml"
     
-    # Generate Redis deployment
+    # Generate Redis deployment (shared)
     sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/redis-deployment.yaml > "${TEMP_DIR}/redis-deployment.yaml"
     
-    # Generate ConfigMap with instance token and plan-specific values
+    # Generate shared ConfigMap for multi-tenant mode
+    # All tenants share the same ConfigMap with MULTI_TENANT=true
+    # Note: License limits (USER_LIMIT, etc.) are NOT in ConfigMap - they're stored per-tenant in database
+    # INSTANCE_NAME is set to generic "easy-kanban-app" (tenant hostnames come from request)
+    # STARTUP_TENANT_ID is set to the current instance's tenant ID to pre-initialize its database
+    # NOTE: INSTANCE_TOKEN_PLACEHOLDER will be replaced later after checking existing ConfigMap
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/INSTANCE_TOKEN_PLACEHOLDER/${INSTANCE_TOKEN}/g" \
         -e "s/JWT_SECRET_PLACEHOLDER/${JWT_SECRET}/g" \
-        -e "s/USER_LIMIT_PLACEHOLDER/${USER_LIMIT}/g" \
-        -e "s/TASK_LIMIT_PLACEHOLDER/${TASK_LIMIT}/g" \
-        -e "s/BOARD_LIMIT_PLACEHOLDER/${BOARD_LIMIT}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        -e "s/SUPPORT_TYPE_PLACEHOLDER/${SUPPORT_TYPE}/g" \
         -e "s/APP_VERSION_PLACEHOLDER//g" \
+        -e "s/MULTI_TENANT: \"false\"/MULTI_TENANT: \"true\"/g" \
+        -e "s/STARTUP_TENANT_ID: \"\"/STARTUP_TENANT_ID: \"${TENANT_ID}\"/g" \
         ${SCRIPT_DIR}/configmap.yaml > "${TEMP_DIR}/configmap.yaml"
     
-    # Generate app deployment
+    # Generate shared app deployment (deployed once for all tenants)
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban-${INSTANCE_NAME}/g" \
+        -e "s/DEPLOYMENT_NAME_PLACEHOLDER/easy-kanban/g" \
         -e "s/IMAGE_NAME_PLACEHOLDER/easy-kanban:latest/g" \
+        -e "s/name: easy-kanban-config-INSTANCE_NAME_PLACEHOLDER/name: easy-kanban-config/g" \
         ${SCRIPT_DIR}/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
     
-    # Generate services
-    sed "s/easy-kanban/${NAMESPACE}/g" ${SCRIPT_DIR}/service.yaml > "${TEMP_DIR}/service.yaml"
+    # Generate shared services (one service for all tenants)
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s/instance: INSTANCE_NAME_PLACEHOLDER/app: easy-kanban/g" \
+        ${SCRIPT_DIR}/service.yaml > "${TEMP_DIR}/service.yaml"
     
-    # Generate ingress with dynamic hostname
+    # Generate ingress rule for this specific tenant hostname
+    # Each tenant gets their own ingress rule pointing to the shared service
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/easy-kanban.local/${FULL_HOSTNAME}/g" \
+        -e "s/name: easy-kanban-ingress/name: easy-kanban-ingress-${INSTANCE_NAME}/g" \
         ${SCRIPT_DIR}/ingress.yaml > "${TEMP_DIR}/ingress.yaml"
     
-    # Create storage directories
-    echo "📁 Creating storage directories for ${INSTANCE_NAME}..."
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-    sudo -n mkdir -p "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-    sudo -n chmod 755 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-    
-    # Generate persistent volumes
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        ${SCRIPT_DIR}/persistent-volume-template.yaml > "${TEMP_DIR}/persistent-volume.yaml"
-    
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        ${SCRIPT_DIR}/persistent-volume-attachments-template.yaml > "${TEMP_DIR}/persistent-volume-attachments.yaml"
-    
-    sed -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        ${SCRIPT_DIR}/persistent-volume-avatars-template.yaml > "${TEMP_DIR}/persistent-volume-avatars.yaml"
-    
-    # Generate persistent volume claims
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim.yaml > "${TEMP_DIR}/persistent-volume-claim.yaml"
-    
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_LIMIT_PLACEHOLDER/${STORAGE_LIMIT}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim-attachments.yaml > "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
-    
-    sed -e "s/easy-kanban/${NAMESPACE}/g" \
-        -e "s/INSTANCE_NAME_PLACEHOLDER/${INSTANCE_NAME}/g" \
-        -e "s/STORAGE_CLASS_PLACEHOLDER/easy-kanban-storage/g" \
-        ${SCRIPT_DIR}/persistent-volume-claim-avatars.yaml > "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
+    echo "   ✅ Manifests generated successfully"
 }
 
 # Generate manifests
 generate_manifests
 
-# Apply the namespace first
-echo "📦 Creating namespace..."
-kubectl apply -f "${TEMP_DIR}/namespace.yaml"
-
-# Apply Redis deployment
-echo "🗄️  Deploying Redis..."
-kubectl apply -f "${TEMP_DIR}/redis-deployment.yaml"
-
-# Wait for Redis to be ready
-echo "⏳ Waiting for Redis to be ready..."
-if kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}" 2>&1; then
-    echo "✅ Redis is ready"
-else
-    echo "❌ Redis failed to become ready"
-    exit 1
-fi
-
-# Apply ConfigMap
-echo "⚙️  Creating ConfigMap..."
-kubectl apply -f "${TEMP_DIR}/configmap.yaml"
-
-# Create storage class
-echo "📁 Creating storage class..."
-kubectl apply -f "${SCRIPT_DIR}/storage-class.yaml"
-
-# Create persistent volumes
-echo "💾 Creating persistent volumes..."
-kubectl apply -f "${TEMP_DIR}/persistent-volume.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-attachments.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-avatars.yaml"
-
-# Create persistent volume claims
-echo "🔗 Creating persistent volume claims..."
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-attachments.yaml"
-kubectl apply -f "${TEMP_DIR}/persistent-volume-claim-avatars.yaml"
-
-# Fix ownership before deploying the application
-echo "🔧 Setting correct ownership for storage directories..."
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data" || true
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments" || true
-sudo -n chown -R 1001:65533 "/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars" || true
-
-# Apply the main application
-echo "🎯 Deploying Easy Kanban application..."
-kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
-
-# Wait for the app to be ready and check pod health
-echo "⏳ Waiting for Easy Kanban to be ready..."
-if ! check_pod_health "easy-kanban-${INSTANCE_NAME}" "${NAMESPACE}"; then
-    echo ""
-    echo "❌ Deployment failed: Pod did not become healthy"
-    echo ""
-    echo "💡 Troubleshooting steps:"
-    echo "   1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
-    echo "   2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME}"
-    echo "   3. Check resource constraints: kubectl top nodes"
-    echo "   4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban-${INSTANCE_NAME} -o jsonpath='{.items[0].spec.containers[0].image}'"
-    exit 1
-fi
-
-# Apply services
-echo "🌐 Creating services..."
-kubectl apply -f "${TEMP_DIR}/service.yaml"
-
-# Apply ingress
-echo "🔗 Creating ingress..."
-kubectl apply -f "${TEMP_DIR}/ingress.yaml"
-
-echo "✅ Deployment completed successfully!"
-
-# Extract IP and port information
+# Apply the namespace first (shared namespace for multi-tenancy)
 echo ""
-echo "🔍 Extracting deployment information..."
+echo "📦 Step 1/7: Applying namespace..."
+echo "   Using shared namespace: ${NAMESPACE}"
+kubectl apply -f "${TEMP_DIR}/namespace.yaml"
+echo "   ✅ Namespace ready"
+
+# Check if Redis already exists in shared namespace (shared Redis for multi-tenancy)
+echo ""
+echo "📦 Step 2/7: Checking Redis deployment..."
+if kubectl get deployment redis -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🗄️  Redis already exists in shared namespace, reusing it..."
+else
+    echo "   🗄️  Deploying Redis (shared for all instances)..."
+    kubectl apply -f "${TEMP_DIR}/redis-deployment.yaml"
+    
+    # Wait for Redis to be ready
+    echo "   ⏳ Waiting for Redis to be ready (timeout: 300s)..."
+    if kubectl wait --for=condition=available --timeout=300s deployment/redis -n "${NAMESPACE}" 2>&1; then
+        echo "   ✅ Redis is ready"
+    else
+        echo "   ❌ Redis failed to become ready"
+        exit 1
+    fi
+fi
+
+# Apply shared ConfigMap (only if it doesn't exist)
+echo ""
+echo "📦 Step 3/7: Applying ConfigMap..."
+if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
+    echo "   ⚙️  Shared ConfigMap already exists"
+    # Check if STARTUP_TENANT_ID is already set
+    CURRENT_STARTUP_TENANT=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.STARTUP_TENANT_ID}' 2>/dev/null || echo "")
+    CURRENT_INSTANCE_TOKEN=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+    
+    # Preserve existing INSTANCE_TOKEN to avoid pod restart
+    # INSTANCE_TOKEN is shared across all tenants in multi-tenant mode
+    # CRITICAL: Token only changes when a new pod is created (first deployment)
+    # If pod already exists, we MUST preserve the existing token
+    # Check if token exists and is not empty (handle both null and empty string cases)
+    if [ -n "$CURRENT_INSTANCE_TOKEN" ] && [ "$CURRENT_INSTANCE_TOKEN" != "" ] && [ "$CURRENT_INSTANCE_TOKEN" != '""' ]; then
+        echo "   ℹ️  INSTANCE_TOKEN already set (shared for all tenants, preserving to avoid pod restart)"
+        # Update the new ConfigMap to preserve existing INSTANCE_TOKEN
+        # Escape special characters for sed
+        ESCAPED_TOKEN=$(echo "$CURRENT_INSTANCE_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+        RECOVERED_TOKEN="$CURRENT_INSTANCE_TOKEN"
+    else
+        # ConfigMap exists but token is missing or empty - check if pod exists
+        # If pod exists, try to get the token from the pod's environment
+        # If no pod exists, we can generate a new token
+        if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+            echo "   ⚠️  Warning: ConfigMap exists but INSTANCE_TOKEN is missing or empty, and pod already exists"
+            echo "   🔍 Attempting to recover INSTANCE_TOKEN from running pod..."
+            
+            # Try to get token from pod's environment variable
+            POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+            if [ -n "$POD_NAME" ]; then
+                POD_TOKEN=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- printenv INSTANCE_TOKEN 2>/dev/null || echo "")
+                if [ -n "$POD_TOKEN" ] && [ "$POD_TOKEN" != "" ]; then
+                    echo "   ✅ Recovered INSTANCE_TOKEN from pod environment: ${POD_TOKEN:0:20}..."
+                    # Escape special characters for sed
+                    ESCAPED_TOKEN=$(echo "$POD_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    RECOVERED_TOKEN="$POD_TOKEN"
+                else
+                    echo "   ⚠️  Could not recover token from pod - generating new one"
+                    echo "   ⚠️  Note: This will require pod restart and admin portal will need to update token"
+                    GENERATED_TOKEN=$(generate_instance_token)
+                    # Escape special characters for sed
+                    ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                    RECOVERED_TOKEN="$GENERATED_TOKEN"
+                fi
+            else
+                echo "   ⚠️  No running pod found - generating new token"
+                GENERATED_TOKEN=$(generate_instance_token)
+                # Escape special characters for sed
+                ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+                sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+                RECOVERED_TOKEN="$GENERATED_TOKEN"
+            fi
+        else
+            echo "   ℹ️  ConfigMap exists but INSTANCE_TOKEN is missing, and no pod exists yet"
+            echo "   🔑 Generating new INSTANCE_TOKEN (new deployment)"
+            GENERATED_TOKEN=$(generate_instance_token)
+            # Escape special characters for sed
+            ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+            RECOVERED_TOKEN="$GENERATED_TOKEN"
+        fi
+    fi
+    
+    if [ -z "$CURRENT_STARTUP_TENANT" ]; then
+        # No STARTUP_TENANT_ID set yet - set it to this tenant (first tenant)
+        echo "   📝 Setting STARTUP_TENANT_ID to '${TENANT_ID}' (first tenant)"
+        kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+        CONFIGMAP_UPDATED=true
+    else
+        # STARTUP_TENANT_ID already set - only update other fields, don't change STARTUP_TENANT_ID
+        # This avoids restarting pods for every new tenant
+        echo "   ℹ️  STARTUP_TENANT_ID already set to '${CURRENT_STARTUP_TENANT}' (preserving to avoid pod restart)"
+        echo "   📝 Updating other ConfigMap fields only..."
+        # Update the new ConfigMap to preserve existing STARTUP_TENANT_ID
+        if [ -n "$CURRENT_STARTUP_TENANT" ]; then
+            sed -i "s/STARTUP_TENANT_ID: \"${TENANT_ID}\"/STARTUP_TENANT_ID: \"${CURRENT_STARTUP_TENANT}\"/g" "${TEMP_DIR}/configmap.yaml"
+        fi
+        kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+        CONFIGMAP_UPDATED=false
+    fi
+else
+    echo "   ⚙️  Creating shared ConfigMap..."
+    # First deployment: generate a new token
+    echo "   🔑 Generating new INSTANCE_TOKEN (first deployment)"
+    GENERATED_TOKEN=$(generate_instance_token)
+    # Escape special characters for sed
+    ESCAPED_TOKEN=$(echo "$GENERATED_TOKEN" | sed 's/[[\.*^$()+?{|]/\\&/g')
+    sed -i "s/INSTANCE_TOKEN_PLACEHOLDER/${ESCAPED_TOKEN}/g" "${TEMP_DIR}/configmap.yaml"
+    RECOVERED_TOKEN="$GENERATED_TOKEN"
+    kubectl apply -f "${TEMP_DIR}/configmap.yaml"
+    CONFIGMAP_UPDATED=false
+fi
+echo "   ✅ ConfigMap ready"
+
+# CRITICAL: After ConfigMap is applied, re-read the actual token from ConfigMap
+# This ensures we always output the token that's actually in the ConfigMap (preserved or new)
+# This is the token that pods will use (after restart if needed)
+ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ] && [ "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" != "" ]; then
+    # ConfigMap has a token - this is the one that's actually configured
+    # Store it for later output (this is the source of truth)
+    ACTUAL_INSTANCE_TOKEN="$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP"
+elif [ -n "$RECOVERED_TOKEN" ] && [ "$RECOVERED_TOKEN" != "" ]; then
+    # ConfigMap doesn't have a token but we recovered one from pod
+    # Use the recovered token (it should be in ConfigMap after apply, but use recovered as fallback)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap after apply, using recovered token"
+    ACTUAL_INSTANCE_TOKEN="$RECOVERED_TOKEN"
+else
+    # ConfigMap doesn't have a token and we couldn't recover one (shouldn't happen, but fallback)
+    # Generate a token as last resort
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap and couldn't recover from pod, generating fallback"
+    ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
+fi
+
+# Skip instance-specific storage for multi-tenant mode with shared NFS
+# All instances use the shared NFS PVCs (data, attachments, avatars) which are already created
+echo ""
+echo "📦 Step 4/7: Checking storage..."
+echo "   📦 Using shared NFS storage for multi-tenant deployment"
+echo "   Shared PVCs: easy-kanban-shared-pvc-data, easy-kanban-shared-pvc-attachments, easy-kanban-shared-pvc-avatars"
+echo "   Tenant data will be stored at: /app/server/data/tenants/${TENANT_ID}/"
+PVC_DATA_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-data -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+PVC_ATTACHMENTS_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-attachments -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+PVC_AVATARS_EXISTS=$(kubectl get pvc easy-kanban-shared-pvc-avatars -n "${NAMESPACE}" &>/dev/null && echo "yes" || echo "no")
+
+if [ "$PVC_DATA_EXISTS" = "yes" ] && [ "$PVC_ATTACHMENTS_EXISTS" = "yes" ] && [ "$PVC_AVATARS_EXISTS" = "yes" ]; then
+    echo "   ✅ All shared PVCs exist"
+else
+    echo "   ⚠️  Warning: Some shared PVCs not found:"
+    [ "$PVC_DATA_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-data missing"
+    [ "$PVC_ATTACHMENTS_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-attachments missing"
+    [ "$PVC_AVATARS_EXISTS" = "no" ] && echo "      - easy-kanban-shared-pvc-avatars missing"
+    echo "      Deployment may fail"
+fi
+
+# Deploy shared application (only if not already deployed)
+echo ""
+echo "📦 Step 5/7: Deploying application..."
+if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🎯 Application already deployed (shared for all tenants)"
+    # Only restart pods if STARTUP_TENANT_ID was actually updated (first tenant only)
+    if [ "$CONFIGMAP_UPDATED" = "true" ]; then
+        echo "   🔄 ConfigMap updated with STARTUP_TENANT_ID='${TENANT_ID}', restarting pods to apply changes..."
+        kubectl rollout restart deployment/easy-kanban -n "${NAMESPACE}"
+        echo "   ⏳ Waiting for pods to restart..."
+        sleep 5
+        # Wait for rollout to complete (but don't fail if it takes a while)
+        kubectl rollout status deployment/easy-kanban -n "${NAMESPACE}" --timeout=120s || echo "   ⚠️  Rollout may still be in progress"
+    else
+        echo "   ℹ️  No pod restart needed - tenant database will be created on first request"
+    fi
+else
+    echo "   🎯 Deploying shared Easy Kanban application (for all tenants)..."
+    kubectl apply -f "${TEMP_DIR}/app-deployment.yaml"
+    echo "   ✅ Deployment manifest applied"
+    
+    # Wait for the app to be ready and check pod health
+    if ! check_pod_health "easy-kanban" "${NAMESPACE}"; then
+        echo ""
+        echo "   ❌ Deployment failed: Pod did not become healthy"
+        echo ""
+        echo "   💡 Troubleshooting steps:"
+        echo "      1. Check pod logs: kubectl logs -n ${NAMESPACE} -l app=easy-kanban"
+        echo "      2. Check pod events: kubectl describe pod -n ${NAMESPACE} -l app=easy-kanban"
+        echo "      3. Check resource constraints: kubectl top nodes"
+        echo "      4. Verify image exists: kubectl get pods -n ${NAMESPACE} -l app=easy-kanban -o jsonpath='{.items[0].spec.containers[0].image}'"
+        exit 1
+    fi
+    echo "   ✅ Application is ready"
+fi
+
+# Apply shared services (only if not already deployed)
+echo ""
+echo "📦 Step 6/7: Applying services..."
+if kubectl get service easy-kanban-service -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🔗 Shared services already exist, skipping..."
+else
+    echo "   🔗 Creating shared services..."
+    kubectl apply -f "${TEMP_DIR}/service.yaml"
+    echo "   ✅ Services created"
+fi
+
+# Apply ingress rule for this tenant (each tenant gets their own ingress rule)
+echo ""
+echo "📦 Step 7/8: Applying ingress..."
+INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
+if kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🌐 Ingress rule '${INGRESS_NAME}' already exists, updating..."
+    # Remove any CORS annotations that might have been manually added
+    # We don't use CORS annotations - nginx accepts all origins internally
+    kubectl annotate ingress "${INGRESS_NAME}" -n "${NAMESPACE}" \
+        nginx.ingress.kubernetes.io/enable-cors- \
+        nginx.ingress.kubernetes.io/cors-allow-origin- \
+        nginx.ingress.kubernetes.io/cors-allow-methods- \
+        nginx.ingress.kubernetes.io/cors-allow-headers- \
+        nginx.ingress.kubernetes.io/cors-allow-credentials- \
+        2>/dev/null || true
+    kubectl apply -f "${TEMP_DIR}/ingress.yaml"
+    echo "   ✅ Ingress rule updated (CORS annotations removed if present)"
+else
+    echo "   🌐 Creating ingress rule for tenant: ${FULL_HOSTNAME}..."
+    kubectl apply -f "${TEMP_DIR}/ingress.yaml"
+    echo "   ✅ Ingress rule created"
+fi
+
+# Initialize tenant database by making a request to the app
+# This ensures the database exists before the admin portal tries to connect
+echo ""
+echo "📦 Step 8/8: Initializing tenant database..."
+echo "   🔄 Waiting for pod to be ready..."
+POD_READY=false
+MAX_WAIT=60
+WAIT_COUNT=0
+POD_NAME=""
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    if [ -n "$POD_NAME" ]; then
+        POD_STATUS=$(kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        if [ "$POD_STATUS" = "Running" ]; then
+            READY=$(kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+            if [ "$READY" = "true" ]; then
+                POD_READY=true
+                break
+            fi
+        fi
+    fi
+    sleep 1
+    WAIT_COUNT=$((WAIT_COUNT + 1))
+    if [ $((WAIT_COUNT % 5)) -eq 0 ]; then
+        echo "   ⏳ Still waiting... (${WAIT_COUNT}s)"
+    fi
+done
+
+if [ "$POD_READY" = "true" ] && [ -n "$POD_NAME" ]; then
+    echo "   ✅ Pod is ready"
+    echo "   🔄 Triggering database initialization for tenant '${TENANT_ID}'..."
+    
+    # Make a request to the health endpoint from within the pod
+    # This will trigger the tenantRouting middleware which creates the database if needed
+    # We use the service ClusterIP and set the Host header to the tenant's hostname
+    SERVICE_URL="http://easy-kanban-service.${NAMESPACE}.svc.cluster.local"
+    
+    # Try using Node.js to make the request (Node.js is definitely available in the pod)
+    INIT_SUCCESS=false
+    INIT_OUTPUT=$(kubectl exec -n "${NAMESPACE}" "${POD_NAME}" -- \
+        node -e "
+        const http = require('http');
+        const options = {
+            hostname: 'easy-kanban-service.${NAMESPACE}.svc.cluster.local',
+            port: 80,
+            path: '/health',
+            method: 'GET',
+            headers: {
+                'Host': '${FULL_HOSTNAME}',
+                'X-Forwarded-Host': '${FULL_HOSTNAME}'
+            },
+            timeout: 5000
+        };
+        const req = http.request(options, (res) => {
+            let data = '';
+            res.on('data', (chunk) => { data += chunk; });
+            res.on('end', () => {
+                if (res.statusCode === 200 || res.statusCode === 503) {
+                    console.log('SUCCESS');
+                } else {
+                    console.log('FAILED: ' + res.statusCode);
+                }
+            });
+        });
+        req.on('error', (e) => { console.log('ERROR: ' + e.message); });
+        req.on('timeout', () => { req.destroy(); console.log('TIMEOUT'); });
+        req.end();
+        " 2>&1)
+    
+    if echo "$INIT_OUTPUT" | grep -q "SUCCESS"; then
+        INIT_SUCCESS=true
+    fi
+    
+    if [ "$INIT_SUCCESS" = "true" ]; then
+        echo "   ✅ Tenant database initialized successfully"
+    else
+        echo "   ⚠️  Could not verify database initialization (will be created on first request)"
+        echo "   ℹ️  Database will be automatically created when admin portal connects"
+    fi
+else
+    echo "   ⚠️  Pod not ready after ${MAX_WAIT}s, database will be created on first request"
+    echo "   ℹ️  Database will be automatically created when admin portal connects"
+fi
 
 # Get the external IP and NodePort information
 EXTERNAL_IP=""
 NODEPORT=""
-INGRESS_IP=$(kubectl get ingress easy-kanban-${INSTANCE_NAME}-ingress -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+INGRESS_IP=$(kubectl get ingress easy-kanban-ingress-${INSTANCE_NAME} -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
 
 # Always get NodePort information for admin portal (frontend port for web access)
-NODEPORT=$(kubectl get service easy-kanban-${INSTANCE_NAME}-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="frontend")].nodePort}' 2>/dev/null || echo "")
+NODEPORT=$(kubectl get service easy-kanban-nodeport -n "${NAMESPACE}" -o jsonpath='{.spec.ports[?(@.name=="frontend")].nodePort}' 2>/dev/null || echo "")
 if [ -n "$NODEPORT" ]; then
     # Get node IP for NodePort access
     NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null)
@@ -506,49 +750,32 @@ if [ -n "$NODEPORT" ]; then
     EXTERNAL_IP="$NODE_IP:$NODEPORT"
 fi
 
-# Show status
-echo ""
-echo "📊 Deployment Status:"
-kubectl get pods -n "${NAMESPACE}"
-echo ""
-echo "🌐 Services:"
-kubectl get services -n "${NAMESPACE}"
-echo ""
-echo "🔗 Ingress:"
-kubectl get ingress -n "${NAMESPACE}"
+# Get the actual INSTANCE_TOKEN being used
+# This should already be set from the ConfigMap read above (after ConfigMap was applied)
+# But re-read it here to be absolutely sure we have the latest value from ConfigMap
+# This is the token that's actually in the ConfigMap (which the pod will use after restart)
+ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP=$(kubectl get configmap easy-kanban-config -n "${NAMESPACE}" -o jsonpath='{.data.INSTANCE_TOKEN}' 2>/dev/null || echo "")
+if [ -n "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" ] && [ "$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP" != "" ]; then
+    # ConfigMap has a valid token - use it
+    ACTUAL_INSTANCE_TOKEN="$ACTUAL_INSTANCE_TOKEN_FROM_CONFIGMAP"
+elif [ -n "$RECOVERED_TOKEN" ] && [ "$RECOVERED_TOKEN" != "" ]; then
+    # ConfigMap doesn't have a token but we recovered one earlier - use it
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap, using recovered token from pod"
+    ACTUAL_INSTANCE_TOKEN="$RECOVERED_TOKEN"
+else
+    # Last resort: generate a new token (shouldn't happen)
+    echo "   ⚠️  Warning: INSTANCE_TOKEN not found in ConfigMap and couldn't recover, generating fallback"
+    ACTUAL_INSTANCE_TOKEN=$(generate_instance_token)
+fi
 
 echo ""
-echo "🎉 Easy Kanban instance '${INSTANCE_NAME}' is now running!"
-echo ""
-echo "📍 Instance Details:"
-echo "   Instance Name: ${INSTANCE_NAME}"
-echo "   Namespace: ${NAMESPACE}"
-echo "   Hostname: ${FULL_HOSTNAME}"
-echo "   External Access: ${EXTERNAL_IP}"
-echo "   Instance Token: ${INSTANCE_TOKEN}"
-echo ""
-echo "💾 Storage Paths:"
-echo "   Database: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-echo "   Attachments: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-echo "   Avatars: /data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
-echo ""
-echo "🌐 Access URLs:"
-echo "   - Primary: https://${FULL_HOSTNAME}"
-if [ -n "$NODEPORT" ]; then
-    echo "   - Direct: http://${EXTERNAL_IP}"
-fi
-echo ""
-echo "🔧 Management Commands:"
-echo "   View logs: kubectl logs -f deployment/easy-kanban-${INSTANCE_NAME} -n ${NAMESPACE}"
-echo "   Delete instance: kubectl delete namespace ${NAMESPACE}"
-echo "   Scale replicas: kubectl scale deployment easy-kanban-${INSTANCE_NAME} --replicas=1 -n ${NAMESPACE}"
+echo "✅ Deployment completed successfully!"
 
 # Clean up temporary files
-echo ""
-echo "🧹 Cleaning up temporary files..."
 rm -rf "${TEMP_DIR}"
 
 # Return the IP and port information for programmatic use
+# Note: In multi-tenant mode, storage is shared NFS at /data/nfs-server/{type}/tenants/{tenant-id}/
 echo ""
 echo "📤 DEPLOYMENT_RESULT:"
 echo "INSTANCE_NAME=${INSTANCE_NAME}"
@@ -556,7 +783,7 @@ echo "NAMESPACE=${NAMESPACE}"
 echo "HOSTNAME=${FULL_HOSTNAME}"
 echo "EXTERNAL_IP=${EXTERNAL_IP}"
 echo "NODEPORT=${NODEPORT}"
-echo "INSTANCE_TOKEN=${INSTANCE_TOKEN}"
-echo "STORAGE_DATA_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-data"
-echo "STORAGE_ATTACHMENTS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-attachments"
-echo "STORAGE_AVATARS_PATH=/data/easy-kanban-pv/easy-kanban-${INSTANCE_NAME}-avatars"
+echo "INSTANCE_TOKEN=${ACTUAL_INSTANCE_TOKEN}"
+echo "STORAGE_DATA_PATH=/data/nfs-server/data/tenants/${INSTANCE_NAME}"
+echo "STORAGE_ATTACHMENTS_PATH=/data/nfs-server/attachments/tenants/${INSTANCE_NAME}"
+echo "STORAGE_AVATARS_PATH=/data/nfs-server/avatars/tenants/${INSTANCE_NAME}"

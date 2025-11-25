@@ -7,23 +7,33 @@ metadata:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 1  # Single replica required due to SQLite3 database
+  replicas: 5  # Can be scaled for multi-tenant (all pods share NFS storage)
   selector:
     matchLabels:
       app: easy-kanban
+      component: frontend
   template:
     metadata:
       labels:
         app: easy-kanban
         component: frontend
     spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: easy-kanban
       containers:
       - name: easy-kanban
         image: IMAGE_NAME_PLACEHOLDER
         imagePullPolicy: IfNotPresent  # Use local image if available
         ports:
+        - containerPort: 3010
+          name: frontend
         - containerPort: 3222
-          name: http
+          name: backend
         envFrom:
         - configMapRef:
             name: easy-kanban-config
@@ -44,12 +54,12 @@ spec:
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /health
+            path: /ready
             port: 3222
-          initialDelaySeconds: 20
+          initialDelaySeconds: 30
           periodSeconds: 5
-          timeoutSeconds: 5
-          failureThreshold: 3
+          timeoutSeconds: 10
+          failureThreshold: 6
         volumeMounts:
         - name: app-data
           mountPath: /app/server/data
@@ -60,15 +70,18 @@ spec:
       volumes:
       - name: app-data
         persistentVolumeClaim:
-          claimName: easy-kanban-data-pvc
+          claimName: easy-kanban-shared-pvc-data
       - name: app-attachments
         persistentVolumeClaim:
-          claimName: easy-kanban-attachments-pvc
+          claimName: easy-kanban-shared-pvc-attachments
       - name: app-avatars
         persistentVolumeClaim:
-          claimName: easy-kanban-avatars-pvc
+          claimName: easy-kanban-shared-pvc-avatars
       tolerations:
       - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      - key: node.kubernetes.io/disk-pressure
         operator: Exists
         effect: NoSchedule
       restartPolicy: Always

@@ -36,11 +36,11 @@ export const authenticateAdminPortal = (req, res, next) => {
   req.adminPortal = {
     authenticated: true,
     instanceToken: instanceToken,
-    instanceName: process.env.INSTANCE_NAME || 'unknown',
+    instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
     timestamp: new Date().toISOString()
   };
 
-  console.log(`✅ Admin portal authenticated for instance: ${process.env.INSTANCE_NAME || 'unknown'}`);
+  console.log(`✅ Admin portal authenticated for instance: ${process.env.INSTANCE_NAME || 'easy-kanban-app'}`);
   next();
 };
 

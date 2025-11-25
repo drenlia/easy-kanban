@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import rateLimit from 'express-rate-limit';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -38,7 +39,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Find user by email
     const user = wrapQuery(
@@ -66,15 +67,35 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
       'INSERT'
     ).run(user.id, resetToken, expiresAt.toISOString());
     
-    // TODO: Send email with reset link
-    // For now, we'll just log the reset link for development
-    // Build reset URL using origin, host, or fallback
-    let baseUrl = req.get('origin');
-    if (!baseUrl) {
-      const host = req.get('host');
-      const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
-      baseUrl = host ? `${protocol}://${host}` : 'http://localhost:3000';
+    // Build reset URL using APP_URL from database (tenant-specific)
+    // Priority: 1) APP_URL from database, 2) Construct from tenantId, 3) Request origin/host, 4) Fallback
+    let baseUrl = null;
+    
+    // Try to get APP_URL from database first (tenant-specific)
+    const appUrlSetting = wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('APP_URL');
+    
+    if (appUrlSetting?.value) {
+      baseUrl = appUrlSetting.value.replace(/\/$/, '');
+    } else {
+      // Construct from tenantId if available (multi-tenant mode)
+      const tenantId = req.tenantId;
+      if (tenantId) {
+        const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+        baseUrl = `https://${tenantId}.${domain}`;
+      } else {
+        // Fallback to request origin/host
+        baseUrl = req.get('origin');
+        if (!baseUrl) {
+          const host = req.get('host');
+          const protocol = req.secure || req.get('x-forwarded-proto') === 'https' ? 'https' : 'http';
+          baseUrl = host ? `${protocol}://${host}` : 'http://localhost:3000';
+        }
+      }
     }
+    
     const resetUrl = `${baseUrl}/#reset-password?token=${resetToken}`;
     console.log('🔐 Password reset requested for:', user.email);
     console.log('🔗 Reset URL:', resetUrl);
@@ -135,7 +156,7 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Find valid reset token
     const resetToken = wrapQuery(
@@ -191,7 +212,7 @@ router.get('/verify/:token', (req, res) => {
   }
   
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Check if token is valid
     const resetToken = wrapQuery(

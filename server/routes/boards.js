@@ -4,13 +4,14 @@ import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // Get all boards with columns and tasks (including tags)
 router.get('/', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
     const columnsStmt = wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
@@ -151,7 +152,7 @@ router.get('/', authenticateToken, (req, res) => {
     res.json(boardsWithData);
   } catch (error) {
     console.error('Error fetching boards:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetch', { resource: 'boards' }) });
   }
@@ -161,7 +162,7 @@ router.get('/', authenticateToken, (req, res) => {
 router.get('/:boardId/columns', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     const t = getTranslator(db);
     
@@ -180,7 +181,7 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
     res.json(columns);
   } catch (error) {
     console.error('Error fetching board columns:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardColumns') });
   }
@@ -189,7 +190,7 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
 // Get default column names for new boards (based on APP_LANGUAGE)
 router.get('/default-columns', authenticateToken, (req, res) => {
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const defaultColumns = getDefaultBoardColumns(db);
     res.json(defaultColumns);
   } catch (error) {
@@ -202,7 +203,7 @@ router.get('/default-columns', authenticateToken, (req, res) => {
 router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   const { id, title } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Check for duplicate board name
@@ -226,6 +227,8 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const defaultColumns = getDefaultBoardColumns(db);
     const columnStmt = db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
     
+    const tenantId = getTenantId(req);
+    
     defaultColumns.forEach((col, index) => {
       const columnId = `${col.id}-${id}`;
       const isFinished = col.id === 'completed';
@@ -246,7 +249,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
         },
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()
-      });
+      }, tenantId);
     });
     
     const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
@@ -256,12 +259,12 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
       boardId: id,
       board: newBoard,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     
     res.json(newBoard);
   } catch (error) {
     console.error('Error creating board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateBoard') });
   }
@@ -291,7 +294,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
     // Check for duplicate board name (excluding current board)
@@ -307,18 +310,17 @@ router.put('/:id', authenticateToken, async (req, res) => {
     wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-updated to Redis for board:', id);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-updated', {
       boardId: id,
       board: { id, title },
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-updated published to Redis');
+    }, tenantId);
     
     res.json({ id, title });
   } catch (error) {
     console.error('Error updating board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateBoard') });
   }
@@ -328,21 +330,20 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-deleted to Redis for board:', id);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-deleted', {
       boardId: id,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-deleted published to Redis');
+    }, tenantId);
     
     res.json({ message: 'Board deleted successfully' });
   } catch (error) {
     console.error('Error deleting board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteBoard') });
   }
@@ -352,7 +353,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.post('/reorder', authenticateToken, async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const currentBoard = wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
     if (!currentBoard) {
@@ -383,18 +384,17 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     })();
 
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing board-reordered to Redis for board:', boardId);
+    const tenantId = getTenantId(req);
     await redisService.publish('board-reordered', {
       boardId: boardId,
       newPosition: newPosition,
       timestamp: new Date().toISOString()
-    });
-    console.log('✅ Board-reordered published to Redis');
+    }, tenantId);
 
     res.json({ message: 'Board reordered successfully' });
   } catch (error) {
     console.error('Error reordering board:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderBoard') });
   }
@@ -404,7 +404,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 router.get('/:boardId/relationships', authenticateToken, (req, res) => {
   const { boardId } = req.params;
   try {
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     
     // Get all relationships for tasks in this board
     const relationships = wrapQuery(db.prepare(`
@@ -424,7 +424,7 @@ router.get('/:boardId/relationships', authenticateToken, (req, res) => {
     res.json(relationships);
   } catch (error) {
     console.error('Error fetching board relationships:', error);
-    const { db } = req.app.locals;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardRelationships') });
   }

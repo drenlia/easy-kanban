@@ -1,13 +1,14 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // Activity Feed endpoint
 router.get('/feed', authenticateToken, (req, res) => {
   const { limit = 20 } = req.query;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const activities = wrapQuery(db.prepare(`
@@ -39,7 +40,7 @@ router.get('/feed', authenticateToken, (req, res) => {
 // User Status endpoint for permission refresh
 router.get('/status', authenticateToken, (req, res) => {
   const userId = req.user.id;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get current user status and permissions

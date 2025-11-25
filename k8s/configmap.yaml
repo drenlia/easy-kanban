@@ -14,24 +14,37 @@ data:
   DEMO_ENABLED: "false"
   
   # Instance configuration for admin portal access
-  INSTANCE_NAME: "INSTANCE_NAME_PLACEHOLDER"
+  # Note: In multi-tenant mode, INSTANCE_NAME is generic (all tenants share same deployment)
+  # Tenant-specific hostnames are determined from request hostname (tenantId.ezkan.cloud)
+  INSTANCE_NAME: "easy-kanban-app"
   INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
   ADMIN_SERVICE_URL: "https://admin.ezkan.cloud"
   
   # Security configuration
   JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
-  ALLOWED_ORIGINS: "localhost,127.0.0.1,INSTANCE_NAME_PLACEHOLDER.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
+  # CORS origins - Note: nginx handles CORS validation, this is mainly for WebSocket
+  # In multi-tenant mode, nginx should allow *.ezkan.cloud pattern
+  # Socket.IO will use this list, but nginx is the primary CORS validator
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,app.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
   
-  # License settings (will be set based on plan)
+  # License settings are stored per-tenant in database (license_settings table)
+  # Admin portal will update these when deploying/updating instances
   LICENSE_ENABLED: "true"
-  USER_LIMIT: "USER_LIMIT_PLACEHOLDER"
-  TASK_LIMIT: "TASK_LIMIT_PLACEHOLDER"
-  BOARD_LIMIT: "BOARD_LIMIT_PLACEHOLDER"
-  STORAGE_LIMIT: "STORAGE_LIMIT_PLACEHOLDER"
-  SUPPORT_TYPE: "SUPPORT_TYPE_PLACEHOLDER"
   
   # Application version
   APP_VERSION: "APP_VERSION_PLACEHOLDER"
+  
+  # Multi-tenant configuration
+  # Set to "true" for shared pods with multiple tenants, "false" for single-tenant
+  MULTI_TENANT: "false"
+  # Tenant domain for extracting tenant ID from hostname
+  # Example: If TENANT_DOMAIN=ezkan.cloud, then customer1.ezkan.cloud -> tenant ID: customer1
+  # This should match your ingress domain configuration
+  TENANT_DOMAIN: "ezkan.cloud"
+  # Optional: Pre-initialize a tenant database at startup (useful for first tenant or testing)
+  # Leave empty or unset to initialize tenants on first request only
+  # Set by deploy.sh based on instance name
+  STARTUP_TENANT_ID: ""
   
   # Email configuration (optional - can be set later)
   # EMAIL_HOST: "smtp.gmail.com"

@@ -1,7 +1,15 @@
 #!/bin/bash
 
-# Destroy Easy Kanban instance (namespace + persistent volumes + data)
+# Destroy Easy Kanban instance (ingress + tenant data from shared NFS)
 # Usage: ./destroy-instance.sh <instance_name>
+# 
+# Note: In multi-tenant mode, all instances share:
+#   - The same namespace (easy-kanban)
+#   - The same deployment (easy-kanban)
+#   - The same NFS persistent volumes
+# Each instance only has:
+#   - Its own ingress rule (easy-kanban-ingress-${INSTANCE_NAME})
+#   - Its own tenant data in NFS subdirectories
 
 set -e
 
@@ -11,40 +19,38 @@ if [ $# -eq 0 ]; then
     echo "Usage: $0 <instance_name>"
     echo ""
     echo "Examples:"
-    echo "  $0 code7"
+    echo "  $0 app"
     echo "  $0 demo1"
     exit 1
 fi
 
 INSTANCE_NAME="$1"
-NAMESPACE="easy-kanban-${INSTANCE_NAME}"
+# Shared namespace for all tenants
+NAMESPACE="easy-kanban"
+INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
 
 echo "💥 Destroying Easy Kanban instance: ${INSTANCE_NAME}"
-echo "📍 Namespace: ${NAMESPACE}"
+echo "📍 Namespace: ${NAMESPACE} (shared)"
 echo ""
 
-# Check if namespace exists
-if ! kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
-    echo "⚠️  Namespace '${NAMESPACE}' does not exist"
+# Check if ingress exists
+if ! kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "⚠️  Ingress '${INGRESS_NAME}' does not exist"
 else
-    # Show what will be removed
-    echo "📋 Kubernetes resources that will be removed:"
-    kubectl get all -n "${NAMESPACE}" 2>/dev/null || echo "  No resources found in namespace"
+    echo "📋 Ingress rule that will be removed:"
+    kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" 2>/dev/null || echo "  No ingress found"
     echo ""
 fi
 
-# Show persistent volumes that will be removed
-echo "💾 Persistent volumes that will be removed:"
-kubectl get pv | grep "easy-kanban-${INSTANCE_NAME}-" || echo "  No persistent volumes found"
-echo ""
+# Show tenant data directories that will be removed
+# NFS server stores data at /data/nfs-server, which is mounted to /exports/* in the container
+# Tenant data is in subdirectories: tenants/${INSTANCE_NAME}/
+NFS_BASE="/data/nfs-server"
+DATA_DIR="${NFS_BASE}/data/tenants/${INSTANCE_NAME}"
+ATTACHMENTS_DIR="${NFS_BASE}/attachments/tenants/${INSTANCE_NAME}"
+AVATARS_DIR="${NFS_BASE}/avatars/tenants/${INSTANCE_NAME}"
 
-# Show storage directories that will be removed
-STORAGE_BASE="/data/easy-kanban-pv"
-DATA_DIR="${STORAGE_BASE}/easy-kanban-${INSTANCE_NAME}-data"
-ATTACHMENTS_DIR="${STORAGE_BASE}/easy-kanban-${INSTANCE_NAME}-attachments"
-AVATARS_DIR="${STORAGE_BASE}/easy-kanban-${INSTANCE_NAME}-avatars"
-
-echo "📁 Storage directories that will be removed:"
+echo "📁 Tenant data directories that will be removed:"
 if [ -d "$DATA_DIR" ]; then
     echo "  - ${DATA_DIR} ($(du -sh "$DATA_DIR" 2>/dev/null | cut -f1 || echo "unknown size"))"
 else
@@ -67,37 +73,26 @@ echo ""
 
 # Show warning but proceed without confirmation (for admin portal use)
 echo "⚠️  WARNING: Permanently deleting ALL data for instance '${INSTANCE_NAME}'!"
-echo "   - All Kubernetes resources"
-echo "   - All persistent volumes"
-echo "   - All stored data (database, attachments, avatars)"
+echo "   - Ingress rule for this tenant"
+echo "   - All tenant data (database, attachments, avatars)"
 echo "   - This action CANNOT be undone!"
+echo ""
+echo "ℹ️  Note: Shared resources (namespace, deployment, NFS volumes) will NOT be deleted"
 echo ""
 
 echo "💥 Destroying instance..."
 
-# Step 1: Delete namespace (this will remove all resources)
-if kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1; then
-    echo "🗑️  Deleting namespace '${NAMESPACE}'..."
-    kubectl delete namespace "${NAMESPACE}"
-    
-    # Wait for namespace to be deleted
-    echo "⏳ Waiting for namespace to be deleted..."
-    kubectl wait --for=delete namespace/${NAMESPACE} --timeout=60s || echo "⚠️  Namespace deletion may still be in progress"
+# Step 1: Delete ingress rule for this tenant
+if kubectl get ingress "${INGRESS_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1; then
+    echo "🗑️  Deleting ingress rule '${INGRESS_NAME}'..."
+    kubectl delete ingress "${INGRESS_NAME}" -n "${NAMESPACE}"
+    echo "   ✅ Ingress rule deleted"
 else
-    echo "⚠️  Namespace '${NAMESPACE}' does not exist, skipping..."
+    echo "⚠️  Ingress '${INGRESS_NAME}' does not exist, skipping..."
 fi
 
-# Step 2: Delete persistent volumes
-echo "🗑️  Deleting persistent volumes..."
-kubectl get pv | grep "easy-kanban-${INSTANCE_NAME}-" | awk '{print $1}' | while read pv_name; do
-    if [ -n "$pv_name" ]; then
-        echo "  Deleting PV: $pv_name"
-        kubectl delete pv "$pv_name" || echo "    ⚠️  Failed to delete PV: $pv_name"
-    fi
-done
-
-# Step 3: Remove storage directories
-echo "🗑️  Removing storage directories..."
+# Step 2: Remove tenant data directories from NFS
+echo "🗑️  Removing tenant data directories from NFS..."
 if [ -d "$DATA_DIR" ]; then
     echo "  Removing: $DATA_DIR"
     sudo -n rm -rf "$DATA_DIR" || echo "    ⚠️  Failed to remove: $DATA_DIR"
@@ -123,9 +118,14 @@ echo ""
 echo "✅ Instance '${INSTANCE_NAME}' completely destroyed!"
 echo ""
 echo "📋 What was removed:"
-echo "  - Namespace: ${NAMESPACE}"
-echo "  - All Kubernetes resources (pods, services, deployments, etc.)"
-echo "  - All persistent volumes"
-echo "  - All storage directories and data"
+echo "  - Ingress rule: ${INGRESS_NAME}"
+echo "  - Tenant database: ${DATA_DIR}"
+echo "  - Tenant attachments: ${ATTACHMENTS_DIR}"
+echo "  - Tenant avatars: ${AVATARS_DIR}"
+echo ""
+echo "ℹ️  What was preserved (shared resources):"
+echo "  - Namespace: ${NAMESPACE} (shared by all tenants)"
+echo "  - Deployment: easy-kanban (shared by all tenants)"
+echo "  - NFS persistent volumes (shared by all tenants)"
 echo ""
 echo "🎯 The instance and all its data have been permanently deleted."

@@ -9,13 +9,14 @@ import { manualTriggers } from '../jobs/scheduler.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getLicenseManager } from '../config/license.js';
 import { getSystemDiskUsage } from '../utils/diskUsage.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
 // Database migrations status endpoint
 router.get('/migrations', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { getMigrationStatus } = require('../migrations/index.js');
     const status = getMigrationStatus(db);
     
@@ -36,7 +37,7 @@ router.get('/migrations', authenticateToken, requireRole(['admin']), (req, res) 
 // Admin endpoints for manual job triggers
 router.post('/jobs/snapshot', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     console.log('🔧 Admin triggered: Task snapshot creation');
     const result = await manualTriggers.triggerSnapshot(db);
     res.json({
@@ -56,7 +57,7 @@ router.post('/jobs/snapshot', authenticateToken, requireRole(['admin']), async (
 
 router.post('/jobs/achievements', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     console.log('🔧 Admin triggered: Achievement check');
     const result = await manualTriggers.triggerAchievementCheck(db);
@@ -77,7 +78,7 @@ router.post('/jobs/achievements', authenticateToken, requireRole(['admin']), asy
 
 router.post('/jobs/cleanup', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const t = getTranslator(db);
     const { retentionDays } = req.body;
     console.log(`🔧 Admin triggered: Snapshot cleanup (${retentionDays || 730} days)`);
@@ -99,7 +100,7 @@ router.post('/jobs/cleanup', authenticateToken, requireRole(['admin']), async (r
 
 router.get('/system-info', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Memory usage (container-aware)
     const memoryInfo = getContainerMemoryInfo();
     
@@ -186,7 +187,7 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
 // Get instance owner
 router.get('/owner', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
@@ -202,7 +203,7 @@ router.get('/owner', authenticateToken, requireRole(['admin']), (req, res) => {
 // Get admin portal configuration
 router.get('/portal-config', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const adminPortalUrl = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
@@ -220,7 +221,7 @@ router.get('/portal-config', authenticateToken, requireRole(['admin']), (req, re
 // Proxy billing history request to admin portal
 router.get('/instance-portal/billing-history', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Check if user is the owner
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -276,7 +277,7 @@ router.get('/instance-portal/billing-history', authenticateToken, requireRole(['
 // Proxy change plan request to admin portal
 router.post('/instance-portal/change-plan', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Check if user is the owner
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -335,7 +336,7 @@ router.post('/instance-portal/change-plan', authenticateToken, requireRole(['adm
 // Proxy cancel subscription request to admin portal
 router.post('/instance-portal/cancel-subscription', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     // Check if user is the owner
     const ownerSetting = wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
@@ -429,7 +430,7 @@ router.get('/email-status', authenticateToken, requireRole(['admin']), async (re
 // Test email configuration endpoint
 router.post('/test-email', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     console.log('🧪 Test email endpoint called');
     
     // Check if demo mode is enabled

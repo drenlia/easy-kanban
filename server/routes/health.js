@@ -2,6 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import websocketService from '../services/websocketService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -19,25 +20,32 @@ export const markServerReady = () => {
 // Readiness check handler - exported for use in multiple routes
 export const readyHandler = (req, res) => {
   try {
-    const db = req.app.locals.db;
-    
-    // Check database
-    const dbCheck = wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
-    if (!dbCheck) {
-      return res.status(503).json({ 
-        status: 'not ready', 
-        reason: 'database_not_connected',
-        timestamp: new Date().toISOString()
-      });
-    }
-    
-    // Check if services are initialized
+    // Check if services are initialized first (before database check)
     if (!servicesInitialized) {
       return res.status(503).json({ 
         status: 'not ready', 
         reason: 'services_initializing',
         timestamp: new Date().toISOString()
       });
+    }
+    
+    // Check database (if available - in multi-tenant mode, db might not be set per-request)
+    const db = req.app.locals?.db;
+    if (db) {
+      try {
+        const dbCheck = wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+        if (!dbCheck) {
+          return res.status(503).json({ 
+            status: 'not ready', 
+            reason: 'database_not_connected',
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch (dbError) {
+        // Database check failed, but in multi-tenant mode this might be expected
+        // if no tenant context is available. Still mark as ready if services are initialized.
+        console.warn('Database check failed in readiness probe (may be expected in multi-tenant mode):', dbError.message);
+      }
     }
     
     // Check Redis (optional - app can work without it)
@@ -47,7 +55,7 @@ export const readyHandler = (req, res) => {
     res.status(200).json({ 
       status: 'ready', 
       timestamp: new Date().toISOString(),
-      database: 'connected',
+      database: db ? 'connected' : 'multi-tenant',
       redis: redisConnected ? 'connected' : 'optional',
       websocket: 'initialized',
       servicesInitialized: true
@@ -68,7 +76,7 @@ router.get('/ready', readyHandler);
 // Health check endpoint (liveness probe - checks if server is running)
 router.get('/', (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
     res.status(200).json({ 
       status: 'healthy', 

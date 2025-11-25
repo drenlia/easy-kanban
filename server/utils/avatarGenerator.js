@@ -1,10 +1,15 @@
 import crypto from 'crypto';
 import path from 'path';
-import { writeFileSync } from 'fs';
+import { writeFileSync, existsSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Check if multi-tenant mode is enabled
+const isMultiTenant = () => {
+  return process.env.MULTI_TENANT === 'true';
+};
 
 // Curated color palette for avatars and member colors
 const COLOR_PALETTE = [
@@ -45,14 +50,40 @@ export function generateDefaultAvatarSVG(name, size = 100, backgroundColor = nul
 }
 
 // Function to create and save default avatar file
-export function createDefaultAvatar(name, userId, backgroundColor = null) {
+// tenantId: optional tenant identifier (for multi-tenant mode)
+export function createDefaultAvatar(name, userId, backgroundColor = null, tenantId = null) {
   const svg = generateDefaultAvatarSVG(name, 100, backgroundColor);
   const filename = `default-user-${Date.now()}-${userId.slice(0, 9)}.svg`;
-  const avatarsDir = path.join(dirname(__dirname), 'avatars');
+  
+  // Get tenant-specific avatar directory if in multi-tenant mode
+  let avatarsDir;
+  if (tenantId && isMultiTenant()) {
+    const basePath = process.env.DOCKER_ENV === 'true'
+      ? '/app/server'
+      : join(dirname(__dirname), '..');
+    avatarsDir = join(basePath, 'avatars', 'tenants', tenantId);
+  } else {
+    // Single-tenant: backward compatible path
+    avatarsDir = path.join(dirname(__dirname), 'avatars');
+  }
+  
+  // Ensure directory exists
+  try {
+    if (!existsSync(avatarsDir)) {
+      mkdirSync(avatarsDir, { recursive: true });
+      if (tenantId) {
+        console.log(`📁 Created tenant avatar directory: ${avatarsDir}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error creating avatar directory:', error);
+  }
+  
   const filePath = path.join(avatarsDir, filename);
   
   try {
     writeFileSync(filePath, svg);
+    console.log(`✅ Created default avatar: ${filename}${tenantId ? ` (tenant: ${tenantId})` : ''}`);
     return `/avatars/${filename}`;
   } catch (error) {
     console.error('Error creating default avatar:', error);

@@ -1,16 +1,9 @@
 import express from 'express';
-import Database from 'better-sqlite3';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import { authenticateToken } from '../middleware/auth.js';
 import redisService from '../services/redisService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
-
-const dbPath = path.join(__dirname, '../data/kanban.db');
-const db = new Database(dbPath);
 
 // Helper function to validate filter data
 const validateFilterData = (filters) => {
@@ -65,6 +58,10 @@ const formatViewForResponse = (view) => {
 // GET /api/views - Get all saved filter views for the current user
 router.get('/', authenticateToken, (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     
     const stmt = db.prepare(`
@@ -86,6 +83,10 @@ router.get('/', authenticateToken, (req, res) => {
 // GET /api/views/shared - Get shared filter views from other users
 router.get('/shared', authenticateToken, (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     
     const stmt = db.prepare(`
@@ -121,6 +122,10 @@ router.get('/shared', authenticateToken, (req, res) => {
 // GET /api/views/:id - Get a specific saved filter view
 router.get('/:id', authenticateToken, (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     const viewId = req.params.id;
     
@@ -146,6 +151,10 @@ router.get('/:id', authenticateToken, (req, res) => {
 // POST /api/views - Create a new saved filter view
 router.post('/', authenticateToken, async (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     const { filterName, filters, shared = false } = req.body;
     
@@ -217,6 +226,10 @@ router.post('/', authenticateToken, async (req, res) => {
 // PUT /api/views/:id - Update an existing saved filter view
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     const viewId = req.params.id;
     const { filterName, filters, shared } = req.body;
@@ -320,6 +333,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // DELETE /api/views/:id - Delete a saved filter view
 router.delete('/:id', authenticateToken, async (req, res) => {
   try {
+    const db = getRequestDatabase(req);
+    if (!db) {
+      return res.status(500).json({ error: 'Database not available' });
+    }
     const userId = req.user.id;
     const viewId = req.params.id;
     

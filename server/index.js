@@ -76,28 +76,55 @@ import { updateStorageUsage, initializeStorageUsage, getStorageUsage, getStorage
 // Import license manager
 import { getLicenseManager } from './config/license.js';
 
+// Import tenant routing middleware
+import { tenantRouting, isMultiTenant, closeAllTenantDatabases, getTenantDatabase, getRequestDatabase } from './middleware/tenantRouting.js';
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Initialize database using extracted module and capture version info
-const dbInit = initializeDatabase();
-const db = dbInit.db;
-const versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
+// Initialize database based on mode (single-tenant or multi-tenant)
+let defaultDb = null;
+let versionInfo = { appVersion: null, versionChanged: false };
+
+// For single-tenant mode (Docker), initialize database immediately
+// For multi-tenant mode (Kubernetes), database will be initialized per-request via middleware
+// Optionally, can pre-initialize a tenant at startup using STARTUP_TENANT_ID env var
+if (!isMultiTenant()) {
+  const dbInit = initializeDatabase();
+  defaultDb = dbInit.db;
+  versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
+  
+  // Initialize services with default database (single-tenant mode)
+  initializeInstanceStatus(defaultDb);
+  initActivityLogger(defaultDb);
+  initReportingLogger(defaultDb);
+  initNotificationService(defaultDb);
+  initNotificationThrottler(defaultDb);
+  initializeScheduler(defaultDb);
+  
+  console.log('✅ Single-tenant mode: Database initialized');
+} else {
+  console.log('✅ Multi-tenant mode: Database will be initialized per-request');
+  
+  // Optionally pre-initialize a tenant at startup (useful for first tenant or testing)
+  const startupTenantId = process.env.STARTUP_TENANT_ID;
+  if (startupTenantId) {
+    console.log(`🔧 Pre-initializing tenant database for: ${startupTenantId}`);
+    try {
+      const dbInfo = getTenantDatabase(startupTenantId);
+      console.log(`✅ Tenant '${startupTenantId}' database pre-initialized at startup`);
+    } catch (error) {
+      console.warn(`⚠️ Failed to pre-initialize tenant '${startupTenantId}':`, error.message);
+    }
+  }
+  
+  // Initialize scheduler for multi-tenant mode (will run jobs for all tenants)
+  // Pass null as db parameter - scheduler will use getAllTenantDatabases() instead
+  initializeScheduler(null);
+}
 
 // Clear translation cache on startup to ensure fresh translations are loaded
 clearTranslationCache();
 console.log('🔄 Translation cache cleared on startup');
-
-// Initialize instance status setting
-initializeInstanceStatus(db);
-
-// Initialize activity logger, reporting logger, and notification service with database instance
-initActivityLogger(db);
-initReportingLogger(db);
-initNotificationService(db);
-initNotificationThrottler(db);
-
-// Initialize background job scheduler
-initializeScheduler(db);
 
 const app = express();
 
@@ -115,8 +142,9 @@ if (process.env.TRUST_PROXY === 'false') {
   app.set('trust proxy', true);
 }
 
-// Make database available to routes
-app.locals.db = db;
+// Make default database available to routes (for single-tenant mode)
+// In multi-tenant mode, this will be overridden by tenantRouting middleware
+app.locals.db = defaultDb;
 
 // Security headers
 app.use((req, res, next) => {
@@ -130,7 +158,11 @@ app.use((req, res, next) => {
 
 // Add app version header to all responses
 app.use((req, res, next) => {
-  res.setHeader('X-App-Version', getAppVersion(db));
+  // Use database from request (set by tenantRouting in multi-tenant mode)
+  const db = getRequestDatabase(req, defaultDb);
+  if (db) {
+    res.setHeader('X-App-Version', getAppVersion(db));
+  }
   next();
 });
 
@@ -210,8 +242,22 @@ if (process.env.NODE_ENV === 'production' && !process.env.VITE_PREVIEW_RUNNING) 
   console.log(`📦 Serving static files from: ${distPath}`);
 }
 
-// Add instance status middleware
-app.use(checkInstanceStatus(db));
+// Tenant routing middleware (must be before routes that need database)
+// In multi-tenant mode, this extracts tenant ID from hostname and loads the appropriate database
+// In single-tenant mode, this is a no-op (database already initialized)
+if (isMultiTenant()) {
+  app.use(tenantRouting);
+  console.log('✅ Tenant routing middleware enabled');
+}
+
+// Add instance status middleware (uses database from request)
+app.use((req, res, next) => {
+  const db = getRequestDatabase(req, defaultDb);
+  if (db) {
+    return checkInstanceStatus(db)(req, res, next);
+  }
+  next();
+});
 
 // Rate limiters are now imported from middleware/rateLimiters.js
 
@@ -314,6 +360,7 @@ app.use('/api/admin/settings', settingsRouter);
 app.use('/api/storage', settingsRouter);
 app.use('/api/admin', lazyRouteLoader('./routes/adminSystem.js'));
 app.use('/api/admin/notification-queue', lazyRouteLoader('./routes/adminNotificationQueue.js'));
+app.use('/api/admin/perftest', lazyRouteLoader('./routes/perftest.js'));
 app.use('/api/tasks', taskRelationsRouter);
 app.use('/api/activity', activityRouter);
 app.use('/api/user', activityRouter);
@@ -336,7 +383,7 @@ app.get('/api/version', (req, res) => {
   } catch (error) {
     // Fallback to basic version info
     res.json({
-      version: getAppVersion(),
+      version: getAppVersion(defaultDb),
       source: 'environment',
       environment: process.env.NODE_ENV || 'production'
     });
@@ -400,23 +447,30 @@ const PORT = process.env.PORT || 3222;
 // Create HTTP server
 const server = http.createServer(app);
 
-// Initialize real-time services
+// Initialize real-time services BEFORE server starts listening
+// This ensures the Redis adapter is configured before any connections are accepted
 async function initializeServices() {
   try {
     // Initialize Redis
     await redisService.connect();
     
-    // Initialize WebSocket
-    websocketService.initialize(server);
+    // Initialize WebSocket (now async due to Redis adapter setup)
+    // CRITICAL: This must happen BEFORE server.listen() to ensure adapter is ready
+    await websocketService.initialize(server);
     
     console.log('✅ Real-time services initialized');
     
     // Broadcast app version to all connected clients
     // If version changed, broadcast immediately; otherwise wait briefly for WebSocket connections
     const broadcastVersion = () => {
-      const appVersion = getAppVersion();
-      redisService.publish('version-updated', { version: appVersion });
-      console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
+      // In single-tenant mode, broadcast version from default database
+      if (defaultDb) {
+        const appVersion = getAppVersion(defaultDb);
+        redisService.publish('version-updated', { version: appVersion }, null);
+        console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
+      }
+      // In multi-tenant mode, version updates are broadcast per-tenant when databases are initialized
+      // (handled in tenantRouting middleware)
     };
     
     if (versionInfo.versionChanged && versionInfo.appVersion) {
@@ -432,7 +486,11 @@ async function initializeServices() {
   }
 }
 
-// Start server
+// Initialize services BEFORE starting the server
+// This ensures the Redis adapter is configured before any Socket.IO connections are accepted
+await initializeServices();
+
+// Start server AFTER services are initialized
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
@@ -440,22 +498,37 @@ server.listen(PORT, '0.0.0.0', async () => {
   console.log(`🔧 Debug logs: http://localhost:${PORT}/api/debug/logs`);
   console.log(`✨ Refactored server with modular architecture`);
   
-  // Initialize real-time services immediately (needed for WebSocket connections on login)
-  await initializeServices();
-  
   // Mark server as ready after services are initialized
   markServerReady();
   
   // Defer storage usage calculation to reduce startup memory
   // Initialize after 30 seconds to allow server to stabilize
-  setTimeout(() => {
-    initializeStorageUsage(db);
-  }, 30000);
+  // Only initialize for single-tenant mode (multi-tenant databases are created per-request)
+  if (!isMultiTenant() && defaultDb) {
+    setTimeout(() => {
+      initializeStorageUsage(defaultDb);
+    }, 30000);
+  } else {
+    console.log('📊 Multi-tenant mode: Storage usage will be calculated per-tenant on first request');
+  }
 });
 
 // Graceful shutdown handler
-process.on('SIGINT', async () => {
-  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
+const gracefulShutdown = async () => {
+  // Close all tenant database connections (multi-tenant mode)
+  if (isMultiTenant()) {
+    closeAllTenantDatabases();
+  }
+  
+  // Close default database (single-tenant mode)
+  if (defaultDb) {
+    try {
+      defaultDb.close();
+      console.log('✅ Closed default database');
+    } catch (error) {
+      console.error('❌ Error closing default database:', error);
+    }
+  }
   
   // Stop notification processing and flush pending notifications
   const throttler = getNotificationThrottler();
@@ -464,20 +537,22 @@ process.on('SIGINT', async () => {
     await throttler.flushAllNotifications();
   }
   
+  // Disconnect WebSocket service (closes Socket.IO server and Redis adapter clients)
+  await websocketService.disconnect();
+  
+  // Disconnect Redis service
+  await redisService.disconnect();
+  
   console.log('✅ Graceful shutdown complete');
   process.exit(0);
+};
+
+process.on('SIGINT', async () => {
+  console.log('\n🔄 Received SIGINT, shutting down gracefully...');
+  await gracefulShutdown();
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n🔄 Received SIGTERM, shutting down gracefully...');
-  
-  // Stop notification processing and flush pending notifications
-  const throttler = getNotificationThrottler();
-  if (throttler) {
-    throttler.stopProcessing();
-    await throttler.flushAllNotifications();
-  }
-  
-  console.log('✅ Graceful shutdown complete');
-  process.exit(0);
+  await gracefulShutdown();
 });

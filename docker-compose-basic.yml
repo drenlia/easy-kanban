@@ -28,6 +28,11 @@ services:
       - INSTANCE_NAME=basic-instance
       - INSTANCE_TOKEN=kanban-basic-token-12345
       - ADMIN_SERVICE_URL=https://admin.ezkan.cloud
+      # Multi-tenant configuration (set to false for single-tenant Docker deployments)
+      - MULTI_TENANT=false
+      # Tenant domain (only used in multi-tenant mode, for extracting tenant ID from hostname)
+      # Example: If TENANT_DOMAIN=ezkan.cloud, then customer1.ezkan.cloud -> tenant ID: customer1
+      - TENANT_DOMAIN=ezkan.cloud
       # Application version (optional, will override database value if set)
       - APP_VERSION=0.9-beta
     volumes:

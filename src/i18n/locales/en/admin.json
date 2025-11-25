@@ -50,7 +50,7 @@
   "defaultPriorityUpdatedSuccessfully": "Default priority updated successfully",
   "failedToSetDefaultPriority": "Failed to set default priority",
   "failedToRemoveAvatar": "Failed to remove avatar",
-  "settingsSavedSuccessfully": "Settings saved successfully! Changes are applied immediately.",
+  "settingsSavedSuccessfully": "Settings saved successfully.",
   "noChangesToSave": "No changes to save",
   "failedToSaveSettings": "Failed to save settings",
   "settingSavedAutomatically": "{{key}} setting saved automatically!",

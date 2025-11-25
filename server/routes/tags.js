@@ -5,6 +5,7 @@ import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import redisService from '../services/redisService.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.get('/', authenticateToken, (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
     res.json(tags);
   } catch (error) {
@@ -35,7 +36,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
   
   const { tag, description, color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!tag) {
     return res.status(400).json({ error: 'Tag name is required' });
@@ -70,7 +71,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
 // Admin tags endpoints (mounted at /api/admin/tags)
 router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
     res.json(tags);
   } catch (error) {
@@ -81,7 +82,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
 
 router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tag, description, color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!tag) {
     return res.status(400).json({ error: 'Tag name is required' });
@@ -116,7 +117,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   const { tag, description, color } = req.body;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   if (!tag) {
     return res.status(400).json({ error: 'Tag name is required' });
@@ -150,7 +151,7 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
 // Get tag usage count (for deletion confirmation)
 router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
   const { tagId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
@@ -163,7 +164,7 @@ router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res
 
 // Get batch tag usage counts (fixes N+1 problem)
 router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res) => {
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get all tag IDs from query params
@@ -213,7 +214,7 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res)
 
 router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
-  const db = req.app.locals.db;
+  const db = getRequestDatabase(req);
   
   try {
     // Get tag info before deletion for Redis publishing

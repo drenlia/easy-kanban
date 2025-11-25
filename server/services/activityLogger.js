@@ -23,11 +23,15 @@ export const initActivityLogger = (database) => {
  * @param {string} action - Action constant
  * @param {string} taskId - Task ID
  * @param {string} details - Description of the change
- * @param {Object} [additionalData] - Additional data (columnId, boardId, etc.)
+ * @param {Object} [additionalData] - Additional data (columnId, boardId, tenantId, db, etc.)
+ * @param {Database} [additionalData.db] - Database instance (for multi-tenant mode, falls back to global db)
  */
 export const logTaskActivity = async (userId, action, taskId, details, additionalData = {}) => {
-  if (!db) {
-    console.warn('Activity logger not initialized, skipping log');
+  // Use database from additionalData if provided (multi-tenant mode), otherwise use global db
+  const database = additionalData.db || db;
+  
+  if (!database) {
+    console.warn('Activity logger: No database available, skipping log');
     return;
   }
 
@@ -48,7 +52,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let columnId = null;
 
     try {
-      const taskInfo = db.prepare(
+      const taskInfo = database.prepare(
         `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
@@ -66,7 +70,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Get user's current role
-    const userRole = db.prepare(`
+    const userRole = database.prepare(`
       SELECT r.id as roleId 
       FROM user_roles ur 
       JOIN roles r ON ur.role_id = r.id 
@@ -76,11 +80,11 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     `).get(userId);
 
     // Get the first available role as fallback
-    const fallbackRole = db.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
+    const fallbackRole = database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
     // Check if user exists
-    const userExists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
@@ -92,7 +96,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let taskTicket = null;
     
     try {
-      const taskDetails = db.prepare(
+      const taskDetails = database.prepare(
         `SELECT t.ticket, b.project 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
@@ -108,7 +112,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Get translator for activity messages
-    const t = getTranslator(db);
+    const t = getTranslator(database);
     
     // Translate task and board titles if they are default values
     const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
@@ -180,7 +184,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     // Debug logging
 
     // Insert activity into database
-    const stmt = db.prepare(`
+    const stmt = database.prepare(`
       INSERT INTO activity (
         userId, roleId, action, taskId, columnId, boardId, tagId, details, 
         created_at, updated_at
@@ -202,7 +206,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     try {
       if (redisService) {
         // Get the latest activities for the activity feed
-        const latestActivities = db.prepare(`
+        const latestActivities = database.prepare(`
           SELECT 
             a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
             datetime(a.created_at) || 'Z' as created_at,
@@ -220,10 +224,12 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
           LIMIT 20
         `).all();
 
+        // Get tenantId from additionalData if provided (for multi-tenant isolation)
+        const tenantId = additionalData.tenantId || null;
         await redisService.publish('activity-updated', {
           activities: latestActivities,
           timestamp: new Date().toISOString()
-        });
+        }, tenantId);
       }
     } catch (redisError) {
       console.warn('Failed to publish activity update to Redis:', redisError.message);
@@ -260,8 +266,11 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
  * @param {Object} [additionalData] - Additional data (columnId, boardId, tagId, etc.)
  */
 export const logActivity = async (userId, action, details, additionalData = {}) => {
-  if (!db) {
-    console.warn('Activity logger not initialized, skipping log');
+  // Use database from additionalData if provided (multi-tenant mode), otherwise use global db
+  const database = additionalData.db || db;
+  
+  if (!database) {
+    console.warn('Activity logger: No database available, skipping log');
     return;
   }
 
@@ -276,10 +285,10 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
 
   try {
     // Get translator for activity messages
-    const t = getTranslator(db);
+    const t = getTranslator(database);
     
     // Get user's current role
-    const userRole = db.prepare(`
+    const userRole = database.prepare(`
       SELECT r.id as roleId 
       FROM user_roles ur 
       JOIN roles r ON ur.role_id = r.id 
@@ -289,11 +298,11 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
     `).get(userId);
 
     // Get the first available role as fallback
-    const fallbackRole = db.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
+    const fallbackRole = database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
     // Check if user exists
-    const userExists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
@@ -310,7 +319,7 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
     // since they may contain dynamic content that's already formatted
 
     // Insert activity into database
-    const stmt = db.prepare(`
+    const stmt = database.prepare(`
       INSERT INTO activity (
         userId, roleId, action, taskId, columnId, boardId, tagId, details, 
         created_at, updated_at
@@ -328,6 +337,38 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       translatedDetails
     );
 
+    // Publish activity update to Redis for real-time updates
+    try {
+      if (redisService) {
+        // Get the latest activities for the activity feed
+        const latestActivities = database.prepare(`
+          SELECT 
+            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+            datetime(a.created_at) || 'Z' as created_at,
+            a.updated_at,
+            m.name as member_name,
+            r.name as role_name,
+            b.title as board_title,
+            c.title as column_title
+          FROM activity a
+          LEFT JOIN members m ON a.userId = m.user_id
+          LEFT JOIN roles r ON a.roleId = r.id
+          LEFT JOIN boards b ON a.boardId = b.id
+          LEFT JOIN columns c ON a.columnId = c.id
+          ORDER BY a.created_at DESC
+          LIMIT 20
+        `).all();
+
+        // Get tenantId from additionalData if provided (for multi-tenant isolation)
+        const tenantId = additionalData.tenantId || null;
+        await redisService.publish('activity-updated', {
+          activities: latestActivities,
+          timestamp: new Date().toISOString()
+        }, tenantId);
+      }
+    } catch (redisError) {
+      console.warn('Failed to publish activity update to Redis:', redisError.message);
+    }
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -413,13 +454,18 @@ const generateDescriptionChangeDetails = (oldValue, newValue, t) => {
   return actions.join(' and ');
 };
 
-export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalContext = '') => {
-  if (!db) {
+export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalContext = '', db = null) => {
+  // Use provided db parameter, or fall back to global db
+  const finalDb = db || (typeof additionalContext === 'object' && additionalContext?.db) || null;
+  // If additionalContext is a string, use it as context; otherwise extract context from object
+  const context = typeof additionalContext === 'string' ? additionalContext : (additionalContext?.context || '');
+  
+  if (!finalDb) {
     console.warn('Database not available for generateTaskUpdateDetails');
     return '';
   }
 
-  const t = getTranslator(db);
+  const t = getTranslator(finalDb);
   // Map field names to translation keys (handle legacy field names)
   const fieldKeyMap = {
     'priority': 'priorityId',
@@ -427,7 +473,7 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
   };
   const translationKey = fieldKeyMap[field] || field;
   const fieldLabel = t(`activity.fieldLabels.${translationKey}`, {}, field);
-  const context = additionalContext ? ` ${additionalContext}` : '';
+  // Use context from parameter (already extracted above)
 
   // Special handling for description changes
   if (field === 'description') {
@@ -443,9 +489,9 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
   // Special handling for memberId and requesterId changes - resolve member IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
     const getMemberName = (memberId) => {
-      if (!memberId || !db) return t('activity.unassigned');
+      if (!memberId || !finalDb) return t('activity.unassigned');
       try {
-        const member = db.prepare(`
+        const member = finalDb.prepare(`
           SELECT m.name 
           FROM members m 
           WHERE m.id = ?
@@ -481,12 +527,12 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
 
   // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
-    return t('activity.setField', { fieldLabel, newValue }) + context;
-  } else if (newValue === null || newValue === undefined || newValue === '') {
-    return t('activity.clearedField', { fieldLabel, oldValue }) + context;
-  } else {
-    return t('activity.changedField', { fieldLabel, oldValue, newValue }) + context;
-  }
+      return t('activity.setField', { fieldLabel, newValue }) + context;
+    } else if (newValue === null || newValue === undefined || newValue === '') {
+      return t('activity.clearedField', { fieldLabel, oldValue }) + context;
+    } else {
+      return t('activity.changedField', { fieldLabel, oldValue, newValue }) + context;
+    }
 };
 
 /**
@@ -499,8 +545,11 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
  * @param {Object} [additionalData] - Additional data (boardId, columnId, etc.)
  */
 export const logCommentActivity = async (userId, action, commentId, taskId, details, additionalData = {}) => {
-  if (!db) {
-    console.warn('Activity logger not initialized, skipping comment log');
+  // Use database from additionalData if provided (multi-tenant mode), otherwise use global db
+  const database = additionalData.db || db;
+  
+  if (!database) {
+    console.warn('Activity logger: No database available, skipping comment log');
     return;
   }
 
@@ -516,7 +565,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     let columnId = null;
 
     try {
-      const taskInfo = db.prepare(
+      const taskInfo = database.prepare(
         `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
@@ -538,7 +587,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     let fallbackRole = null;
 
     try {
-      const roleResult = db.prepare(
+      const roleResult = database.prepare(
         `SELECT ur.role_id, r.name as role_name 
          FROM user_roles ur 
          JOIN roles r ON ur.role_id = r.id 
@@ -552,7 +601,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     // Fallback to Member role if no role found
     if (!userRole) {
       try {
-        const memberRoleResult = db.prepare(`SELECT id FROM roles WHERE name = 'Member'`).get();
+        const memberRoleResult = database.prepare(`SELECT id FROM roles WHERE name = 'Member'`).get();
         fallbackRole = memberRoleResult?.id || null;
       } catch (fallbackError) {
         console.warn('Failed to get fallback Member role:', fallbackError.message);
@@ -562,13 +611,13 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     const finalRoleId = userRole || fallbackRole;
 
     // Check if user exists
-    const userExists = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
     if (!userExists) {
       console.warn(`User ${userId} not found for comment activity logging`);
     }
 
     // Get translator for activity messages
-    const t = getTranslator(db);
+    const t = getTranslator(database);
     
     // Translate task and board titles if they are default values
     const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
@@ -577,7 +626,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     // Get task reference for enhanced context
     let taskRef = '';
     try {
-      const taskDetails = db.prepare(`SELECT ticket FROM tasks WHERE id = ?`).get(taskId);
+      const taskDetails = database.prepare(`SELECT ticket FROM tasks WHERE id = ?`).get(taskId);
       if (taskDetails?.ticket) {
         taskRef = ` (${taskDetails.ticket})`;
       }
@@ -615,7 +664,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
 
     // Get project identifier and task ticket for enhanced context (always enabled)
     try {
-      const taskDetails = db.prepare(
+      const taskDetails = database.prepare(
         `SELECT t.ticket, b.project 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
@@ -646,7 +695,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       additionalData
     });
 
-    db.prepare(
+    database.prepare(
       `INSERT INTO activity (userId, roleId, action, taskId, commentId, columnId, boardId, tagId, details) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
@@ -662,6 +711,39 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     );
 
     console.log('Comment activity logged successfully');
+    
+    // Publish activity update to Redis for real-time updates
+    try {
+      if (redisService) {
+        // Get the latest activities for the activity feed
+        const latestActivities = database.prepare(`
+          SELECT 
+            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+            datetime(a.created_at) || 'Z' as created_at,
+            a.updated_at,
+            m.name as member_name,
+            r.name as role_name,
+            b.title as board_title,
+            c.title as column_title
+          FROM activity a
+          LEFT JOIN members m ON a.userId = m.user_id
+          LEFT JOIN roles r ON a.roleId = r.id
+          LEFT JOIN boards b ON a.boardId = b.id
+          LEFT JOIN columns c ON a.columnId = c.id
+          ORDER BY a.created_at DESC
+          LIMIT 20
+        `).all();
+
+        // Get tenantId from additionalData if provided (for multi-tenant isolation)
+        const tenantId = additionalData.tenantId || null;
+        await redisService.publish('activity-updated', {
+          activities: latestActivities,
+          timestamp: new Date().toISOString()
+        }, tenantId);
+      }
+    } catch (redisError) {
+      console.warn('Failed to publish comment activity update to Redis:', redisError.message);
+    }
     
     // Send notification email for comment activities in the background (fire-and-forget)
     // This improves UX by not blocking the API response while emails are being sent

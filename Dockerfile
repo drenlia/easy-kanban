@@ -8,8 +8,9 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++
 
 # Install dependencies first (this will be preserved in the container)
+# Try npm ci first (deterministic), fall back to npm install if lock file is out of sync
 COPY package*.json ./
-RUN npm ci --include=dev
+RUN npm ci --include=dev || npm install --include=dev
 
 # Copy source code
 COPY . .

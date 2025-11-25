@@ -3,6 +3,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
+import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
 
@@ -14,7 +15,7 @@ router.get('/', (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
@@ -36,7 +37,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res, next) => {
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     
@@ -66,7 +67,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     return next(); // Let other routes handle it
   }
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { key, value } = req.body;
     
     if (!key) {
@@ -76,6 +77,12 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     // Prevent updates to WEBSITE_URL - it's read-only and set during instance purchase
     if (key === 'WEBSITE_URL') {
       return res.status(403).json({ error: 'WEBSITE_URL is read-only and cannot be updated' });
+    }
+    
+    // Prevent updates to APP_URL through general settings endpoint - it's owner-only
+    // Use the dedicated /api/settings/app-url endpoint which enforces owner check
+    if (key === 'APP_URL') {
+      return res.status(403).json({ error: 'APP_URL can only be updated by the owner using the dedicated endpoint' });
     }
     
     // Convert value to string for SQLite (SQLite only accepts strings, numbers, bigints, buffers, and null)
@@ -109,13 +116,14 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     }
     
     // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing settings-updated to Redis');
     console.log('📤 Broadcasting value:', { key, value });
     await redisService.publish('settings-updated', {
       key: key,
       value: value,
       timestamp: new Date().toISOString()
-    });
+    }, tenantId);
     console.log('✅ Settings-updated published to Redis');
     
     res.json({ message: 'Setting updated successfully' });
@@ -130,7 +138,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
 router.put('/app-url', authenticateToken, async (req, res) => {
   try {
     console.log('📞 APP_URL update endpoint called');
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const { appUrl } = req.body;
     const userId = req.user.id;
     
@@ -228,7 +236,7 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
   }
   
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     
     // Define all mail-related settings to clear (empty strings)
     const mailSettingsToClear = [
@@ -260,13 +268,14 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     clearSettings();
     
     // Publish to Redis for real-time updates (single message for all changes)
+    const tenantId = getTenantId(req);
     console.log('📤 Publishing mail-settings-cleared to Redis');
     await redisService.publish('settings-updated', {
       key: 'MAIL_SETTINGS_CLEARED',
       value: 'all',
       timestamp: new Date().toISOString(),
       clearedSettings: [...mailSettingsToClear, 'MAIL_MANAGED', 'MAIL_ENABLED']
-    });
+    }, tenantId);
     console.log('✅ Mail settings cleared and published to Redis');
     
     res.json({ 
@@ -287,7 +296,7 @@ router.get('/info', authenticateToken, (req, res, next) => {
     return next(); // Let other routes handle it
   }
   try {
-    const db = req.app.locals.db;
+    const db = getRequestDatabase(req);
     const usage = getStorageUsage(db);
     const limit = getStorageLimit(db);
     const remaining = limit - usage;

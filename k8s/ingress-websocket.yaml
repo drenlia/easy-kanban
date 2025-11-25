@@ -1,0 +1,97 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: easy-kanban-websocket-ingress
+  namespace: easy-kanban
+  labels:
+    app: easy-kanban
+    component: websocket
+  annotations:
+    # Sticky sessions for WebSocket (socket.io) only
+    # This ensures all socket.io requests from the same client go to the same pod
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "socket-io-route"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "172800"  # 2 days
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "172800"  # 2 days
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+    # WebSocket-specific timeouts
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"  # 1 hour for long-lived connections
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"  # 1 hour for long-lived connections
+    # Preserve the original Host header so tenant routing can extract tenant ID
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  # Support all tenant domains - nginx will route based on Host header
+  - host: easy-kanban.local
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  - host: amanda.ezkan.cloud
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  - host: app.ezkan.cloud
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  - host: develop.ezkan.cloud
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  - host: drenlia.ezkan.cloud
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  - host: fastest.ezkan.cloud
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  # TLS configuration for production domains
+  tls:
+  - hosts:
+    - easy-kanban.local
+    - amanda.ezkan.cloud
+    - app.ezkan.cloud
+    - develop.ezkan.cloud
+    - drenlia.ezkan.cloud
+    - fastest.ezkan.cloud
+    secretName: easy-kanban-tls

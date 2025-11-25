@@ -4,6 +4,17 @@ import { io, Socket } from 'socket.io-client';
 let globalSocket: Socket | null = null;
 let isConnecting = false;
 
+/**
+ * Detects if we're in multi-tenant mode.
+ * Uses the MULTI_TENANT environment variable injected at build time.
+ */
+function isMultiTenantMode(): boolean {
+  // Use the MULTI_TENANT env var injected at build time via Vite
+  // This matches the server-side process.env.MULTI_TENANT
+  const multiTenant = (process.env.MULTI_TENANT as string) === 'true';
+  return multiTenant;
+}
+
 export const initializeSocket = (token: string): Promise<Socket> => {
   return new Promise((resolve, reject) => {
     // If no token provided, reject silently
@@ -51,19 +62,48 @@ export const initializeSocket = (token: string): Promise<Socket> => {
 
     console.log('🔌 Creating new Socket.IO connection to:', window.location.origin);
 
-    globalSocket = io(window.location.origin, {
+    // Determine transport strategy based on deployment mode
+    // Multi-tenant: Use websocket ONLY (Redis adapter handles session sharing across pods)
+    //   - MUST use websocket only to avoid session ID issues with load balancing
+    //   - Polling transport requires sticky sessions which are complex to configure
+    // Single-tenant: Use polling + websocket (more reliable through proxies, no session issues)
+    const isMultiTenant = isMultiTenantMode();
+    const transports = isMultiTenant 
+      ? ['websocket'] // Multi-tenant: websocket ONLY - no polling fallback
+      : ['polling', 'websocket']; // Single-tenant: polling first, then upgrade to websocket
+
+    console.log(`🔌 Global Socket transport config: ${isMultiTenant ? 'multi-tenant' : 'single-tenant'} mode, using transports: [${transports.join(', ')}]`);
+
+    // Socket.IO options - in multi-tenant mode, enforce websocket-only strictly
+    const socketOptions: any = {
       auth: { token },
-      transports: ['polling', 'websocket'], // Try polling first for better reliability
+      transports,
       timeout: 30000, // Increased timeout to 30 seconds
       reconnection: true, // Enable automatic reconnection
       reconnectionAttempts: 5, // Try up to 5 times
       reconnectionDelay: 1000, // Wait 1 second between attempts
       reconnectionDelayMax: 5000, // Max 5 seconds between attempts
       autoConnect: true
-    });
+    };
+
+    // In multi-tenant mode, prevent any transport upgrades/fallbacks
+    // This ensures we NEVER use polling transport in multi-tenant deployments
+    if (isMultiTenant) {
+      socketOptions.upgrade = false; // Disable transport upgrades (prevents fallback to polling)
+      socketOptions.rememberUpgrade = false; // Don't remember previous transport
+    }
+
+    globalSocket = io(window.location.origin, socketOptions);
 
     globalSocket.on('connect', () => {
-      console.log('✅ Global Socket.IO connected:', globalSocket!.id);
+      // Validate transport in multi-tenant mode - must be websocket
+      if (isMultiTenant && globalSocket?.io?.engine?.transport?.name !== 'websocket') {
+        console.error('❌ CRITICAL: Multi-tenant mode detected polling transport! Disconnecting...');
+        globalSocket.disconnect();
+        reject(new Error('Invalid transport: multi-tenant mode requires websocket only'));
+        return;
+      }
+      console.log('✅ Global Socket.IO connected:', globalSocket!.id, `(transport: ${globalSocket?.io?.engine?.transport?.name || 'unknown'})`);
       isConnecting = false;
       resolve(globalSocket!);
     });

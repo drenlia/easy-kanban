@@ -54,7 +54,39 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
   useEffect(() => {
     const handleVersionChange = (oldVersion: string, newVersion: string) => {
       console.log(`🔔 Version change detected: ${oldVersion} → ${newVersion}`);
-      setVersionInfo({ currentVersion: oldVersion, newVersion });
+      
+      // Check if we've already dismissed this specific version
+      // Use localStorage to persist dismissal across page navigations and browser sessions
+      const dismissedVersion = localStorage.getItem('dismissedVersion');
+      
+      // If the dismissed version is different from the new version, clear it
+      // This ensures that when a new version is deployed, users see the banner
+      if (dismissedVersion && dismissedVersion !== newVersion) {
+        console.log(`🧹 Clearing old dismissed version ${dismissedVersion} (new version: ${newVersion})`);
+        localStorage.removeItem('dismissedVersion');
+      }
+      
+      // Only skip showing banner if this exact version was already dismissed
+      if (dismissedVersion === newVersion) {
+        console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
+        // Don't update versionDetection.setInitialVersion() here because:
+        // - We want to keep detecting NEWER versions (after this dismissed one)
+        // - The lastNotifiedVersion tracking prevents duplicate notifications
+        // - localStorage dismissal is per-version, so new versions will show again
+        setVersionInfo({ 
+          currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+          newVersion 
+        });
+        return;
+      }
+      
+      // New version detected (different from dismissed version)
+      // Update version info and show banner
+      // For new sessions (oldVersion === 'unknown'), use newVersion as currentVersion
+      setVersionInfo({ 
+        currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+        newVersion 
+      });
       setShowVersionBanner(true);
     };
 
@@ -69,13 +101,32 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
+    // When refreshing, we're updating to the new version
+    // Store dismissed version in localStorage to persist across page navigations and sessions
+    // Note: We DON'T update versionDetection.setInitialVersion() here because:
+    // - After refresh, the app will load with the new version from the server
+    // - versionDetection will be initialized with the new version automatically
+    // - This ensures future version changes (v3, v4, etc.) will still be detected
+    if (versionInfo.newVersion) {
+      localStorage.setItem('dismissedVersion', versionInfo.newVersion);
+    }
     // Set flag to indicate readiness check should run after refresh
     sessionStorage.setItem('pendingVersionRefresh', 'true');
+    // Clear the banner before refresh
+    setShowVersionBanner(false);
     window.location.reload();
   };
 
   const handleDismissVersionBanner = () => {
     setShowVersionBanner(false);
+    // When dismissing, we want to:
+    // 1. Remember this specific version was dismissed (localStorage)
+    // 2. NOT update initialVersion because we want to detect NEWER versions later
+    //    (e.g., if user dismisses v2, we still want to detect v3, v4, etc.)
+    // The lastNotifiedVersion tracking prevents duplicate notifications for the same version
+    if (versionInfo.newVersion) {
+      localStorage.setItem('dismissedVersion', versionInfo.newVersion);
+    }
   };
   
   // Instance Status Banner Component
