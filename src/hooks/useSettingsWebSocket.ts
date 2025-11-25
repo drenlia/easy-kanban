@@ -174,7 +174,8 @@ export const useSettingsWebSocket = ({
   const handleVersionUpdated = useCallback((data: any) => {
     console.log('📦 Version updated via WebSocket:', data);
     if (data.version) {
-      versionDetection.checkVersion(data.version);
+      // Pass isFromWebSocket=true so new sessions can detect new versions
+      versionDetection.checkVersion(data.version, true);
     }
   }, []);
 

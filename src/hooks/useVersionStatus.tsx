@@ -73,13 +73,20 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
         // - We want to keep detecting NEWER versions (after this dismissed one)
         // - The lastNotifiedVersion tracking prevents duplicate notifications
         // - localStorage dismissal is per-version, so new versions will show again
-        setVersionInfo({ currentVersion: oldVersion, newVersion });
+        setVersionInfo({ 
+          currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+          newVersion 
+        });
         return;
       }
       
       // New version detected (different from dismissed version)
       // Update version info and show banner
-      setVersionInfo({ currentVersion: oldVersion, newVersion });
+      // For new sessions (oldVersion === 'unknown'), use newVersion as currentVersion
+      setVersionInfo({ 
+        currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+        newVersion 
+      });
       setShowVersionBanner(true);
     };
 

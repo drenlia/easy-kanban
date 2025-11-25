@@ -94,31 +94,16 @@ export async function runLoadBalancingTest(
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 
-  // Main test phase - make concurrent requests
-  const batches = Math.ceil(totalRequests / concurrentRequests);
-  const remainingRequests = totalRequests;
-
-  for (let batch = 0; batch < batches; batch++) {
-    const batchSize = Math.min(
-      concurrentRequests,
-      remainingRequests - (batch * concurrentRequests)
-    );
-
-    // Create batch of concurrent requests
-    const batchPromises: Promise<RequestResult>[] = [];
-    for (let i = 0; i < batchSize; i++) {
-      batchPromises.push(makeRequest(endpoint));
-    }
-
-    // Execute batch and collect results
-    const batchResults = await Promise.all(batchPromises);
-    results.push(...batchResults);
-
-    // Small delay between batches to avoid overwhelming the system
-    if (batch < batches - 1) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
+  // Main test phase - make ALL requests truly concurrent (not batched)
+  // This creates sustained load that better demonstrates load balancing benefits
+  const allPromises: Promise<RequestResult>[] = [];
+  for (let i = 0; i < totalRequests; i++) {
+    allPromises.push(makeRequest(endpoint));
   }
+
+  // Execute all requests concurrently and collect results
+  const allResults = await Promise.all(allPromises);
+  results.push(...allResults);
 
   const testEndTime = performance.now();
   const totalDuration = testEndTime - testStartTime;
@@ -165,9 +150,14 @@ export async function runLoadBalancingTest(
 /**
  * Run load balancing test with default parameters
  * This is the main entry point for the performance test console
+ * 
+ * Increased load to better demonstrate load balancing benefits:
+ * - 100 concurrent requests (was 50)
+ * - 500 total requests (was 100)
+ * This creates more sustained load that should show performance differences
  */
 export async function runLoadBalancingTestDefault() {
-  const result = await runLoadBalancingTest(50, 100, '/boards', 5);
+  const result = await runLoadBalancingTest(100, 500, '/boards', 10);
 
   // Format error summary if there are failures
   let errorSummary = '';

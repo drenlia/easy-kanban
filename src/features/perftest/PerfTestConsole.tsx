@@ -33,7 +33,7 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
     { name: 'Bulk Tasks', fn: runBulkTasksTest, description: 'Create 50-100 tasks' },
     { name: 'Real-time Updates', fn: runRealtimeTest, description: 'Test WebSocket broadcast latency' },
     { name: 'Search/Filter', fn: runSearchTest, description: 'Test search with large dataset' },
-    { name: 'Load Balancing', fn: runLoadBalancingTestDefault, description: 'Test concurrent request handling (50 concurrent, 100 total)' },
+    { name: 'Load Balancing', fn: runLoadBalancingTestDefault, description: 'Test concurrent request handling (100 concurrent, 500 total)' },
   ];
 
   const deleteAllContent = async () => {

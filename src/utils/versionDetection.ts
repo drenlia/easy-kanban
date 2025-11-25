@@ -33,13 +33,41 @@ class VersionDetectionService {
 
   /**
    * Check if a new version has been detected
+   * @param newVersion - The new version to check
+   * @param isFromWebSocket - Whether this version came from WebSocket (vs API header)
    */
-  checkVersion(newVersion: string): boolean {
+  checkVersion(newVersion: string, isFromWebSocket: boolean = false): boolean {
     if (!this.isInitialized || !this.initialVersion) {
-      // First response, store as initial version
-      this.setInitialVersion(newVersion);
-      this.lastNotifiedVersion = null; // Reset notification tracking
-      return false;
+      // First response - check if this version should trigger a notification
+      // For WebSocket updates on fresh sessions, we need to check if this version
+      // was already dismissed. If not, we should notify even though it's the "initial" version.
+      if (isFromWebSocket) {
+        // Check localStorage to see if this version was dismissed
+        const dismissedVersion = typeof localStorage !== 'undefined' 
+          ? localStorage.getItem('dismissedVersion') 
+          : null;
+        
+        if (dismissedVersion !== newVersion) {
+          // This is a new version that hasn't been dismissed
+          // For new sessions, we'll use a placeholder "unknown" as the old version
+          // since we don't know what version they had before
+          console.log(`🔄 New version detected on fresh session: ${newVersion} (not dismissed)`);
+          this.setInitialVersion(newVersion);
+          this.notifyListeners('unknown', newVersion);
+          this.lastNotifiedVersion = newVersion;
+          return true;
+        } else {
+          // Version was already dismissed, just set it as initial
+          console.log(`📦 Initial app version: ${newVersion} (already dismissed)`);
+          this.setInitialVersion(newVersion);
+          return false;
+        }
+      } else {
+        // From API header - just set as initial version (normal flow)
+        this.setInitialVersion(newVersion);
+        this.lastNotifiedVersion = null;
+        return false;
+      }
     }
 
     // Only notify if:
