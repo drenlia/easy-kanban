@@ -69,11 +69,16 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
       // Only skip showing banner if this exact version was already dismissed
       if (dismissedVersion === newVersion) {
         console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
-        // Still update the version info but don't show banner
+        // Don't update versionDetection.setInitialVersion() here because:
+        // - We want to keep detecting NEWER versions (after this dismissed one)
+        // - The lastNotifiedVersion tracking prevents duplicate notifications
+        // - localStorage dismissal is per-version, so new versions will show again
         setVersionInfo({ currentVersion: oldVersion, newVersion });
         return;
       }
       
+      // New version detected (different from dismissed version)
+      // Update version info and show banner
       setVersionInfo({ currentVersion: oldVersion, newVersion });
       setShowVersionBanner(true);
     };
@@ -89,10 +94,13 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   // Handlers for version banner
   const handleRefreshVersion = () => {
-    // Update the version detection service to the new version so it doesn't keep showing the banner
+    // When refreshing, we're updating to the new version
+    // Store dismissed version in localStorage to persist across page navigations and sessions
+    // Note: We DON'T update versionDetection.setInitialVersion() here because:
+    // - After refresh, the app will load with the new version from the server
+    // - versionDetection will be initialized with the new version automatically
+    // - This ensures future version changes (v3, v4, etc.) will still be detected
     if (versionInfo.newVersion) {
-      versionDetection.setInitialVersion(versionInfo.newVersion);
-      // Store dismissed version in localStorage to persist across page navigations and sessions
       localStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
     // Set flag to indicate readiness check should run after refresh
@@ -104,10 +112,12 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
 
   const handleDismissVersionBanner = () => {
     setShowVersionBanner(false);
-    // Update version detection to the new version so it doesn't show again
+    // When dismissing, we want to:
+    // 1. Remember this specific version was dismissed (localStorage)
+    // 2. NOT update initialVersion because we want to detect NEWER versions later
+    //    (e.g., if user dismisses v2, we still want to detect v3, v4, etc.)
+    // The lastNotifiedVersion tracking prevents duplicate notifications for the same version
     if (versionInfo.newVersion) {
-      versionDetection.setInitialVersion(versionInfo.newVersion);
-      // Store dismissed version in localStorage to persist across page navigations and sessions
       localStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
   };

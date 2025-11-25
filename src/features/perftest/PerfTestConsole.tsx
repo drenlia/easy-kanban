@@ -5,6 +5,7 @@ import { runDemoContentTest, runTagsTest, runSprintsTest, runBulkTasksTest, runD
 import { runHumanInteractionsTest } from './tests/humanInteractions.test';
 import { runRealtimeTest } from './tests/realtime.test';
 import { runSearchTest } from './tests/search.test';
+import { runLoadBalancingTestDefault } from './tests/loadBalancing.test';
 
 interface PerfTestConsoleProps {
   isVisible: boolean;
@@ -32,6 +33,7 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
     { name: 'Bulk Tasks', fn: runBulkTasksTest, description: 'Create 50-100 tasks' },
     { name: 'Real-time Updates', fn: runRealtimeTest, description: 'Test WebSocket broadcast latency' },
     { name: 'Search/Filter', fn: runSearchTest, description: 'Test search with large dataset' },
+    { name: 'Load Balancing', fn: runLoadBalancingTestDefault, description: 'Test concurrent request handling (50 concurrent, 100 total)' },
   ];
 
   const deleteAllContent = async () => {
@@ -194,6 +196,28 @@ const PerfTestConsole: React.FC<PerfTestConsoleProps> = ({ isVisible, onClose })
                             Avg: {result.details.avgLatency}ms | 
                             Min: {result.details.minLatency}ms | 
                             Max: {result.details.maxLatency}ms
+                          </div>
+                        </div>
+                      )}
+                      {result.details?.throughput && (
+                        <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-1 space-y-0.5">
+                          <div className="font-medium">Load Balancing Metrics:</div>
+                          <div className="ml-1 space-y-0.5">
+                            <div>Throughput: {result.details.throughput}</div>
+                            <div>Success Rate: {result.details.successRate}</div>
+                            {result.details.latency && (
+                              <div className="mt-0.5">
+                                Latency - Avg: {result.details.latency.average} | 
+                                P50: {result.details.latency.p50} | 
+                                P95: {result.details.latency.p95} | 
+                                P99: {result.details.latency.p99}
+                              </div>
+                            )}
+                            {result.details.failedRequests > 0 && (
+                              <div className="text-red-600 dark:text-red-400">
+                                Failed: {result.details.failedRequests} requests
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

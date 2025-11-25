@@ -12,6 +12,7 @@ class VersionDetectionService {
   private initialVersion: string | null = null;
   private listeners: VersionChangeCallback[] = [];
   private isInitialized = false;
+  private lastNotifiedVersion: string | null = null; // Track last version we notified about
 
   /**
    * Set the initial app version (called on first API response)
@@ -21,6 +22,8 @@ class VersionDetectionService {
     const wasInitialized = this.isInitialized;
     this.initialVersion = version;
     this.isInitialized = true;
+    // Reset notification tracking when version is explicitly set (e.g., after refresh)
+    this.lastNotifiedVersion = null;
     if (!wasInitialized) {
       console.log(`📦 Initial app version: ${version}`);
     } else {
@@ -35,12 +38,17 @@ class VersionDetectionService {
     if (!this.isInitialized || !this.initialVersion) {
       // First response, store as initial version
       this.setInitialVersion(newVersion);
+      this.lastNotifiedVersion = null; // Reset notification tracking
       return false;
     }
 
-    if (newVersion !== this.initialVersion) {
+    // Only notify if:
+    // 1. Version is different from initial version
+    // 2. We haven't already notified about this specific version change
+    if (newVersion !== this.initialVersion && newVersion !== this.lastNotifiedVersion) {
       console.log(`🔄 Version change detected: ${this.initialVersion} → ${newVersion}`);
       this.notifyListeners(this.initialVersion, newVersion);
+      this.lastNotifiedVersion = newVersion; // Track that we've notified about this version
       return true;
     }
 
@@ -87,6 +95,7 @@ class VersionDetectionService {
   reset() {
     this.initialVersion = null;
     this.isInitialized = false;
+    this.lastNotifiedVersion = null;
     this.listeners = [];
   }
 }
