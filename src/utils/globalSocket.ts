@@ -63,16 +63,19 @@ export const initializeSocket = (token: string): Promise<Socket> => {
     console.log('🔌 Creating new Socket.IO connection to:', window.location.origin);
 
     // Determine transport strategy based on deployment mode
-    // Multi-tenant: Use websocket only (Redis adapter handles session sharing across pods)
+    // Multi-tenant: Use websocket ONLY (Redis adapter handles session sharing across pods)
+    //   - MUST use websocket only to avoid session ID issues with load balancing
+    //   - Polling transport requires sticky sessions which are complex to configure
     // Single-tenant: Use polling + websocket (more reliable through proxies, no session issues)
     const isMultiTenant = isMultiTenantMode();
     const transports = isMultiTenant 
-      ? ['websocket'] // Multi-tenant: websocket only to avoid session ID issues with load balancing
+      ? ['websocket'] // Multi-tenant: websocket ONLY - no polling fallback
       : ['polling', 'websocket']; // Single-tenant: polling first, then upgrade to websocket
 
     console.log(`🔌 Global Socket transport config: ${isMultiTenant ? 'multi-tenant' : 'single-tenant'} mode, using transports: [${transports.join(', ')}]`);
 
-    globalSocket = io(window.location.origin, {
+    // Socket.IO options - in multi-tenant mode, enforce websocket-only strictly
+    const socketOptions: any = {
       auth: { token },
       transports,
       timeout: 30000, // Increased timeout to 30 seconds
@@ -81,10 +84,26 @@ export const initializeSocket = (token: string): Promise<Socket> => {
       reconnectionDelay: 1000, // Wait 1 second between attempts
       reconnectionDelayMax: 5000, // Max 5 seconds between attempts
       autoConnect: true
-    });
+    };
+
+    // In multi-tenant mode, prevent any transport upgrades/fallbacks
+    // This ensures we NEVER use polling transport in multi-tenant deployments
+    if (isMultiTenant) {
+      socketOptions.upgrade = false; // Disable transport upgrades (prevents fallback to polling)
+      socketOptions.rememberUpgrade = false; // Don't remember previous transport
+    }
+
+    globalSocket = io(window.location.origin, socketOptions);
 
     globalSocket.on('connect', () => {
-      console.log('✅ Global Socket.IO connected:', globalSocket!.id);
+      // Validate transport in multi-tenant mode - must be websocket
+      if (isMultiTenant && globalSocket?.io?.engine?.transport?.name !== 'websocket') {
+        console.error('❌ CRITICAL: Multi-tenant mode detected polling transport! Disconnecting...');
+        globalSocket.disconnect();
+        reject(new Error('Invalid transport: multi-tenant mode requires websocket only'));
+        return;
+      }
+      console.log('✅ Global Socket.IO connected:', globalSocket!.id, `(transport: ${globalSocket?.io?.engine?.transport?.name || 'unknown'})`);
       isConnecting = false;
       resolve(globalSocket!);
     });
