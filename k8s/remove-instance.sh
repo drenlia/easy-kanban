@@ -24,7 +24,10 @@ fi
 INSTANCE_NAME="$1"
 # Shared namespace for all tenants
 NAMESPACE="easy-kanban"
+DOMAIN="ezkan.cloud"
+FULL_HOSTNAME="${INSTANCE_NAME}.${DOMAIN}"
 INGRESS_NAME="easy-kanban-ingress-${INSTANCE_NAME}"
+WEBSOCKET_INGRESS_NAME="easy-kanban-websocket-ingress"
 
 echo "🗑️  Removing Easy Kanban instance: ${INSTANCE_NAME}"
 echo "📍 Namespace: ${NAMESPACE} (shared)"
@@ -56,11 +59,50 @@ echo "🔄 Removing instance..."
 echo "🗑️  Deleting ingress rule '${INGRESS_NAME}'..."
 kubectl delete ingress "${INGRESS_NAME}" -n "${NAMESPACE}"
 
+# Remove hostname from WebSocket ingress if it exists
+if kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+    echo "🔌 Removing hostname '${FULL_HOSTNAME}' from WebSocket ingress..."
+    # Check if this hostname exists in the WebSocket ingress
+    EXISTING_HOST=$(kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" -o jsonpath="{.spec.rules[?(@.host=='${FULL_HOSTNAME}')].host}" 2>/dev/null || echo "")
+    if [ -n "$EXISTING_HOST" ]; then
+        # Check if jq is available (required for JSON manipulation)
+        if ! command -v jq &> /dev/null; then
+            echo "   ⚠️  Warning: jq is not installed. Cannot automatically remove hostname from WebSocket ingress."
+            echo "   💡 Please manually remove '${FULL_HOSTNAME}' from the WebSocket ingress rules and TLS hosts"
+            echo "   💡 Or install jq: sudo apt-get install jq (or equivalent for your OS)"
+        else
+            # Get current ingress and remove the hostname
+            CURRENT_INGRESS_JSON=$(kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" -o json)
+            
+            # Remove hostname from rules and TLS hosts
+            UPDATED_INGRESS=$(echo "$CURRENT_INGRESS_JSON" | jq --arg hostname "$FULL_HOSTNAME" '
+                # Remove hostname from rules
+                .spec.rules = (.spec.rules | map(select(.host != $hostname))) |
+                # Remove hostname from TLS hosts if TLS section exists
+                if .spec.tls and (.spec.tls | length > 0) then
+                    .spec.tls[0].hosts = (.spec.tls[0].hosts | map(select(. != $hostname)))
+                else
+                    .
+                end
+            ')
+            
+            # Apply the updated ingress
+            echo "$UPDATED_INGRESS" | kubectl apply -f -
+            echo "   ✅ Hostname '${FULL_HOSTNAME}' removed from WebSocket ingress"
+        fi
+    else
+        echo "   ℹ️  Hostname '${FULL_HOSTNAME}' not found in WebSocket ingress (may have been already removed)"
+    fi
+else
+    echo "   ℹ️  WebSocket ingress does not exist, skipping..."
+fi
+
 echo ""
 echo "✅ Instance '${INSTANCE_NAME}' removed successfully!"
 echo ""
 echo "📋 What was removed:"
 echo "  - Ingress rule: ${INGRESS_NAME}"
+echo "  - WebSocket ingress hostname: ${FULL_HOSTNAME}"
 echo ""
 echo "💾 What was preserved:"
 echo "  - All tenant data (database, attachments, avatars)"

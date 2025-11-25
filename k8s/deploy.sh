@@ -647,6 +647,111 @@ else
     echo "   ✅ Ingress rule created"
 fi
 
+# Apply WebSocket ingress rule (shared ingress with sticky sessions for all tenants)
+echo ""
+echo "📦 Step 7b/8: Applying WebSocket ingress..."
+WEBSOCKET_INGRESS_NAME="easy-kanban-websocket-ingress"
+if kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🔌 WebSocket ingress already exists, checking if hostname needs to be added..."
+    # Check if this hostname is already in the WebSocket ingress
+    EXISTING_HOST=$(kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" -o jsonpath="{.spec.rules[?(@.host=='${FULL_HOSTNAME}')].host}" 2>/dev/null || echo "")
+    if [ -n "$EXISTING_HOST" ]; then
+        echo "   ✅ Hostname '${FULL_HOSTNAME}' already exists in WebSocket ingress"
+    else
+        echo "   ➕ Adding hostname '${FULL_HOSTNAME}' to WebSocket ingress..."
+        # Add the new host rule to the existing ingress using kubectl patch
+        # First, get the current ingress to check TLS structure
+        CURRENT_INGRESS_JSON=$(kubectl get ingress "${WEBSOCKET_INGRESS_NAME}" -n "${NAMESPACE}" -o json)
+        
+        # Check if jq is available (required for JSON manipulation)
+        if ! command -v jq &> /dev/null; then
+            echo "   ⚠️  Warning: jq is not installed. Cannot automatically add hostname to WebSocket ingress."
+            echo "   💡 Please manually add '${FULL_HOSTNAME}' to the WebSocket ingress rules and TLS hosts"
+            echo "   💡 Or install jq: sudo apt-get install jq (or equivalent for your OS)"
+        else
+            # Add new host rule to rules array
+            UPDATED_INGRESS=$(echo "$CURRENT_INGRESS_JSON" | jq --arg hostname "$FULL_HOSTNAME" '
+                .spec.rules += [{
+                    "host": $hostname,
+                    "http": {
+                        "paths": [{
+                            "path": "/socket.io/",
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": "easy-kanban-service",
+                                    "port": {
+                                        "number": 80
+                                    }
+                                }
+                            }
+                        }]
+                    }
+                }] |
+                # Add to TLS hosts if TLS section exists
+                if .spec.tls and (.spec.tls | length > 0) then
+                    .spec.tls[0].hosts += [$hostname]
+                else
+                    .
+                end
+            ')
+            
+            # Apply the updated ingress
+            echo "$UPDATED_INGRESS" | kubectl apply -f -
+            echo "   ✅ WebSocket ingress updated with hostname '${FULL_HOSTNAME}'"
+        fi
+    fi
+else
+    echo "   🔌 Creating WebSocket ingress with hostname '${FULL_HOSTNAME}'..."
+    # Create a minimal WebSocket ingress for the first tenant
+    cat > "${TEMP_DIR}/ingress-websocket.yaml" <<EOF
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${WEBSOCKET_INGRESS_NAME}
+  namespace: ${NAMESPACE}
+  labels:
+    app: easy-kanban
+    component: websocket
+  annotations:
+    # Sticky sessions for WebSocket (socket.io) only
+    # This ensures all socket.io requests from the same client go to the same pod
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/affinity-mode: "persistent"
+    nginx.ingress.kubernetes.io/session-cookie-name: "socket-io-route"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "172800"  # 2 days
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "172800"  # 2 days
+    nginx.ingress.kubernetes.io/session-cookie-path: "/"
+    nginx.ingress.kubernetes.io/session-cookie-samesite: "Lax"
+    # WebSocket-specific timeouts
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"  # 1 hour for long-lived connections
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"  # 1 hour for long-lived connections
+    # Preserve the original Host header so tenant routing can extract tenant ID
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: ${FULL_HOSTNAME}
+    http:
+      paths:
+      - path: /socket.io/
+        pathType: Prefix
+        backend:
+          service:
+            name: easy-kanban-service
+            port:
+              number: 80
+  # TLS configuration for production domains
+  tls:
+  - hosts:
+    - ${FULL_HOSTNAME}
+    secretName: easy-kanban-tls
+EOF
+    
+    kubectl apply -f "${TEMP_DIR}/ingress-websocket.yaml"
+    echo "   ✅ WebSocket ingress created"
+fi
+
 # Initialize tenant database by making a request to the app
 # This ensures the database exists before the admin portal tries to connect
 echo ""
