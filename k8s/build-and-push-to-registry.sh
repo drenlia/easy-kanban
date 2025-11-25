@@ -63,9 +63,16 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+# Get MULTI_TENANT from ConfigMap (defaults to "true" for Kubernetes deployments)
+MULTI_TENANT=$(kubectl get configmap easy-kanban-config -n easy-kanban -o jsonpath='{.data.MULTI_TENANT}' 2>/dev/null || echo "true")
+if [ -z "$MULTI_TENANT" ] || [ "$MULTI_TENANT" != "true" ] && [ "$MULTI_TENANT" != "false" ]; then
+  MULTI_TENANT="true"  # Default to true for Kubernetes
+fi
+
 echo -e "${CYAN}   Git Commit: ${GIT_COMMIT}${NC}"
 echo -e "${CYAN}   Git Branch: ${GIT_BRANCH}${NC}"
 echo -e "${CYAN}   Build Time: ${BUILD_TIME}${NC}"
+echo -e "${CYAN}   Multi-Tenant: ${MULTI_TENANT}${NC}"
 echo ""
 
 # Build the image
@@ -78,6 +85,7 @@ docker build -f Dockerfile.prod -t easy-kanban:latest \
   --build-arg GIT_COMMIT="${GIT_COMMIT}" \
   --build-arg GIT_BRANCH="${GIT_BRANCH}" \
   --build-arg BUILD_TIME="${BUILD_TIME}" \
+  --build-arg MULTI_TENANT="${MULTI_TENANT}" \
   .
 
 if [ $? -eq 0 ]; then

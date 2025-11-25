@@ -7,7 +7,7 @@ metadata:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 2  # Can be scaled for multi-tenant (all pods share NFS storage)
+  replicas: 5  # Can be scaled for multi-tenant (all pods share NFS storage)
   selector:
     matchLabels:
       app: easy-kanban
@@ -18,16 +18,13 @@ spec:
         app: easy-kanban
         component: frontend
     spec:
-      affinity:
-        podAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-          - labelSelector:
-              matchExpressions:
-              - key: app
-                operator: In
-                values:
-                - easy-kanban
-            topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: easy-kanban
       containers:
       - name: easy-kanban
         image: IMAGE_NAME_PLACEHOLDER
