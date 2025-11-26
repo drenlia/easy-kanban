@@ -833,48 +833,50 @@ export default function SearchInterface({
 
       {/* Save Filter Dialog */}
       {showSaveDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]">
-          <div className="bg-white rounded-lg p-6 w-96 max-w-90vw">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('searchInterface.saveFilterTitle')}</h3>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {t('searchInterface.filterName')}
-              </label>
-              <input
-                type="text"
-                value={newFilterName}
-                onChange={(e) => setNewFilterName(e.target.value)}
-                placeholder={t('searchInterface.enterFilterName')}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newFilterName.trim()) {
-                    handleSaveFilter();
-                  } else if (e.key === 'Escape') {
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-[60] overflow-y-auto">
+          <div className="h-screen flex items-center justify-center p-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 max-w-[90vw] shadow-xl">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{t('searchInterface.saveFilterTitle')}</h3>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t('searchInterface.filterName')}
+                </label>
+                <input
+                  type="text"
+                  value={newFilterName}
+                  onChange={(e) => setNewFilterName(e.target.value)}
+                  placeholder={t('searchInterface.enterFilterName')}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newFilterName.trim()) {
+                      handleSaveFilter();
+                    } else if (e.key === 'Escape') {
+                      setShowSaveDialog(false);
+                      setNewFilterName('');
+                    }
+                  }}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => {
                     setShowSaveDialog(false);
                     setNewFilterName('');
-                  }
-                }}
-                autoFocus
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowSaveDialog(false);
-                  setNewFilterName('');
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                disabled={isSavingFilter}
-              >
-                {t('buttons.cancel', { ns: 'common' })}
-              </button>
-              <button
-                onClick={handleSaveFilter}
-                disabled={!newFilterName.trim() || isSavingFilter}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
-              >
-                {isSavingFilter ? t('searchInterface.saving') : t('searchInterface.saveFilter')}
-              </button>
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+                  disabled={isSavingFilter}
+                >
+                  {t('buttons.cancel', { ns: 'common' })}
+                </button>
+                <button
+                  onClick={handleSaveFilter}
+                  disabled={!newFilterName.trim() || isSavingFilter}
+                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed"
+                >
+                  {isSavingFilter ? t('searchInterface.saving') : t('searchInterface.saveFilter')}
+                </button>
+              </div>
             </div>
           </div>
         </div>

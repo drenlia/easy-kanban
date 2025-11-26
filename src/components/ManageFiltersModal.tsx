@@ -142,14 +142,14 @@ export default function ManageFiltersModal({
       <div className="h-screen flex items-center justify-center p-4">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('manageFiltersModal.title')}</h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
             disabled={isLoading}
           >
-            <X size={20} className="text-gray-500" />
+            <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
@@ -157,8 +157,8 @@ export default function ManageFiltersModal({
         <div className="flex-1 overflow-y-auto p-6">
           {savedFilterViews.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-gray-500">{t('manageFiltersModal.noSavedFilters')}</p>
-              <p className="text-sm text-gray-400 mt-1">
+              <p className="text-gray-500 dark:text-gray-400">{t('manageFiltersModal.noSavedFilters')}</p>
+              <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
                 {t('manageFiltersModal.createFiltersHint')}
               </p>
             </div>
@@ -168,7 +168,9 @@ export default function ManageFiltersModal({
                 <div
                   key={view.id}
                   className={`border rounded-lg p-4 ${
-                    currentFilterView?.id === view.id ? 'border-blue-300 bg-blue-50' : 'border-gray-200'
+                    currentFilterView?.id === view.id 
+                      ? 'border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/30' 
+                      : 'border-gray-200 dark:border-gray-700'
                   }`}
                 >
                   {editingView?.id === view.id ? (
@@ -211,8 +213,8 @@ export default function ManageFiltersModal({
                     /* Delete Confirmation Mode */
                     <div className="space-y-3">
                       <div>
-                        <h4 className="font-medium text-gray-900">{view.filterName}</h4>
-                        <p className="text-sm text-red-600 mt-1">
+                        <h4 className="font-medium text-gray-900 dark:text-gray-100">{view.filterName}</h4>
+                        <p className="text-sm text-red-600 dark:text-red-400 mt-1">
                           {t('manageFiltersModal.deleteConfirmation')}
                         </p>
                       </div>
@@ -238,18 +240,18 @@ export default function ManageFiltersModal({
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
-                          <h4 className="font-medium text-gray-900 truncate">{view.filterName}</h4>
-                          <div className="text-xs text-gray-500 mt-1 space-y-1">
+                          <h4 className="font-medium text-gray-900 dark:text-gray-100 truncate">{view.filterName}</h4>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-1">
                             <p>{t('manageFiltersModal.created')}{new Date(view.created_at).toLocaleDateString()}</p>
                             {currentFilterView?.id === view.id && (
-                              <p className="text-blue-600 font-medium">{t('manageFiltersModal.currentlyApplied')}</p>
+                              <p className="text-blue-600 dark:text-blue-400 font-medium">{t('manageFiltersModal.currentlyApplied')}</p>
                             )}
                           </div>
                         </div>
                         <div className="flex items-center gap-1 ml-3">
                           <button
                             onClick={() => handleStartEdit(view)}
-                            className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded transition-colors"
                             title={t('manageFiltersModal.renameFilter')}
                             disabled={isLoading}
                           >
@@ -257,7 +259,7 @@ export default function ManageFiltersModal({
                           </button>
                           <button
                             onClick={() => handleDeleteClick(view.id)}
-                            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded transition-colors"
                             title={t('manageFiltersModal.deleteFilter')}
                             disabled={isLoading}
                           >
@@ -267,24 +269,24 @@ export default function ManageFiltersModal({
                       </div>
                       
                       {/* Share toggle */}
-                      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-100 dark:border-gray-700">
                         <div className="flex items-center gap-2">
                           {view.shared ? (
-                            <Globe size={14} className="text-blue-500" />
+                            <Globe size={14} className="text-blue-500 dark:text-blue-400" />
                           ) : (
-                            <Lock size={14} className="text-gray-400" />
+                            <Lock size={14} className="text-gray-400 dark:text-gray-500" />
                           )}
-                          <span className="text-sm text-gray-700">
+                          <span className="text-sm text-gray-700 dark:text-gray-300">
                             {view.shared ? t('manageFiltersModal.sharedWithTeam') : t('manageFiltersModal.privateFilter')}
                           </span>
                         </div>
                         <button
                           onClick={() => handleToggleShare(view)}
                           disabled={isLoading}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 ${
                             view.shared 
-                              ? 'bg-blue-600' 
-                              : 'bg-gray-200'
+                              ? 'bg-blue-600 dark:bg-blue-500' 
+                              : 'bg-gray-200 dark:bg-gray-600'
                           } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
                           <span
@@ -303,11 +305,11 @@ export default function ManageFiltersModal({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-200">
+        <div className="p-6 border-t border-gray-200 dark:border-gray-700">
           <div className="flex justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
               disabled={isLoading}
             >
               {t('manageFiltersModal.done')}
