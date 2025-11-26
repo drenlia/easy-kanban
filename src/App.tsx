@@ -3615,6 +3615,53 @@ function AppContent() {
 
 // Main App component that wraps everything with SettingsProvider
 export default function App() {
+  // Global error handler for dynamic import failures (version mismatches)
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      // Check if this is a dynamic import failure (version mismatch)
+      if (event.error instanceof TypeError && 
+          event.error.message?.includes('Failed to fetch dynamically imported module')) {
+        console.error('❌ Dynamic import failure detected (likely version mismatch):', event.error);
+        console.error('   Forcing hard reload to get new JavaScript bundles...');
+        
+        // Prevent default error handling
+        event.preventDefault();
+        
+        // Force a hard reload (bypass cache)
+        // Remove any existing query parameters first to avoid interfering with asset loading
+        const baseUrl = window.location.origin + window.location.pathname;
+        window.location.href = baseUrl;
+      }
+    };
+
+    // Listen for unhandled errors
+    window.addEventListener('error', handleError, true);
+    
+    // Also listen for unhandled promise rejections (dynamic imports are promises)
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      if (event.reason instanceof TypeError && 
+          event.reason.message?.includes('Failed to fetch dynamically imported module')) {
+        console.error('❌ Unhandled dynamic import rejection (likely version mismatch):', event.reason);
+        console.error('   Forcing hard reload to get new JavaScript bundles...');
+        
+        // Prevent default error handling
+        event.preventDefault();
+        
+        // Force a hard reload (bypass cache)
+        // Remove any existing query parameters first to avoid interfering with asset loading
+        const baseUrl = window.location.origin + window.location.pathname;
+        window.location.href = baseUrl;
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+    return () => {
+      window.removeEventListener('error', handleError, true);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+    };
+  }, []);
+
   return (
     <SettingsProvider>
       <AppContent />

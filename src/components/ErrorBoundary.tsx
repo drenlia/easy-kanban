@@ -46,7 +46,12 @@ export default class ErrorBoundary extends Component<Props, State> {
               </pre>
             </details>
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                // Force a hard reload (bypass cache) to ensure we get fresh JavaScript bundles
+                // Remove any existing query parameters first to avoid interfering with asset loading
+                const baseUrl = window.location.origin + window.location.pathname;
+                window.location.href = baseUrl;
+              }}
               className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition-colors"
             >
               Refresh Page
