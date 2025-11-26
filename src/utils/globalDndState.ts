@@ -12,6 +12,6 @@ export const isDndGloballyDisabled = () => {
 
 // Safety function to force reset DND state
 export const resetDndGlobalState = () => {
-  console.log('🔓 Force resetting global DND state to enabled');
+  // console.log('🔓 Force resetting global DND state to enabled');
   _isDndGloballyDisabled = false;
 };

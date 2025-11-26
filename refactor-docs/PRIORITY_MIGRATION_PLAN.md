@@ -53,7 +53,6 @@ Migrate from storing priority names to storing priority IDs with a foreign key r
 - ✅ `src/components/TaskCard.tsx` - Task display (DONE)
 - ✅ `src/components/TaskDetails.tsx` - Task editing (DONE)
 - ✅ `src/components/TaskPage.tsx` - Task creation/editing (DONE - already using priorityId)
-- ✅ `src/components/QuickEditModal.tsx` - Quick edit (DONE)
 - ✅ `src/components/SearchInterface.tsx` - Priority filtering (DONE - uses priority names, backend accepts both)
 - ✅ `src/components/ListView.tsx` - List view display (DONE)
 - ✅ `src/components/gantt/GanttViewV2.tsx` - Gantt view (DONE)

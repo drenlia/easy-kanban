@@ -5,6 +5,53 @@
     <link rel="icon" type="image/x-icon" href="/kanban.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Easy Kanban</title>
+    <style>
+      /* Set CSS variables immediately to prevent flash - before React loads */
+      :root {
+        --page-bg: rgb(249, 250, 251); /* gray-50 */
+        --main-bg: rgb(243, 244, 246); /* gray-100 */
+      }
+      html.dark {
+        --page-bg: rgb(17, 24, 39); /* gray-900 */
+        --main-bg: rgb(17, 24, 39); /* gray-900 */
+      }
+      /* Apply background immediately to prevent flash */
+      html {
+        background-color: var(--main-bg);
+      }
+      body {
+        background-color: var(--main-bg);
+      }
+      /* Apply to all containers that might flash - set immediately */
+      /* Use direct colors instead of CSS variables to prevent flash */
+      .overflow-x-auto.w-full,
+      div[data-tour-id="kanban-columns"],
+      .board-drop-area,
+      .main-layout-container,
+      .kanban-columns-container {
+        background-color: rgb(249, 250, 251) !important; /* gray-50 - light mode */
+      }
+      
+      /* Dark mode override */
+      html.dark .overflow-x-auto.w-full,
+      html.dark div[data-tour-id="kanban-columns"],
+      html.dark .board-drop-area,
+      html.dark .main-layout-container,
+      html.dark .kanban-columns-container {
+        background-color: rgb(17, 24, 39) !important; /* gray-900 - dark mode */
+      }
+    </style>
+    <script>
+      // Apply dark mode class immediately if needed (before React loads)
+      (function() {
+        const savedTheme = localStorage.getItem('theme');
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const shouldBeDark = savedTheme === 'dark' || (!savedTheme && prefersDark);
+        if (shouldBeDark) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

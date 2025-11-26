@@ -158,7 +158,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   ...kanbanProps
 }) => {
   return (
-    <div className="flex-1 p-6 bg-gray-50 dark:bg-gray-900">
+    <div className="flex-1 p-6 main-layout-container">
       <div className="w-4/5 mx-auto">
         <Suspense fallback={<PageLoader />}>
           {currentPage === 'admin' ? (

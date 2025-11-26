@@ -33,7 +33,6 @@ All components have been successfully translated to support both English and Fre
 - [x] **TaskCardToolbar.tsx** - Task card action buttons
 - [x] **TaskPage.tsx** - Task page view
 - [x] **TaskDeleteConfirmation.tsx** - Delete confirmation dialog
-- [x] **QuickEditModal.tsx** - Quick edit task modal
 - [x] **ListView.tsx** - List view of tasks
 
 #### Kanban Board

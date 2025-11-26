@@ -32,6 +32,20 @@ interface SimpleDragDropManagerProps {
 
 // Custom collision detection that prioritizes column areas over board tabs
 const customCollisionDetection = (args: any) => {
+  // Check if we're dragging a column - if so, ignore task collisions
+  const activeData = args.active?.data?.current;
+  const isDraggingColumn = activeData?.type === 'column';
+  
+  // Get column IDs for direct ID matching (not just data.type)
+  const columnIds = isDraggingColumn && args.droppableContainers 
+    ? args.droppableContainers
+        .filter((container: any) => {
+          const data = container.data?.current;
+          return data?.type === 'column' || container.id && !container.id.toString().includes('-middle') && !container.id.toString().includes('-drop');
+        })
+        .map((container: any) => container.id)
+    : [];
+  
   // Get all possible collisions
   const pointerCollisions = pointerWithin(args);
   const cornerCollisions = closestCorners(args);
@@ -40,47 +54,93 @@ const customCollisionDetection = (args: any) => {
   // This prevents distant empty columns from interfering with intended targets
   const columnCollisions = pointerCollisions.filter((collision: any) => {
     const data = collision.data?.current;
-    return data?.type === 'column' || 
+    // Check both data.type AND collision.id against column IDs
+    // Note: column-bottom is for tasks only, not columns
+    const isColumnType = data?.type === 'column' || 
            data?.type === 'column-top' || 
-           data?.type === 'column-bottom' || 
-           data?.type === 'board-area' || 
-           data?.type === 'task';
+           data?.type === 'board-area';
+    const isColumnId = columnIds.length > 0 && columnIds.includes(collision.id);
+    return isColumnType || isColumnId || data?.type === 'task';
   });
   
   // If we have pointer-based column collisions, use only those (most precise)
   if (columnCollisions.length > 0) {
-    // CRITICAL FIX: If multiple collisions, prioritize task collisions over empty columns
-    const taskCollisions = columnCollisions.filter((collision: any) => {
-      return collision.data?.current?.type === 'task';
-    });
-    
-    // If we have task collisions, use only those (most specific)
-    if (taskCollisions.length > 0) {
-      return taskCollisions;
+    // CRITICAL FIX: When dragging a column, filter out task collisions
+    // Tasks should not interfere with column-to-column drag operations
+    if (isDraggingColumn) {
+      // Only allow column-type collisions when dragging a column
+      // Check both data.type AND collision.id against column IDs
+      // Note: column-bottom and column-middle are for tasks only, not columns
+      const columnOnlyCollisions = columnCollisions.filter((collision: any) => {
+        const data = collision.data?.current;
+        const isColumnType = data?.type === 'column' || 
+               data?.type === 'column-top' || 
+               data?.type === 'board-area';
+        const isColumnId = columnIds.length > 0 && columnIds.includes(collision.id);
+        // Explicitly exclude 'task', 'column-middle', and 'column-bottom' type collisions
+        return isColumnType || isColumnId;
+      });
+      
+      // If we found column collisions, use them
+      if (columnOnlyCollisions.length > 0) {
+        return columnOnlyCollisions;
+      }
+      // CRITICAL: If dragging a column and no column collisions found, return empty array
+      // This prevents tasks from being detected as drop targets
+      return [];
+    } else {
+      // When dragging a task, prioritize task collisions over empty columns
+      const taskCollisions = columnCollisions.filter((collision: any) => {
+        return collision.data?.current?.type === 'task';
+      });
+      
+      // If we have task collisions, use only those (most specific)
+      if (taskCollisions.length > 0) {
+        return taskCollisions;
+      }
     }
     
-    // Otherwise use all pointer-based collisions
+    // Otherwise use all pointer-based collisions (only for task drags)
     return columnCollisions;
   }
   
   // Fallback to corner-based collisions only if no pointer collisions
+  // Note: column-bottom is for tasks only, not columns
   const cornerColumnCollisions = cornerCollisions.filter((collision: any) => {
     const data = collision.data?.current;
     return data?.type === 'column' || 
            data?.type === 'column-top' || 
-           data?.type === 'column-bottom' || 
            data?.type === 'board-area' || 
            data?.type === 'task';
   });
   
   if (cornerColumnCollisions.length > 0) {
-    // Same prioritization for corner collisions
-    const cornerTaskCollisions = cornerColumnCollisions.filter((collision: any) => {
-      return collision.data?.current?.type === 'task';
-    });
-    
-    if (cornerTaskCollisions.length > 0) {
-      return cornerTaskCollisions;
+    // When dragging a column, filter out task collisions from corner collisions too
+    if (isDraggingColumn) {
+      const cornerColumnOnlyCollisions = cornerColumnCollisions.filter((collision: any) => {
+        const data = collision.data?.current;
+        // Note: column-bottom and column-middle are for tasks only, not columns
+        return data?.type === 'column' || 
+               data?.type === 'column-top' || 
+               data?.type === 'board-area';
+        // Explicitly exclude 'task', 'column-middle', and 'column-bottom' type collisions
+      });
+      
+      if (cornerColumnOnlyCollisions.length > 0) {
+        return cornerColumnOnlyCollisions;
+      }
+      // CRITICAL: If dragging a column and no column collisions found, return empty array
+      // This prevents tasks from being detected as drop targets
+      return [];
+    } else {
+      // When dragging a task, prioritize task collisions
+      const cornerTaskCollisions = cornerColumnCollisions.filter((collision: any) => {
+        return collision.data?.current?.type === 'task';
+      });
+      
+      if (cornerTaskCollisions.length > 0) {
+        return cornerTaskCollisions;
+      }
     }
     
     return cornerColumnCollisions;
@@ -111,10 +171,37 @@ const customCollisionDetection = (args: any) => {
   
   // Always prefer non-board collisions
   if (nonBoardCornerCollisions.length > 0) {
+    // If dragging a column, filter out tasks from non-board collisions too
+    if (isDraggingColumn) {
+      const filteredNonBoard = nonBoardCornerCollisions.filter((collision: any) => {
+        const data = collision.data?.current;
+        // Note: column-bottom and column-middle are for tasks only, not columns
+        return data?.type === 'column' || 
+               data?.type === 'column-top' || 
+               data?.type === 'board-area';
+      });
+      if (filteredNonBoard.length > 0) {
+        return filteredNonBoard;
+      }
+      return [];
+    }
     return nonBoardCornerCollisions;
   }
   
-  // Last resort - return original collisions
+  // Last resort - return original collisions (but filter tasks if dragging column)
+  if (isDraggingColumn) {
+    const filteredCorner = cornerCollisions.filter((collision: any) => {
+      const data = collision.data?.current;
+      // Note: column-bottom and column-middle are for tasks only, not columns
+      return data?.type === 'column' || 
+             data?.type === 'column-top' || 
+             data?.type === 'board-area';
+    });
+    if (filteredCorner.length > 0) {
+      return filteredCorner;
+    }
+    return [];
+  }
   return cornerCollisions;
 };
 
@@ -448,12 +535,12 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
     
     const { active, over } = event;
 
-    console.log('🎯 SimpleDragDropManager handleDragEnd:', {
-      activeId: active.id,
-      overId: over?.id,
-      overData: over?.data?.current,
-      activeData: active.data?.current
-    });
+    // console.log('🎯 SimpleDragDropManager handleDragEnd:', {
+    //   activeId: active.id,
+    //   overId: over?.id,
+    //   overData: over?.data?.current,
+    //   activeData: active.data?.current
+    // });
 
     if (!over) return;
 
@@ -478,18 +565,18 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       const activeData = active.data?.current;
       const overData = over.data?.current;
       
-      console.log('🎯 Processing drag end:', {
-        activeDataType: activeData?.type,
-        overDataType: overData?.type,
-        activeTaskId: activeData?.task?.id,
-        overTaskId: overData?.task?.id
-      });
+      // console.log('🎯 Processing drag end:', {
+      //   activeDataType: activeData?.type,
+      //   overDataType: overData?.type,
+      //   activeTaskId: activeData?.task?.id,
+      //   overTaskId: overData?.task?.id
+      // });
 
       if (activeData?.type === 'task') {
-        console.log('🎯 Entering task move logic');
+        // console.log('🎯 Entering task move logic');
         // Handle task moves
         const task = activeData.task as Task;
-        console.log('🎯 Task data:', { taskId: task.id, taskTitle: task.title, taskColumnId: task.columnId, taskPosition: task.position });
+        // console.log('🎯 Task data:', { taskId: task.id, taskTitle: task.title, taskColumnId: task.columnId, taskPosition: task.position });
         
         if (overData?.type === 'board' && overData.boardId !== currentBoardId) {
           // Check if Y-coordinate detection should override collision detection
@@ -519,28 +606,28 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
           // console.log('✅ Cross-board move completed');
         } else {
-          console.log('🎯 Same board move - enhanced position calculation');
+          // console.log('🎯 Same board move - enhanced position calculation');
           // Same board move - enhanced position calculation
           let targetColumnId = task.columnId; // default to same column
           let position = task.position || 0;
           
           // **FIXED position calculation - exclude dragged task from calculations**
           if (overData?.type === 'task') {
-            console.log('🎯 Dropping on another task');
+            // console.log('🎯 Dropping on another task');
             // Dropping on another task - insert BEFORE that task
             const targetTask = overData.task;
             targetColumnId = targetTask.columnId;
-            console.log('🎯 Target task data:', { targetTaskId: targetTask.id, targetTaskTitle: targetTask.title, targetTaskColumnId: targetTask.columnId, targetTaskPosition: targetTask.position });
+            // console.log('🎯 Target task data:', { targetTaskId: targetTask.id, targetTaskTitle: targetTask.title, targetTaskColumnId: targetTask.columnId, targetTaskPosition: targetTask.position });
             
             // For same-column moves: use target task position directly
             // For cross-column moves: use filtered array index for insertion
             if (targetColumnId === task.columnId) {
-              console.log('🎯 Same column move - inserting BEFORE target task');
+              // console.log('🎯 Same column move - inserting BEFORE target task');
               // Same column: insert BEFORE the target task
               // When dropping on another task, use a fractional position to ensure reordering
               // This prevents the "same position" validation from skipping the move
               position = (targetTask.position || 0) + 0.5;
-              console.log('🎯 Calculated position (fractional for reordering):', position);
+              // console.log('🎯 Calculated position (fractional for reordering):', position);
             } else {
               // Cross column: use insertion index in filtered array
               const targetColumn = columns[targetColumnId];
@@ -616,13 +703,13 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           const isSameColumn = targetColumnId === task.columnId;
           const isSamePosition = sourcePosition === position;
           
-          console.log('🎯 Validation check:', {
-            sourcePosition,
-            targetPosition: position,
-            isSameColumn,
-            isSamePosition,
-            willSkip: isSameColumn && isSamePosition
-          });
+          // console.log('🎯 Validation check:', {
+          //   sourcePosition,
+          //   targetPosition: position,
+          //   isSameColumn,
+          //   isSamePosition,
+          //   willSkip: isSameColumn && isSamePosition
+          // });
           
           // console.log('🔢 Position Calculation Debug:', {
           // taskId: task.id,
@@ -645,7 +732,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
           // ADDITIONAL FIX: Don't skip same-position moves when dropping on another task
           // The server-side reordering logic will handle position updates correctly
           if (isSameColumn && isSamePosition && overData?.type === 'task') {
-            console.log('🎯 Same position drop on task - allowing move for reordering');
+            // console.log('🎯 Same position drop on task - allowing move for reordering');
             // Don't return here - let the move proceed
           }
           
@@ -675,12 +762,59 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = ({
       } else if (activeData?.type === 'column') {
         // Handle column reordering
         const column = activeData.column as Column;
+        
+        // CRITICAL FIX: Check if over.id directly matches a column ID
+        // This handles cases where collision detection returns tasks but we can find the column
+        const overId = over?.id as string;
+        const isOverColumnId = overId && columns[overId];
+        
+        // If over.id is a column ID, use it directly
+        if (isOverColumnId && overId !== column.id) {
+          const targetColumn = columns[overId];
+          if (targetColumn) {
+            const targetPosition = Math.floor(targetColumn.position);
+            console.log('🔄 Column reorder via column ID:', column.id, '→ position', targetPosition);
+            await onColumnReorder(column.id, targetPosition);
+            return;
+          }
+        }
+        
+        // Handle column-top drop zone
+        if (overData?.type === 'column-top' || (overId && overId.toString().endsWith('-top-drop'))) {
+          const targetColumnId = overData?.columnId || overId?.toString().replace('-top-drop', '');
+          if (targetColumnId && targetColumnId !== column.id && columns[targetColumnId]) {
+            const targetColumn = columns[targetColumnId];
+            const targetPosition = Math.floor(targetColumn.position);
+            console.log('🔄 Column reorder via top drop zone:', column.id, '→ position', targetPosition);
+            await onColumnReorder(column.id, targetPosition);
+            return;
+          }
+        }
+        
+        // CRITICAL FIX: If we're dragging a column but ended on a task, find the parent column
+        // This happens when collision detection fails to filter out tasks, but we can recover
+        if (overData?.type === 'task') {
+          console.log('⚠️ Column drag ended on task - finding parent column');
+          const taskColumnId = overData.task?.columnId || overData.columnId;
+          if (taskColumnId && taskColumnId !== column.id) {
+            const targetColumn = columns[taskColumnId];
+            if (targetColumn) {
+              const targetPosition = Math.floor(targetColumn.position);
+              console.log('🔄 Column reorder via task parent:', column.id, '→ position', targetPosition);
+              await onColumnReorder(column.id, targetPosition);
+            }
+          }
+          return;
+        }
+        
+        // Only process if we dropped on another column (fallback for direct column drops)
         if (overData?.type === 'column' && overData.column?.id !== column.id) {
           // Ensure we use integer positions for reordering
           const targetPosition = Math.floor(overData.column.position);
           // console.log('🔄 Column reorder:', column.id, '→ position', targetPosition);
           await onColumnReorder(column.id, targetPosition);
         }
+        // Note: column-middle is for tasks only, not columns, so we don't handle it here
       }
     } catch (error) {
       // console.error('❌ Drag operation failed:', error);

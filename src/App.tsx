@@ -2662,12 +2662,12 @@ function AppContent() {
 
   // Handle moving task to different column via ListView dropdown or drag & drop
   const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string, position?: number) => {
-    console.log('🎯 handleMoveTaskToColumn called:', {
-      taskId,
-      targetColumnId,
-      position,
-      columnsCount: Object.keys(columns).length
-    });
+    // console.log('🎯 handleMoveTaskToColumn called:', {
+    //   taskId,
+    //   targetColumnId,
+    //   position,
+    //   columnsCount: Object.keys(columns).length
+    // });
 
     // Find the task and its current column
     let sourceTask: Task | null = null;
@@ -2681,40 +2681,40 @@ function AppContent() {
       }
     });
 
-    console.log('🎯 Task lookup result:', {
-      sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
-      sourceColumnId
-    });
+    // console.log('🎯 Task lookup result:', {
+    //   sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
+    //   sourceColumnId
+    // });
 
     if (!sourceTask || !sourceColumnId) {
-      console.log('🎯 Task not found, returning early');
+      // console.log('🎯 Task not found, returning early');
       return; // Task not found
     }
 
     const targetColumn = columns[targetColumnId];
     if (!targetColumn) {
-      console.log('🎯 Target column not found:', targetColumnId);
+      // console.log('🎯 Target column not found:', targetColumnId);
       return;
     }
 
     // If no position specified, move to end of target column
     const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
     
-    console.log('🎯 Move decision:', {
-      sourceColumnId,
-      targetColumnId,
-      targetIndex,
-      isSameColumn: sourceColumnId === targetColumnId
-    });
+    // console.log('🎯 Move decision:', {
+    //   sourceColumnId,
+    //   targetColumnId,
+    //   targetIndex,
+    //   isSameColumn: sourceColumnId === targetColumnId
+    // });
     
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
       // Same column - use reorder logic
-      console.log('🎯 Calling handleSameColumnReorder');
+      // console.log('🎯 Calling handleSameColumnReorder');
       await handleSameColumnReorderWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
       // Different columns - use cross-column move logic
-      console.log('🎯 Calling handleCrossColumnMove');
+      // console.log('🎯 Calling handleCrossColumnMove');
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   };
@@ -3294,7 +3294,7 @@ function AppContent() {
   return (
     <TourProvider currentUser={currentUser} onViewModeChange={handleViewModeChange} onPageChange={handlePageChange}>
       <ThemeProvider>
-        <div className="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col">
+        <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--main-bg)' }}>
       {/* Demo Reset Counter is now rendered in Header component */}
       
       {/* New Enhanced Drag & Drop System */}
@@ -3309,8 +3309,17 @@ function AppContent() {
           try {
             await reorderColumns(columnId, newPosition, selectedBoard || '');
             await renumberColumns(selectedBoard || ''); // Ensure clean positions
-            await fetchQueryLogs();
-            await refreshBoardData();
+            
+            // Defer non-critical updates to avoid forced reflows during drag end
+            // Use requestAnimationFrame to batch DOM reads/writes
+            requestAnimationFrame(() => {
+              // Defer query logs and board refresh to next frame
+              // This prevents forced reflows during the drag end handler
+              setTimeout(() => {
+                fetchQueryLogs();
+                refreshBoardData();
+              }, 0);
+            });
           } catch (error) {
             // console.error('Failed to reorder column:', error);
             await refreshBoardData();
@@ -3416,39 +3425,10 @@ function AppContent() {
                     onRemoveBoard={handleRemoveBoard}
                     onReorderBoards={handleBoardReorder}
         getTaskCountForBoard={getTaskCountForBoard}
-                        onDragStart={(event) => {
-                          // Clear any previous drag preview
-                          setDragPreview(null);
-                          
-                          // Determine if dragging a column or task
-                          const draggedItem = Object.values(columns).find(col => col.id === event.active.id);
-                          if (draggedItem) {
-                            // Column drag
-                            handleColumnDragStart(event);
-                          } else {
-                            // Task drag - find the task
-                            Object.values(columns).forEach(column => {
-                              const task = column.tasks.find(t => t.id === event.active.id);
-                              if (task) {
-                                handleTaskDragStart(task);
-                              }
-                            });
-                          }
-                        }}
-                        onDragEnd={(event) => {
-                          // Clear drag preview
-                          setDragPreview(null);
-                          
-                          // Determine if it was a column or task drag
-                          const draggedColumn = Object.values(columns).find(col => col.id === event.active.id);
-                          if (draggedColumn && currentUser?.roles?.includes('admin')) {
-                            // Column drag (admin only)
-                            handleColumnDragEnd(event);
-                          } else {
-                            // Task drag
-                            handleUnifiedTaskDragEnd(event);
-                          }
-                        }}
+                        // NOTE: onDragStart and onDragEnd are handled by SimpleDragDropManager
+                        // Pass no-op functions to satisfy interface - SimpleDragDropManager handles all drags
+                        onDragStart={() => {}}
+                        onDragEnd={() => {}}
                                     onAddTask={handleAddTask}
                                     columnWarnings={columnWarnings}
                                     onDismissColumnWarning={handleDismissColumnWarning}
@@ -3559,6 +3539,7 @@ function AppContent() {
       {/* Enhanced Drag Overlay */}
       <SimpleDragOverlay 
         draggedTask={draggedTask}
+        draggedColumn={draggedColumn}
         members={members}
         isHoveringBoardTab={isHoveringBoardTab}
       />

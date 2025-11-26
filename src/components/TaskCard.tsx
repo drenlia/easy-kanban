@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { Clock, MessageCircle, Calendar, Paperclip, Pencil } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
-import QuickEditModal from './QuickEditModal';
 import TaskCardToolbar from './TaskCardToolbar';
 import AddCommentModal from './AddCommentModal';
 import DateRangePicker from './DateRangePicker';
@@ -54,6 +53,7 @@ interface TaskCardProps {
   onDragEnd: () => void;
   onSelect: (task: Task | null, options?: { scrollToComments?: boolean }) => void;
   isDragDisabled?: boolean;
+  isColumnBeingDragged?: boolean; // Disable task droppable when column is being dragged
   taskViewMode?: TaskViewMode;
   availablePriorities?: PriorityOption[];
   selectedTask?: Task | null;
@@ -97,6 +97,7 @@ const TaskCard = React.memo(function TaskCard({
   onDragEnd,
   onSelect,
   isDragDisabled = false,
+  isColumnBeingDragged = false,
   taskViewMode = 'expand',
   availablePriorities = [],
   selectedTask = null,
@@ -126,7 +127,6 @@ const TaskCard = React.memo(function TaskCard({
   availableSprints: propSprints
 }: TaskCardProps) {
   const { t } = useTranslation('tasks');
-  const [showQuickEdit, setShowQuickEdit] = useState(false);
   const [showMemberSelect, setShowMemberSelect] = useState(false);
   const [showCommentTooltip, setShowCommentTooltip] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
@@ -267,7 +267,7 @@ const TaskCard = React.memo(function TaskCard({
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
 
   // Check if any editing is active to disable drag
-  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showQuickEdit || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
+  const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -317,6 +317,7 @@ const TaskCard = React.memo(function TaskCard({
   }, [originalListeners]);
 
   // @dnd-kit droppable hook for cross-column insertion
+  // CRITICAL: Disable task droppable when a column is being dragged to prevent interference
   const { setNodeRef: setDroppableRef } = useDroppable({
     id: `${task.id}-drop`,
     data: {
@@ -324,7 +325,8 @@ const TaskCard = React.memo(function TaskCard({
       task: task,
       columnId: task.columnId,
       position: task.position
-    }
+    },
+    disabled: isColumnBeingDragged // Disable when column drag is active
   });
 
   // Combine both refs
@@ -337,6 +339,9 @@ const TaskCard = React.memo(function TaskCard({
     transform: CSS.Transform.toString(transform),
     transition: transition || 'transform 200ms ease',
     zIndex: isDragging ? 1000 : 'auto',
+    // CRITICAL: Disable pointer events on tasks when a column is being dragged
+    // This allows the column droppable to be detected even when tasks cover it
+    pointerEvents: isColumnBeingDragged ? 'none' : 'auto',
   };
 
   const formatDate = (dateStr: string) => {
@@ -1112,12 +1117,21 @@ const TaskCard = React.memo(function TaskCard({
           setNodeRef(node);
           setCardElement(node);
         }}
-        style={{ ...style, borderLeft: `4px solid ${member.color}` }}
+        style={{ 
+          ...style, 
+          borderLeft: `4px solid ${member.color}`,
+          // Use CSS variable for background to prevent flash - ensures correct color immediately
+          backgroundColor: isSelected 
+            ? undefined 
+            : member.id === SYSTEM_MEMBER_ID 
+              ? undefined 
+              : 'var(--task-card-bg)'
+        }}
         className={`task-card sortable-item cursor-pointer ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
-          'bg-white dark:bg-gray-800'
-        } p-4 rounded-lg shadow-sm relative transition-all duration-200 ${
+          '' // Background now handled by CSS variable in style to prevent flash
+        } p-4 rounded-lg shadow-sm relative ${
           isDragging ? 'opacity-90 scale-105 shadow-2xl rotate-2 ring-2 ring-blue-400' : 'hover:shadow-md'
         } ${
           isLinkingMode && linkingSourceTask?.id !== task.id 
@@ -1241,7 +1255,6 @@ const TaskCard = React.memo(function TaskCard({
           onEdit={onEdit}
           onSelect={onSelect}
           onRemove={onRemove}
-          onShowQuickEdit={() => setShowQuickEdit(true)}
           onAddComment={handleAddComment}
           onMemberChange={handleMemberChange}
           onToggleMemberSelect={() => setShowMemberSelect(!showMemberSelect)}
@@ -1823,18 +1836,6 @@ const TaskCard = React.memo(function TaskCard({
       )}
 
 
-
-      {showQuickEdit && (
-        <QuickEditModal
-          task={task}
-          members={members}
-          onClose={() => {
-            setShowQuickEdit(false);
-            setDndGloballyDisabled(false);
-          }}
-          onSave={onEdit}
-        />
-      )}
 
       {/* Add Comment Modal */}
       <AddCommentModal

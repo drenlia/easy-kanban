@@ -21,7 +21,6 @@ interface TaskCardToolbarProps {
   onEdit: (task: Task) => void;
   onSelect: (task: Task, options?: { scrollToComments?: boolean }) => void;
   onRemove: (taskId: string, event?: React.MouseEvent) => void;
-  onShowQuickEdit: () => void;
   onAddComment?: () => void;
   onMemberChange: (memberId: string) => void;
   onToggleMemberSelect: () => void;
@@ -60,7 +59,6 @@ export default function TaskCardToolbar({
   onEdit,
   onSelect,
   onRemove,
-  onShowQuickEdit: _onShowQuickEdit,
   onAddComment,
   onMemberChange,
   onToggleMemberSelect,

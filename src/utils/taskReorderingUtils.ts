@@ -31,16 +31,16 @@ export const handleSameColumnReorder = async (
   
   const currentIndex = columnTasks.findIndex(t => t.id === task.id);
 
-  console.log('🔄 handleSameColumnReorder called:', {
-    taskId: task.id,
-    taskTitle: task.title,
-    taskPosition: task.position,
-    columnId,
-    newIndex,
-    currentIndex,
-    columnTasksCount: columnTasks.length,
-    columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
-  });
+  // console.log('🔄 handleSameColumnReorder called:', {
+  //   taskId: task.id,
+  //   taskTitle: task.title,
+  //   taskPosition: task.position,
+  //   columnId,
+  //   newIndex,
+  //   currentIndex,
+  //   columnTasksCount: columnTasks.length,
+  //   columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
+  // });
 
   // Check if reorder is actually needed
   // BUT: Allow reordering when dropping on another task (even if same position)

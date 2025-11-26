@@ -5,14 +5,18 @@ import { Task, TeamMember } from '../../types';
 import DOMPurify from 'dompurify';
 import { getAuthenticatedAttachmentUrl } from '../../utils/authImageUrl';
 
+import { Column } from '../../types';
+
 interface SimpleDragOverlayProps {
   draggedTask: Task | null;
+  draggedColumn: Column | null;
   members: TeamMember[];
   isHoveringBoardTab?: boolean;
 }
 
 export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({ 
-  draggedTask, 
+  draggedTask,
+  draggedColumn,
   members, 
   isHoveringBoardTab = false 
 }) => {
@@ -20,7 +24,10 @@ export const SimpleDragOverlay: React.FC<SimpleDragOverlayProps> = ({
     <DndKitDragOverlay 
       dropAnimation={null}
     >
-      {draggedTask ? (
+      {draggedColumn ? (
+        // Column drag preview
+        <ColumnDragPreview column={draggedColumn} />
+      ) : draggedTask ? (
         isHoveringBoardTab ? (
           // Small corner indicator when hovering over board tabs
           <SmallTaskIndicator 
@@ -98,6 +105,24 @@ const TaskDragPreview: React.FC<{ task: Task; member?: TeamMember }> = ({ task, 
       <div className="flex items-center justify-between text-xs text-gray-500">
         <span>Moving...</span>
         {member && <span>@{member.name}</span>}
+      </div>
+    </div>
+  );
+};
+
+// Column drag preview
+const ColumnDragPreview: React.FC<{ column: Column }> = ({ column }) => {
+  const taskCount = column.tasks?.length || 0;
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl border-2 border-blue-400 p-4 w-64 transform rotate-2 scale-105 opacity-95 ring-2 ring-blue-300">
+      <div className="flex flex-col items-center justify-center py-4">
+        <div className="text-3xl mb-2">📋</div>
+        <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 text-center mb-1">
+          {column.title}
+        </div>
+        <div className="text-xs text-gray-500 dark:text-gray-400">
+          {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
+        </div>
       </div>
     </div>
   );

@@ -99,6 +99,7 @@
     "addTask": "Add Task",
     "dropHere": "Drop here",
     "dropTaskHere": "Drop task here!",
+    "dropColumnHere": "Drop here",
     "dropZone": "Drop zone",
     "releaseToPlace": "Release to place task",
     "networkOffline": "Network Offline - Changes Disabled",
@@ -142,9 +143,7 @@
     "adding": "Adding...",
     "updateComment": "Update Comment"
   },
-  "quickEditModal": {
-    "title": "Quick Edit Task"
-  },
+
   "listView": {
     "showHideColumns": "Show/Hide Columns",
     "copyTask": "Copy Task",

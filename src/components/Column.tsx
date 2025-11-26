@@ -342,24 +342,62 @@ export default function KanbanColumn({
     }
   });
 
-  // Use droppable hook for middle task area - only for cross-column moves
+  // Use droppable hook for the column container itself - for column-to-column drops
+  const { setNodeRef: setColumnDroppableRef, isOver: isColumnOver } = useDroppable({
+    id: column.id, // Use column ID directly for column-to-column drops
+    data: {
+      type: 'column',
+      column: column,
+      columnId: column.id
+    },
+    // Only disable when dragging a task (not when dragging a column - we need column drops to work!)
+    disabled: !!draggedTask && !draggedColumn
+  });
+
+  // Use droppable hook for the top drop zone - shows "Drop here" above column header
+  const { setNodeRef: setTopDropZoneRef, isOver: isTopDropZoneOver } = useDroppable({
+    id: `${column.id}-top-drop`,
+    data: {
+      type: 'column-top',
+      column: column,
+      columnId: column.id
+    },
+    // Only active when dragging a column (not the same column)
+    disabled: !draggedColumn || draggedColumn.id === column.id
+  });
+
+  // Use droppable hook for middle task area - only for cross-column task moves
   const { setNodeRef: setDroppableRef, isOver } = useDroppable({
     id: `${column.id}-middle`,
     data: {
-      type: 'column',
+      type: 'column-middle',
       columnId: column.id
     },
     // Only accept drops if it's a cross-column move OR if this column would be empty after drag
     // This fixes the issue where single-task columns become undraggable
-    disabled: draggedTask?.columnId === column.id && filteredTasks.length > 1
+    // Disable when dragging a task from this column OR when dragging a column (use column droppable instead)
+    disabled: (draggedTask?.columnId === column.id && filteredTasks.length > 1) || !!draggedColumn
   });
 
   // Simplified: Only one main droppable area per column
   // The precise positioning will be handled by task-to-task collision detection
 
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
+    // CRITICAL: Prevent ALL columns from shifting during drag
+    // Only the dragged column should move (via DragOverlay), all others stay in place
+    // When dragging a column, rectSortingStrategy tries to shift other columns - we prevent this
+    transform: (draggedColumn && draggedColumn.id !== column.id) 
+      ? 'none'  // Other columns: no transform (stay in place)
+      : (isDragging 
+        ? 'none'  // Dragged column: no transform (shown in DragOverlay instead)
+        : CSS.Transform.toString(transform)),  // Normal state: apply transform
+    // CRITICAL: Disable transition during drag for smooth mouse following
+    transition: (draggedColumn && draggedColumn.id !== column.id) || isDragging 
+      ? 'none' 
+      : transition,
+    // Ensure smooth rendering during drag
+    backfaceVisibility: 'hidden' as const,
+    WebkitBackfaceVisibility: 'hidden' as const,
   };
 
   // Note: Now using filteredTasks prop instead of calculating here
@@ -425,6 +463,31 @@ export default function KanbanColumn({
   const renderTaskList = React.useCallback(() => {
     const taskElements: React.ReactNode[] = [];
     
+    // PERFORMANCE OPTIMIZATION: When dragging a column, render a simplified placeholder
+    // instead of all tasks to prevent rendering 100+ task cards during drag
+    // NOTE: The column container itself will follow the mouse via transform,
+    // this placeholder just reduces rendering cost
+    // CRITICAL: Only show placeholder for the column being dragged, not others
+    // Other columns need to render normally so rectSortingStrategy can transform them
+    if (isDragging && draggedColumn && draggedColumn.id === column.id) {
+      const taskCount = filteredTasks.length;
+      return [
+        <div
+          key="column-drag-placeholder"
+          className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400 pointer-events-none"
+          style={{
+            // Prevent blur/distortion
+            imageRendering: 'crisp-edges',
+            WebkitFontSmoothing: 'antialiased',
+          }}
+        >
+          <div className="text-2xl mb-2">📋</div>
+          <div className="text-sm font-medium">{column.title}</div>
+          <div className="text-xs mt-1">{taskCount} {taskCount === 1 ? t('column.task') : t('column.tasks')}</div>
+        </div>
+      ];
+    }
+    
     // Simple approach: render tasks in order with minimal changes
     const tasksToRender = [...filteredTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
     
@@ -482,7 +545,8 @@ export default function KanbanColumn({
             siteSettings={siteSettings}
             columnIsFinished={column.is_finished || false}
             columnIsArchived={column.is_archived || false}
-            isDragDisabled={false}
+            isDragDisabled={!!draggedColumn}
+            isColumnBeingDragged={!!draggedColumn}
             taskViewMode={taskViewMode}
             availablePriorities={availablePriorities}
             selectedTask={selectedTask}
@@ -529,23 +593,70 @@ export default function KanbanColumn({
     }
     
     return taskElements;
-  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id]);
+  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t]);
 
-  const isBeingDraggedOver = draggedColumn && draggedColumn.id !== column.id;
-  
-  // Use only sortable ref for the main column container
+  // Combine sortable and column droppable refs for the column container
+  const setColumnRef = (node: HTMLElement | null) => {
+    setNodeRef(node);
+    setColumnDroppableRef(node);
+  };
 
   return (
     <div 
-      ref={setNodeRef}
-      style={style}
-      className={`sortable-item bg-gray-50 dark:bg-gray-800 rounded-lg p-4 flex flex-col min-h-[200px] transition-all duration-200 ease-in-out ${
-        isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''
+      ref={setColumnRef}
+      style={{
+        ...style,
+        // CRITICAL: Ensure column container can receive pointer events even when tasks cover it
+        // This is essential for column-to-column drops when there are many tasks
+        position: 'relative',
+        zIndex: isDragging ? 1000 : 'auto',
+        // CRITICAL: When dragging, hide the original column (it's shown in DragOverlay)
+        // Other columns stay visible and in place - no shifting
+        opacity: isDragging ? 0.3 : 1,
+        // Ensure the column can be transformed (not fixed position)
+        willChange: isDragging ? 'transform' : 'auto',
+        // Prevent blur/distortion during drag
+        imageRendering: isDragging ? 'crisp-edges' : 'auto',
+        WebkitFontSmoothing: isDragging ? 'antialiased' : 'auto',
+      }}
+      className={`sortable-item column-container rounded-lg p-4 flex flex-col min-h-[200px] ${
+        isDragging ? 'cursor-grabbing' : 'transition-all duration-200 ease-in-out'
       } ${
-        isOver && draggedTask && draggedTask.columnId !== column.id ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900 border-2 border-blue-400' : 'hover:bg-gray-100 dark:hover:bg-gray-700 border border-transparent'
+        (isOver && draggedTask && draggedTask.columnId !== column.id) || 
+        (isColumnOver && draggedColumn && draggedColumn.id !== column.id)
+          ? 'ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-900 border-2 border-blue-400' 
+          : 'border border-transparent'
       }`}
       {...attributes}
     >
+      {/* Top Drop Zone - Shows "Drop here" when dragging a column over this column */}
+      {draggedColumn && draggedColumn.id !== column.id && (
+        <div
+          ref={setTopDropZoneRef}
+          className={`mb-2 transition-all duration-200 min-h-[48px] ${
+            isTopDropZoneOver 
+              ? 'opacity-100' 
+              : 'opacity-40'
+          }`}
+        >
+          <div className={`bg-blue-100 dark:bg-blue-900 border-2 border-dashed rounded-lg flex items-center justify-center py-2 px-4 transition-all duration-200 ${
+            isTopDropZoneOver
+              ? 'border-blue-500 dark:border-blue-400 shadow-lg scale-105'
+              : 'border-blue-300 dark:border-blue-700'
+          }`}>
+            <div className={`text-sm font-medium flex items-center gap-2 transition-colors ${
+              isTopDropZoneOver
+                ? 'text-blue-700 dark:text-blue-300'
+                : 'text-blue-600 dark:text-blue-400'
+            }`}>
+              <div className={`w-2 h-2 bg-blue-500 rounded-full ${isTopDropZoneOver ? 'animate-pulse' : ''}`}></div>
+              {t('column.dropColumnHere', { ns: 'tasks' })}
+              <div className={`w-2 h-2 bg-blue-500 rounded-full ${isTopDropZoneOver ? 'animate-pulse' : ''}`}></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Column Warning Message */}
       {columnWarnings && columnWarnings[column.id] && (
         <div className="mb-3 bg-yellow-100 dark:bg-yellow-900 border border-yellow-400 dark:border-yellow-600 text-yellow-800 dark:text-yellow-200 px-3 py-2 rounded-md text-sm font-medium flex items-start justify-between">
@@ -777,11 +888,16 @@ export default function KanbanColumn({
                   ref={setDeleteButtonRef}
                   onClick={(e) => {
                     // Capture column header position for dialog alignment
+                    // Defer DOM read to avoid forced reflow during event handler
                     if (columnHeaderRef.current) {
-                      const headerRect = columnHeaderRef.current.getBoundingClientRect();
-                      setDeleteButtonPosition({
-                        top: headerRect.bottom + 8,
-                        left: headerRect.left
+                      requestAnimationFrame(() => {
+                        if (columnHeaderRef.current) {
+                          const headerRect = columnHeaderRef.current.getBoundingClientRect();
+                          setDeleteButtonPosition({
+                            top: headerRect.bottom + 8,
+                            left: headerRect.left
+                          });
+                        }
                       });
                     }
                     onRemoveColumn(column.id);
@@ -852,6 +968,13 @@ export default function KanbanColumn({
               className={`min-h-[200px] pb-4 flex-1 transition-colors duration-200 ${
                 isOver ? 'bg-blue-50 rounded-lg' : ''
               }`}
+              style={{
+                // CRITICAL: Ensure column droppable can receive pointer events even when tasks cover it
+                // This allows column-to-column drops to work when there are many tasks
+                pointerEvents: draggedColumn ? 'auto' : 'auto',
+                position: 'relative',
+                zIndex: draggedColumn ? 1 : 'auto',
+              }}
             >
               <div>
                 {renderTaskList()}

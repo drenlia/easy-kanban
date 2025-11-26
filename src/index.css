@@ -2,17 +2,91 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prevent flash of light content in dark mode */
+@layer base {
+  html.dark {
+    color-scheme: dark;
+  }
+  
+  /* Ensure task cards render with correct background immediately to prevent flash */
+  /* Only apply to default task cards (not selected, not system, not special states) */
+  .task-card:not(.bg-gray-100):not(.bg-yellow-50):not(.bg-blue-50):not(.bg-blue-100):not(.bg-green-50):not(.bg-purple-50):not(.bg-yellow-50):not(.bg-gray-700):not(.bg-yellow-900):not(.bg-blue-900):not(.bg-green-900):not(.bg-purple-900) {
+    background-color: var(--task-card-bg) !important;
+  }
+  
+  /* Prevent column background flash - use CSS variable for default state */
+  .column-container {
+    background-color: var(--column-bg) !important;
+  }
+  
+  /* Allow hover states to work */
+  .column-container:hover {
+    background-color: var(--column-hover-bg) !important;
+  }
+  
+}
+
+/* Prevent scrollable container flash - apply outside @layer for higher priority */
+/* This ensures the background is applied immediately, even during React re-renders */
+/* Use direct colors for light mode, CSS variable for dark mode to prevent flash */
+div[data-tour-id="kanban-columns"],
+.kanban-scrollable-container,
+.overflow-x-auto.w-full,
+.board-drop-area,
+.main-layout-container,
+.kanban-columns-container {
+  /* Light mode default */
+  background-color: rgb(249, 250, 251) !important; /* gray-50 */
+  /* Hint browser to optimize for background changes */
+  will-change: background-color;
+  /* Ensure background is painted immediately */
+  contain: paint;
+}
+
+/* Dark mode override */
+.dark div[data-tour-id="kanban-columns"],
+.dark .kanban-scrollable-container,
+.dark .overflow-x-auto.w-full,
+.dark .board-drop-area,
+.dark .main-layout-container,
+.dark .kanban-columns-container {
+  background-color: rgb(17, 24, 39) !important; /* gray-900 */
+}
+
+/* Also ensure body/html have correct background to prevent any flash */
+html {
+  background-color: var(--main-bg) !important;
+}
+
+body {
+  background-color: var(--main-bg) !important;
+}
+
 /* CSS Variables for Recharts Tooltips */
 :root {
   --tooltip-bg: #ffffff;
   --tooltip-border: #e5e7eb;
   --tooltip-text: #111827;
+  --scrollbar-thumb: rgb(203, 213, 225); /* gray-300 */
+  --scrollbar-track: rgb(241, 245, 249); /* gray-100 */
+  --task-card-bg: rgb(255, 255, 255); /* white */
+  --column-bg: rgb(249, 250, 251); /* gray-50 */
+  --column-hover-bg: rgb(243, 244, 246); /* gray-100 */
+  --page-bg: rgb(249, 250, 251); /* gray-50 */
+  --main-bg: rgb(243, 244, 246); /* gray-100 */
 }
 
 .dark {
   --tooltip-bg: #1f2937;
   --tooltip-border: #374151;
   --tooltip-text: #f9fafb;
+  --scrollbar-thumb: rgb(55, 65, 81); /* gray-700 - darker to blend better */
+  --scrollbar-track: rgb(17, 24, 39); /* gray-900 - matches main background */
+  --task-card-bg: rgb(31, 41, 55); /* gray-800 - matches dark mode */
+  --column-bg: rgb(31, 41, 55); /* gray-800 */
+  --column-hover-bg: rgb(55, 65, 81); /* gray-700 */
+  --page-bg: rgb(17, 24, 39); /* gray-900 */
+  --main-bg: rgb(17, 24, 39); /* gray-900 */
 }
 
 /* Disable drag-and-drop when comment tooltip is active (JS version) */

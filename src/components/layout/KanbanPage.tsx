@@ -687,7 +687,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
           ) : (
             <>
               {/* Columns Navigation Container */}
-          <div className="relative">
+          <div className="relative kanban-columns-container">
             {/* Left scroll button - positioned outside board */}
             {canScrollLeft && (
               <button
@@ -719,10 +719,11 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
             {/* Scrollable columns container */}
             <div
               ref={columnsContainerRef}
-              className="overflow-x-auto w-full"
+              className="overflow-x-auto w-full kanban-scrollable-container"
               style={{ 
                 scrollbarWidth: 'thin',
-                scrollbarColor: '#CBD5E1 #F1F5F9'
+                scrollbarColor: 'var(--scrollbar-thumb) var(--scrollbar-track)'
+                // Background handled by CSS class to prevent flash
               }}
               data-tour-id="kanban-columns"
             >
@@ -804,7 +805,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                           />
                           {/* Resize handle between columns (not after the last one) */}
                           {index < array.length - 1 && onColumnWidthResize && (
-                            <ColumnResizeHandle onResize={onColumnWidthResize} />
+                            <ColumnResizeHandle onResize={onColumnWidthResize} isColumnBeingDragged={!!draggedColumn} />
                           )}
                         </div>
                       </React.Fragment>
@@ -909,7 +910,14 @@ const BoardDropArea: React.FC<{ selectedBoard: string | null; style: React.CSSPr
   });
 
   return (
-    <div ref={setNodeRef} style={style}>
+    <div 
+      ref={setNodeRef} 
+      className="board-drop-area"
+      style={{
+        ...style
+        // Background handled by CSS class to prevent flash
+      }}
+    >
       {children}
     </div>
   );

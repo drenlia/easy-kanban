@@ -99,6 +99,7 @@
     "addTask": "Ajouter une tâche",
     "dropHere": "Déposer ici",
     "dropTaskHere": "Déposer la tâche ici !",
+    "dropColumnHere": "Déposer ici",
     "dropZone": "Zone de dépôt",
     "releaseToPlace": "Relâcher pour placer la tâche",
     "networkOffline": "Hors ligne - Modifications désactivées",
@@ -142,9 +143,7 @@
     "adding": "Ajout...",
     "updateComment": "Mettre à jour le commentaire"
   },
-  "quickEditModal": {
-    "title": "Modification rapide de la tâche"
-  },
+
   "listView": {
     "showHideColumns": "Afficher/Masquer les colonnes",
     "copyTask": "Copier la tâche",
