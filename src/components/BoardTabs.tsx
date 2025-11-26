@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
 import { Board, Task } from '../types';
 import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -247,8 +247,8 @@ const SortableBoardTab: React.FC<{
           onDoubleClick={onEdit}
           className={`px-4 py-3 pl-6 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
             isSelected
-              ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
-              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-b-2 border-blue-500 dark:border-blue-400'
+              : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700'
           } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
           title={t('boardTabs.clickToSelectDoubleClickToRename')}
         >
@@ -270,10 +270,10 @@ const SortableBoardTab: React.FC<{
               e.stopPropagation();
               onRemove();
             }}
-            className="absolute -top-1 -right-1 p-1 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-gray-700 hover:bg-gray-100/50"
+            className="absolute -top -right-1 p-1.5 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600"
             title={t('boardTabs.deleteBoard')}
           >
-            <span className="text-xs font-bold">×</span>
+            <Trash2 size={12} />
           </button>
         )}
       </div>
@@ -332,15 +332,15 @@ const RegularBoardTab: React.FC<{
         onClick={onSelect}
         className={`px-4 py-3 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
           isSelected
-            ? 'bg-blue-50 text-blue-700 border-b-2 border-blue-500'
-            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-b-2 border-blue-500 dark:border-blue-400'
+            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700'
         }`}
         title={t('boardTabs.clickToSelectBoard')}
       >
         <div className="flex items-center gap-2">
           <span>{board.title}</span>
           {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
               {taskCount}
             </span>
           )}
