@@ -94,7 +94,6 @@ import { SimpleDragDropManager } from './components/dnd/SimpleDragDropManager';
 import SimpleDragOverlay from './components/dnd/SimpleDragOverlay';
 import { SYSTEM_MEMBER_ID, WEBSOCKET_THROTTLE_MS } from './constants/appConstants';
 import { checkInstanceStatusOnError, getDefaultPriorityName } from './utils/appHelpers';
-import PerfTestConsole from './features/perftest/PerfTestConsole';
 
 // Extend Window interface for WebSocket flags
 declare global {
@@ -121,7 +120,6 @@ function AppContent() {
   // Use SettingsContext instead of local state
   const { systemSettings, siteSettings, refreshSettings: refreshContextSettings } = useSettings();
   const [kanbanColumnWidth, setKanbanColumnWidth] = useState<number>(300); // Default 300px
-  const [showPerfTestConsole, setShowPerfTestConsole] = useState(false);
   
   // User Status for permission refresh
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
@@ -3578,35 +3576,12 @@ function AppContent() {
       {/* Toast Notifications */}
       <ToastContainer />
 
-      {/* Performance Test Console Toggle Button - Admin Only */}
-      {currentUser?.roles?.includes('admin') && !showPerfTestConsole && (
-        <button
-          onClick={() => {
-            console.log('Opening Perf Test Console');
-            setShowPerfTestConsole(true);
-          }}
-          className="fixed top-2 left-2 z-50 bg-blue-500 hover:bg-blue-600 text-white text-xs px-3 py-1.5 rounded shadow-lg font-medium"
-          title="Open Performance Test Console"
-          style={{ zIndex: 9999 }}
-        >
-          ⚡ Perf Test
-        </button>
-      )}
-      
       {/* Debug: Log admin status */}
       {process.env.NODE_ENV === 'development' && (
         <div className="fixed bottom-2 left-2 text-xs bg-black/50 text-white p-1 rounded z-50">
           Admin: {currentUser?.roles?.includes('admin') ? 'Yes' : 'No'} | 
           User: {currentUser?.email || 'Not logged in'}
         </div>
-      )}
-
-      {/* Performance Test Console - Admin Only */}
-      {currentUser?.roles?.includes('admin') && (
-        <PerfTestConsole
-          isVisible={showPerfTestConsole}
-          onClose={() => setShowPerfTestConsole(false)}
-        />
       )}
       </ThemeProvider>
     </TourProvider>
