@@ -316,5 +316,6 @@ export default function ManageFiltersModal({
         </div>
       </div>
     </div>
+    </div>
   );
 }

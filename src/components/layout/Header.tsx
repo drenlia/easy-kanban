@@ -661,7 +661,7 @@ const Header: React.FC<HeaderProps> = ({
           {/* Manual refresh button */}
           <button
             onClick={handleRefresh}
-            className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
+            className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title={t('navigation.refreshDataNow')}
           >
             <RefreshCw size={16} />
@@ -671,11 +671,7 @@ const Header: React.FC<HeaderProps> = ({
           {currentUser?.roles?.includes('admin') && (
             <button
               onClick={handleSystemPanelToggle}
-              className={`p-1.5 hover:bg-gray-50 rounded-full transition-colors ${
-                showSystemPanel 
-                  ? 'text-gray-700 hover:text-gray-900' 
-                  : 'text-gray-400 hover:text-gray-600'
-              }`}
+              className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               title={showSystemPanel ? t('navigation.hideSystemPanel') || 'Hide system panel' : t('navigation.showSystemPanel') || 'Show system panel'}
               data-tour-id="system-panel-toggle"
             >
@@ -689,7 +685,7 @@ const Header: React.FC<HeaderProps> = ({
           
           <button
             onClick={onHelpClick}
-            className="p-1.5 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-700"
+            className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title={t('navigation.help')}
             data-tour-id="help-button"
           >
@@ -701,7 +697,7 @@ const Header: React.FC<HeaderProps> = ({
             {...(siteSettings.SITE_OPENS_NEW_TAB === undefined || siteSettings.SITE_OPENS_NEW_TAB === 'true' 
               ? { target: '_blank', rel: 'noopener noreferrer' } 
               : {})}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
           >
             <Github size={20} />
           </a>
