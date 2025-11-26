@@ -25,10 +25,18 @@ export function lazyWithRetry<T extends ComponentType<any>>(
     try {
       return await importFn();
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Only treat as version mismatch if it's a 404 (missing chunk file), not server errors (500, etc.)
+      // Server errors indicate deployment issues, not version mismatches
+      const isServerError = errorMessage.includes('500') || 
+                           errorMessage.includes('/src/') ||
+                           errorMessage.includes('Internal Server Error');
+      
       // Check if this is a version mismatch error (old bundle trying to load non-existent chunk)
       const isVersionMismatch = error instanceof TypeError && 
-        (error.message.includes('Failed to fetch dynamically imported module') ||
-         error.message.includes('Failed to fetch'));
+        errorMessage.includes('Failed to fetch dynamically imported module') &&
+        !isServerError;
       
       if (isVersionMismatch) {
         // If we've exhausted retries, this is likely a version mismatch
@@ -38,7 +46,6 @@ export function lazyWithRetry<T extends ComponentType<any>>(
           console.error('   Forcing hard reload to get new JavaScript bundles...');
           
           // Force a hard reload (bypass cache) to ensure we get the new JavaScript bundles
-          // Remove any existing query parameters first to avoid interfering with asset loading
           const baseUrl = window.location.origin + window.location.pathname;
           window.location.href = baseUrl;
           
@@ -52,14 +59,17 @@ export function lazyWithRetry<T extends ComponentType<any>>(
         return retryImport(attempt + 1);
       }
       
-      // If this is a network error and we have retries left, try again
-      if (attempt < retries && error instanceof TypeError && error.message.includes('Failed to fetch')) {
+      // If this is a network error (but not a server error) and we have retries left, try again
+      if (attempt < retries && 
+          error instanceof TypeError && 
+          errorMessage.includes('Failed to fetch') &&
+          !isServerError) {
         console.warn(`Failed to load module (attempt ${attempt}/${retries}), retrying in ${retryDelay}ms...`, error);
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         return retryImport(attempt + 1);
       }
       
-      // Re-throw the error if we're out of retries or it's a different error
+      // Re-throw the error if we're out of retries, it's a server error, or it's a different error
       throw error;
     }
   };

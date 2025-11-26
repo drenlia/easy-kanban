@@ -3616,21 +3616,34 @@ function AppContent() {
 // Main App component that wraps everything with SettingsProvider
 export default function App() {
   // Global error handler for dynamic import failures (version mismatches)
+  // Only handles 404 errors for missing chunk files, not server errors (500, etc.)
   useEffect(() => {
     const handleError = (event: ErrorEvent) => {
-      // Check if this is a dynamic import failure (version mismatch)
+      // Only handle dynamic import failures that are 404s (missing chunk files)
+      // Ignore server errors (500, etc.) as those are deployment issues, not version mismatches
       if (event.error instanceof TypeError && 
           event.error.message?.includes('Failed to fetch dynamically imported module')) {
-        console.error('❌ Dynamic import failure detected (likely version mismatch):', event.error);
-        console.error('   Forcing hard reload to get new JavaScript bundles...');
-        
-        // Prevent default error handling
-        event.preventDefault();
-        
-        // Force a hard reload (bypass cache)
-        // Remove any existing query parameters first to avoid interfering with asset loading
-        const baseUrl = window.location.origin + window.location.pathname;
-        window.location.href = baseUrl;
+        // Check if this is a 404 (version mismatch) vs a server error
+        const target = event.target as HTMLElement;
+        if (target && 'src' in target) {
+          // This is a script loading error - check if it's a 404
+          const scriptSrc = (target as HTMLScriptElement).src;
+          if (scriptSrc && scriptSrc.includes('/assets/')) {
+            // Only reload for asset loading failures (likely version mismatch)
+            // Don't reload for source file errors (500s, etc.)
+            if (!scriptSrc.includes('/src/')) {
+              console.error('❌ Dynamic import failure detected (likely version mismatch):', event.error);
+              console.error('   Forcing hard reload to get new JavaScript bundles...');
+              
+              // Prevent default error handling
+              event.preventDefault();
+              
+              // Force a hard reload (bypass cache)
+              const baseUrl = window.location.origin + window.location.pathname;
+              window.location.href = baseUrl;
+            }
+          }
+        }
       }
     };
 
@@ -3639,18 +3652,22 @@ export default function App() {
     
     // Also listen for unhandled promise rejections (dynamic imports are promises)
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      // Only handle actual version mismatch errors, not server errors
       if (event.reason instanceof TypeError && 
           event.reason.message?.includes('Failed to fetch dynamically imported module')) {
-        console.error('❌ Unhandled dynamic import rejection (likely version mismatch):', event.reason);
-        console.error('   Forcing hard reload to get new JavaScript bundles...');
-        
-        // Prevent default error handling
-        event.preventDefault();
-        
-        // Force a hard reload (bypass cache)
-        // Remove any existing query parameters first to avoid interfering with asset loading
-        const baseUrl = window.location.origin + window.location.pathname;
-        window.location.href = baseUrl;
+        // Check the error message - if it mentions /src/ or 500, it's a server error, not a version mismatch
+        const errorMsg = event.reason.message || '';
+        if (!errorMsg.includes('/src/') && !errorMsg.includes('500')) {
+          console.error('❌ Unhandled dynamic import rejection (likely version mismatch):', event.reason);
+          console.error('   Forcing hard reload to get new JavaScript bundles...');
+          
+          // Prevent default error handling
+          event.preventDefault();
+          
+          // Force a hard reload (bypass cache)
+          const baseUrl = window.location.origin + window.location.pathname;
+          window.location.href = baseUrl;
+        }
       }
     };
 
