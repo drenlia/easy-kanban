@@ -58,7 +58,7 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
       try {
         // Create abort controller for timeout (more compatible than AbortSignal.timeout)
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        const abortTimeoutId = setTimeout(() => controller.abort(), 3000);
 
         const response = await fetch('/api/ready', {
           method: 'GET',
@@ -69,7 +69,7 @@ export default function ReadinessChecker({ children }: ReadinessCheckerProps) {
           signal: controller.signal,
         });
 
-        clearTimeout(timeoutId);
+        clearTimeout(abortTimeoutId);
 
         if (!isMounted) return;
 

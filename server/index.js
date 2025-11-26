@@ -160,9 +160,28 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   // Use database from request (set by tenantRouting in multi-tenant mode)
   const db = getRequestDatabase(req, defaultDb);
-  if (db) {
-    res.setHeader('X-App-Version', getAppVersion(db));
+  let version = '0';
+  
+  try {
+    if (db) {
+      // Database available - use getAppVersion which can read from version.json, ENV, or database
+      version = getAppVersion(db);
+    } else {
+      // No database available - try version.json or ENV (getAppVersion would throw if db is null)
+      try {
+        const versionPath = new URL('./version.json', import.meta.url);
+        const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+        version = versionData.version;
+      } catch {
+        version = process.env.APP_VERSION || '0';
+      }
+    }
+  } catch (error) {
+    // Final fallback if anything fails
+    version = process.env.APP_VERSION || '0';
   }
+  
+  res.setHeader('X-App-Version', version);
   next();
 });
 

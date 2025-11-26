@@ -24,7 +24,7 @@ const VersionUpdateBanner: React.FC<VersionUpdateBannerProps> = ({
             <div className="flex-1">
               <p className="text-sm font-medium">
                 {t('versionUpdateBanner.title')}
-                {currentVersion && newVersion && (
+                {currentVersion && newVersion && currentVersion !== newVersion && (
                   <span className="ml-2 text-blue-200">
                     (v{currentVersion} → v{newVersion})
                   </span>

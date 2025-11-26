@@ -66,6 +66,21 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
         localStorage.removeItem('dismissedVersion');
       }
       
+      // Determine the current version to display
+      // If oldVersion is 'unknown' (from WebSocket on fresh session), try to get the initial version
+      // from versionDetection which was set from API headers
+      let displayCurrentVersion = oldVersion;
+      if (oldVersion === 'unknown') {
+        const initialVersion = versionDetection.getInitialVersion();
+        if (initialVersion && initialVersion !== newVersion) {
+          displayCurrentVersion = initialVersion;
+          console.log(`📝 Using initial version from API headers: ${initialVersion}`);
+        } else {
+          // Fallback: if we don't have an initial version, use the new version (will hide comparison)
+          displayCurrentVersion = newVersion;
+        }
+      }
+      
       // Only skip showing banner if this exact version was already dismissed
       if (dismissedVersion === newVersion) {
         console.log(`🔕 Version ${newVersion} was already dismissed, not showing banner`);
@@ -74,7 +89,7 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
         // - The lastNotifiedVersion tracking prevents duplicate notifications
         // - localStorage dismissal is per-version, so new versions will show again
         setVersionInfo({ 
-          currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+          currentVersion: displayCurrentVersion, 
           newVersion 
         });
         return;
@@ -82,9 +97,8 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
       
       // New version detected (different from dismissed version)
       // Update version info and show banner
-      // For new sessions (oldVersion === 'unknown'), use newVersion as currentVersion
       setVersionInfo({ 
-        currentVersion: oldVersion === 'unknown' ? newVersion : oldVersion, 
+        currentVersion: displayCurrentVersion, 
         newVersion 
       });
       setShowVersionBanner(true);
