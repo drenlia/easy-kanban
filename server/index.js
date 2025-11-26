@@ -447,12 +447,12 @@ app.get('/api/version', (req, res) => {
 // Serve the React app for all non-API routes
 // Express 5: catch-all route requires named wildcard parameter
 app.get('/*splat', (req, res) => {
-  // Skip API routes, static file routes, and source file requests
+  // Skip API routes, file serving routes, and source file requests
+  // NOTE: /assets/ should NOT be blocked - it's served by express.static middleware above
   if (req.path.startsWith('/api/') || 
       req.path.startsWith('/attachments/') || 
       req.path.startsWith('/avatars/') ||
       req.path.startsWith('/src/') ||
-      req.path.startsWith('/assets/') ||
       req.path.startsWith('/node_modules/')) {
     return res.status(404).json({ error: 'Not Found' });
   }
