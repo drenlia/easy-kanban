@@ -10,6 +10,19 @@ export default defineConfig({
     'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED),
     'process.env.MULTI_TENANT': JSON.stringify(process.env.MULTI_TENANT),
   },
+  build: {
+    // Ensure proper code splitting and asset handling
+    rollupOptions: {
+      output: {
+        // Ensure dynamic imports are properly transformed
+        manualChunks: undefined, // Let Vite handle chunking automatically
+      },
+    },
+    // Ensure source maps don't interfere with production builds
+    sourcemap: false,
+    // Ensure proper minification
+    minify: 'esbuild',
+  },
   server: {
     host: '0.0.0.0',
     port: 3010,
