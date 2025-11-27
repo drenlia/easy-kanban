@@ -1484,7 +1484,8 @@ const initializeDefaultData = async (db, tenantId = null) => {
   
   // Try to read from version.json (build-time version, works in K8s)
   try {
-    const versionPath = new URL('../version.json', import.meta.url);
+    const versionUrl = new URL('../version.json', import.meta.url);
+    const versionPath = fileURLToPath(versionUrl);
     const versionData = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
     appVersion = versionData.version;
     console.log(`📦 Read version from build-time version.json: ${appVersion}`);
@@ -1534,4 +1535,3 @@ const initializeDefaultData = async (db, tenantId = null) => {
   return { appVersion, versionChanged };
 };
 
-export default initializeDatabase;
