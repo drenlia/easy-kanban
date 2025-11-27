@@ -9,7 +9,7 @@ import { useFileUpload } from '../hooks/useFileUpload';
 import { getLocalISOString, formatToYYYYMMDDHHmmss } from '../utils/dateUtils';
 import { generateUUID } from '../utils/uuid';
 import { loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
-import { generateTaskUrl, generateProjectUrl } from '../utils/routingUtils';
+import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
@@ -294,7 +294,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         
         // Load available tasks for adding as children
         const availableTasksData = await getAvailableTasksForRelationship(task.id);
-        setAvailableTasksForChildren(availableTasksData);
+        setAvailableTasksForChildren(Array.isArray(availableTasksData) ? availableTasksData : []);
         
       } catch (error) {
         console.error('Error loading task relationships:', error);
@@ -768,7 +768,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
       
       // Reload available tasks
       const availableTasksData = await getAvailableTasksForRelationship(task.id);
-      setAvailableTasksForChildren(availableTasksData);
+      setAvailableTasksForChildren(Array.isArray(availableTasksData) ? availableTasksData : []);
       
       setShowChildrenDropdown(false);
       setChildrenSearchTerm('');
@@ -824,7 +824,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         
         // Reload available tasks
         const availableTasksData = await getAvailableTasksForRelationship(task.id);
-        setAvailableTasksForChildren(availableTasksData);
+        setAvailableTasksForChildren(Array.isArray(availableTasksData) ? availableTasksData : []);
         
         console.log('✅ Successfully removed child task and reloaded data');
       } else {
@@ -844,7 +844,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   };
 
   // Filter available tasks based on search term
-  const filteredAvailableChildren = availableTasksForChildren.filter(task => 
+  const filteredAvailableChildren = (Array.isArray(availableTasksForChildren) ? availableTasksForChildren : []).filter(task => 
     task.ticket.toLowerCase().includes(childrenSearchTerm.toLowerCase()) ||
     task.title.toLowerCase().includes(childrenSearchTerm.toLowerCase())
   );
@@ -1323,43 +1323,29 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           <div className="bg-white dark:bg-gray-800 sticky top-0 z-10 shadow-sm">
             <div className="p-3">
               <div className="flex justify-between items-center mb-2">
-                {/* Title - 60% width when project/task info is shown, 100% when not */}
-                <div className="w-3/5">
+                {/* Title - 60% width + 50px when project/task info is shown, 100% when not */}
+                <div className="w-3/5" style={{ width: 'calc(60% + 50px)' }}>
                   <input
                     type="text"
                     value={editedTask.title}
                     onChange={e => handleTextUpdate('title', e.target.value)}
-                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 p-3 rounded"
+                    className="text-xl font-semibold w-full border-none focus:outline-none focus:ring-0 bg-gray-50 dark:bg-gray-700 p-3 rounded text-gray-900 dark:text-white"
                     disabled={isSubmitting}
                   />
                 </div>
                 
-                {/* Project and Task Links - Right side */}
+                {/* Task Link - Right side */}
                 <div className="flex items-center gap-4">
-                  {/* Project and Task Identifiers */}
-                  {(getProjectIdentifier() || task.ticket) && (
+                  {/* Task Identifier */}
+                  {task.ticket && (
                     <div className="flex items-center gap-2 font-mono text-sm">
-                      {getProjectIdentifier() && (
-                        <a 
-                          href={generateProjectUrl(getProjectIdentifier())}
-                          className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                          title={`Go to project ${getProjectIdentifier()}`}
-                        >
-                          {getProjectIdentifier()}
-                        </a>
-                      )}
-                      {getProjectIdentifier() && task.ticket && (
-                        <span className="text-gray-400">→</span>
-                      )}
-                      {task.ticket && (
-                        <a 
-                          href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-                          className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
-                          title={`Direct link to ${task.ticket}`}
-                        >
-                          {task.ticket}
-                        </a>
-                      )}
+                      <a 
+                        href={generateTaskUrl(task.ticket, getProjectIdentifier())}
+                        className="text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                        title={`Direct link to ${task.ticket}`}
+                      >
+                        {task.ticket}
+                      </a>
                     </div>
                   )}
                     

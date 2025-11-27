@@ -88,13 +88,13 @@ const getTenantStoragePaths = (tenantId) => {
 // - Creating tables
 // - Running migrations
 // - Initializing default data
-const initializeDatabaseForTenant = (tenantId) => {
+const initializeDatabaseForTenant = async (tenantId) => {
   // Use the refactored initializeDatabase from database.js
-  return initializeDatabase(tenantId);
+  return await initializeDatabase(tenantId);
 };
 
 // Get or create database connection for tenant
-const getTenantDatabase = (tenantId) => {
+const getTenantDatabase = async (tenantId) => {
   // Normalize tenantId for cache key (null for single-tenant)
   const cacheKey = tenantId || 'default';
   
@@ -112,7 +112,7 @@ const getTenantDatabase = (tenantId) => {
   }
   
   // Initialize database (creates tables, runs migrations, etc.)
-  const dbInfo = initializeDatabaseForTenant(tenantId);
+  const dbInfo = await initializeDatabaseForTenant(tenantId);
   
   // If version changed, broadcast to this tenant
   if (dbInfo.versionChanged && dbInfo.appVersion) {
@@ -136,7 +136,7 @@ const getTenantDatabase = (tenantId) => {
 };
 
 // Tenant routing middleware
-export const tenantRouting = (req, res, next) => {
+export const tenantRouting = async (req, res, next) => {
   try {
     // Extract tenant ID from hostname
     // Priority order:
@@ -175,7 +175,7 @@ export const tenantRouting = (req, res, next) => {
     req.tenantId = tenantId;
     
     // Get or create tenant database
-    const dbInfo = getTenantDatabase(tenantId);
+    const dbInfo = await getTenantDatabase(tenantId);
     
     // Log database path for debugging
     if (isMultiTenant() && tenantId) {

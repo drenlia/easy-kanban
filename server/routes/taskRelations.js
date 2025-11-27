@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -17,12 +18,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const router = express.Router();
 
 // Task-Tag association endpoints
-router.get('/:taskId/tags', authenticateToken, (req, res) => {
+router.get('/:taskId/tags', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const taskTags = wrapQuery(db.prepare(`
+    const taskTags = await wrapQuery(db.prepare(`
       SELECT t.* FROM tags t
       JOIN task_tags tt ON t.id = tt.tagId
       WHERE tt.taskId = ?
@@ -43,17 +44,17 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   
   try {
     // Check if association already exists
-    const existing = wrapQuery(db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?'), 'SELECT').get(taskId, tagId);
+    const existing = await wrapQuery(db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?'), 'SELECT').get(taskId, tagId);
     
     if (existing) {
       return res.status(409).json({ error: 'Tag already associated with this task' });
     }
     
     // Get tag and task details for logging
-    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
-    wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
+    await wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
     
     // Log tag association activity
     if (tag && task) {
@@ -73,8 +74,8 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
       
       // Log to reporting system
       try {
-        const userInfo = reportingLogger.getUserInfo(db, userId);
-        const taskInfo = wrapQuery(db.prepare(`
+        const userInfo = await reportingLogger.getUserInfo(db, userId);
+        const taskInfo = await wrapQuery(db.prepare(`
           SELECT t.*, b.title as board_title, c.title as column_title
           FROM tasks t
           LEFT JOIN boards b ON t.boardId = b.id
@@ -133,10 +134,10 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   
   try {
     // Get tag and task details for logging before deletion
-    const tag = wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     
-    const result = wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
+    const result = await wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Tag association not found' });
@@ -181,12 +182,12 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
 });
 
 // Task-Watchers association endpoints
-router.get('/:taskId/watchers', authenticateToken, (req, res) => {
+router.get('/:taskId/watchers', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const watchers = wrapQuery(db.prepare(`
+    const watchers = await wrapQuery(db.prepare(`
       SELECT m.* FROM members m
       JOIN watchers w ON m.id = w.memberId
       WHERE w.taskId = ?
@@ -207,18 +208,18 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   
   try {
     // Check if association already exists
-    const existing = wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    const existing = await wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already watching this task' });
     }
     
-    wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    await wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
     
     // Log to reporting system
     try {
-      const userInfo = reportingLogger.getUserInfo(db, userId);
-      const taskInfo = wrapQuery(db.prepare(`
+      const userInfo = await reportingLogger.getUserInfo(db, userId);
+      const taskInfo = await wrapQuery(db.prepare(`
         SELECT t.*, b.title as board_title, c.title as column_title
         FROM tasks t
         LEFT JOIN boards b ON t.boardId = b.id
@@ -254,12 +255,12 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   }
 });
 
-router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
+router.delete('/:taskId/watchers/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const result = wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    const result = await wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Watcher association not found' });
@@ -273,12 +274,12 @@ router.delete('/:taskId/watchers/:memberId', authenticateToken, (req, res) => {
 });
 
 // Task-Collaborators association endpoints
-router.get('/:taskId/collaborators', authenticateToken, (req, res) => {
+router.get('/:taskId/collaborators', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const collaborators = wrapQuery(db.prepare(`
+    const collaborators = await wrapQuery(db.prepare(`
       SELECT m.* FROM members m
       JOIN collaborators c ON m.id = c.memberId
       WHERE c.taskId = ?
@@ -299,18 +300,18 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   
   try {
     // Check if association already exists
-    const existing = wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    const existing = await wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already collaborating on this task' });
     }
     
-    wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    await wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
     
     // Log to reporting system
     try {
-      const userInfo = reportingLogger.getUserInfo(db, userId);
-      const taskInfo = wrapQuery(db.prepare(`
+      const userInfo = await reportingLogger.getUserInfo(db, userId);
+      const taskInfo = await wrapQuery(db.prepare(`
         SELECT t.*, b.title as board_title, c.title as column_title
         FROM tasks t
         LEFT JOIN boards b ON t.boardId = b.id
@@ -346,12 +347,12 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   }
 });
 
-router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) => {
+router.delete('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   const { taskId, memberId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const result = wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    const result = await wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Collaborator association not found' });
@@ -365,17 +366,17 @@ router.delete('/:taskId/collaborators/:memberId', authenticateToken, (req, res) 
 });
 
 // Task-Attachments association endpoints
-router.get('/:taskId/attachments', authenticateToken, (req, res) => {
+router.get('/:taskId/attachments', authenticateToken, async (req, res) => {
   const { taskId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const attachments = db.prepare(`
+    const attachments = await wrapQuery(db.prepare(`
       SELECT id, name, url, type, size, created_at
       FROM attachments 
       WHERE taskId = ?
       ORDER BY created_at DESC
-    `).all(taskId);
+    `), 'SELECT').all(taskId);
     
     res.json(attachments);
   } catch (error) {
@@ -391,20 +392,15 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Begin transaction
-    db.prepare('BEGIN').run();
-
-    try {
-      const insertedAttachments = [];
-      
+    const insertedAttachments = [];
+    
+    await dbTransaction(db, async () => {
       if (attachments?.length > 0) {
-        const attachmentStmt = db.prepare(`
-          INSERT INTO attachments (id, taskId, name, url, type, size)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        
-        attachments.forEach(attachment => {
-          attachmentStmt.run(
+        for (const attachment of attachments) {
+          await wrapQuery(db.prepare(`
+            INSERT INTO attachments (id, taskId, name, url, type, size)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `), 'INSERT').run(
             attachment.id,
             taskId,
             attachment.name,
@@ -413,24 +409,22 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
             attachment.size
           );
           insertedAttachments.push(attachment);
-        });
+        }
       }
-
-      // Commit transaction
-      db.prepare('COMMIT').run();
-      
-      // Update storage usage after adding attachments
-      if (insertedAttachments.length > 0) {
-        updateStorageUsage(db);
-      }
-      
-      // Get the task's board ID and fetch complete task data for Redis publishing
-      const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
-      
-      // Publish to Redis for real-time updates
-      if (task?.boardId && insertedAttachments.length > 0) {
+    });
+    
+    // Update storage usage after adding attachments
+    if (insertedAttachments.length > 0) {
+      await updateStorageUsage(db);
+    }
+    
+    // Get the task's board ID and fetch complete task data for Redis publishing
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId && insertedAttachments.length > 0) {
         // Fetch complete task with all relationships including updated attachmentCount
-        const taskWithRelationships = wrapQuery(
+        const taskWithRelationships = await wrapQuery(
           db.prepare(`
             SELECT t.*, 
                    CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -497,7 +491,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
             const commentIds = taskWithRelationships.comments.map(c => c.id).filter(Boolean);
             if (commentIds.length > 0) {
               const placeholders = commentIds.map(() => '?').join(',');
-              const allAttachments = wrapQuery(db.prepare(`
+              const allAttachments = await wrapQuery(db.prepare(`
                 SELECT commentId, id, name, url, type, size, created_at as createdAt
                 FROM attachments
                 WHERE commentId IN (${placeholders})
@@ -560,16 +554,11 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
         }, tenantId);
         console.log('✅ Task-attachments-added published to Redis');
       }
-      
-      res.json({ 
-        message: 'Attachments added successfully',
-        attachments: insertedAttachments
-      });
-    } catch (error) {
-      // Rollback on error
-      db.prepare('ROLLBACK').run();
-      throw error;
-    }
+    
+    res.json({ 
+      message: 'Attachments added successfully',
+      attachments: insertedAttachments
+    });
   } catch (error) {
     console.error('Error adding attachments to task:', error);
     res.status(500).json({ error: 'Failed to add attachments to task' });

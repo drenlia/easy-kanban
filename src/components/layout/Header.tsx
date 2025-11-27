@@ -49,8 +49,9 @@ interface HeaderProps {
   // Auto-refresh toggle - DISABLED (using real-time updates)
   // isAutoRefreshEnabled: boolean;
   // onToggleAutoRefresh: () => void;
-  selectedSprintId: string | null;
-  onSprintChange: (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => void;
+  selectedSprintId?: string | null;
+  onSprintChange?: (sprint: { id: string; name: string; start_date: string; end_date: string } | null) => void;
+  hideSprintSelector?: boolean; // Hide sprint selector (e.g., on TaskPage)
   boards?: Array<{
     id: string;
     columns?: {
@@ -80,6 +81,7 @@ const Header: React.FC<HeaderProps> = ({
   // onToggleAutoRefresh, // Disabled - using real-time updates
   selectedSprintId,
   onSprintChange,
+  hideSprintSelector = false,
   boards = [],
   sprints: propSprints,
 }) => {
@@ -424,11 +426,11 @@ const Header: React.FC<HeaderProps> = ({
           >
             {siteSettings.SITE_NAME || 'Easy Kanban'}
           </a>
-          {/* Sprint Selector - only show in Kanban view */}
-          {currentUser && currentPage === 'kanban' && (
+          {/* Sprint Selector - only show in Kanban view, hide on TaskPage */}
+          {currentUser && currentPage === 'kanban' && !hideSprintSelector && (
             <SprintSelector
-              selectedSprintId={selectedSprintId}
-              onSprintChange={onSprintChange}
+              selectedSprintId={selectedSprintId || null}
+              onSprintChange={onSprintChange || (() => {})}
               tasks={allTasks}
               sprints={propSprints}
             />

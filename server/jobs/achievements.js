@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 import redisService from '../services/redisService.js';
 
 /**
@@ -16,13 +17,13 @@ export const checkAllUserAchievements = async (db) => {
     const newAchievements = [];
     
     // Get all active badges from database
-    const badges = wrapQuery(
+    const badges = await wrapQuery(
       db.prepare('SELECT * FROM badges WHERE is_active = 1 ORDER BY condition_value ASC'),
       'SELECT'
     ).all();
     
     // Get all users with their current stats
-    const users = wrapQuery(db.prepare(`
+    const users = await wrapQuery(db.prepare(`
       SELECT 
         u.id as user_id,
         u.email as user_email,
@@ -41,7 +42,7 @@ export const checkAllUserAchievements = async (db) => {
     const placeholders = userIds.map(() => '?').join(',');
     
     // Batch fetch all user stats (fixes N+1 problem)
-    const allUserStats = wrapQuery(
+    const allUserStats = await wrapQuery(
       db.prepare(`
         SELECT 
           user_id,
@@ -66,7 +67,7 @@ export const checkAllUserAchievements = async (db) => {
     });
     
     // Batch fetch all awarded badges (fixes N+1 problem)
-    const allAwardedBadges = wrapQuery(
+    const allAwardedBadges = await wrapQuery(
       db.prepare(`
         SELECT user_id, badge_id 
         FROM user_achievements 
@@ -108,7 +109,7 @@ export const checkAllUserAchievements = async (db) => {
     const now = new Date().toISOString();
     
     // Process all users and badges in a single transaction for better performance
-    db.transaction(() => {
+    await dbTransaction(db, () => {
       for (const user of users) {
         // Get user's stats (default to zeros if not found)
         const userStats = statsByUserId.get(user.user_id) || {
@@ -212,7 +213,7 @@ export const checkAllUserAchievements = async (db) => {
           }
         }
       }
-    })();
+    });
     
     // Publish new achievements to WebSocket for real-time notifications
     if (newAchievements.length > 0) {
@@ -242,7 +243,7 @@ export const checkAllUserAchievements = async (db) => {
  * @param {number} year - Year (optional, defaults to current)
  * @param {number} month - Month (optional, if not provided returns all-time)
  */
-export const getLeaderboard = (db, year = null, month = null) => {
+export const getLeaderboard = async (db, year = null, month = null) => {
   try {
     let query = `
       SELECT 
@@ -271,7 +272,7 @@ export const getLeaderboard = (db, year = null, month = null) => {
       LIMIT 50
     `;
     
-    const leaderboard = wrapQuery(db.prepare(query), 'SELECT').all(...params);
+    const leaderboard = await wrapQuery(db.prepare(query), 'SELECT').all(...params);
     
     // Add rank
     leaderboard.forEach((user, index) => {

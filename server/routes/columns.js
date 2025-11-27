@@ -4,6 +4,7 @@ import redisService from '../services/redisService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post('/', authenticateToken, async (req, res) => {
     const t = getTranslator(db);
     
     // Check for duplicate column name within the same board
-    const existingColumn = wrapQuery(
+    const existingColumn = await wrapQuery(
       db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?)'), 
       'SELECT'
     ).get(boardId, title);
@@ -25,7 +26,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     
     // Get finished column names from settings
-    const finishedColumnNamesSetting = wrapQuery(
+    const finishedColumnNamesSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'), 
       'SELECT'
     ).get('DEFAULT_FINISHED_COLUMN_NAMES');
@@ -53,11 +54,11 @@ router.post('/', authenticateToken, async (req, res) => {
       finalPosition = position;
     } else {
       // Default behavior: append to end
-      const maxPos = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
+      const maxPos = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM columns WHERE boardId = ?'), 'SELECT').get(boardId)?.maxPos || -1;
       finalPosition = maxPos + 1;
     }
     
-    wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, isArchived ? 1 : 0);
+    await wrapQuery(db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)'), 'INSERT').run(id, title, boardId, finalPosition, isFinished ? 1 : 0, isArchived ? 1 : 0);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -78,7 +79,7 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 // Update column
-router.put('/:id', authenticateToken, async (req, res) => {
+router.put("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { title, is_finished, is_archived } = req.body;
   try {
@@ -86,13 +87,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const t = getTranslator(db);
     
     // Get the column's board ID
-    const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    const column = await wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
     if (!column) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
     // Check for duplicate column name within the same board (excluding current column)
-    const existingColumn = wrapQuery(
+    const existingColumn = await wrapQuery(
       db.prepare('SELECT id FROM columns WHERE boardId = ? AND LOWER(title) = LOWER(?) AND id != ?'), 
       'SELECT'
     ).get(column.boardId, title, id);
@@ -102,7 +103,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
     
     // Get finished column names from settings
-    const finishedColumnNamesSetting = wrapQuery(
+    const finishedColumnNamesSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'), 
       'SELECT'
     ).get('DEFAULT_FINISHED_COLUMN_NAMES');
@@ -133,7 +134,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // Ensure a column cannot be both finished and archived
     const finalIsFinishedValue = finalIsArchived ? false : finalIsFinished;
     
-    wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ?, is_archived = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinishedValue ? 1 : 0, finalIsArchived ? 1 : 0, id);
+    await wrapQuery(db.prepare('UPDATE columns SET title = ?, is_finished = ?, is_archived = ? WHERE id = ?'), 'UPDATE').run(title, finalIsFinishedValue ? 1 : 0, finalIsArchived ? 1 : 0, id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -161,12 +162,12 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const t = getTranslator(db);
     
     // Get the column's board ID before deleting
-    const column = wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
+    const column = await wrapQuery(db.prepare('SELECT boardId FROM columns WHERE id = ?'), 'SELECT').get(id);
     if (!column) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
-    wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
+    await wrapQuery(db.prepare('DELETE FROM columns WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -192,34 +193,34 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
-    const currentColumn = wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
+    const currentColumn = await wrapQuery(db.prepare('SELECT position FROM columns WHERE id = ?'), 'SELECT').get(columnId);
     if (!currentColumn) {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
 
     const currentPosition = currentColumn.position;
 
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       if (newPosition > currentPosition) {
         // Moving down: shift columns between current and new position up by 1
-        wrapQuery(db.prepare(`
+        await wrapQuery(db.prepare(`
           UPDATE columns SET position = position - 1 
           WHERE boardId = ? AND position > ? AND position <= ?
         `), 'UPDATE').run(boardId, currentPosition, newPosition);
       } else {
         // Moving up: shift columns between new and current position down by 1
-        wrapQuery(db.prepare(`
+        await wrapQuery(db.prepare(`
           UPDATE columns SET position = position + 1 
           WHERE boardId = ? AND position >= ? AND position < ?
         `), 'UPDATE').run(boardId, newPosition, currentPosition);
       }
 
       // Update the moved column to its new position
-      wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
-    })();
+      await wrapQuery(db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, columnId);
+    });
 
     // Fetch all updated columns for this board to send in WebSocket event
-    const updatedColumns = wrapQuery(
+    const updatedColumns = await wrapQuery(
       db.prepare('SELECT * FROM columns WHERE boardId = ? ORDER BY position'), 
       'SELECT'
     ).all(boardId);
@@ -250,21 +251,21 @@ router.post('/renumber', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       // Get all columns for this board ordered by current position
-      const columns = wrapQuery(
+      const columns = await wrapQuery(
         db.prepare('SELECT id FROM columns WHERE boardId = ? ORDER BY position, id'), 
         'SELECT'
       ).all(boardId);
       
       // Renumber them sequentially starting from 0
-      columns.forEach((column, index) => {
-        wrapQuery(
+      for (let index = 0; index < columns.length; index++) {
+        await wrapQuery(
           db.prepare('UPDATE columns SET position = ? WHERE id = ?'), 
           'UPDATE'
-        ).run(index, column.id);
-      });
-    })();
+        ).run(index, columns[index].id);
+      }
+    });
 
     res.json({ message: 'Columns renumbered successfully' });
   } catch (error) {

@@ -11,12 +11,12 @@ const router = express.Router();
  * GET /api/reports/settings
  * Get report visibility settings (public endpoint for all authenticated users)
  */
-router.get('/settings', authenticateToken, (req, res) => {
+router.get('/settings', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
     // Fetch only report-related settings (no sensitive admin settings)
-    const reportSettings = wrapQuery(db.prepare(`
+    const reportSettings = await wrapQuery(db.prepare(`
       SELECT key, value FROM settings 
       WHERE key LIKE 'REPORTS_%'
     `), 'SELECT').all();
@@ -45,7 +45,7 @@ router.get('/settings', authenticateToken, (req, res) => {
  * Get points and achievements for current user or specified user
  * Query params: userId (optional, admin only)
  */
-router.get('/user-points', authenticateToken, (req, res) => {
+router.get('/user-points', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId, lang } = req.query;
@@ -61,7 +61,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     }
     
     // ALWAYS fetch current user info from members table (source of truth)
-    const currentUserInfo = wrapQuery(db.prepare(`
+    const currentUserInfo = await wrapQuery(db.prepare(`
       SELECT m.user_id, m.name as user_name
       FROM members m
       WHERE m.user_id = ?
@@ -72,7 +72,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     }
     
     // Get user's total points (sum across all periods)
-    const userPoints = wrapQuery(db.prepare(`
+    const userPoints = await wrapQuery(db.prepare(`
       SELECT 
         SUM(total_points) as total_points,
         SUM(tasks_created) as tasks_created,
@@ -85,7 +85,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     `), 'SELECT').get(targetUserId);
     
     // Get monthly breakdown (last 12 months)
-    const monthlyPoints = wrapQuery(db.prepare(`
+    const monthlyPoints = await wrapQuery(db.prepare(`
       SELECT 
         period_year,
         period_month,
@@ -103,7 +103,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     `), 'SELECT').all(targetUserId);
     
     // Get achievements/badges with badge_id for translation
-    const achievementsRaw = wrapQuery(db.prepare(`
+    const achievementsRaw = await wrapQuery(db.prepare(`
       SELECT 
         ua.id,
         ua.achievement_type,
@@ -126,8 +126,8 @@ router.get('/user-points', authenticateToken, (req, res) => {
     if (userLanguage) {
       translationLang = userLanguage;
     } else {
-      const appLang = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_LANGUAGE')?.value || 'EN';
-      translationLang = appLang.toUpperCase() === 'FR' ? 'fr' : 'en';
+      const appLang = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_LANGUAGE');
+      translationLang = (appLang?.value || 'EN').toUpperCase() === 'FR' ? 'fr' : 'en';
     }
     
     // Create translator function with the determined language
@@ -198,7 +198,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     });
     
     // Get ALL active members count (source of truth)
-    const totalActiveMembers = wrapQuery(db.prepare(`
+    const totalActiveMembers = await wrapQuery(db.prepare(`
       SELECT COUNT(DISTINCT m.user_id) as count
       FROM members m
       JOIN users u ON m.user_id = u.id
@@ -206,7 +206,7 @@ router.get('/user-points', authenticateToken, (req, res) => {
     `), 'SELECT').get();
     
     // Get user's rank among all active members
-    const allUsers = getLeaderboard(db);
+    const allUsers = await getLeaderboard(db);
     let userRank = allUsers.findIndex(u => u.user_id === targetUserId) + 1;
     
     // If user not in leaderboard (no activity yet), they're ranked last
@@ -245,19 +245,19 @@ router.get('/user-points', authenticateToken, (req, res) => {
  * Get team rankings
  * Query params: year, month (optional)
  */
-router.get('/leaderboard', authenticateToken, (req, res) => {
+router.get('/leaderboard', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { year, month } = req.query;
     
-    const leaderboard = getLeaderboard(
+    const leaderboard = await getLeaderboard(
       db,
       year ? parseInt(year) : null,
       month ? parseInt(month) : null
     );
     
     // Get total active members (source of truth)
-    const totalActiveMembers = wrapQuery(db.prepare(`
+    const totalActiveMembers = await wrapQuery(db.prepare(`
       SELECT COUNT(DISTINCT m.user_id) as count
       FROM members m
       JOIN users u ON m.user_id = u.id
@@ -284,7 +284,7 @@ router.get('/leaderboard', authenticateToken, (req, res) => {
  * Get burndown data for a planning period
  * Query params: startDate, endDate, boardId (optional)
  */
-router.get('/burndown', authenticateToken, (req, res) => {
+router.get('/burndown', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { startDate, endDate, boardId } = req.query;
@@ -319,7 +319,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
     
     snapshotQuery += ' GROUP BY ts.snapshot_date ORDER BY ts.snapshot_date ASC';
     
-    const snapshots = wrapQuery(db.prepare(snapshotQuery), 'SELECT').all(...params);
+    const snapshots = await wrapQuery(db.prepare(snapshotQuery), 'SELECT').all(...params);
     
     // Get planning baseline (tasks at first available snapshot in range, excluding archived)
     let baselineQuery = `
@@ -346,7 +346,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
       baselineParams.push(boardId); // For the outer query
     }
     
-    const baseline = wrapQuery(db.prepare(baselineQuery), 'SELECT').get(...baselineParams);
+    const baseline = await wrapQuery(db.prepare(baselineQuery), 'SELECT').get(...baselineParams);
     
     // Calculate ideal burndown line
     const dayCount = snapshots.length;
@@ -391,10 +391,10 @@ router.get('/burndown', authenticateToken, (req, res) => {
         AND (c.is_archived IS NULL OR c.is_archived = 0)
         ORDER BY ts.board_name
       `;
-      const boards = wrapQuery(db.prepare(boardsQuery), 'SELECT').all(startDate, endDate);
+      const boards = await wrapQuery(db.prepare(boardsQuery), 'SELECT').all(startDate, endDate);
       
       // Get data for each board
-      boardsData = boards.map(board => {
+      boardsData = await Promise.all(boards.map(async board => {
         const boardSnapshotsQuery = `
           SELECT 
             ts.snapshot_date,
@@ -411,7 +411,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
           ORDER BY ts.snapshot_date ASC
         `;
         
-        const boardSnapshots = wrapQuery(
+        const boardSnapshots = await wrapQuery(
           db.prepare(boardSnapshotsQuery),
           'SELECT'
         ).all(startDate, endDate, board.board_id);
@@ -431,7 +431,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
           boardName: board.board_name,
           data: boardData
         };
-      });
+      }));
     }
     
     res.json({
@@ -470,7 +470,7 @@ router.get('/burndown', authenticateToken, (req, res) => {
  * Get team performance metrics
  * Query params: startDate, endDate, boardId (optional)
  */
-router.get('/team-performance', authenticateToken, (req, res) => {
+router.get('/team-performance', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { startDate, endDate, boardId } = req.query;
@@ -506,7 +506,7 @@ router.get('/team-performance', authenticateToken, (req, res) => {
       ORDER BY user_id, event_type
     `;
     
-    const activities = wrapQuery(db.prepare(activityQuery), 'SELECT').all(...params);
+    const activities = await wrapQuery(db.prepare(activityQuery), 'SELECT').all(...params);
     
     // Aggregate by user
     const userPerformance = {};
@@ -559,18 +559,18 @@ router.get('/team-performance', authenticateToken, (req, res) => {
     );
     
     // Get total points for each user from user_points table
-    performanceArray.forEach(user => {
+    for (const user of performanceArray) {
       const currentYear = new Date(startDate).getFullYear();
       const currentMonth = new Date(startDate).getMonth() + 1;
       
-      const pointsData = wrapQuery(db.prepare(`
+      const pointsData = await wrapQuery(db.prepare(`
         SELECT total_points
         FROM user_points
         WHERE user_id = ? AND period_year = ? AND period_month = ?
       `), 'SELECT').get(user.user_id, currentYear, currentMonth);
       
       user.total_points = pointsData?.total_points || 0;
-    });
+    }
     
     res.json({
       success: true,
@@ -599,7 +599,7 @@ router.get('/team-performance', authenticateToken, (req, res) => {
  * Get comprehensive task list with metrics
  * Query params: startDate, endDate, boardId, status, assigneeId, priorityName (all optional)
  */
-router.get('/task-list', authenticateToken, (req, res) => {
+router.get('/task-list', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { startDate, endDate, boardId, status, assigneeId, priorityName } = req.query;
@@ -629,8 +629,8 @@ router.get('/task-list', authenticateToken, (req, res) => {
       FROM tasks t
       LEFT JOIN boards b ON t.boardId = b.id
       LEFT JOIN columns c ON t.columnId = c.id
-      LEFT JOIN members m ON t.memberId = m.user_id
-      LEFT JOIN members r ON t.requesterId = r.user_id
+      LEFT JOIN members m ON t.memberId = m.id
+      LEFT JOIN members r ON t.requesterId = r.id
       LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
       WHERE 1=1
       AND (c.is_archived IS NULL OR c.is_archived = 0)
@@ -667,7 +667,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
     if (priorityName) {
       // Support both priority name and priority_id lookup
       // First try to find priority by name to get its ID
-      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      const priority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
       if (priority) {
         query += ' AND t.priority_id = ?';
         params.push(priority.id);
@@ -680,16 +680,17 @@ router.get('/task-list', authenticateToken, (req, res) => {
     
     query += ' ORDER BY t.created_at DESC LIMIT 1000';
     
-    const tasks = wrapQuery(db.prepare(query), 'SELECT').all(...params);
+    const tasks = await wrapQuery(db.prepare(query), 'SELECT').all(...params);
     
     // Get tags for each task
-    const tasksWithTags = tasks.map(task => {
-      const tags = wrapQuery(db.prepare(`
+    const tasksWithTags = await Promise.all(tasks.map(async task => {
+      const tagsResult = await wrapQuery(db.prepare(`
         SELECT t.tag
         FROM task_tags tt
         JOIN tags t ON tt.tagId = t.id
         WHERE tt.taskId = ?
-      `), 'SELECT').all(task.id).map(t => t.tag);
+      `), 'SELECT').all(task.id);
+      const tags = tagsResult.map(t => t.tag);
       
       return {
         task_id: task.id,
@@ -709,7 +710,7 @@ router.get('/task-list', authenticateToken, (req, res) => {
         created_at: task.created_at,
         completed_at: task.is_done === 1 ? task.updated_at : null
       };
-    });
+    }));
     
     // Calculate metrics
     const metrics = {

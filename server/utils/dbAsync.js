@@ -63,13 +63,28 @@ export async function dbPragma(db, name, options = {}) {
 
 /**
  * Execute transaction with async support
+ * 
+ * For proxy databases: uses async transaction support
+ * For direct databases: uses manual BEGIN/COMMIT/ROLLBACK since
+ * better-sqlite3's transaction() doesn't support async callbacks
  */
 export async function dbTransaction(db, callback) {
   if (isProxyDatabase(db)) {
+    // Proxy database supports async transactions
     const transactionFn = db.transaction(callback);
     return await transactionFn();
   }
-  // Direct DB - wrap sync transaction
-  return Promise.resolve(db.transaction(callback)());
+  
+  // Direct DB (better-sqlite3) - use manual transaction control
+  // because transaction() doesn't support async callbacks
+  try {
+    db.exec('BEGIN');
+    const result = await callback();
+    db.exec('COMMIT');
+    return result;
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
 }
 

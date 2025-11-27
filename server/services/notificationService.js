@@ -18,10 +18,10 @@ class NotificationService {
   /**
    * Get user notification preferences
    */
-  getUserNotificationPreferences(userId) {
+  async getUserNotificationPreferences(userId) {
     try {
       // First, get global notification defaults from settings
-      const globalDefaults = wrapQuery(
+      const globalDefaults = await wrapQuery(
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('NOTIFICATION_DEFAULTS');
@@ -46,7 +46,7 @@ class NotificationService {
       }
 
       // Then, get user-specific settings
-      const userSettings = wrapQuery(
+      const userSettings = await wrapQuery(
         this.db.prepare('SELECT setting_value FROM user_settings WHERE userId = ? AND setting_key = ?'),
         'SELECT'
       ).get(userId, 'notifications');
@@ -78,10 +78,10 @@ class NotificationService {
   /**
    * Get task participants (assignee, watchers, collaborators, requester)
    */
-  getTaskParticipants(taskId) {
+  async getTaskParticipants(taskId) {
     try {
       // Get basic task info with board and project info
-      const task = wrapQuery(
+      const task = await wrapQuery(
         this.db.prepare(`
           SELECT t.id, t.memberId, t.requesterId, t.title, t.ticket, t.boardId, b.project as projectId
           FROM tasks t
@@ -94,7 +94,7 @@ class NotificationService {
       if (!task) return {};
 
       // Get watchers
-      const watchers = wrapQuery(
+      const watchers = await wrapQuery(
         this.db.prepare(`
           SELECT m.user_id as userId, m.name, u.email 
           FROM watchers w 
@@ -106,7 +106,7 @@ class NotificationService {
       ).all(taskId);
 
       // Get collaborators
-      const collaborators = wrapQuery(
+      const collaborators = await wrapQuery(
         this.db.prepare(`
           SELECT m.user_id as userId, m.name, u.email 
           FROM collaborators c 
@@ -120,7 +120,7 @@ class NotificationService {
       // Get assignee info
       let assignee = null;
       if (task.memberId) {
-        assignee = wrapQuery(
+        assignee = await wrapQuery(
           this.db.prepare(`
             SELECT m.user_id as userId, m.name, u.email 
             FROM members m 
@@ -134,7 +134,7 @@ class NotificationService {
       // Get requester info
       let requester = null;
       if (task.requesterId) {
-        requester = wrapQuery(
+        requester = await wrapQuery(
           this.db.prepare(`
             SELECT m.user_id as userId, m.name, u.email 
             FROM members m 
@@ -181,9 +181,9 @@ class NotificationService {
   /**
    * Generate email templates for different notification types
    */
-  generateEmailTemplate(notificationType, data) {
-    const siteSettings = this.getSiteSettings();
-    const baseUrl = this.getBaseUrl();
+  async generateEmailTemplate(notificationType, data) {
+    const siteSettings = await this.getSiteSettings();
+    const baseUrl = await this.getBaseUrl();
     
     // Construct taskUrl if not provided and we have task data
     // Note: Email clients may encode # to %23, but browsers should decode it automatically
@@ -194,7 +194,7 @@ class NotificationService {
         taskUrl = `${baseUrl}/project/#${participants.projectId}#${task.ticket}`;
       } else if (task.ticket) {
         // Fallback: try to get project ID from task's board
-        const taskWithProject = wrapQuery(
+        const taskWithProject = await wrapQuery(
           this.db.prepare(`
             SELECT b.project as projectId
             FROM tasks t
@@ -230,17 +230,17 @@ class NotificationService {
         return EmailTemplates.passwordReset(templateData);
       default:
         // Fallback to legacy templates for backwards compatibility
-        return this.generateLegacyTemplate(notificationType, data);
+        return await this.generateLegacyTemplate(notificationType, data);
     }
   }
 
   /**
    * Legacy template generation (keeping for backwards compatibility)
    */
-  generateLegacyTemplate(notificationType, data) {
+  async generateLegacyTemplate(notificationType, data) {
     const { task, action, details, actor, oldValue, newValue, participants, timestamp } = data;
     const taskIdentifier = task.ticket || `Task #${task.id.substring(0, 8)}`;
-    const baseUrl = this.getBaseUrl();
+    const baseUrl = await this.getBaseUrl();
     
     // Format timestamp
     const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
@@ -253,7 +253,7 @@ class NotificationService {
       taskUrl = `${baseUrl}/project/#${participants.projectId}#${task.ticket}`;
     } else if (task.ticket) {
       // Fallback: try to get project ID from task's board
-      const taskWithProject = wrapQuery(
+      const taskWithProject = await wrapQuery(
         this.db.prepare(`
           SELECT b.project as projectId
           FROM tasks t
@@ -309,7 +309,7 @@ class NotificationService {
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.myTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #92400e;">${t('emails.taskNotification.myTaskUpdated.whatChanged')}</strong>
-                <p style="color: #92400e; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
+                <p style="color: #92400e; margin: 10px 0 0 0;">${await this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -339,7 +339,7 @@ class NotificationService {
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.watchedTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ede9fe; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #6b21a8;">${t('emails.taskNotification.watchedTaskUpdated.whatChanged')}</strong>
-                <p style="color: #6b21a8; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
+                <p style="color: #6b21a8; margin: 10px 0 0 0;">${await this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -395,7 +395,7 @@ class NotificationService {
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.collaboratingTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #ecfdf5; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #065f46;">${t('emails.taskNotification.collaboratingTaskUpdated.whatChanged')}</strong>
-                <p style="color: #065f46; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
+                <p style="color: #065f46; margin: 10px 0 0 0;">${await this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -483,7 +483,7 @@ class NotificationService {
               <p style="color: #64748b; margin: 5px 0;"><strong>${t('emails.taskNotification.requesterTaskUpdated.updatedBy')}</strong> ${actor.name}</p>
               <div style="background-color: #f0fdf4; padding: 15px; border-radius: 6px; margin: 15px 0;">
                 <strong style="color: #166534;">${t('emails.taskNotification.requesterTaskUpdated.whatChanged')}</strong>
-                <p style="color: #166534; margin: 10px 0 0 0;">${this.formatChangeDetails(details, oldValue, newValue, t)}</p>
+                <p style="color: #166534; margin: 10px 0 0 0;">${await this.formatChangeDetails(details, oldValue, newValue, t)}</p>
               </div>
             </div>
             <div style="margin: 20px 0; text-align: center;">
@@ -507,7 +507,7 @@ class NotificationService {
   /**
    * Format change details for email templates
    */
-  formatChangeDetails(details, oldValue, newValue, t = null) {
+  async formatChangeDetails(details, oldValue, newValue, t = null) {
     // Get translator if not provided
     if (!t) {
       t = getTranslator(this.db);
@@ -524,10 +524,10 @@ class NotificationService {
       };
 
       // Get column title from column ID
-      const getColumnTitle = (columnId) => {
+      const getColumnTitle = async (columnId) => {
         if (!columnId) return columnId;
         try {
-          const column = wrapQuery(
+          const column = await wrapQuery(
             this.db.prepare(`
               SELECT title 
               FROM columns 
@@ -546,18 +546,18 @@ class NotificationService {
       };
 
       // Convert user IDs to human-readable names
-      const formatValue = (value) => {
+      const formatValue = async (value) => {
         if (!value) return value;
         const strValue = String(value);
         
         // Check if it's a column ID first
         if (isColumnId(strValue)) {
-          return getColumnTitle(strValue);
+          return await getColumnTitle(strValue);
         }
         
         // Then try to get member name for any ID that looks like a user/member ID
         try {
-          const member = wrapQuery(
+          const member = await wrapQuery(
             this.db.prepare(`
               SELECT m.name 
               FROM members m 
@@ -607,17 +607,17 @@ class NotificationService {
         return `
           <div style="margin: 10px 0;">
             <div style="background-color: #fee2e2; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>${beforeLabel}:</strong> ${formatValueForDisplay(oldValue)}
+              <strong>${beforeLabel}:</strong> ${await formatValueForDisplay(oldValue)}
             </div>
             <div style="background-color: #dcfce7; padding: 10px; border-radius: 4px; margin: 5px 0;">
-              <strong>${afterLabel}:</strong> ${formatValueForDisplay(newValue)}
+              <strong>${afterLabel}:</strong> ${await formatValueForDisplay(newValue)}
             </div>
           </div>
         `;
       } else if (newValue) {
-        return `<strong>Set to:</strong> ${formatValueForDisplay(newValue)}`;
+        return `<strong>Set to:</strong> ${await formatValueForDisplay(newValue)}`;
       } else if (oldValue) {
-        return `<strong>Cleared</strong> (was: ${formatValueForDisplay(oldValue)})`;
+        return `<strong>Cleared</strong> (was: ${await formatValueForDisplay(oldValue)})`;
       }
     }
     
@@ -627,7 +627,7 @@ class NotificationService {
   /**
    * Escape HTML for safe display
    */
-  escapeHtml(text) {
+  async escapeHtml(text) {
     if (!text) return '';
     return text
       .replace(/&/g, '&amp;')
@@ -640,17 +640,17 @@ class NotificationService {
   /**
    * Get site settings
    */
-  getSiteSettings() {
+  async getSiteSettings() {
     try {
       const settings = {};
       const keys = ['SITE_NAME', 'SITE_URL', 'APP_URL'];
-      keys.forEach(key => {
-        const setting = wrapQuery(
+      for (const key of keys) {
+        const setting = await wrapQuery(
           this.db.prepare('SELECT value FROM settings WHERE key = ?'),
           'SELECT'
         ).get(key);
         settings[key] = setting ? setting.value : '';
-      });
+      }
       return settings;
     } catch (error) {
       console.warn('Failed to get site settings:', error.message);
@@ -661,8 +661,8 @@ class NotificationService {
   /**
    * Get base URL with fallback chain: APP_URL -> SITE_URL -> http://localhost:3000
    */
-  getBaseUrl() {
-    const siteSettings = this.getSiteSettings();
+  async getBaseUrl() {
+    const siteSettings = await this.getSiteSettings();
     
     // Priority: APP_URL -> SITE_URL -> localhost fallback
     if (siteSettings.APP_URL && siteSettings.APP_URL.trim()) {
@@ -723,13 +723,13 @@ class NotificationService {
       
       
       // Get task participants
-      const participants = this.getTaskParticipants(taskId);
+      const participants = await this.getTaskParticipants(taskId);
       if (!participants.task) {
         return;
       }
 
       // Get actor information
-      const actor = wrapQuery(
+      const actor = await wrapQuery(
         this.db.prepare(`
           SELECT m.name, u.email 
           FROM members m 
@@ -764,7 +764,7 @@ class NotificationService {
           const { recipientUserId, notificationType } = notification;
           
           // Check user preferences
-          const userPrefs = this.getUserNotificationPreferences(recipientUserId);
+          const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
           console.log(`🔍 [NOTIFICATION] User ${recipientUserId} preferences for ${notificationType}:`, userPrefs[notificationType]);
           if (!userPrefs[notificationType]) {
             console.log(`📧 [NOTIFICATION] Skipping ${notificationType} for user ${recipientUserId} (preference disabled)`);
@@ -816,7 +816,7 @@ class NotificationService {
       const recipientUserId = userId;
       
       // Get recipient email
-      const recipient = wrapQuery(
+      const recipient = await wrapQuery(
         this.db.prepare(`
           SELECT m.name, u.email 
           FROM members m 
@@ -843,7 +843,7 @@ class NotificationService {
       };
 
       // Generate email template
-      const template = this.generateEmailTemplate(notificationType, templateData);
+      const template = await this.generateEmailTemplate(notificationType, templateData);
       if (!template) {
         console.warn(`⚠️ [NOTIFICATION] No template found for ${notificationType}`);
         return;
@@ -873,11 +873,11 @@ class NotificationService {
       const { userId, action, taskId, details, oldValue, newValue } = activityData;
       
       // Get task participants
-      const participants = this.getTaskParticipants(taskId);
+      const participants = await this.getTaskParticipants(taskId);
       if (!participants.task) return;
 
       // Get actor information
-      const actor = wrapQuery(
+      const actor = await wrapQuery(
         this.db.prepare(`
           SELECT m.name, u.email 
           FROM members m 
@@ -909,11 +909,11 @@ class NotificationService {
         const { recipientUserId, notificationType } = notification;
         
         // Check user preferences
-        const userPrefs = this.getUserNotificationPreferences(recipientUserId);
+        const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
         if (!userPrefs[notificationType]) continue;
 
         // Get recipient email
-        const recipient = wrapQuery(
+        const recipient = await wrapQuery(
           this.db.prepare(`
             SELECT m.name, u.email 
             FROM members m 
@@ -933,7 +933,7 @@ class NotificationService {
         }
 
         // Generate email template
-        const template = this.generateEmailTemplate(notificationType, templateData);
+        const template = await this.generateEmailTemplate(notificationType, templateData);
         if (!template) continue;
 
         // Send the email
@@ -1038,7 +1038,7 @@ class NotificationService {
       console.log('📧 Preparing user invitation email...');
       
       // Get user details
-      const user = wrapQuery(
+      const user = await wrapQuery(
         this.db.prepare(`
           SELECT id, email, first_name, last_name, is_active, auth_provider
           FROM users 
@@ -1063,11 +1063,11 @@ class NotificationService {
         return { success: false, reason: 'User is already active' };
       }
 
-      const actualBaseUrl = baseUrl || this.getBaseUrl();
+      const actualBaseUrl = baseUrl || await this.getBaseUrl();
       const inviteUrl = `${actualBaseUrl}/#activate-account?token=${inviteToken}&email=${encodeURIComponent(user.email)}`;
 
       // Get site settings for email template
-      const siteSettings = this.getSiteSettings();
+      const siteSettings = await this.getSiteSettings();
 
       // Generate invitation email
       const emailTemplate = this.generateEmailTemplate('user_invite', {
@@ -1100,7 +1100,7 @@ class NotificationService {
         console.log('✅ User invitation email sent successfully to:', user.email);
         
         // Log the invitation activity
-        wrapQuery(
+        await wrapQuery(
           this.db.prepare(`
             INSERT INTO activity (action, details, userId, created_at)
             VALUES (?, ?, ?, datetime('now'))
@@ -1130,11 +1130,11 @@ class NotificationService {
       if (action !== 'create_comment') return; // Only notify for new comments
 
       // Get task participants
-      const participants = this.getTaskParticipants(taskId);
+      const participants = await this.getTaskParticipants(taskId);
       if (!participants.task) return;
 
       // Get actor information
-      const actor = wrapQuery(
+      const actor = await wrapQuery(
         this.db.prepare(`
           SELECT m.name, u.email 
           FROM members m 
@@ -1173,11 +1173,11 @@ class NotificationService {
       // Send emails
       for (const recipientUserId of recipients) {
         // Check user preferences
-        const userPrefs = this.getUserNotificationPreferences(recipientUserId);
+        const userPrefs = await this.getUserNotificationPreferences(recipientUserId);
         if (!userPrefs.commentAdded) continue;
 
         // Get recipient email
-        const recipient = wrapQuery(
+        const recipient = await wrapQuery(
           this.db.prepare(`
             SELECT m.name, u.email 
             FROM members m 

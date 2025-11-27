@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 /**
  * Create daily snapshots of all tasks for historical reporting
@@ -12,7 +13,7 @@ export const createDailyTaskSnapshots = async (db) => {
     console.log('📸 Starting daily task snapshots...');
     
     // Get all tasks with their current state (excluding archived columns)
-    const tasks = wrapQuery(db.prepare(`
+    const tasks = await wrapQuery(db.prepare(`
       SELECT 
         t.id, t.title, t.ticket, t.description, t.effort, t.priority,
         t.startDate, t.dueDate, t.created_at,
@@ -23,8 +24,8 @@ export const createDailyTaskSnapshots = async (db) => {
       FROM tasks t
       LEFT JOIN boards b ON t.boardId = b.id
       LEFT JOIN columns c ON t.columnId = c.id
-      LEFT JOIN members m ON t.memberId = m.user_id
-      LEFT JOIN members r ON t.requesterId = r.user_id
+      LEFT JOIN members m ON t.memberId = m.id
+      LEFT JOIN members r ON t.requesterId = r.id
       WHERE (c.is_archived IS NULL OR c.is_archived = 0)
     `), 'SELECT').all();
     
@@ -47,7 +48,7 @@ export const createDailyTaskSnapshots = async (db) => {
       const placeholders = taskIds.map(() => '?').join(',');
       
       // Batch fetch all tags for all tasks
-      const allTags = wrapQuery(db.prepare(`
+      const allTags = await wrapQuery(db.prepare(`
         SELECT tt.taskId, t.tag as name 
         FROM task_tags tt
         JOIN tags t ON tt.tagId = t.id
@@ -63,9 +64,9 @@ export const createDailyTaskSnapshots = async (db) => {
       });
       
       // Batch fetch all watchers counts
-      const watchersCounts = wrapQuery(db.prepare(`
+      const watchersCounts = await wrapQuery(db.prepare(`
         SELECT taskId, COUNT(*) as count 
-        FROM watchers 
+        FROM watchers
         WHERE taskId IN (${placeholders})
         GROUP BY taskId
       `), 'SELECT').all(...taskIds);
@@ -74,9 +75,9 @@ export const createDailyTaskSnapshots = async (db) => {
       watchersCounts.forEach(w => watchersByTaskId.set(w.taskId, w.count));
       
       // Batch fetch all collaborators counts
-      const collaboratorsCounts = wrapQuery(db.prepare(`
+      const collaboratorsCounts = await wrapQuery(db.prepare(`
         SELECT taskId, COUNT(*) as count 
-        FROM collaborators 
+        FROM collaborators
         WHERE taskId IN (${placeholders})
         GROUP BY taskId
       `), 'SELECT').all(...taskIds);
@@ -85,9 +86,9 @@ export const createDailyTaskSnapshots = async (db) => {
       collaboratorsCounts.forEach(c => collaboratorsByTaskId.set(c.taskId, c.count));
       
       // Batch check for existing snapshots
-      const existingSnapshots = wrapQuery(db.prepare(`
+      const existingSnapshots = await wrapQuery(db.prepare(`
         SELECT id, task_id 
-        FROM task_snapshots 
+        FROM task_snapshots
         WHERE task_id IN (${placeholders}) AND snapshot_date = ?
       `), 'SELECT').all(...taskIds, snapshotDate);
       
@@ -141,7 +142,7 @@ export const createDailyTaskSnapshots = async (db) => {
     const now = new Date().toISOString();
     
     // Process all tasks in a single transaction for better performance
-    db.transaction(() => {
+    await dbTransaction(db, () => {
       for (const task of tasks) {
         try {
           const tags = tagsByTaskId.get(task.id) || [];
@@ -209,7 +210,7 @@ export const createDailyTaskSnapshots = async (db) => {
           console.error(`❌ Failed to snapshot task ${task.id}:`, taskError);
         }
       }
-    })();
+    });
     
     const duration = Date.now() - startTime;
     const totalSnapshots = newSnapshotCount + updatedSnapshotCount;
@@ -256,7 +257,7 @@ export const cleanupOldSnapshots = async (db, retentionDays = 730) => {
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
     const cutoffDateStr = cutoffDate.toISOString().split('T')[0];
     
-    const result = wrapQuery(db.prepare(`
+    const result = await wrapQuery(db.prepare(`
       DELETE FROM task_snapshots WHERE snapshot_date < ?
     `), 'DELETE').run(cutoffDateStr);
     

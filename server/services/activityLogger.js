@@ -2,6 +2,8 @@ import { isValidAction } from '../constants/activityActions.js';
 import { getNotificationService } from './notificationService.js';
 import redisService from './redisService.js';
 import { getTranslator } from '../utils/i18n.js';
+import { dbAll } from '../utils/dbAsync.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 /**
  * Activity Logger Service
@@ -52,12 +54,12 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let columnId = null;
 
     try {
-      const taskInfo = database.prepare(
+      const taskInfo = await wrapQuery(database.prepare(
         `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
          WHERE t.id = ?`
-      ).get(taskId);
+      ), 'SELECT').get(taskId);
       
       if (taskInfo) {
         taskTitle = taskInfo.title || 'Unknown Task';
@@ -70,21 +72,21 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Get user's current role
-    const userRole = database.prepare(`
+    const userRole = await wrapQuery(database.prepare(`
       SELECT r.id as roleId 
       FROM user_roles ur 
       JOIN roles r ON ur.role_id = r.id 
       WHERE ur.user_id = ? 
       ORDER BY r.name DESC 
       LIMIT 1
-    `).get(userId);
+    `), 'SELECT').get(userId);
 
     // Get the first available role as fallback
-    const fallbackRole = database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
+    const fallbackRole = await wrapQuery(database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`), 'SELECT').get();
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
     // Check if user exists
-    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
@@ -112,7 +114,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Get translator for activity messages
-    const t = getTranslator(database);
+    const t = await getTranslator(database);
     
     // Translate task and board titles if they are default values
     const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
@@ -206,23 +208,25 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     try {
       if (redisService) {
         // Get the latest activities for the activity feed
-        const latestActivities = database.prepare(`
-          SELECT 
-            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-            datetime(a.created_at) || 'Z' as created_at,
-            a.updated_at,
-            m.name as member_name,
-            r.name as role_name,
-            b.title as board_title,
-            c.title as column_title
-          FROM activity a
-          LEFT JOIN members m ON a.userId = m.user_id
-          LEFT JOIN roles r ON a.roleId = r.id
-          LEFT JOIN boards b ON a.boardId = b.id
-          LEFT JOIN columns c ON a.columnId = c.id
-          ORDER BY a.created_at DESC
-          LIMIT 20
-        `).all();
+        const latestActivities = await dbAll(
+          database.prepare(`
+            SELECT 
+              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+              datetime(a.created_at) || 'Z' as created_at,
+              a.updated_at,
+              m.name as member_name,
+              r.name as role_name,
+              b.title as board_title,
+              c.title as column_title
+            FROM activity a
+            LEFT JOIN members m ON a.userId = m.user_id
+            LEFT JOIN roles r ON a.roleId = r.id
+            LEFT JOIN boards b ON a.boardId = b.id
+            LEFT JOIN columns c ON a.columnId = c.id
+            ORDER BY a.created_at DESC
+            LIMIT 20
+          `)
+        );
 
         // Get tenantId from additionalData if provided (for multi-tenant isolation)
         const tenantId = additionalData.tenantId || null;
@@ -285,24 +289,24 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
 
   try {
     // Get translator for activity messages
-    const t = getTranslator(database);
+    const t = await getTranslator(database);
     
     // Get user's current role
-    const userRole = database.prepare(`
+    const userRole = await wrapQuery(database.prepare(`
       SELECT r.id as roleId 
       FROM user_roles ur 
       JOIN roles r ON ur.role_id = r.id 
       WHERE ur.user_id = ? 
       ORDER BY r.name DESC 
       LIMIT 1
-    `).get(userId);
+    `), 'SELECT').get(userId);
 
     // Get the first available role as fallback
-    const fallbackRole = database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`).get();
+    const fallbackRole = await wrapQuery(database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`), 'SELECT').get();
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
     // Check if user exists
-    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
@@ -341,23 +345,25 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
     try {
       if (redisService) {
         // Get the latest activities for the activity feed
-        const latestActivities = database.prepare(`
-          SELECT 
-            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-            datetime(a.created_at) || 'Z' as created_at,
-            a.updated_at,
-            m.name as member_name,
-            r.name as role_name,
-            b.title as board_title,
-            c.title as column_title
-          FROM activity a
-          LEFT JOIN members m ON a.userId = m.user_id
-          LEFT JOIN roles r ON a.roleId = r.id
-          LEFT JOIN boards b ON a.boardId = b.id
-          LEFT JOIN columns c ON a.columnId = c.id
-          ORDER BY a.created_at DESC
-          LIMIT 20
-        `).all();
+        const latestActivities = await dbAll(
+          database.prepare(`
+            SELECT 
+              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+              datetime(a.created_at) || 'Z' as created_at,
+              a.updated_at,
+              m.name as member_name,
+              r.name as role_name,
+              b.title as board_title,
+              c.title as column_title
+            FROM activity a
+            LEFT JOIN members m ON a.userId = m.user_id
+            LEFT JOIN roles r ON a.roleId = r.id
+            LEFT JOIN boards b ON a.boardId = b.id
+            LEFT JOIN columns c ON a.columnId = c.id
+            ORDER BY a.created_at DESC
+            LIMIT 20
+          `)
+        );
 
         // Get tenantId from additionalData if provided (for multi-tenant isolation)
         const tenantId = additionalData.tenantId || null;
@@ -454,7 +460,7 @@ const generateDescriptionChangeDetails = (oldValue, newValue, t) => {
   return actions.join(' and ');
 };
 
-export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalContext = '', db = null) => {
+export const generateTaskUpdateDetails = async (field, oldValue, newValue, additionalContext = '', db = null) => {
   // Use provided db parameter, or fall back to global db
   const finalDb = db || (typeof additionalContext === 'object' && additionalContext?.db) || null;
   // If additionalContext is a string, use it as context; otherwise extract context from object
@@ -465,7 +471,7 @@ export const generateTaskUpdateDetails = (field, oldValue, newValue, additionalC
     return '';
   }
 
-  const t = getTranslator(finalDb);
+  const t = await getTranslator(finalDb);
   // Map field names to translation keys (handle legacy field names)
   const fieldKeyMap = {
     'priority': 'priorityId',
@@ -601,7 +607,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     // Fallback to Member role if no role found
     if (!userRole) {
       try {
-        const memberRoleResult = database.prepare(`SELECT id FROM roles WHERE name = 'Member'`).get();
+        const memberRoleResult = await wrapQuery(database.prepare(`SELECT id FROM roles WHERE name = 'Member'`), 'SELECT').get();
         fallbackRole = memberRoleResult?.id || null;
       } catch (fallbackError) {
         console.warn('Failed to get fallback Member role:', fallbackError.message);
@@ -611,13 +617,13 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     const finalRoleId = userRole || fallbackRole;
 
     // Check if user exists
-    const userExists = database.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
+    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
     if (!userExists) {
       console.warn(`User ${userId} not found for comment activity logging`);
     }
 
     // Get translator for activity messages
-    const t = getTranslator(database);
+    const t = await getTranslator(database);
     
     // Translate task and board titles if they are default values
     const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
@@ -626,7 +632,7 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     // Get task reference for enhanced context
     let taskRef = '';
     try {
-      const taskDetails = database.prepare(`SELECT ticket FROM tasks WHERE id = ?`).get(taskId);
+      const taskDetails = await wrapQuery(database.prepare(`SELECT ticket FROM tasks WHERE id = ?`), 'SELECT').get(taskId);
       if (taskDetails?.ticket) {
         taskRef = ` (${taskDetails.ticket})`;
       }
@@ -716,23 +722,25 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     try {
       if (redisService) {
         // Get the latest activities for the activity feed
-        const latestActivities = database.prepare(`
-          SELECT 
-            a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-            datetime(a.created_at) || 'Z' as created_at,
-            a.updated_at,
-            m.name as member_name,
-            r.name as role_name,
-            b.title as board_title,
-            c.title as column_title
-          FROM activity a
-          LEFT JOIN members m ON a.userId = m.user_id
-          LEFT JOIN roles r ON a.roleId = r.id
-          LEFT JOIN boards b ON a.boardId = b.id
-          LEFT JOIN columns c ON a.columnId = c.id
-          ORDER BY a.created_at DESC
-          LIMIT 20
-        `).all();
+        const latestActivities = await dbAll(
+          database.prepare(`
+            SELECT 
+              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
+              datetime(a.created_at) || 'Z' as created_at,
+              a.updated_at,
+              m.name as member_name,
+              r.name as role_name,
+              b.title as board_title,
+              c.title as column_title
+            FROM activity a
+            LEFT JOIN members m ON a.userId = m.user_id
+            LEFT JOIN roles r ON a.roleId = r.id
+            LEFT JOIN boards b ON a.boardId = b.id
+            LEFT JOIN columns c ON a.columnId = c.id
+            ORDER BY a.created_at DESC
+            LIMIT 20
+          `)
+        );
 
         // Get tenantId from additionalData if provided (for multi-tenant isolation)
         const tenantId = additionalData.tenantId || null;

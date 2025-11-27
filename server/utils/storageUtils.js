@@ -9,9 +9,9 @@ import { wrapQuery } from './queryLogger.js';
  * @param {Database} db - Database instance
  * @returns {number} Total storage usage in bytes
  */
-export const calculateStorageUsage = (db) => {
+export const calculateStorageUsage = async (db) => {
   try {
-    const result = wrapQuery(
+    const result = await wrapQuery(
       db.prepare('SELECT SUM(size) as totalSize FROM attachments'),
       'SELECT'
     ).get();
@@ -29,11 +29,11 @@ export const calculateStorageUsage = (db) => {
  * @param {number} usage - Storage usage in bytes (optional, will calculate if not provided)
  * @returns {number} The updated storage usage
  */
-export const updateStorageUsage = (db, usage = null) => {
+export const updateStorageUsage = async (db, usage = null) => {
   try {
-    const currentUsage = usage !== null ? usage : calculateStorageUsage(db);
+    const currentUsage = usage !== null ? usage : await calculateStorageUsage(db);
     
-    wrapQuery(
+    await wrapQuery(
       db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'),
       'INSERT'
     ).run('STORAGE_USED', currentUsage.toString());
@@ -51,9 +51,9 @@ export const updateStorageUsage = (db, usage = null) => {
  * @param {Database} db - Database instance
  * @returns {number} Storage limit in bytes
  */
-export const getStorageLimit = (db) => {
+export const getStorageLimit = async (db) => {
   try {
-    const result = wrapQuery(
+    const result = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('STORAGE_LIMIT');
@@ -70,9 +70,9 @@ export const getStorageLimit = (db) => {
  * @param {Database} db - Database instance
  * @returns {number} Storage usage in bytes
  */
-export const getStorageUsage = (db) => {
+export const getStorageUsage = async (db) => {
   try {
-    const result = wrapQuery(
+    const result = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('STORAGE_USED');
@@ -90,10 +90,10 @@ export const getStorageUsage = (db) => {
  * @param {number} fileSize - Size of file to add in bytes
  * @returns {Object} { allowed: boolean, currentUsage: number, limit: number, remaining: number }
  */
-export const checkStorageLimit = (db, fileSize = 0) => {
+export const checkStorageLimit = async (db, fileSize = 0) => {
   try {
-    const currentUsage = getStorageUsage(db);
-    const limit = getStorageLimit(db);
+    const currentUsage = await getStorageUsage(db);
+    const limit = await getStorageLimit(db);
     const newUsage = currentUsage + fileSize;
     const remaining = limit - currentUsage;
     
@@ -136,15 +136,15 @@ export const formatBytes = (bytes) => {
  * This should be called when the app starts to ensure storage usage is accurate
  * @param {Database} db - Database instance
  */
-export const initializeStorageUsage = (db) => {
+export const initializeStorageUsage = async (db) => {
   try {
     console.log('📊 Initializing storage usage...');
-    const calculatedUsage = calculateStorageUsage(db);
-    const storedUsage = getStorageUsage(db);
+    const calculatedUsage = await calculateStorageUsage(db);
+    const storedUsage = await getStorageUsage(db);
     
     if (calculatedUsage !== storedUsage) {
       console.log(`📊 Storage usage mismatch detected. Calculated: ${formatBytes(calculatedUsage)}, Stored: ${formatBytes(storedUsage)}`);
-      updateStorageUsage(db, calculatedUsage);
+      await updateStorageUsage(db, calculatedUsage);
     } else {
       console.log(`📊 Storage usage is accurate: ${formatBytes(calculatedUsage)}`);
     }

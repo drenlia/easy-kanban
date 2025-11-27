@@ -30,7 +30,7 @@ router.get('/', (req, res, next) => {
 
 // Admin settings endpoints
 // Handle GET /api/admin/settings (when mounted at /api/admin/settings)
-router.get('/', authenticateToken, requireRole(['admin']), (req, res, next) => {
+router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next) => {
   // Only handle when mounted at /api/admin/settings
   if (req.baseUrl !== '/api/admin/settings') {
     return next(); // Let other routes handle it
@@ -38,7 +38,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     
     // Check if email is managed
@@ -97,7 +97,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
-    const result = wrapQuery(
+    const result = await wrapQuery(
       db.prepare(`
         INSERT OR REPLACE INTO settings (key, value, updated_at) 
         VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -145,7 +145,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     console.log('📞 Request data:', { userId, appUrl });
     
     // Get user email
-    const user = wrapQuery(
+    const user = await wrapQuery(
       db.prepare('SELECT email FROM users WHERE id = ?'),
       'SELECT'
     ).get(userId);
@@ -159,7 +159,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     // Check if user is the owner OR the default admin user (admin@kanban.local)
     // This allows the first user to set APP_URL even if OWNER hasn't been set yet
-    const ownerSetting = wrapQuery(
+    const ownerSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('OWNER');
@@ -193,7 +193,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     const normalizedUrl = trimmedUrl.replace(/\/$/, '');
     
     // Get current APP_URL
-    const currentAppUrl = wrapQuery(
+    const currentAppUrl = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('APP_URL');
@@ -204,7 +204,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     // Update APP_URL only if it's different
     if (!currentAppUrl || currentAppUrl.value !== normalizedUrl) {
-      wrapQuery(
+      await wrapQuery(
         db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
         'INSERT'
       ).run('APP_URL', normalizedUrl, new Date().toISOString());
@@ -249,23 +249,21 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     ];
     
     // Clear all mail-related settings in a single transaction
-    const clearSettings = db.transaction(() => {
+    await dbTransaction(db, async () => {
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO settings (key, value, updated_at) 
         VALUES (?, ?, CURRENT_TIMESTAMP)
       `);
       
       // Clear SMTP fields (set to empty strings)
-      mailSettingsToClear.forEach(key => {
-        wrapQuery(stmt, 'INSERT').run(key, '');
-      });
+      for (const key of mailSettingsToClear) {
+        await wrapQuery(stmt, 'INSERT').run(key, '');
+      }
       
       // Set MAIL_MANAGED to false and MAIL_ENABLED to false
-      wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
-      wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
+      await wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
+      await wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
     });
-    
-    clearSettings();
     
     // Publish to Redis for real-time updates (single message for all changes)
     const tenantId = getTenantId(req);
@@ -290,15 +288,15 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
 
 // Storage information endpoint
 // Handle GET /api/storage/info (when mounted at /api/storage)
-router.get('/info', authenticateToken, (req, res, next) => {
+router.get('/info', authenticateToken, async (req, res, next) => {
   // Only handle when mounted at /api/storage
   if (req.baseUrl !== '/api/storage') {
     return next(); // Let other routes handle it
   }
   try {
     const db = getRequestDatabase(req);
-    const usage = getStorageUsage(db);
-    const limit = getStorageLimit(db);
+    const usage = await getStorageUsage(db);
+    const limit = await getStorageLimit(db);
     const remaining = limit - usage;
     const usagePercent = limit > 0 ? Math.round((usage / limit) * 100) : 0;
     

@@ -8,6 +8,7 @@ import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -17,8 +18,8 @@ const getTenantId = (req) => {
 };
 
 // Helper function to fetch a task with all relationships (comments, watchers, collaborators, tags, attachmentCount)
-function fetchTaskWithRelationships(db, taskId) {
-  const task = wrapQuery(
+async function fetchTaskWithRelationships(db, taskId) {
+  const task = await wrapQuery(
     db.prepare(`
       SELECT t.*, 
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -87,7 +88,7 @@ function fetchTaskWithRelationships(db, taskId) {
     const commentIds = task.comments.map(c => c.id).filter(Boolean);
     if (commentIds.length > 0) {
       const placeholders = commentIds.map(() => '?').join(',');
-      const allAttachments = wrapQuery(db.prepare(`
+      const allAttachments = await wrapQuery(db.prepare(`
         SELECT commentId, id, name, url, type, size, created_at as createdAt
         FROM attachments
         WHERE commentId IN (${placeholders})
@@ -125,13 +126,13 @@ function fetchTaskWithRelationships(db, taskId) {
   let priorityColor = null;
   
   if (priorityId) {
-    const priority = wrapQuery(db.prepare('SELECT priority, color FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+    const priority = await wrapQuery(db.prepare('SELECT priority, color FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
     if (priority) {
       priorityName = priority.priority;
       priorityColor = priority.color;
     }
   } else if (priorityName) {
-    const priority = wrapQuery(db.prepare('SELECT id, color FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+    const priority = await wrapQuery(db.prepare('SELECT id, color FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
     if (priority) {
       priorityId = priority.id;
       priorityColor = priority.color;
@@ -152,7 +153,7 @@ function fetchTaskWithRelationships(db, taskId) {
 }
 
 // Helper function to check for circular dependencies in task relationships
-function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
+async function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
   // Simple cycle detection:
   // If A wants to become parent of B, check if A is already a child of B
   // If A wants to become child of B, check if A is already a parent of B
@@ -178,14 +179,14 @@ function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
   }
   
   // Check if the opposite relationship already exists
-  const existingOppositeRel = wrapQuery(db.prepare(`
+  const existingOppositeRel = await wrapQuery(db.prepare(`
     SELECT id FROM task_rels 
     WHERE task_id = ? AND relationship = ? AND to_task_id = ?
   `), 'SELECT').get(checkTaskId, oppositeRelationship, checkTargetId);
   
   if (existingOppositeRel) {
-    const sourceTicket = getTaskTicket(db, sourceTaskId);
-    const targetTicket = getTaskTicket(db, targetTaskId);
+    const sourceTicket = await getTaskTicket(db, sourceTaskId);
+    const targetTicket = await getTaskTicket(db, targetTaskId);
     
     return {
       hasCycle: true,
@@ -197,8 +198,8 @@ function checkForCycles(db, sourceTaskId, targetTaskId, relationship) {
 }
 
 // Helper function to get task ticket by ID
-function getTaskTicket(db, taskId) {
-  const task = wrapQuery(db.prepare('SELECT ticket FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+async function getTaskTicket(db, taskId) {
+  const task = await wrapQuery(db.prepare('SELECT ticket FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
   return task ? task.ticket : 'Unknown';
 }
 
@@ -223,14 +224,14 @@ const generateTaskTicket = (db, prefix = 'TASK-') => {
 const logReportingActivity = async (db, eventType, userId, taskId, metadata = {}) => {
   try {
     // Get user info
-    const userInfo = reportingLogger.getUserInfo(db, userId);
+    const userInfo = await reportingLogger.getUserInfo(db, userId);
     if (!userInfo) {
       console.warn(`User ${userId} not found for reporting activity log`);
       return;
     }
 
     // Get task info
-    const task = wrapQuery(db.prepare(`
+    const task = await wrapQuery(db.prepare(`
       SELECT t.*, b.title as board_title, c.title as column_title, b.id as board_id
       FROM tasks t
       LEFT JOIN boards b ON t.boardId = b.id
@@ -244,7 +245,7 @@ const logReportingActivity = async (db, eventType, userId, taskId, metadata = {}
     }
 
     // Get tags if any
-    const taskTags = wrapQuery(db.prepare(`
+    const taskTags = await wrapQuery(db.prepare(`
       SELECT t.tag as name FROM task_tags tt
       JOIN tags t ON tt.tagId = t.id
       WHERE tt.taskId = ?
@@ -278,10 +279,10 @@ const logReportingActivity = async (db, eventType, userId, taskId, metadata = {}
 };
 
 // Get all tasks
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const tasks = wrapQuery(db.prepare(`
+    const tasks = await wrapQuery(db.prepare(`
       SELECT t.*, 
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                   THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
@@ -304,13 +305,13 @@ router.get('/', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error fetching tasks:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTasks') });
   }
 });
 
 // Get task by ID or ticket
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;
@@ -325,7 +326,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     // Use separate prepared statements to avoid SQL injection
     // Join on priority_id (preferred) or fallback to priority name for backward compatibility
     const task = isTicket 
-      ? wrapQuery(db.prepare(`
+      ? await wrapQuery(db.prepare(`
           SELECT t.*, 
                  p.id as priorityId,
                  p.priority as priorityName,
@@ -341,7 +342,7 @@ router.get('/:id', authenticateToken, (req, res) => {
           WHERE t.ticket = ?
           GROUP BY t.id, p.id, c.id
         `), 'SELECT').get(id)
-      : wrapQuery(db.prepare(`
+      : await wrapQuery(db.prepare(`
           SELECT t.*, 
                  p.id as priorityId,
                  p.priority as priorityName,
@@ -360,7 +361,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     
     if (!task) {
       console.log('❌ [TASK API] Task not found for ID:', id);
-      const t = getTranslator(db);
+      const t = await getTranslator(db);
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
     
@@ -372,7 +373,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     });
     
     // Get comments for the task
-    const comments = wrapQuery(db.prepare(`
+    const comments = await wrapQuery(db.prepare(`
       SELECT c.*, 
              m.name as authorName,
              m.color as authorColor
@@ -388,7 +389,7 @@ router.get('/:id', authenticateToken, (req, res) => {
       const commentIds = comments.map(c => c.id).filter(Boolean);
       if (commentIds.length > 0) {
         const placeholders = commentIds.map(() => '?').join(',');
-        const allAttachments = wrapQuery(db.prepare(`
+        const allAttachments = await wrapQuery(db.prepare(`
           SELECT commentId, id, name, url, type, size, created_at as createdAt
           FROM attachments
           WHERE commentId IN (${placeholders})
@@ -411,7 +412,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     }
     
     // Get watchers for the task
-    const watchers = wrapQuery(db.prepare(`
+    const watchers = await wrapQuery(db.prepare(`
       SELECT m.* 
       FROM watchers w
       JOIN members m ON w.memberId = m.id
@@ -420,7 +421,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     console.log('👀 [TASK API] Found watchers:', watchers.length);
     
     // Get collaborators for the task
-    const collaborators = wrapQuery(db.prepare(`
+    const collaborators = await wrapQuery(db.prepare(`
       SELECT m.* 
       FROM collaborators c
       JOIN members m ON c.memberId = m.id
@@ -429,7 +430,7 @@ router.get('/:id', authenticateToken, (req, res) => {
     console.log('🤝 [TASK API] Found collaborators:', collaborators.length);
     
     // Get tags for the task
-    const tags = wrapQuery(db.prepare(`
+    const tags = await wrapQuery(db.prepare(`
       SELECT t.* 
       FROM task_tags tt
       JOIN tags t ON tt.tagId = t.id
@@ -473,7 +474,7 @@ router.get('/:id', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error fetching task:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTask') });
   }
 });
@@ -488,7 +489,8 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     const now = new Date().toISOString();
     
     // Generate task ticket number
-    const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
+    const taskPrefixSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX');
+    const taskPrefix = taskPrefixSetting?.value || 'TASK-';
     const ticket = generateTaskTicket(db, taskPrefix);
     
     // Ensure dueDate defaults to startDate if not provided
@@ -500,29 +502,29 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     
     // If priority_id is not provided but priority name is, look up the ID
     if (!priorityId && priorityName) {
-      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      const priority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
       if (priority) {
         priorityId = priority.id;
       } else {
         // Fallback to default priority if name not found
-        const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+        const defaultPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
         priorityId = defaultPriority ? defaultPriority.id : null;
       }
     }
     
     // If still no priority_id, use default
     if (!priorityId) {
-      const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+      const defaultPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
       priorityId = defaultPriority ? defaultPriority.id : null;
       if (priorityId && !priorityName) {
         // Get the name for the default priority
-        const defaultPriorityFull = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+        const defaultPriorityFull = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
         priorityName = defaultPriorityFull ? defaultPriorityFull.priority : null;
       }
     }
     
     // Create the task
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, priority_id, columnId, boardId, position, sprint_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(
@@ -531,8 +533,8 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     );
     
     // Log the activity (console only for now)
-    const t = getTranslator(db);
-    const board = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
+    const t = await getTranslator(db);
+    const board = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
     const taskRef = ticket ? ` (${ticket})` : '';
     await logTaskActivity(
@@ -556,7 +558,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     
     // Fetch the created task with all relationships (including priority info from JOIN)
     // This ensures the WebSocket event includes complete task data with current priority name
-    const taskResponse = fetchTaskWithRelationships(db, task.id);
+    const taskResponse = await fetchTaskWithRelationships(db, task.id);
     
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
@@ -579,7 +581,7 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
   } catch (error) {
     console.error('Error creating task:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateTask') });
   }
 });
@@ -594,7 +596,8 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     const now = new Date().toISOString();
     
     // Generate task ticket number
-    const taskPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX')?.value || 'TASK-';
+    const taskPrefixSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_TASK_PREFIX');
+    const taskPrefix = taskPrefixSetting?.value || 'TASK-';
     const ticket = generateTaskTicket(db, taskPrefix);
     
     // Ensure dueDate defaults to startDate if not provided
@@ -606,37 +609,37 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     
     // If priority_id is not provided but priority name is, look up the ID
     if (!priorityId && priorityName) {
-      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      const priority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
       if (priority) {
         priorityId = priority.id;
       } else {
         // Fallback to default priority if name not found
-        const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+        const defaultPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
         priorityId = defaultPriority ? defaultPriority.id : null;
       }
     }
     
     // If still no priority_id, use default
     if (!priorityId) {
-      const defaultPriority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
+      const defaultPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
       priorityId = defaultPriority ? defaultPriority.id : null;
       if (priorityId && !priorityName) {
         // Get the name for the default priority
-        const defaultPriorityFull = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+        const defaultPriorityFull = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
         priorityName = defaultPriorityFull ? defaultPriorityFull.priority : null;
       }
     }
     
-    db.transaction(() => {
-      wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
-      wrapQuery(db.prepare(`
+    await dbTransaction(db, async () => {
+      await wrapQuery(db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 'UPDATE').run(task.columnId);
+      await wrapQuery(db.prepare(`
         INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, priority_id, columnId, boardId, position, sprint_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       `), 'INSERT').run(
         task.id, task.title, task.description || '', ticket, task.memberId, task.requesterId,
         task.startDate, dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.sprintId || null, now, now
       );
-    })();
+    });
     
     // Log task creation activity
     await logTaskActivity(
@@ -660,7 +663,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     
     // Fetch the created task with all relationships (including priority info from JOIN)
     // This ensures the WebSocket event includes complete task data with current priority name
-    const taskResponse = fetchTaskWithRelationships(db, task.id);
+    const taskResponse = await fetchTaskWithRelationships(db, task.id);
     
     // Publish to Redis for real-time updates
     const publishTimestamp = new Date().toISOString();
@@ -683,7 +686,7 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
   } catch (error) {
     console.error('Error creating task at top:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateTaskAtTop') });
   }
 });
@@ -696,11 +699,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const now = new Date().toISOString();
     
     // Get current task for change tracking and previous location
-    const currentTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    const currentTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
     if (!currentTask) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
@@ -718,7 +721,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // If current task has priority_id but not priority name, look it up
     if (currentPriorityId && !currentPriorityName) {
-      const currentPriority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(currentPriorityId);
+      const currentPriority = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(currentPriorityId);
       if (currentPriority) {
         currentPriorityName = currentPriority.priority;
       }
@@ -726,7 +729,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // If priority_id is not provided but priority name is, look up the ID
     if (!priorityId && priorityName) {
-      const priority = wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
+      const priority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
       if (priority) {
         priorityId = priority.id;
       } else {
@@ -734,7 +737,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         priorityId = currentTask.priority_id;
         // Get the name for the existing priority_id
         if (priorityId) {
-          const existingPriority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+          const existingPriority = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
           priorityName = existingPriority ? existingPriority.priority : priorityName;
         }
       }
@@ -742,7 +745,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // If priority_id is provided, get the name for change tracking
     if (priorityId && !priorityName) {
-      const priority = wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
+      const priority = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
       priorityName = priority ? priority.priority : null;
     }
     
@@ -764,15 +767,16 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (priorityChanged) {
       const oldPriority = currentPriorityName || 'Unknown';
       const newPriority = priorityName || 'Unknown';
-      changes.push(generateTaskUpdateDetails('priorityId', oldPriority, newPriority, '', db));
+      changes.push(await generateTaskUpdateDetails('priorityId', oldPriority, newPriority, '', db));
     }
     
-    fieldsToTrack.forEach(field => {
+    // Process fields sequentially to handle async operations
+    for (const field of fieldsToTrack) {
       if (currentTask[field] !== task[field]) {
         if (field === 'columnId') {
           // Special handling for column moves - get column titles for better readability
-          const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
-          const newColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
+          const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask[field]);
+          const newColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(task[field]);
           const taskRef = task.ticket ? ` (${task.ticket})` : '';
           const movedTaskText = t('activity.movedTaskFromTo', {
             taskTitle: task.title,
@@ -782,12 +786,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
           changes.push(movedTaskText);
         } else {
-          changes.push(generateTaskUpdateDetails(field, currentTask[field], task[field], '', db));
+          changes.push(await generateTaskUpdateDetails(field, currentTask[field], task[field], '', db));
         }
       }
-    });
+    }
     
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
       dueDate = ?, effort = ?, priority = ?, priority_id = ?, columnId = ?, boardId = ?, position = ?, 
       sprint_id = ?, pre_boardId = ?, pre_columnId = ?, updated_at = ? WHERE id = ?
@@ -830,9 +834,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
       // Log to reporting system
       // Check if this is a column move
       if (currentTask.columnId !== task.columnId) {
-        // Get column info to check if task is completed
-        const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(task.columnId);
-        const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask.columnId);
+      // Get column info to check if task is completed
+      const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(task.columnId);
+      const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask.columnId);
         
         const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
         await logReportingActivity(db, eventType, userId, id, {
@@ -849,7 +853,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Fetch the updated task with all relationships (comments, watchers, collaborators, tags)
     // This ensures the WebSocket event includes complete task data so frontend doesn't need to merge
-    const taskResponse = fetchTaskWithRelationships(db, id);
+    const taskResponse = await fetchTaskWithRelationships(db, id);
     
     // Publish to Redis for real-time updates (includes complete task data with relationships)
     const webSocketData = {
@@ -866,7 +870,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating task:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateTask') });
   }
 });
@@ -880,14 +884,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Get task details before deletion for logging
-    const t = getTranslator(db);
-    const task = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
+    const t = await getTranslator(db);
+    const task = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
     if (!task) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
     
     // Get board title for activity logging
-    const board = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
+    const board = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
     
     // Log to reporting system BEFORE deletion (while we can still fetch task data)
@@ -895,7 +899,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Get task attachments before deleting the task
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE taskId = ?');
-    const attachments = wrapQuery(attachmentsStmt, 'SELECT').all(id);
+    const attachments = await wrapQuery(attachmentsStmt, 'SELECT').all(id);
 
     // Delete the attachment files from disk
     const path = await import('path');
@@ -937,12 +941,12 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     // Delete the task (cascades to attachments and comments)
-    wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
+    await wrapQuery(db.prepare('DELETE FROM tasks WHERE id = ?'), 'DELETE').run(id);
     
     // Update storage usage after deleting task (which cascades to attachments)
     // Import updateStorageUsage dynamically to avoid circular dependencies
     const { updateStorageUsage } = await import('../utils/storageUtils.js');
-    updateStorageUsage(db);
+    await updateStorageUsage(db);
     
     // Renumber remaining tasks in the same column sequentially from 0
     const remainingTasksStmt = db.prepare(`
@@ -950,15 +954,16 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       WHERE columnId = ? AND boardId = ? 
       ORDER BY position ASC
     `);
-    const remainingTasks = wrapQuery(remainingTasksStmt, 'SELECT').all(task.columnId, task.boardId);
+    const remainingTasks = await wrapQuery(remainingTasksStmt, 'SELECT').all(task.columnId, task.boardId);
     
     // Update positions sequentially from 0
     const updatePositionStmt = db.prepare('UPDATE tasks SET position = ? WHERE id = ?');
-    remainingTasks.forEach((remainingTask, index) => {
+    for (let index = 0; index < remainingTasks.length; index++) {
+      const remainingTask = remainingTasks[index];
       if (remainingTask.position !== index) {
-        wrapQuery(updatePositionStmt, 'UPDATE').run(index, remainingTask.id);
+        await wrapQuery(updatePositionStmt, 'UPDATE').run(index, remainingTask.id);
       }
-    });
+    }
     
     // Log deletion activity
     await logTaskActivity(
@@ -985,7 +990,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting task:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteTask') });
   }
 });
@@ -1001,13 +1006,13 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const now = new Date().toISOString();
     
     // Validate all tasks exist and get their current data
     const taskIds = updates.map(u => u.taskId);
     const placeholders = taskIds.map(() => '?').join(',');
-    const currentTasks = wrapQuery(
+    const currentTasks = await wrapQuery(
       db.prepare(`SELECT id, position, columnId, boardId, title FROM tasks WHERE id IN (${placeholders})`),
       'SELECT'
     ).all(...taskIds);
@@ -1040,7 +1045,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     });
     
     // Execute all updates in a single transaction
-    db.transaction(() => {
+    await dbTransaction(db, () => {
       const updateStmt = db.prepare(`
         UPDATE tasks SET 
           position = ?, 
@@ -1063,7 +1068,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
           );
         });
       });
-    })();
+    });
     
     // Log activity for tasks that changed columns (batch these too if possible)
     const columnMoves = [];
@@ -1079,7 +1084,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     if (columnMoves.length > 0) {
       const columnIds = [...new Set([...columnMoves.map(m => m.columnId), ...columnMoves.map(m => m.previousColumnId)])];
       const columnPlaceholders = columnIds.map(() => '?').join(',');
-      const columns = wrapQuery(
+      const columns = await wrapQuery(
         db.prepare(`SELECT id, title, is_finished as is_done FROM columns WHERE id IN (${columnPlaceholders})`),
         'SELECT'
       ).all(...columnIds);
@@ -1122,7 +1127,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     // Publish WebSocket updates for all changed tasks
     // Note: We publish individual events (not a batch) since WebSocket messages are lightweight
     // The performance bottleneck was the HTTP requests and DB updates, which are now batched
-    const taskResponses = taskIds.map(id => fetchTaskWithRelationships(db, id));
+    const taskResponses = await Promise.all(taskIds.map(id => fetchTaskWithRelationships(db, id)));
     
     // Publish individual WebSocket events for each task (grouped by board for efficiency)
     const tasksByBoard = new Map();
@@ -1152,7 +1157,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error batch updating task positions:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateTask') });
   }
 });
@@ -1164,8 +1169,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
-    const currentTask = wrapQuery(db.prepare('SELECT position, columnId, boardId, title FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const t = await getTranslator(db);
+    const currentTask = await wrapQuery(db.prepare('SELECT position, columnId, boardId, title FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
 
     if (!currentTask) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
@@ -1175,23 +1180,23 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const previousColumnId = currentTask.columnId;
     const previousBoardId = currentTask.boardId;
 
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       if (newPosition > currentPosition) {
         // Moving down: shift tasks between current and new position up by 1
-        wrapQuery(db.prepare(`
+        await wrapQuery(db.prepare(`
           UPDATE tasks SET position = position - 1 
           WHERE columnId = ? AND position > ? AND position <= ?
         `), 'UPDATE').run(columnId, currentPosition, newPosition);
       } else {
         // Moving up: shift tasks between new and current position down by 1
-        wrapQuery(db.prepare(`
+        await wrapQuery(db.prepare(`
           UPDATE tasks SET position = position + 1 
           WHERE columnId = ? AND position >= ? AND position < ?
         `), 'UPDATE').run(columnId, newPosition, currentPosition);
       }
 
       // Update the moved task to its new position and track previous location
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         UPDATE tasks SET 
           position = ?, 
           columnId = ?,
@@ -1200,7 +1205,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
           updated_at = ?
         WHERE id = ?
       `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
-    })();
+    });
 
     // Log reorder activity
     await logTaskActivity(
@@ -1223,8 +1228,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     // Log to reporting system - check if column changed
     if (previousColumnId !== columnId) {
       // This is a column move
-      const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(columnId);
-      const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(previousColumnId);
+      const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(columnId);
+      const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(previousColumnId);
       
       const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
       await logReportingActivity(db, eventType, userId, taskId, {
@@ -1236,7 +1241,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     }
 
     // Get the updated task data with all relationships for WebSocket
-    const taskResponse = fetchTaskWithRelationships(db, taskId);
+    const taskResponse = await fetchTaskWithRelationships(db, taskId);
     
     // Publish to Redis for real-time updates (includes complete task data with relationships)
     await redisService.publish('task-updated', {
@@ -1252,7 +1257,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error reordering task:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderTask') });
   }
 });
@@ -1270,10 +1275,10 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Get the task to move
-    const task = wrapQuery(
+    const task = await wrapQuery(
       db.prepare(`
         SELECT t.*, 
                JSON_GROUP_ARRAY(
@@ -1307,7 +1312,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     }
     
     // Get source column title for intelligent placement
-    const sourceColumn = wrapQuery(
+    const sourceColumn = await wrapQuery(
       db.prepare('SELECT title FROM columns WHERE id = ?'), 
       'SELECT'
     ).get(task.columnId);
@@ -1316,7 +1321,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     
     // Try to find a column with the same title in the target board
     if (sourceColumn) {
-      targetColumn = wrapQuery(
+      targetColumn = await wrapQuery(
         db.prepare('SELECT id, title FROM columns WHERE boardId = ? AND title = ? ORDER BY position ASC LIMIT 1'), 
         'SELECT'
       ).get(targetBoardId, sourceColumn.title);
@@ -1328,7 +1333,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     
     // Fallback to first column if no matching column found
     if (!targetColumn) {
-      targetColumn = wrapQuery(
+      targetColumn = await wrapQuery(
         db.prepare('SELECT id, title FROM columns WHERE boardId = ? ORDER BY position ASC LIMIT 1'), 
         'SELECT'
       ).get(targetBoardId);
@@ -1346,15 +1351,15 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     const originalColumnId = task.columnId;
     
     // Start transaction for atomic operation
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       // Shift existing tasks in target column to make room at position 0
-      wrapQuery(
+      await wrapQuery(
         db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 
         'UPDATE'
       ).run(targetColumn.id);
       
       // Update the existing task to move it to the new location
-      wrapQuery(
+      await wrapQuery(
         db.prepare(`
           UPDATE tasks SET 
             columnId = ?, 
@@ -1371,11 +1376,11 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         new Date().toISOString(), taskId
       );
       
-    })();
+    });
     
     // Log move activity
-    const originalBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);
-    const targetBoard = wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(targetBoardId);
+    const originalBoard = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);
+    const targetBoard = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(targetBoardId);
     const moveDetails = t('activity.movedTaskBoard', {
       taskTitle: task.title,
       fromBoard: originalBoard?.title || 'Unknown',
@@ -1396,8 +1401,8 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     );
     
     // Log to reporting system
-    const newColumn = wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);
-    const oldColumn = wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(originalColumnId);
+    const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);
+    const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(originalColumnId);
     
     const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
     await logReportingActivity(db, eventType, userId, taskId, {
@@ -1408,7 +1413,7 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     });
     
     // Get the updated task data with all relationships for WebSocket
-    const taskResponse = fetchTaskWithRelationships(db, taskId);
+    const taskResponse = await fetchTaskWithRelationships(db, taskId);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     // Includes complete task data with relationships
@@ -1442,17 +1447,17 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error moving task to board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToMoveTaskToBoard') });
   }
 });
 
 // Get tasks by board
-router.get('/by-board/:boardId', authenticateToken, (req, res) => {
+router.get('/by-board/:boardId', authenticateToken, async (req, res) => {
   const { boardId } = req.params;
   try {
     const db = getRequestDatabase(req);
-    const tasks = wrapQuery(db.prepare(`
+    const tasks = await wrapQuery(db.prepare(`
       SELECT t.*, 
              CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                   THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
@@ -1467,7 +1472,7 @@ router.get('/by-board/:boardId', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error getting tasks by board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToGetTasks') });
   }
 });
@@ -1479,9 +1484,9 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     // Get task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     if (!task) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
@@ -1506,7 +1511,7 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   } catch (error) {
     console.error('Error adding watcher:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToAddWatcher') });
   }
 });
@@ -1515,11 +1520,11 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
 router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId, memberId } = req.params;
     
     // Get task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     if (!task) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
@@ -1540,7 +1545,7 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
   } catch (error) {
     console.error('Error removing watcher:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRemoveWatcher') });
   }
 });
@@ -1549,12 +1554,12 @@ router.delete('/:taskId/watchers/:memberId', async (req, res) => {
 router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId, memberId } = req.params;
     const userId = req.user?.id || 'system';
     
     // Get task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     if (!task) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
@@ -1579,7 +1584,7 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   } catch (error) {
     console.error('Error adding collaborator:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToAddCollaborator') });
   }
 });
@@ -1588,11 +1593,11 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
 router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId, memberId } = req.params;
     
     // Get task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
     if (!task) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
@@ -1613,7 +1618,7 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
   } catch (error) {
     console.error('Error removing collaborator:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToRemoveCollaborator') });
   }
 });
@@ -1621,13 +1626,13 @@ router.delete('/:taskId/collaborators/:memberId', async (req, res) => {
 // Task Relationships endpoints
 
 // Get all relationships for a task
-router.get('/:taskId/relationships', authenticateToken, (req, res) => {
+router.get('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { taskId } = req.params;
     
     // Get all relationships where this task is involved (as either task_id or to_task_id)
-    const relationships = wrapQuery(db.prepare(`
+    const relationships = await wrapQuery(db.prepare(`
       SELECT 
         tr.*,
         t1.title as task_title,
@@ -1651,7 +1656,7 @@ router.get('/:taskId/relationships', authenticateToken, (req, res) => {
   } catch (error) {
     console.error('Error fetching task relationships:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchTaskRelationships') });
   }
 });
@@ -1660,7 +1665,7 @@ router.get('/:taskId/relationships', authenticateToken, (req, res) => {
 router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId } = req.params;
     const { relationship, toTaskId } = req.body;
     
@@ -1675,15 +1680,15 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     }
     
     // Verify both tasks exist
-    const taskExists = wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
-    const toTaskExists = wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
+    const taskExists = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const toTaskExists = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
     
     if (!taskExists || !toTaskExists) {
       return res.status(404).json({ error: t('errors.oneOrBothTasksNotFound') });
     }
     
     // Check if relationship already exists
-    const existingRelationship = wrapQuery(db.prepare(`
+    const existingRelationship = await wrapQuery(db.prepare(`
       SELECT id FROM task_rels 
       WHERE task_id = ? AND relationship = ? AND to_task_id = ?
     `), 'SELECT').get(taskId, relationship, toTaskId);
@@ -1694,7 +1699,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     
     // Check for circular relationships (prevent cycles in parent/child hierarchies)
     if (relationship === 'parent' || relationship === 'child') {
-      const wouldCreateCycle = checkForCycles(db, taskId, toTaskId, relationship);
+      const wouldCreateCycle = await checkForCycles(db, taskId, toTaskId, relationship);
       if (wouldCreateCycle.hasCycle) {
         return res.status(409).json({ 
           error: `Cannot create relationship: This would create a circular dependency. ${wouldCreateCycle.reason}` 
@@ -1704,9 +1709,9 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     
     // Use a transaction to ensure atomicity
     let insertResult;
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       // Insert the relationship (use regular INSERT since we've validated above)
-      insertResult = wrapQuery(db.prepare(`
+      insertResult = await wrapQuery(db.prepare(`
         INSERT INTO task_rels (task_id, relationship, to_task_id)
         VALUES (?, ?, ?)
       `), 'INSERT').run(taskId, relationship, toTaskId);
@@ -1714,31 +1719,31 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
       // For parent/child relationships, also create the inverse relationship
       // Check if inverse already exists to avoid UNIQUE constraint violations
       if (relationship === 'parent') {
-        const inverseExists = wrapQuery(db.prepare(`
+        const inverseExists = await wrapQuery(db.prepare(`
           SELECT id FROM task_rels 
           WHERE task_id = ? AND relationship = 'child' AND to_task_id = ?
         `), 'SELECT').get(toTaskId, taskId);
         
         if (!inverseExists) {
-          wrapQuery(db.prepare(`
+          await wrapQuery(db.prepare(`
             INSERT INTO task_rels (task_id, relationship, to_task_id)
             VALUES (?, 'child', ?)
           `), 'INSERT').run(toTaskId, taskId);
         }
       } else if (relationship === 'child') {
-        const inverseExists = wrapQuery(db.prepare(`
+        const inverseExists = await wrapQuery(db.prepare(`
           SELECT id FROM task_rels 
           WHERE task_id = ? AND relationship = 'parent' AND to_task_id = ?
         `), 'SELECT').get(toTaskId, taskId);
         
         if (!inverseExists) {
-          wrapQuery(db.prepare(`
+          await wrapQuery(db.prepare(`
             INSERT INTO task_rels (task_id, relationship, to_task_id)
             VALUES (?, 'parent', ?)
           `), 'INSERT').run(toTaskId, taskId);
         }
       }
-    })();
+    });
     
     console.log(`✅ Created relationship: ${taskId} (${relationship}) → ${toTaskId}`);
     
@@ -1748,8 +1753,8 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     }
     
     // Get the board ID for the source task to publish the update
-    const sourceTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
-    const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
+    const sourceTask = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const targetTask = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(toTaskId);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     const tenantId = getTenantId(req);
@@ -1776,7 +1781,7 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
     res.json({ success: true, message: 'Task relationship created successfully' });
   } catch (error) {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     if (error.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return res.status(409).json({ error: t('errors.relationshipAlreadyExists') });
     }
@@ -1786,14 +1791,14 @@ router.post('/:taskId/relationships', authenticateToken, async (req, res) => {
 });
 
 // Delete a task relationship
-router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
+router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId, relationshipId } = req.params;
     
     // Get the relationship details before deleting
-    const relationship = wrapQuery(db.prepare(`
+    const relationship = await wrapQuery(db.prepare(`
       SELECT * FROM task_rels WHERE id = ? AND task_id = ?
     `), 'SELECT').get(relationshipId, taskId);
     
@@ -1802,24 +1807,24 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
     }
     
     // Delete the main relationship
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       DELETE FROM task_rels WHERE id = ?
     `), 'DELETE').run(relationshipId);
     
     // For parent/child relationships, also delete the inverse relationship
     if (relationship.relationship === 'parent') {
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         DELETE FROM task_rels WHERE task_id = ? AND relationship = 'child' AND to_task_id = ?
       `), 'DELETE').run(relationship.to_task_id, relationship.task_id);
     } else if (relationship.relationship === 'child') {
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         DELETE FROM task_rels WHERE task_id = ? AND relationship = 'parent' AND to_task_id = ?
       `), 'DELETE').run(relationship.to_task_id, relationship.task_id);
     }
     
     // Get the board ID for the source task to publish the update
-    const sourceTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
-    const targetTask = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(relationship.to_task_id);
+    const sourceTask = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    const targetTask = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(relationship.to_task_id);
     
     // Publish to Redis for real-time updates (both boards need to be notified)
     const tenantId = getTenantId(req);
@@ -1847,20 +1852,20 @@ router.delete('/:taskId/relationships/:relationshipId', async (req, res) => {
   } catch (error) {
     console.error('Error deleting task relationship:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteTaskRelationship') });
   }
 });
 
 // Get tasks available for creating relationships (excludes current task and already related tasks)
-router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) => {
+router.get('/:taskId/available-for-relationship', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { taskId } = req.params;
     
     // Get all tasks except the current one and already related ones
-    const availableTasks = wrapQuery(db.prepare(`
+    const availableTasks = await wrapQuery(db.prepare(`
       SELECT t.id, t.title, t.ticket, c.title as status, b.project as projectId
       FROM tasks t
       LEFT JOIN columns c ON t.columnId = c.id
@@ -1878,7 +1883,7 @@ router.get('/:taskId/available-for-relationship', authenticateToken, (req, res) 
   } catch (error) {
     console.error('Error fetching available tasks for relationship:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchAvailableTasks') });
   }
 });
@@ -1888,7 +1893,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
   try {
     const { taskId } = req.params;
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     console.log(`🌳 FlowChart API: Building flow chart for task: ${taskId}`);
     
@@ -1906,7 +1911,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
       processedIds.add(currentId);
       
       // Find all tasks connected to current task
-      const connected = wrapQuery(db.prepare(`
+      const connected = await wrapQuery(db.prepare(`
         SELECT DISTINCT 
           CASE 
             WHEN task_id = ? THEN to_task_id 
@@ -1952,7 +1957,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         WHERE t.id IN (${placeholders})
       `;
       
-      const tasks = wrapQuery(db.prepare(tasksQuery), 'SELECT').all(...Array.from(connectedTaskIds));
+      const tasks = await wrapQuery(db.prepare(tasksQuery), 'SELECT').all(...Array.from(connectedTaskIds));
       
       // Step 3: Get all relationships between these tasks
       const relationshipsQuery = `
@@ -1969,7 +1974,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         WHERE tr.task_id IN (${placeholders}) AND tr.to_task_id IN (${placeholders})
       `;
       
-      const relationships = wrapQuery(db.prepare(relationshipsQuery), 'SELECT').all(...Array.from(connectedTaskIds), ...Array.from(connectedTaskIds));
+      const relationships = await wrapQuery(db.prepare(relationshipsQuery), 'SELECT').all(...Array.from(connectedTaskIds), ...Array.from(connectedTaskIds));
       
       console.log(`✅ FlowChart API: Found ${tasks.length} tasks and ${relationships.length} relationships`);
       
@@ -2025,7 +2030,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
         WHERE t.id = ?
       `;
       
-      const rootTask = wrapQuery(db.prepare(rootTaskQuery), 'SELECT').get(taskId);
+      const rootTask = await wrapQuery(db.prepare(rootTaskQuery), 'SELECT').get(taskId);
       
       if (rootTask) {
         const response = {
@@ -2055,7 +2060,7 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('❌ FlowChart API: Error getting flow chart data:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToGetFlowChartData') });
   }
 });

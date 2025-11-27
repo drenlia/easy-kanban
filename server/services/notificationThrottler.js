@@ -16,9 +16,9 @@ class NotificationThrottler {
   /**
    * Get notification delay setting from database
    */
-  getNotificationDelay() {
+  async getNotificationDelay() {
     try {
-      const setting = wrapQuery(
+      const setting = await wrapQuery(
         this.db.prepare('SELECT value FROM settings WHERE key = ?'),
         'SELECT'
       ).get('NOTIFICATION_DELAY');
@@ -64,14 +64,14 @@ class NotificationThrottler {
   /**
    * Add a notification to the throttling queue (DATABASE BACKED)
    */
-  addNotification(userId, taskId, notificationData) {
+  async addNotification(userId, taskId, notificationData) {
     // Skip notifications in demo mode
     if (process.env.DEMO_ENABLED === 'true') {
       console.log('📧 [THROTTLER] Skipping notification in demo mode');
       return Promise.resolve();
     }
     
-    const delay = this.getNotificationDelay();
+    const delay = await this.getNotificationDelay();
     
     // If delay is 0, send immediately
     if (delay === 0) {
@@ -83,7 +83,7 @@ class NotificationThrottler {
       const scheduledSendTime = new Date(now.getTime() + delay * 60 * 1000);
       
       // Check if there's already a pending notification for this user-task combo
-      const existing = wrapQuery(
+      const existing = await wrapQuery(
         this.db.prepare(`
           SELECT id, change_count, first_change_time, task_data, participants_data, actor_data
           FROM notification_queue
@@ -98,7 +98,7 @@ class NotificationThrottler {
         const participantsData = JSON.parse(existing.participants_data);
         
         // Merge changes (keep most recent actor and data)
-        wrapQuery(
+        await wrapQuery(
           this.db.prepare(`
             UPDATE notification_queue
             SET 
@@ -134,7 +134,7 @@ class NotificationThrottler {
         // Create new notification entry
         const notificationId = crypto.randomUUID();
         
-        wrapQuery(
+        await wrapQuery(
           this.db.prepare(`
             INSERT INTO notification_queue (
               id, user_id, task_id, notification_type, action, details,
@@ -179,7 +179,7 @@ class NotificationThrottler {
       const now = new Date().toISOString();
       
       // Find all notifications scheduled to be sent now or earlier
-      const readyNotifications = wrapQuery(
+      const readyNotifications = await wrapQuery(
         this.db.prepare(`
           SELECT *
           FROM notification_queue
@@ -286,7 +286,7 @@ class NotificationThrottler {
       const notificationIds = notifications.map(n => n.id);
       const placeholders = notificationIds.map(() => '?').join(',');
       
-      wrapQuery(
+      await wrapQuery(
         this.db.prepare(`
           UPDATE notification_queue
           SET status = 'sent', sent_at = CURRENT_TIMESTAMP
@@ -304,7 +304,7 @@ class NotificationThrottler {
       const notificationIds = notifications.map(n => n.id);
       const placeholders = notificationIds.map(() => '?').join(',');
       
-      wrapQuery(
+      await wrapQuery(
         this.db.prepare(`
           UPDATE notification_queue
           SET status = 'failed', error_message = ?, retry_count = retry_count + 1
@@ -360,7 +360,7 @@ class NotificationThrottler {
       await notificationService.sendEmailDirectly(consolidatedData);
 
       // Mark as sent
-      wrapQuery(
+      await wrapQuery(
         this.db.prepare(`
           UPDATE notification_queue
           SET status = 'sent', sent_at = CURRENT_TIMESTAMP
@@ -380,7 +380,7 @@ class NotificationThrottler {
 
       if (retryCount >= maxRetries) {
         // Give up after max retries
-        wrapQuery(
+        await wrapQuery(
           this.db.prepare(`
             UPDATE notification_queue
             SET status = 'failed', error_message = ?, retry_count = ?
@@ -394,7 +394,7 @@ class NotificationThrottler {
         // Schedule retry (5 minutes later)
         const retryTime = new Date(Date.now() + 5 * 60 * 1000).toISOString();
         
-        wrapQuery(
+        await wrapQuery(
           this.db.prepare(`
             UPDATE notification_queue
             SET scheduled_send_time = ?, error_message = ?, retry_count = ?
@@ -462,7 +462,7 @@ class NotificationThrottler {
     console.log('🔄 Flushing all pending notifications...');
     
     try {
-      const pendingNotifications = wrapQuery(
+      const pendingNotifications = await wrapQuery(
         this.db.prepare(`
           SELECT *
           FROM notification_queue
@@ -487,9 +487,9 @@ class NotificationThrottler {
   /**
    * Get pending notifications count for a user
    */
-  getPendingCount(userId) {
+  async getPendingCount(userId) {
     try {
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare(`
           SELECT COUNT(*) as count
           FROM notification_queue
@@ -508,9 +508,9 @@ class NotificationThrottler {
   /**
    * Get all pending notifications for debugging
    */
-  getPendingNotifications() {
+  async getPendingNotifications() {
     try {
-      const notifications = wrapQuery(
+      const notifications = await wrapQuery(
         this.db.prepare(`
           SELECT 
             user_id, task_id, notification_type, change_count,
@@ -532,11 +532,11 @@ class NotificationThrottler {
   /**
    * Clean up old sent/failed notifications (older than 30 days)
    */
-  cleanupOldNotifications() {
+  async cleanupOldNotifications() {
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare(`
           DELETE FROM notification_queue
           WHERE (status = 'sent' OR status = 'failed')

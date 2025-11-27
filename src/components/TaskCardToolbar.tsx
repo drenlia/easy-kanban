@@ -97,6 +97,7 @@ export default function TaskCardToolbar({
   
   // Determine if toolbar should be visible
   const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription;
+  
 
   const handleCopy = () => {
     onCopy(task);
@@ -107,7 +108,8 @@ export default function TaskCardToolbar({
   const [dragStartPosition, setDragStartPosition] = useState<{x: number, y: number} | null>(null);
   const dragThreshold = 5; // Minimum pixels to consider it a drag
 
-  const handleLinkMouseDown = (e: React.MouseEvent) => {
+  const handleLinkPointerDown = (e: React.PointerEvent) => {
+    // CRITICAL: Prevent the task card's drag listeners from interfering
     e.preventDefault();
     e.stopPropagation();
     
@@ -118,12 +120,38 @@ export default function TaskCardToolbar({
     // Prepare for potential drag, but don't start linking yet
     setIsDragPrepared(true);
     setDragStartPosition(startPos);
-    
   };
-
-  // Handle global mouse move to detect drag
+  
+  const handleLinkMouseDown = (e: React.MouseEvent) => {
+    // Also handle mousedown as fallback
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const startPos = { x: e.clientX, y: e.clientY };
+    setIsDragPrepared(true);
+    setDragStartPosition(startPos);
+  };
+  
+  // Handle global mouse/pointer move to detect drag while holding down
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isDragPrepared && dragStartPosition && onStartLinking) {
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+        const deltaX = Math.abs(currentX - dragStartPosition.x);
+        const deltaY = Math.abs(currentY - dragStartPosition.y);
+        
+        // If moved beyond threshold, start linking mode
+        if (deltaX > dragThreshold || deltaY > dragThreshold) {
+          setIsDragPrepared(false);
+          onStartLinking(task, dragStartPosition);
+          setDragStartPosition(null);
+        }
+      }
+    };
+
+    const handleGlobalPointerMove = (e: PointerEvent) => {
+      // Also handle pointer events for better cross-device support
       if (isDragPrepared && dragStartPosition && onStartLinking) {
         const currentX = e.clientX;
         const currentY = e.clientY;
@@ -147,14 +175,27 @@ export default function TaskCardToolbar({
       }
     };
 
+    const handleGlobalPointerUp = (_e: PointerEvent) => {
+      if (isDragPrepared) {
+        // Released without dragging - cancel linking
+        setIsDragPrepared(false);
+        setDragStartPosition(null);
+      }
+    };
+
     if (isDragPrepared) {
+      // Listen to both mouse and pointer events for better cross-device support
       document.addEventListener('mousemove', handleGlobalMouseMove);
+      document.addEventListener('pointermove', handleGlobalPointerMove);
       document.addEventListener('mouseup', handleGlobalMouseUp);
+      document.addEventListener('pointerup', handleGlobalPointerUp);
     }
 
     return () => {
       document.removeEventListener('mousemove', handleGlobalMouseMove);
+      document.removeEventListener('pointermove', handleGlobalPointerMove);
       document.removeEventListener('mouseup', handleGlobalMouseUp);
+      document.removeEventListener('pointerup', handleGlobalPointerUp);
     };
   }, [isDragPrepared, dragStartPosition, onStartLinking, task]);
 
@@ -374,14 +415,47 @@ export default function TaskCardToolbar({
             {onStartLinking && (
               <button
                 data-no-dnd="true"
-                onMouseDown={handleLinkMouseDown}
-                onMouseEnter={() => onLinkToolHover?.(task)}
-                onMouseLeave={() => onLinkToolHoverEnd?.()}
+                onPointerDown={(e) => {
+                  // Only prevent default if we're actually starting a drag
+                  // Allow hover events to fire first
+                  handleLinkPointerDown(e);
+                }}
+                onMouseDown={(e) => {
+                  // Only prevent default if we're actually starting a drag
+                  // Allow hover events to fire first
+                  handleLinkMouseDown(e);
+                }}
+                onClick={(e) => {
+                  // Prevent click from doing anything - we only want mousedown + drag
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onMouseEnter={(e) => {
+                  // Ensure hover works even if pointer/mouse down handlers are active
+                  e.stopPropagation(); // Prevent event from bubbling to parent
+                  onLinkToolHover?.(task);
+                }}
+                onMouseLeave={(e) => {
+                  // Ensure hover end works
+                  e.stopPropagation(); // Prevent event from bubbling to parent
+                  onLinkToolHoverEnd?.();
+                }}
+                onPointerEnter={(e) => {
+                  // Also handle pointer enter for touch devices
+                  e.stopPropagation();
+                  onLinkToolHover?.(task);
+                }}
+                onPointerLeave={(e) => {
+                  // Also handle pointer leave for touch devices
+                  e.stopPropagation();
+                  onLinkToolHoverEnd?.();
+                }}
                 className={`p-1 rounded-full transition-colors ${
                   isLinkingMode && linkingSourceTask?.id === task.id
                     ? 'bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400'
                     : 'hover:bg-blue-100 dark:hover:bg-blue-900 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400'
                 }`}
+                style={{ pointerEvents: 'auto', zIndex: 100, touchAction: 'none', userSelect: 'none' }}
                 title={isLinkingMode && linkingSourceTask?.id === task.id ? t('toolbar.sourceTaskForLinking') : t('toolbar.holdAndDragToLink')}
               >
                 <Link size={14} />
@@ -545,7 +619,7 @@ export default function TaskCardToolbar({
         return createPortal(
           <div 
             data-member-dropdown
-            className="fixed bg-white border border-gray-200 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
+            className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
             style={{
               left: `${position.left}px`,
               top: `${position.top}px`,
@@ -554,7 +628,7 @@ export default function TaskCardToolbar({
             onClick={(e) => e.stopPropagation()}
           >
           <div className="p-2">
-            <div className="text-xs font-medium text-gray-500 mb-2">{t('toolbar.assignTo')}</div>
+            <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>
             {members.map(m => (
               <button
                 key={m.id}
@@ -562,9 +636,9 @@ export default function TaskCardToolbar({
                   e.stopPropagation();
                   onMemberChange(m.id);
                 }}
-                className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 transition-colors ${
-                  member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50' : 
-                  m.id === member.id ? 'bg-blue-50 border border-blue-200' : ''
+                className={`w-full flex items-center gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                  member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900/20' : 
+                  m.id === member.id ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700' : ''
                 }`}
               >
                 {m.googleAvatarUrl || m.avatarUrl ? (
@@ -581,9 +655,9 @@ export default function TaskCardToolbar({
                     {m.id === SYSTEM_MEMBER_ID ? '🤖' : m.name.charAt(0).toUpperCase()}
                   </div>
                 )}
-                <span className="text-sm">{truncateMemberName(m.name)}</span>
+                <span className="text-sm text-gray-900 dark:text-gray-100">{truncateMemberName(m.name)}</span>
                 {m.id === member.id && (
-                  <span className="ml-auto text-blue-600 text-xs">✓</span>
+                  <span className="ml-auto text-blue-600 dark:text-blue-400 text-xs">✓</span>
                 )}
               </button>
             ))}

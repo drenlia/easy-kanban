@@ -864,6 +864,7 @@ export default function TaskPage({
         onRefresh={onRefresh}
         onHelpClick={() => setShowHelpModal(true)}
         onInviteUser={onInviteUser}
+        hideSprintSelector={true} // Hide sprint selector on TaskPage
         // isAutoRefreshEnabled={isAutoRefreshEnabled} // Disabled - using real-time updates
         // onToggleAutoRefresh={onToggleAutoRefresh} // Disabled - using real-time updates
       />
@@ -875,7 +876,7 @@ export default function TaskPage({
             <div className="flex items-center space-x-4">
               <button
                 onClick={handleBack}
-                className="flex items-center text-gray-600 hover:text-gray-900 transition-colors"
+                className="flex items-center text-gray-600 dark:text-white hover:text-gray-900 dark:hover:text-blue-400 font-medium transition-colors"
               >
                 <ArrowLeft className="h-5 w-5 mr-1" />
                 {t('taskPage.backToBoard')}

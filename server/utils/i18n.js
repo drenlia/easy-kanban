@@ -111,8 +111,8 @@ export function t(key, params = {}, lang = 'en') {
  * @param {Object} db - Database instance
  * @returns {Function} Translation function bound to the app language
  */
-export function getTranslator(db) {
-  const lang = getAppLanguage(db);
+export async function getTranslator(db) {
+  const lang = await getAppLanguage(db);
   return (key, params = {}) => t(key, params, lang);
 }
 
@@ -121,8 +121,8 @@ export function getTranslator(db) {
  * @param {Object} db - Database instance
  * @returns {Array} Array of column objects with id and title
  */
-export function getDefaultBoardColumns(db) {
-  const lang = getAppLanguage(db);
+export async function getDefaultBoardColumns(db) {
+  const lang = await getAppLanguage(db);
   const translations = loadTranslations(lang);
   const columns = translations.boardColumns;
   

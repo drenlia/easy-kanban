@@ -142,10 +142,13 @@ function AppContent() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const draggedTaskRef = useRef<Task | null>(null);
   const [draggedColumn, setDraggedColumn] = useState<Column | null>(null);
+  const draggedColumnRef = useRef<Column | null>(null);
   const [isHoveringBoardTab, setIsHoveringBoardTab] = useState<boolean>(false);
   const boardTabHoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isHoveringBoardTabRef = useRef<boolean>(false);
 
   const [dragPreview, setDragPreview] = useState<DragPreview | null>(null);
+  const dragPreviewRef = useRef<DragPreview | null>(null);
   const [isTaskMiniMode, setIsTaskMiniMode] = useState(false);
   const dragStartedRef = useRef<boolean>(false);
   
@@ -1151,29 +1154,39 @@ function AppContent() {
 
   // Task linking handlers
   const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
-    // console.log('🔗 handleStartLinking called:', {
-    //   taskTicket: task.ticket,
-    //   taskId: task.id,
-    //   startPosition
-    // });
+    console.log('🔗 handleStartLinking called:', {
+      taskTicket: task.ticket,
+      taskId: task.id,
+      startPosition
+    });
     taskLinking.setIsLinkingMode(true);
     taskLinking.setLinkingSourceTask(task);
+    // For fixed overlay, coordinates should be viewport-relative (clientX/clientY)
+    // The overlay uses getBoundingClientRect() which for fixed elements returns viewport coordinates
     taskLinking.setLinkingLine({
       startX: startPosition.x,
       startY: startPosition.y,
       endX: startPosition.x,
       endY: startPosition.y
     });
-    // console.log('✅ Linking mode activated');
+    console.log('✅ Linking mode activated, linkingLine set:', {
+      startX: startPosition.x,
+      startY: startPosition.y,
+      endX: startPosition.x,
+      endY: startPosition.y
+    });
   };
 
   const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
     if (taskLinking.linkingLine) {
+      console.log('🔗 handleUpdateLinkingLine called:', { endPosition, currentLine: taskLinking.linkingLine });
       taskLinking.setLinkingLine({
         ...taskLinking.linkingLine,
         endX: endPosition.x,
         endY: endPosition.y
       });
+    } else {
+      console.warn('🔗 handleUpdateLinkingLine called but linkingLine is null');
     }
   };
 
@@ -1280,8 +1293,6 @@ function AppContent() {
   // - Purple: Child tasks (tasks that depend on this one)  
   // - Yellow: Related tasks (loosely connected tasks)
   const handleLinkToolHover = async (task: Task) => {
-    taskLinking.setHoveredLinkTask(task);
-    
     // Load relationships for this task if not already loaded
     if (!taskLinking.taskRelationships[task.id]) {
       try {
@@ -1290,9 +1301,16 @@ function AppContent() {
           ...prev,
           [task.id]: relationships.data || []
         }));
+        // Set hovered task AFTER relationships are loaded to ensure highlighting works immediately
+        taskLinking.setHoveredLinkTask(task);
       } catch (error) {
         // console.error('Failed to load task relationships for hover:', error);
+        // Still set hovered task even if loading fails (user can see there are no relationships)
+        taskLinking.setHoveredLinkTask(task);
       }
+    } else {
+      // Relationships already loaded - set hovered task immediately
+      taskLinking.setHoveredLinkTask(task);
     }
   };
 
@@ -2659,7 +2677,7 @@ function AppContent() {
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
-  const handleMoveTaskToColumn = async (taskId: string, targetColumnId: string, position?: number) => {
+  const handleMoveTaskToColumn = useCallback(async (taskId: string, targetColumnId: string, position?: number) => {
     // console.log('🎯 handleMoveTaskToColumn called:', {
     //   taskId,
     //   targetColumnId,
@@ -2715,7 +2733,7 @@ function AppContent() {
       // console.log('🎯 Calling handleCrossColumnMove');
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
-  };
+  }, [columns]);
 
   // Wrapper for handleCrossColumnMove that provides current state
   const handleCrossColumnMoveWrapper = async (task: Task, sourceColumnId: string, targetColumnId: string, targetIndex: number) => {
@@ -2796,7 +2814,7 @@ function AppContent() {
   };
 
   // Handle cross-board task drop
-  const handleTaskDropOnBoard = async (taskId: string, targetBoardId: string) => {
+  const handleTaskDropOnBoard = useCallback(async (taskId: string, targetBoardId: string) => {
     try {
       // console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
       await moveTaskToBoard(taskId, targetBoardId);
@@ -2811,7 +2829,72 @@ function AppContent() {
       // console.error('Failed to move task to board:', error);
       // You could add a toast notification here
     }
-  };
+  }, [refreshBoardData]);
+
+  const handleColumnReorder = useCallback(async (columnId: string, newPosition: number) => {
+    try {
+      await reorderColumns(columnId, newPosition, selectedBoard || '');
+      await renumberColumns(selectedBoard || ''); // Ensure clean positions
+      
+      // Defer non-critical updates to avoid forced reflows during drag end
+      // Use requestAnimationFrame to batch DOM reads/writes
+      requestAnimationFrame(() => {
+        // Defer query logs and board refresh to next frame
+        // This prevents forced reflows during the drag end handler
+        setTimeout(() => {
+          fetchQueryLogs();
+          refreshBoardData();
+        }, 0);
+      });
+    } catch (error) {
+      // console.error('Failed to reorder column:', error);
+      await refreshBoardData();
+    }
+  }, [selectedBoard, fetchQueryLogs, refreshBoardData]);
+  
+  // Stable callbacks for drag state - use refs to avoid triggering re-renders during drag
+  const handleDraggedTaskChange = useCallback((task: Task | null) => {
+    draggedTaskRef.current = task;
+    setDraggedTask(task);
+  }, []);
+  
+  const handleDraggedColumnChange = useCallback((column: Column | null) => {
+    draggedColumnRef.current = column;
+    setDraggedColumn(column);
+  }, []);
+  
+  const handleBoardTabHover = useCallback((isHovering: boolean) => {
+    isHoveringBoardTabRef.current = isHovering;
+    setIsHoveringBoardTab(isHovering);
+  }, []);
+  
+  const handleDragPreviewChange = useCallback((preview: DragPreview | null) => {
+    dragPreviewRef.current = preview;
+    setDragPreview(preview);
+  }, []);
+  
+  // Memoize filteredColumns to prevent unnecessary re-renders during drag
+  // Use state that only updates when the data signature actually changes
+  const filteredColumnsSignatureRef = useRef<string>('');
+  const [stableFilteredColumns, setStableFilteredColumns] = useState<Columns>(taskFilters.filteredColumns || {});
+  
+  // Update state only when data actually changes (using useEffect to avoid recalculating on every render)
+  useEffect(() => {
+    const current = taskFilters.filteredColumns || {};
+    
+    // Create a stable signature based on column IDs and task IDs
+    const signature = Object.keys(current).sort().map(columnId => {
+      const column = current[columnId];
+      const taskIds = (column?.tasks || []).map(t => t.id).sort().join(',');
+      return `${columnId}:${taskIds}`;
+    }).join('|');
+    
+    // Only update state if signature changed (actual data changed)
+    if (signature !== filteredColumnsSignatureRef.current) {
+      filteredColumnsSignatureRef.current = signature;
+      setStableFilteredColumns(current);
+    }
+  }, [taskFilters.filteredColumns]);
 
   // Mini mode handlers (now unused - keeping for compatibility)
   const handleTaskEnterMiniMode = () => {
@@ -3298,35 +3381,16 @@ function AppContent() {
       {/* New Enhanced Drag & Drop System */}
       <SimpleDragDropManager
         currentBoardId={selectedBoard || ''}
-        columns={taskFilters.filteredColumns}
+        columns={stableFilteredColumns}
         boards={boards}
         isOnline={isOnline}
         onTaskMove={handleMoveTaskToColumn}
         onTaskMoveToDifferentBoard={handleTaskDropOnBoard}
-        onColumnReorder={async (columnId: string, newPosition: number) => {
-          try {
-            await reorderColumns(columnId, newPosition, selectedBoard || '');
-            await renumberColumns(selectedBoard || ''); // Ensure clean positions
-            
-            // Defer non-critical updates to avoid forced reflows during drag end
-            // Use requestAnimationFrame to batch DOM reads/writes
-            requestAnimationFrame(() => {
-              // Defer query logs and board refresh to next frame
-              // This prevents forced reflows during the drag end handler
-              setTimeout(() => {
-                fetchQueryLogs();
-                refreshBoardData();
-              }, 0);
-            });
-          } catch (error) {
-            // console.error('Failed to reorder column:', error);
-            await refreshBoardData();
-          }
-        }}
-        onDraggedTaskChange={setDraggedTask}
-        onDraggedColumnChange={setDraggedColumn}
-        onBoardTabHover={setIsHoveringBoardTab}
-        onDragPreviewChange={setDragPreview}
+        onColumnReorder={handleColumnReorder}
+        onDraggedTaskChange={handleDraggedTaskChange}
+        onDraggedColumnChange={handleDraggedColumnChange}
+        onBoardTabHover={handleBoardTabHover}
+        onDragPreviewChange={handleDragPreviewChange}
       >
       <Header
         currentUser={currentUser}

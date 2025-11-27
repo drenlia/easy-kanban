@@ -56,7 +56,7 @@ function getContentType(filename) {
 }
 
 // Serve attachment files (tenant-aware in multi-tenant mode)
-router.get('/attachments/:filename', (req, res) => {
+router.get('/attachments/:filename', async (req, res) => {
   const { filename } = req.params;
   const token = req.query.token;
   
@@ -71,7 +71,7 @@ router.get('/attachments/:filename', (req, res) => {
     const db = getRequestDatabase(req);
     if (isMultiTenant() && db) {
       try {
-        const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
         
         if (!userInDb) {
           console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
@@ -104,7 +104,7 @@ router.get('/attachments/:filename', (req, res) => {
 });
 
 // Serve avatar files (tenant-aware in multi-tenant mode)
-router.get('/avatars/:filename', (req, res) => {
+router.get('/avatars/:filename', async (req, res) => {
   const { filename } = req.params;
   const token = req.query.token;
   
@@ -119,7 +119,7 @@ router.get('/avatars/:filename', (req, res) => {
     const db = getRequestDatabase(req);
     if (isMultiTenant() && db) {
       try {
-        const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
         
         if (!userInDb) {
           console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
@@ -158,7 +158,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   
   try {
     // First, get the attachment info to find the file path
-    const attachment = db.prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+    const attachment = await wrapQuery(db.prepare('SELECT * FROM attachments WHERE id = ?'), 'SELECT').get(id);
     
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found' });
@@ -184,22 +184,22 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     // Delete the database record
-    const result = db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+    const result = await wrapQuery(db.prepare('DELETE FROM attachments WHERE id = ?'), 'DELETE').run(id);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Attachment record not found' });
     }
     
     // Update storage usage after deleting attachment
-    updateStorageUsage(db);
+    await updateStorageUsage(db);
     
     // Get the task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
       // Fetch complete task with all relationships including updated attachmentCount
-      const taskWithRelationships = wrapQuery(
+      const taskWithRelationships = await wrapQuery(
         db.prepare(`
           SELECT t.*, 
                  CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
@@ -266,7 +266,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
           const commentIds = taskWithRelationships.comments.map(c => c.id).filter(Boolean);
           if (commentIds.length > 0) {
             const placeholders = commentIds.map(() => '?').join(',');
-            const allAttachments = wrapQuery(db.prepare(`
+            const allAttachments = await wrapQuery(db.prepare(`
               SELECT commentId, id, name, url, type, size, created_at as createdAt
               FROM attachments
               WHERE commentId IN (${placeholders})

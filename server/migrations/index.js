@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 // Migration definitions
 const migrations = [
@@ -841,15 +842,13 @@ export const runMigrations = async (db) => {
         }
       } else {
         // For direct DB, execute migration sync
-        const applyMigration = db.transaction(() => {
-          migration.up(db);
-          db.prepare(
-            'INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
-          ).run(migration.version, migration.name, migration.description || '');
-        });
-        
         try {
-          applyMigration();
+          await dbTransaction(db, () => {
+            migration.up(db);
+            db.prepare(
+              'INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
+            ).run(migration.version, migration.name, migration.description || '');
+          });
           appliedCount++;
           console.log(`✅ Migration ${migration.version} applied successfully\n`);
         } catch (error) {

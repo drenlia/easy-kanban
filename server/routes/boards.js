@@ -5,18 +5,19 @@ import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
 // Get all boards with columns and tasks (including tags)
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const boards = wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
-    const columnsStmt = wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
+    const boards = await wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
+    const columnsStmt = await wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
         // Updated query to include tags, watchers, and collaborators
-    const tasksStmt = wrapQuery(
+    const tasksStmt = await wrapQuery(
       db.prepare(`
         SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
                t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
@@ -84,12 +85,13 @@ router.get('/', authenticateToken, (req, res) => {
       'SELECT'
     );
 
-    const boardsWithData = boards.map(board => {
-      const columns = columnsStmt.all(board.id);
+    const boardsWithData = await Promise.all(boards.map(async board => {
+      const columns = await columnsStmt.all(board.id);
       const columnsObj = {};
       
-      columns.forEach(column => {
-        const tasks = tasksStmt.all(column.id).map(task => ({
+      await Promise.all(columns.map(async column => {
+        const tasksRaw = await tasksStmt.all(column.id);
+        const tasks = tasksRaw.map(task => ({
           ...task,
           // Use priorityName from JOIN (current name) or fallback to stored priority
           priority: task.priorityName || task.priority || null,
@@ -113,7 +115,7 @@ router.get('/', authenticateToken, (req, res) => {
         // Fetch all attachments for all comments in one query (more efficient)
         if (allCommentIds.length > 0) {
           const placeholders = allCommentIds.map(() => '?').join(',');
-          const allAttachments = wrapQuery(db.prepare(`
+          const allAttachments = await wrapQuery(db.prepare(`
             SELECT commentId, id, name, url, type, size, created_at as createdAt
             FROM attachments
             WHERE commentId IN (${placeholders})
@@ -140,13 +142,13 @@ router.get('/', authenticateToken, (req, res) => {
           ...column,
           tasks: tasks
         };
-      });
+      }));
       
       return {
         ...board,
         columns: columnsObj
       };
-    });
+    }));
 
 
     res.json(boardsWithData);
@@ -159,7 +161,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // Get columns for a specific board
-router.get('/:boardId/columns', authenticateToken, (req, res) => {
+router.get('/:boardId/columns', authenticateToken, async (req, res) => {
   const { boardId } = req.params;
   try {
     const db = getRequestDatabase(req);
@@ -167,13 +169,13 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
     const t = getTranslator(db);
     
     // Verify board exists
-    const board = wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    const board = await wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
     if (!board) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
     
     // Get columns for this board
-    const columns = wrapQuery(
+    const columns = await wrapQuery(
       db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 
       'SELECT'
     ).all(boardId);
@@ -188,7 +190,7 @@ router.get('/:boardId/columns', authenticateToken, (req, res) => {
 });
 
 // Get default column names for new boards (based on APP_LANGUAGE)
-router.get('/default-columns', authenticateToken, (req, res) => {
+router.get('/default-columns', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const defaultColumns = getDefaultBoardColumns(db);
@@ -207,7 +209,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const t = getTranslator(db);
     
     // Check for duplicate board name
-    const existingBoard = wrapQuery(
+    const existingBoard = await wrapQuery(
       db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?)'), 
       'SELECT'
     ).get(title);
@@ -217,11 +219,11 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     }
     
     // Generate project identifier
-    const projectPrefix = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_PROJ_PREFIX')?.value || 'PROJ-';
-    const projectIdentifier = generateProjectIdentifier(db, projectPrefix);
+    const projectPrefix = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_PROJ_PREFIX')?.value || 'PROJ-';
+    const projectIdentifier = await generateProjectIdentifier(db, projectPrefix);
     
-    const position = wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
-    wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
+    const position = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
+    await wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
     
     // Automatically create default columns based on APP_LANGUAGE
     const defaultColumns = getDefaultBoardColumns(db);
@@ -271,9 +273,9 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
 });
 
 // Utility function to generate project identifiers
-const generateProjectIdentifier = (db, prefix = 'PROJ-') => {
+const generateProjectIdentifier = async (db, prefix = 'PROJ-') => {
   // Get the highest existing project number
-  const result = wrapQuery(db.prepare(`
+  const result = await wrapQuery(db.prepare(`
     SELECT project FROM boards 
     WHERE project IS NOT NULL AND project LIKE ?
     ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
@@ -298,7 +300,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const t = getTranslator(db);
     
     // Check for duplicate board name (excluding current board)
-    const existingBoard = wrapQuery(
+    const existingBoard = await wrapQuery(
       db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?) AND id != ?'), 
       'SELECT'
     ).get(title, id);
@@ -307,7 +309,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
-    wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
+    await wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -331,7 +333,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
+    await wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -355,19 +357,19 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
-    const currentBoard = wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    const currentBoard = await wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
     if (!currentBoard) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
 
     // Get all boards ordered by current position
-    const allBoards = wrapQuery(db.prepare('SELECT id, position FROM boards ORDER BY position ASC'), 'SELECT').all();
+    const allBoards = await wrapQuery(db.prepare('SELECT id, position FROM boards ORDER BY position ASC'), 'SELECT').all();
 
     // Reset all positions to simple integers (0, 1, 2, 3, etc.)
-    db.transaction(() => {
-      allBoards.forEach((board, index) => {
-        wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, board.id);
-      });
+    await dbTransaction(db, async () => {
+      for (let index = 0; index < allBoards.length; index++) {
+        await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, allBoards[index].id);
+      }
 
       // Now get the normalized positions and find the target and dragged boards
       const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
@@ -377,11 +379,11 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         // Simple swap: just swap the two positions
         const targetBoard = normalizedBoards[newPosition];
         if (targetBoard) {
-          wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
-          wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
+          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
+          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
         }
       }
-    })();
+    });
 
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -401,13 +403,13 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 });
 
 // Get all task relationships for a board
-router.get('/:boardId/relationships', authenticateToken, (req, res) => {
+router.get('/:boardId/relationships', authenticateToken, async (req, res) => {
   const { boardId } = req.params;
   try {
     const db = getRequestDatabase(req);
     
     // Get all relationships for tasks in this board
-    const relationships = wrapQuery(db.prepare(`
+    const relationships = await wrapQuery(db.prepare(`
       SELECT 
         tr.id,
         tr.task_id,

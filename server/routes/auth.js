@@ -24,7 +24,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   
   try {
     // Find user by email
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email);
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1'), 'SELECT').get(email);
     
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -39,17 +39,17 @@ router.post('/login', loginLimiter, async (req, res) => {
     }
     
     // Get user roles
-    const roles = db.prepare(`
+    const roles = await wrapQuery(db.prepare(`
       SELECT r.name 
       FROM roles r 
       JOIN user_roles ur ON r.id = ur.role_id 
       WHERE ur.user_id = ?
-    `).all(user.id);
+    `), 'SELECT').all(user.id);
     
     const userRoles = roles.map(r => r.name);
     
     // Clear force_logout flag on successful login
-    db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
+    await wrapQuery(db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?'), 'UPDATE').run(user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)
@@ -107,7 +107,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
   
   try {
     // Find the invitation token
-    const invitation = wrapQuery(db.prepare(`
+    const invitation = await wrapQuery(db.prepare(`
       SELECT ui.*, u.id as user_id, u.email, u.first_name, u.last_name, u.is_active 
       FROM user_invitations ui
       JOIN users u ON ui.user_id = u.id
@@ -133,21 +133,21 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
     // Activate user and update password
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE users 
       SET is_active = 1, password_hash = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `), 'UPDATE').run(passwordHash, invitation.user_id);
     
     // Mark invitation as used
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE user_invitations 
       SET used_at = datetime('now')
       WHERE id = ?
     `), 'UPDATE').run(invitation.id);
     
     // Log activation activity
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO activity (action, details, userId, created_at)
       VALUES (?, ?, ?, datetime('now'))
     `), 'INSERT').run(
@@ -157,7 +157,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     );
     
     // Get the updated user data for WebSocket event
-    const updatedUser = wrapQuery(db.prepare(`
+    const updatedUser = await wrapQuery(db.prepare(`
       SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
       FROM users u
       WHERE u.id = ?
@@ -225,7 +225,7 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
     }
     
     // Check if user already exists
-    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
@@ -235,21 +235,21 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
     
     // Create user
     const userId = crypto.randomUUID();
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name) 
       VALUES (?, ?, ?, ?, ?)
     `), 'INSERT').run(userId, email, passwordHash, firstName, lastName);
     
     // Assign role
-    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
     if (roleId) {
-      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
     // Create member for the user with random color
     const memberId = crypto.randomUUID();
     const memberColor = getRandomColor(); // Random color from palette
-    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
     
     // Generate default avatar with matching background color
@@ -257,7 +257,7 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
     const tenantId = getTenantId(req);
     const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor, tenantId);
     if (avatarPath) {
-      wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+      await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
     
     res.json({ 
@@ -272,22 +272,22 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
 });
 
 // Get current user endpoint
-router.get('/me', authenticateToken, (req, res) => {
+router.get('/me', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id);
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(req.user.id);
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
     // Get user roles
-    const roles = db.prepare(`
+    const roles = await wrapQuery(db.prepare(`
       SELECT r.name 
       FROM roles r 
       JOIN user_roles ur ON r.id = ur.role_id 
       WHERE ur.user_id = ?
-    `).all(user.id);
+    `), 'SELECT').all(user.id);
     
     const userRoles = roles.map(r => r.name);
     
@@ -332,10 +332,10 @@ router.get('/me', authenticateToken, (req, res) => {
 });
 
 // Check if default admin exists
-router.get('/check-default-admin', (req, res) => {
+router.get('/check-default-admin', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const defaultAdmin = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
+    const defaultAdmin = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
     res.json({ exists: !!defaultAdmin });
   } catch (error) {
     console.error('Error checking default admin:', error);
@@ -344,10 +344,10 @@ router.get('/check-default-admin', (req, res) => {
 });
 
 // Check if demo user exists
-router.get('/check-demo-user', (req, res) => {
+router.get('/check-demo-user', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const demoUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
+    const demoUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
     res.json({ exists: !!demoUser });
   } catch (error) {
     console.error('Error checking demo user:', error);
@@ -356,11 +356,11 @@ router.get('/check-demo-user', (req, res) => {
 });
 
 // Get demo credentials
-router.get('/demo-credentials', (req, res) => {
+router.get('/demo-credentials', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const adminPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
-    const demoPassword = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
+    const adminPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
+    const demoPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
     
     res.json({
       admin: {
@@ -386,7 +386,7 @@ function debugLog(settingsObj, ...args) {
 }
 
 // Helper function to get OAuth settings with caching
-function getOAuthSettings(db) {
+async function getOAuthSettings(db) {
   // Check if we have cached settings and no cache invalidation flag
   if (global.oauthConfigCache && !global.oauthConfigCache.invalidated) {
     console.log('🔄 [GOOGLE SSO] Using cached OAuth settings');
@@ -394,7 +394,7 @@ function getOAuthSettings(db) {
   }
   
   // Fetch fresh settings from database
-  const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'GOOGLE_SSO_DEBUG');
+  const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)'), 'SELECT').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'GOOGLE_SSO_DEBUG');
   const settingsObj = {};
   settings.forEach(setting => {
     settingsObj[setting.key] = setting.value;
@@ -420,10 +420,10 @@ function getOAuthSettings(db) {
 }
 
 // Google OAuth endpoints
-router.get('/google/url', (req, res) => {
+router.get('/google/url', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const settingsObj = getOAuthSettings(db);
+    const settingsObj = await getOAuthSettings(db);
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Starting Google OAuth URL generation...');
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Request headers:', {
@@ -474,7 +474,7 @@ router.get('/google/callback', async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Get OAuth settings first to check debug mode
-    const settingsObj = getOAuthSettings(db);
+    const settingsObj = await getOAuthSettings(db);
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] ======== CALLBACK STARTED ========');
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Raw callback URL:', req.originalUrl);
@@ -590,7 +590,7 @@ router.get('/google/callback', async (req, res) => {
     
     // Check if user exists
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Checking if user exists in database...');
-    let user = db.prepare('SELECT * FROM users WHERE email = ?').get(userInfo.email);
+    let user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(userInfo.email);
     let isNewUser = false;
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] User lookup result:', {
@@ -614,17 +614,17 @@ router.get('/google/callback', async (req, res) => {
           
           try {
             // Activate the account and convert to Google auth
-            db.prepare(`
+            await wrapQuery(db.prepare(`
               UPDATE users 
               SET is_active = 1,
                   auth_provider = 'google', 
                   google_avatar_url = ?,
                   updated_at = datetime('now')
               WHERE id = ?
-            `).run(userInfo.picture, user.id);
+            `), 'UPDATE').run(userInfo.picture, user.id);
             
             // Clean up any pending invitation tokens for this user
-            db.prepare('DELETE FROM user_invitations WHERE user_id = ? AND used_at IS NULL').run(user.id);
+            await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ? AND used_at IS NULL'), 'DELETE').run(user.id);
             
             console.log('🔐 [GOOGLE SSO] ✅ Invited user activated and converted to Google auth');
             
@@ -633,7 +633,7 @@ router.get('/google/callback', async (req, res) => {
             user.auth_provider = 'google';
             
             // Get member info for the activated user
-            const memberInfo = db.prepare('SELECT id, name, color FROM members WHERE user_id = ?').get(user.id);
+            const memberInfo = await wrapQuery(db.prepare('SELECT id, name, color FROM members WHERE user_id = ?'), 'SELECT').get(user.id);
             
             // Publish to Redis for real-time updates
             console.log('📤 Publishing user-updated and member-updated to Redis for Google OAuth activation');
@@ -689,13 +689,13 @@ router.get('/google/callback', async (req, res) => {
         if (user.auth_provider !== 'google') {
           console.log('🔐 [GOOGLE SSO] Converting user from local to Google auth...');
           try {
-            db.prepare(`
+            await wrapQuery(db.prepare(`
               UPDATE users 
               SET auth_provider = 'google', 
                   google_avatar_url = ?,
                   updated_at = datetime('now')
               WHERE id = ?
-            `).run(userInfo.picture, user.id);
+            `), 'UPDATE').run(userInfo.picture, user.id);
             console.log('🔐 [GOOGLE SSO] ✅ User auth_provider updated to google');
           } catch (error) {
             console.error('🔐 [GOOGLE SSO] ❌ Failed to update auth_provider:', error);
@@ -703,12 +703,12 @@ router.get('/google/callback', async (req, res) => {
         } else {
           // Just update the Google avatar in case it changed
           try {
-            db.prepare(`
+            await wrapQuery(db.prepare(`
               UPDATE users 
               SET google_avatar_url = ?,
                   updated_at = datetime('now')
               WHERE id = ?
-            `).run(userInfo.picture, user.id);
+            `), 'UPDATE').run(userInfo.picture, user.id);
           } catch (error) {
             console.error('🔐 [GOOGLE SSO] ❌ Failed to update Google avatar:', error);
           }
@@ -718,18 +718,18 @@ router.get('/google/callback', async (req, res) => {
     
     // Get user roles from database (for both new and existing users)
     console.log('🔐 [GOOGLE SSO] Fetching user roles...');
-    const roles = db.prepare(`
+    const roles = await wrapQuery(db.prepare(`
       SELECT r.name 
       FROM roles r 
       JOIN user_roles ur ON r.id = ur.role_id 
       WHERE ur.user_id = ?
-    `).all(user.id);
+    `), 'SELECT').all(user.id);
     
     const userRoles = roles.map(r => r.name);
     console.log('🔐 [GOOGLE SSO] User roles found:', userRoles);
     
     // Clear force_logout flag on successful login
-    db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?').run(user.id);
+    await wrapQuery(db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?'), 'UPDATE').run(user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)
@@ -796,7 +796,7 @@ router.post('/reload-oauth', authenticateToken, requireRole(['admin']), (req, re
 });
 
 // Test endpoint to verify callback routing (no auth required for testing)
-router.get('/test/callback', (req, res) => {
+router.get('/test/callback', async (req, res) => {
   console.log('🧪 [TEST] Callback test endpoint hit!', {
     url: req.url,
     query: req.query,
@@ -816,11 +816,11 @@ router.get('/test/callback', (req, res) => {
 });
 
 // Debug endpoint to check OAuth configuration (Admin only)
-router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/debug/oauth', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     console.log('🔍 [DEBUG] OAuth configuration debug requested by admin');
     const db = getRequestDatabase(req);
-    const settingsObj = getOAuthSettings(db);
+    const settingsObj = await getOAuthSettings(db);
     
     const debugInfo = {
       timestamp: new Date().toISOString(),
@@ -854,11 +854,11 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), (req, res)
 });
 
 // Check instance status for logged-in users
-router.get('/instance-status', authenticateToken, (req, res) => {
+router.get('/instance-status', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
-    const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
     
     const getStatusMessage = (status) => {
@@ -891,10 +891,10 @@ router.get('/instance-status', authenticateToken, (req, res) => {
 });
 
 // Check if current user is instance owner
-router.get('/is-owner', authenticateToken, (req, res) => {
+router.get('/is-owner', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = wrapQuery(
+    const ownerSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('OWNER');

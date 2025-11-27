@@ -21,25 +21,165 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
   onCancelLinking
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const scrollAnimationFrameRef = useRef<number | null>(null);
+  const currentMousePositionRef = useRef<{ x: number; y: number } | null>(null);
+  const edgeScrollZone = 50; // Pixels from edge to trigger auto-scroll
+  const scrollSpeed = 10; // Pixels per frame
+
+  // Find the scrollable kanban container (for horizontal scrolling)
+  const findScrollableContainer = (): HTMLElement | null => {
+    // Try to find the kanban scrollable container
+    const kanbanContainer = document.querySelector('.kanban-scrollable-container') as HTMLElement;
+    if (kanbanContainer) {
+      return kanbanContainer;
+    }
+    return null;
+  };
+
+  // Auto-scroll when mouse is near viewport edges
+  const handleAutoScroll = () => {
+    const mousePos = currentMousePositionRef.current;
+    if (!mousePos) {
+      scrollAnimationFrameRef.current = null;
+      return;
+    }
+
+    const container = findScrollableContainer();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    let scrollX = 0;
+    let scrollY = 0;
+    
+    // Check horizontal edges
+    if (mousePos.x < edgeScrollZone) {
+      // Near left edge - scroll left
+      scrollX = -scrollSpeed;
+    } else if (mousePos.x > viewportWidth - edgeScrollZone) {
+      // Near right edge - scroll right
+      scrollX = scrollSpeed;
+    }
+    
+    // Check vertical edges
+    if (mousePos.y < edgeScrollZone) {
+      // Near top edge - scroll up
+      scrollY = -scrollSpeed;
+    } else if (mousePos.y > viewportHeight - edgeScrollZone) {
+      // Near bottom edge - scroll down
+      scrollY = scrollSpeed;
+    }
+    
+    // Apply horizontal scrolling to container (if available)
+    if (scrollX !== 0 && container) {
+      const maxScrollLeft = container.scrollWidth - container.clientWidth;
+      const newScrollLeft = Math.max(0, Math.min(maxScrollLeft, container.scrollLeft + scrollX));
+      if (newScrollLeft !== container.scrollLeft) {
+        container.scrollLeft = newScrollLeft;
+      }
+    }
+    
+    // Apply vertical scrolling to window (or find scrollable parent)
+    if (scrollY !== 0) {
+      // Check if we can scroll vertically
+      const canScrollUp = window.scrollY > 0;
+      const canScrollDown = window.scrollY < document.documentElement.scrollHeight - window.innerHeight;
+      
+      if ((scrollY < 0 && canScrollUp) || (scrollY > 0 && canScrollDown)) {
+        window.scrollBy({
+          top: scrollY,
+          left: 0,
+          behavior: 'auto' // Use 'auto' for smooth continuous scrolling
+        });
+      }
+    }
+    
+    // Continue scrolling if still near edge
+    if (scrollX !== 0 || scrollY !== 0) {
+      scrollAnimationFrameRef.current = requestAnimationFrame(() => {
+        handleAutoScroll();
+      });
+    } else {
+      scrollAnimationFrameRef.current = null;
+    }
+  };
 
   // Handle mouse movement and mouse up to update the linking line
   useEffect(() => {
-    if (!isLinkingMode || !linkingLine) return;
+    if (!isLinkingMode || !linkingLine) {
+      return;
+    }
 
     const handleMouseMove = (event: MouseEvent) => {
+      // Update current mouse position for auto-scroll
+      currentMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      
+      // Update linking line position
       if (overlayRef.current) {
         const rect = overlayRef.current.getBoundingClientRect();
+        // For fixed overlay, coordinates are relative to viewport
+        // getBoundingClientRect() for fixed elements returns viewport coordinates
+        // So we can use clientX/clientY directly, or subtract rect.left/top (which should be 0 or near 0)
+        const newX = event.clientX - rect.left;
+        const newY = event.clientY - rect.top;
         onUpdateLinkingLine({
-          x: event.clientX - rect.left,
-          y: event.clientY - rect.top
+          x: newX,
+          y: newY
         });
+      } else {
+        // Fallback: use clientX/clientY directly if ref not available
+        onUpdateLinkingLine({
+          x: event.clientX,
+          y: event.clientY
+        });
+      }
+      
+      // Start auto-scroll animation if not already running
+      if (scrollAnimationFrameRef.current === null) {
+        handleAutoScroll();
+      }
+    };
+
+    const handlePointerMove = (event: PointerEvent) => {
+      // Update current mouse position for auto-scroll
+      currentMousePositionRef.current = { x: event.clientX, y: event.clientY };
+      
+      // Also handle pointer events
+      if (overlayRef.current) {
+        const rect = overlayRef.current.getBoundingClientRect();
+        const newX = event.clientX - rect.left;
+        const newY = event.clientY - rect.top;
+        onUpdateLinkingLine({
+          x: newX,
+          y: newY
+        });
+      } else {
+        onUpdateLinkingLine({
+          x: event.clientX,
+          y: event.clientY
+        });
+      }
+      
+      // Start auto-scroll animation if not already running
+      if (scrollAnimationFrameRef.current === null) {
+        handleAutoScroll();
       }
     };
 
     const handleMouseUp = (event: MouseEvent) => {
       // If mouse up happens on the overlay (not on a task), cancel linking
+      // But if it's on a task card, let the TaskCard's onMouseUp handler handle it
       const target = event.target as Element;
-      if (!target.closest('.task-card')) {
+      const taskCard = target.closest('.task-card');
+      if (!taskCard) {
+        onCancelLinking();
+      }
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      // Same logic for pointer events
+      const target = event.target as Element;
+      const taskCard = target.closest('.task-card');
+      if (!taskCard) {
         onCancelLinking();
       }
     };
@@ -50,14 +190,27 @@ const TaskLinkingOverlay: React.FC<TaskLinkingOverlayProps> = ({
       }
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mousemove', handleMouseMove, { passive: true });
+    document.addEventListener('pointermove', handlePointerMove, { passive: true });
+    document.addEventListener('mouseup', handleMouseUp, { capture: false });
+    document.addEventListener('pointerup', handlePointerUp, { capture: false });
     document.addEventListener('keydown', handleKeyPress);
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('pointermove', handlePointerMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('pointerup', handlePointerUp);
       document.removeEventListener('keydown', handleKeyPress);
+      
+      // Cancel any ongoing scroll animation
+      if (scrollAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(scrollAnimationFrameRef.current);
+        scrollAnimationFrameRef.current = null;
+      }
+      
+      // Clear mouse position tracking
+      currentMousePositionRef.current = null;
     };
   }, [isLinkingMode, linkingLine, onUpdateLinkingLine, onCancelLinking]);
 
