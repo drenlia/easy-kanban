@@ -725,32 +725,79 @@ const migrations = [
 
 /**
  * Run all pending database migrations
- * @param {Database} db - SQLite database instance
+ * @param {Database} db - SQLite database instance (can be proxy or direct)
+ * Now async to support proxy mode
  */
-export const runMigrations = (db) => {
+export const runMigrations = async (db) => {
   try {
     console.log('\n🔄 Checking for pending database migrations...');
     
+    const isProxy = db && db.constructor.name === 'DatabaseProxy';
+    
     // Ensure migrations tracking table exists
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        version INTEGER UNIQUE NOT NULL,
-        name TEXT NOT NULL,
-        description TEXT,
-        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    if (isProxy) {
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          version INTEGER UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } else {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          version INTEGER UNIQUE NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    }
     
     // Get list of already applied migrations
-    const appliedMigrations = db.prepare(
-      'SELECT version FROM schema_migrations ORDER BY version'
-    ).all();
+    const appliedMigrations = isProxy
+      ? await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()
+      : db.prepare('SELECT version FROM schema_migrations ORDER BY version').all();
     
     const appliedVersions = new Set(appliedMigrations.map(m => m.version));
     
-    // Find pending migrations (not yet applied)
-    const pendingMigrations = migrations.filter(m => !appliedVersions.has(m.version));
+    // Check if this is a new database (no migrations applied)
+    // If new, mark all existing migrations (1-10) as applied since they're baked into CREATE_TABLES_SQL
+    const isNewDatabase = appliedVersions.size === 0;
+    const LAST_INTEGRATED_MIGRATION = 10; // All migrations up to version 10 are integrated
+    
+    if (isNewDatabase) {
+      console.log('📦 New database detected - marking integrated migrations as applied...');
+      
+      // Mark all integrated migrations (1-10) as applied
+      const integratedMigrations = migrations.filter(m => m.version <= LAST_INTEGRATED_MIGRATION);
+      const insertStmt = isProxy
+        ? db.prepare('INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)')
+        : db.prepare('INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)');
+      
+      for (const migration of integratedMigrations) {
+        if (isProxy) {
+          await insertStmt.run(migration.version, migration.name, migration.description || '');
+        } else {
+          insertStmt.run(migration.version, migration.name, migration.description || '');
+        }
+      }
+      
+      console.log(`✅ Marked ${integratedMigrations.length} integrated migrations as applied\n`);
+    }
+    
+    // Get updated list of applied migrations
+    const updatedAppliedMigrations = isProxy
+      ? await db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()
+      : db.prepare('SELECT version FROM schema_migrations ORDER BY version').all();
+    
+    const updatedAppliedVersions = new Set(updatedAppliedMigrations.map(m => m.version));
+    
+    // Find pending migrations (only versions > LAST_INTEGRATED_MIGRATION)
+    const pendingMigrations = migrations.filter(m => !updatedAppliedVersions.has(m.version));
     
     if (pendingMigrations.length === 0) {
       console.log('✅ Database is up to date (no pending migrations)\n');
@@ -769,25 +816,47 @@ export const runMigrations = (db) => {
     for (const migration of pendingMigrations) {
       console.log(`⚙️  Applying migration ${migration.version}: ${migration.name}`);
       
-      // Wrap migration in transaction for safety
-      const applyMigration = db.transaction(() => {
-        // Run the migration's up() function
-        migration.up(db);
+      if (isProxy) {
+        // For proxy, execute migration async
+        // Note: migration.up() may be sync, but db operations are async, so we need to handle both
+        try {
+          // Execute migration (may be sync function calling async db methods)
+          const migrationResult = migration.up(db);
+          // If migration returns a promise, await it
+          if (migrationResult && typeof migrationResult.then === 'function') {
+            await migrationResult;
+          }
+          
+          // Record migration as applied
+          await db.prepare(
+            'INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
+          ).run(migration.version, migration.name, migration.description || '');
+          
+          appliedCount++;
+          console.log(`✅ Migration ${migration.version} applied successfully\n`);
+        } catch (error) {
+          console.error(`❌ Migration ${migration.version} failed:`, error.message);
+          console.error('   Migration rolled back. Database state is unchanged.\n');
+          throw error;
+        }
+      } else {
+        // For direct DB, execute migration sync
+        const applyMigration = db.transaction(() => {
+          migration.up(db);
+          db.prepare(
+            'INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
+          ).run(migration.version, migration.name, migration.description || '');
+        });
         
-        // Record that this migration was successfully applied
-        db.prepare(
-          'INSERT INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
-        ).run(migration.version, migration.name, migration.description || '');
-      });
-      
-      try {
-        applyMigration();
-        appliedCount++;
-        console.log(`✅ Migration ${migration.version} applied successfully\n`);
-      } catch (error) {
-        console.error(`❌ Migration ${migration.version} failed:`, error.message);
-        console.error('   Migration rolled back. Database state is unchanged.\n');
-        throw error; // Stop on first failure
+        try {
+          applyMigration();
+          appliedCount++;
+          console.log(`✅ Migration ${migration.version} applied successfully\n`);
+        } catch (error) {
+          console.error(`❌ Migration ${migration.version} failed:`, error.message);
+          console.error('   Migration rolled back. Database state is unchanged.\n');
+          throw error;
+        }
       }
     }
     

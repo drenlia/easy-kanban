@@ -1,0 +1,75 @@
+/**
+ * Async Database Helper
+ * 
+ * Provides async wrappers for database operations to support both
+ * direct better-sqlite3 (sync) and DatabaseProxy (async) connections.
+ * 
+ * This allows Option 2 (full async) to work with both connection types.
+ */
+
+/**
+ * Check if database is a proxy (async) or direct (sync)
+ */
+export function isProxyDatabase(db) {
+  return db && db.constructor.name === 'DatabaseProxy';
+}
+
+/**
+ * Execute a database operation (get, all, or run) with async support
+ */
+export async function dbGet(stmt, ...params) {
+  if (isProxyDatabase(stmt.dbProxy)) {
+    return await stmt.get(...params);
+  }
+  // Direct DB (better-sqlite3) - wrap sync call in Promise
+  return Promise.resolve(stmt.get(...params));
+}
+
+export async function dbAll(stmt, ...params) {
+  if (isProxyDatabase(stmt.dbProxy)) {
+    return await stmt.all(...params);
+  }
+  return Promise.resolve(stmt.all(...params));
+}
+
+export async function dbRun(stmt, ...params) {
+  if (isProxyDatabase(stmt.dbProxy)) {
+    return await stmt.run(...params);
+  }
+  return Promise.resolve(stmt.run(...params));
+}
+
+/**
+ * Execute db.exec() with async support
+ */
+export async function dbExec(db, sql) {
+  if (isProxyDatabase(db)) {
+    return await db.exec(sql);
+  }
+  return Promise.resolve(db.exec(sql));
+}
+
+/**
+ * Execute db.pragma() with async support
+ */
+export async function dbPragma(db, name, options = {}) {
+  if (isProxyDatabase(db)) {
+    return await db.pragma(name, options);
+  }
+  // For direct DB, pragma is sync but we wrap it
+  const result = db.pragma(name, options);
+  return Promise.resolve(result);
+}
+
+/**
+ * Execute transaction with async support
+ */
+export async function dbTransaction(db, callback) {
+  if (isProxyDatabase(db)) {
+    const transactionFn = db.transaction(callback);
+    return await transactionFn();
+  }
+  // Direct DB - wrap sync transaction
+  return Promise.resolve(db.transaction(callback)());
+}
+
