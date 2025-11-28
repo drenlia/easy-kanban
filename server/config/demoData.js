@@ -403,49 +403,50 @@ export async function initializeDemoData(db, boardId, columns) {
   // TODO: Uncomment when sprint_tasks table is created
   /*
   // Assign all tasks to the sprint
-  const createdTaskIds = db.prepare('SELECT id FROM tasks WHERE boardId = ?').all(boardId).map(t => t.id);
+  const createdTaskIdsResult = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE boardId = ?'), 'SELECT').all(boardId);
+  const createdTaskIds = createdTaskIdsResult.map(t => t.id);
   const sprintTaskStmt = db.prepare('INSERT INTO sprint_tasks (sprint_id, task_id) VALUES (?, ?)');
-  createdTaskIds.forEach(taskId => {
-    sprintTaskStmt.run(sprintId, taskId);
-  });
+  for (const taskId of createdTaskIds) {
+    await wrapQuery(sprintTaskStmt, 'INSERT').run(sprintId, taskId);
+  }
   */
 
   // TODO: Update completed tasks with realistic completion dates
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const completedColumnId = columns.find(c => c.title === 'Completed')?.id;
-  const completedTasks = db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?').all(completedColumnId, boardId);
+  const completedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(completedColumnId, boardId);
   
-  completedTasks.forEach((task, index) => {
+  for (const [index, task] of completedTasks.entries()) {
     // Spread completions: 10 days ago, 8 days ago, 5 days ago
     const daysAgo = [10, 8, 5][index] || 3;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
     );
-  });
+  }
   */
 
   // TODO: Update archived tasks with older completion dates
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const archiveColumnId = columns.find(c => c.title === 'Archive')?.id;
-  const archivedTasks = db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?').all(archiveColumnId, boardId);
+  const archivedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(archiveColumnId, boardId);
   
-  archivedTasks.forEach((task, index) => {
+  for (const [index, task] of archivedTasks.entries()) {
     // Archived tasks completed 14, 12, 11 days ago
     const daysAgo = [14, 12, 11][index] || 10;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
     );
-  });
+  }
   */
 
   // console.log(`✅ Updated ${completedTasks.length + archivedTasks.length} tasks with completion dates`);

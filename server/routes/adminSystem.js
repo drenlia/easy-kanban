@@ -14,11 +14,11 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 const router = express.Router();
 
 // Database migrations status endpoint
-router.get('/migrations', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/migrations', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { getMigrationStatus } = require('../migrations/index.js');
-    const status = getMigrationStatus(db);
+    const { getMigrationStatus } = await import('../migrations/index.js');
+    const status = await getMigrationStatus(db);
     
     res.json({
       success: true,

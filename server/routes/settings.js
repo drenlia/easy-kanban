@@ -8,7 +8,7 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 const router = express.Router();
 
 // Public settings endpoint for non-admin users
-router.get('/', (req, res, next) => {
+router.get('/', async (req, res, next) => {
   // Only handle when mounted at /api/settings (not /api/admin/settings)
   if (req.baseUrl === '/api/admin/settings') {
     return next(); // Let admin routes handle it
@@ -16,7 +16,7 @@ router.get('/', (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const settings = db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
+    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)'), 'SELECT').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -249,21 +249,52 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     ];
     
     // Clear all mail-related settings in a single transaction
-    await dbTransaction(db, async () => {
-      const stmt = db.prepare(`
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const insertQuery = `
         INSERT OR REPLACE INTO settings (key, value, updated_at) 
         VALUES (?, ?, CURRENT_TIMESTAMP)
-      `);
+      `;
       
       // Clear SMTP fields (set to empty strings)
       for (const key of mailSettingsToClear) {
-        await wrapQuery(stmt, 'INSERT').run(key, '');
+        batchQueries.push({
+          query: insertQuery,
+          params: [key, '']
+        });
       }
       
       // Set MAIL_MANAGED to false and MAIL_ENABLED to false
-      await wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
-      await wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
-    });
+      batchQueries.push({
+        query: insertQuery,
+        params: ['MAIL_MANAGED', 'false']
+      });
+      batchQueries.push({
+        query: insertQuery,
+        params: ['MAIL_ENABLED', 'false']
+      });
+      
+      // Execute all inserts in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        const stmt = db.prepare(`
+          INSERT OR REPLACE INTO settings (key, value, updated_at) 
+          VALUES (?, ?, CURRENT_TIMESTAMP)
+        `);
+        
+        // Clear SMTP fields (set to empty strings)
+        for (const key of mailSettingsToClear) {
+          await wrapQuery(stmt, 'INSERT').run(key, '');
+        }
+        
+        // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+        await wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
+        await wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
+      });
+    }
     
     // Publish to Redis for real-time updates (single message for all changes)
     const tenantId = getTenantId(req);

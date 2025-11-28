@@ -8,7 +8,7 @@ import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction } from '../utils/dbAsync.js';
+import { dbTransaction, dbRun, isProxyDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -150,6 +150,206 @@ async function fetchTaskWithRelationships(db, taskId) {
     createdAt: task.created_at,
     updatedAt: task.updated_at
   };
+}
+
+// Batched version: Fetch multiple tasks with relationships in one query
+// This is much faster than calling fetchTaskWithRelationships() for each task
+async function fetchTasksWithRelationshipsBatch(db, taskIds) {
+  if (!taskIds || taskIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = taskIds.map(() => '?').join(',');
+  
+  // Fetch all tasks with relationships in a single query
+  const tasks = await wrapQuery(
+    db.prepare(`
+      SELECT t.*, 
+             CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                  THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                  ELSE NULL END as attachmentCount,
+             json_group_array(
+               DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
+                 'id', c.id,
+                 'text', c.text,
+                 'authorId', c.authorId,
+                 'createdAt', c.createdAt,
+                 'updated_at', c.updated_at,
+                 'taskId', c.taskId,
+                 'authorName', comment_author.name,
+                 'authorColor', comment_author.color
+               ) ELSE NULL END
+             ) as comments,
+             json_group_array(
+               DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
+                 'id', tag.id,
+                 'tag', tag.tag,
+                 'description', tag.description,
+                 'color', tag.color
+               ) ELSE NULL END
+             ) as tags,
+             json_group_array(
+               DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
+                 'id', watcher.id,
+                 'name', watcher.name,
+                 'color', watcher.color
+               ) ELSE NULL END
+             ) as watchers,
+             json_group_array(
+               DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
+                 'id', collaborator.id,
+                 'name', collaborator.name,
+                 'color', collaborator.color
+               ) ELSE NULL END
+             ) as collaborators
+      FROM tasks t
+      LEFT JOIN attachments a ON a.taskId = t.id AND a.commentId IS NULL
+      LEFT JOIN comments c ON c.taskId = t.id
+      LEFT JOIN members comment_author ON comment_author.id = c.authorId
+      LEFT JOIN task_tags tt ON tt.taskId = t.id
+      LEFT JOIN tags tag ON tag.id = tt.tagId
+      LEFT JOIN watchers w ON w.taskId = t.id
+      LEFT JOIN members watcher ON watcher.id = w.memberId
+      LEFT JOIN collaborators col ON col.taskId = t.id
+      LEFT JOIN members collaborator ON collaborator.id = col.memberId
+      LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
+      WHERE t.id IN (${placeholders})
+      GROUP BY t.id
+    `),
+    'SELECT'
+  ).all(...taskIds);
+
+  if (tasks.length === 0) {
+    return [];
+  }
+
+  // Collect all comment IDs to fetch attachments in one batch
+  const allCommentIds = [];
+  const commentIdToTaskId = new Map();
+  
+  tasks.forEach(task => {
+    if (task.comments && task.comments !== '[null]') {
+      try {
+        const comments = JSON.parse(task.comments).filter(Boolean);
+        comments.forEach(comment => {
+          if (comment.id) {
+            allCommentIds.push(comment.id);
+            commentIdToTaskId.set(comment.id, task.id);
+          }
+        });
+      } catch (e) {
+        // Invalid JSON, skip
+      }
+    }
+  });
+
+  // Fetch all comment attachments in one query
+  const allAttachments = [];
+  if (allCommentIds.length > 0) {
+    const attachmentPlaceholders = allCommentIds.map(() => '?').join(',');
+    allAttachments.push(...await wrapQuery(db.prepare(`
+      SELECT commentId, id, name, url, type, size, created_at as createdAt
+      FROM attachments
+      WHERE commentId IN (${attachmentPlaceholders})
+    `), 'SELECT').all(...allCommentIds));
+  }
+
+  // Group attachments by commentId
+  const attachmentsByCommentId = new Map();
+  allAttachments.forEach(att => {
+    if (!attachmentsByCommentId.has(att.commentId)) {
+      attachmentsByCommentId.set(att.commentId, []);
+    }
+    attachmentsByCommentId.get(att.commentId).push(att);
+  });
+
+  // Collect all unique priority IDs and names to fetch in one batch
+  const priorityIds = new Set();
+  const priorityNames = new Set();
+  
+  tasks.forEach(task => {
+    if (task.priority_id) {
+      priorityIds.add(task.priority_id);
+    }
+    if (task.priority && !task.priority_id) {
+      priorityNames.add(task.priority);
+    }
+  });
+
+  // Fetch all priorities in one or two queries
+  const priorityMap = new Map();
+  
+  if (priorityIds.size > 0) {
+    const priorityIdPlaceholders = Array.from(priorityIds).map(() => '?').join(',');
+    const priorities = await wrapQuery(db.prepare(`
+      SELECT id, priority, color FROM priorities WHERE id IN (${priorityIdPlaceholders})
+    `), 'SELECT').all(...Array.from(priorityIds));
+    
+    priorities.forEach(p => {
+      priorityMap.set(p.id, p);
+    });
+  }
+  
+  if (priorityNames.size > 0) {
+    const priorityNamePlaceholders = Array.from(priorityNames).map(() => '?').join(',');
+    const priorities = await wrapQuery(db.prepare(`
+      SELECT id, priority, color FROM priorities WHERE priority IN (${priorityNamePlaceholders})
+    `), 'SELECT').all(...Array.from(priorityNames));
+    
+    priorities.forEach(p => {
+      priorityMap.set(p.priority, p);
+    });
+  }
+
+  // Process each task and attach relationships
+  return tasks.map(task => {
+    // Parse JSON arrays
+    task.comments = task.comments === '[null]' || !task.comments 
+      ? [] 
+      : JSON.parse(task.comments).filter(Boolean);
+    
+    // Attach attachments to comments
+    task.comments.forEach(comment => {
+      comment.attachments = attachmentsByCommentId.get(comment.id) || [];
+    });
+    
+    task.tags = task.tags === '[null]' || !task.tags 
+      ? [] 
+      : JSON.parse(task.tags).filter(Boolean);
+    task.watchers = task.watchers === '[null]' || !task.watchers 
+      ? [] 
+      : JSON.parse(task.watchers).filter(Boolean);
+    task.collaborators = task.collaborators === '[null]' || !task.collaborators 
+      ? [] 
+      : JSON.parse(task.collaborators).filter(Boolean);
+
+    // Get priority information
+    let priorityId = task.priority_id || null;
+    let priorityName = task.priority || null;
+    let priorityColor = null;
+
+    if (priorityId && priorityMap.has(priorityId)) {
+      const priority = priorityMap.get(priorityId);
+      priorityName = priority.priority;
+      priorityColor = priority.color;
+    } else if (priorityName && priorityMap.has(priorityName)) {
+      const priority = priorityMap.get(priorityName);
+      priorityId = priority.id;
+      priorityColor = priority.color;
+    }
+
+    // Convert snake_case to camelCase
+    return {
+      ...task,
+      priority: priorityName,
+      priorityId: priorityId,
+      priorityName: priorityName,
+      priorityColor: priorityColor,
+      sprintId: task.sprint_id || null,
+      createdAt: task.created_at,
+      updatedAt: task.updated_at
+    };
+  });
 }
 
 // Helper function to check for circular dependencies in task relationships
@@ -875,6 +1075,168 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// Batch update tasks (for timeline arrow key movements and other bulk updates)
+router.post('/batch-update', authenticateToken, async (req, res) => {
+  const { tasks } = req.body; // Array of task objects to update
+  const userId = req.user?.id || 'system';
+  
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return res.status(400).json({ error: 'Invalid tasks array' });
+  }
+  
+  try {
+    const endpointStartTime = Date.now();
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    const now = new Date().toISOString();
+    
+    // Validate all tasks exist
+    const taskIds = tasks.map(t => t.id);
+    const taskIdPlaceholders = taskIds.map(() => '?').join(',');
+    const existingTasks = await wrapQuery(
+      db.prepare(`SELECT id, columnId, boardId, priority_id, priority FROM tasks WHERE id IN (${taskIdPlaceholders})`),
+      'SELECT'
+    ).all(...taskIds);
+    
+    const existingTaskMap = new Map(existingTasks.map(t => [t.id, t]));
+    const missingTasks = taskIds.filter(id => !existingTaskMap.has(id));
+    
+    if (missingTasks.length > 0) {
+      return res.status(404).json({ error: t('errors.taskNotFound') + `: ${missingTasks.join(', ')}` });
+    }
+    
+    // Get all priorities for lookup
+    const allPriorities = await wrapQuery(db.prepare('SELECT id, priority FROM priorities'), 'SELECT').all();
+    const priorityMap = new Map(allPriorities.map(p => [p.priority, p.id]));
+    const priorityIdMap = new Map(allPriorities.map(p => [p.id, p.priority]));
+    
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const updateQuery = `
+        UPDATE tasks SET 
+          title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
+          dueDate = ?, effort = ?, priority = ?, priority_id = ?, columnId = ?, boardId = ?, position = ?, 
+          sprint_id = ?, pre_boardId = ?, pre_columnId = ?, updated_at = ? 
+        WHERE id = ?
+      `;
+      
+      for (const task of tasks) {
+        const currentTask = existingTaskMap.get(task.id);
+        if (!currentTask) continue;
+        
+        const previousColumnId = currentTask.columnId;
+        const previousBoardId = currentTask.boardId;
+        
+        // Handle priority: prefer priority_id, but support priority name for backward compatibility
+        let priorityId = task.priorityId || null;
+        let priorityName = task.priority || null;
+        
+        // If priority_id is not provided but priority name is, look it up
+        if (!priorityId && priorityName) {
+          priorityId = priorityMap.get(priorityName) || null;
+        }
+        
+        // If priority_id is provided, get the name
+        if (priorityId && !priorityName) {
+          priorityName = priorityIdMap.get(priorityId) || null;
+        }
+        
+        // If neither is provided, keep existing values
+        if (!priorityId && !priorityName) {
+          priorityId = currentTask.priority_id;
+          priorityName = currentTask.priority;
+        }
+        
+        batchQueries.push({
+          query: updateQuery,
+          params: [
+            task.title, task.description, task.memberId, task.requesterId, task.startDate,
+            task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
+            task.sprintId || null, previousBoardId, previousColumnId, now, task.id
+          ]
+        });
+      }
+      
+      // Execute all updates in a single batched transaction
+      console.log(`🚀 [batch-update] Using batched transaction for ${batchQueries.length} updates (proxy mode)`);
+      await db.executeBatchTransaction(batchQueries);
+      console.log(`✅ [batch-update] Batched transaction completed in ${Date.now() - endpointStartTime}ms for ${batchQueries.length} updates`);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        const updateStmt = db.prepare(`
+          UPDATE tasks SET 
+            title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
+            dueDate = ?, effort = ?, priority = ?, priority_id = ?, columnId = ?, boardId = ?, position = ?, 
+            sprint_id = ?, pre_boardId = ?, pre_columnId = ?, updated_at = ? 
+          WHERE id = ?
+        `);
+        
+        for (const task of tasks) {
+          const currentTask = existingTaskMap.get(task.id);
+          if (!currentTask) continue;
+          
+          const previousColumnId = currentTask.columnId;
+          const previousBoardId = currentTask.boardId;
+          
+          // Handle priority
+          let priorityId = task.priorityId || null;
+          let priorityName = task.priority || null;
+          
+          if (!priorityId && priorityName) {
+            priorityId = priorityMap.get(priorityName) || null;
+          }
+          
+          if (priorityId && !priorityName) {
+            priorityName = priorityIdMap.get(priorityId) || null;
+          }
+          
+          if (!priorityId && !priorityName) {
+            priorityId = currentTask.priority_id;
+            priorityName = currentTask.priority;
+          }
+          
+          await wrapQuery(updateStmt, 'UPDATE').run(
+            task.title, task.description, task.memberId, task.requesterId, task.startDate,
+            task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
+            task.sprintId || null, previousBoardId, previousColumnId, now, task.id
+          );
+        }
+      });
+    }
+    
+    // Fetch all updated tasks with relationships (batched)
+    const fetchStartTime = Date.now();
+    const taskResponses = await fetchTasksWithRelationshipsBatch(db, taskIds);
+    console.log(`⏱️  [batch-update] Fetching ${taskIds.length} tasks with relationships (batched) took ${Date.now() - fetchStartTime}ms`);
+    
+    // Publish WebSocket updates for all changed tasks
+    // Publish individual events so frontend can handle them the same way as single updates
+    const publishPromises = taskResponses.map(task =>
+      redisService.publish('task-updated', {
+        boardId: task.boardId,
+        task: {
+          ...task,
+          updatedBy: userId
+        },
+        timestamp: new Date().toISOString()
+      }, getTenantId(req))
+    );
+    
+    await Promise.all(publishPromises);
+    
+    console.log(`⏱️  [batch-update] Total endpoint time: ${Date.now() - endpointStartTime}ms for ${tasks.length} updates`);
+    
+    res.json({ tasks: taskResponses, updated: taskResponses.length });
+  } catch (error) {
+    console.error('Error batch updating tasks:', error);
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToUpdateTask') });
+  }
+});
+
 // Delete task
 router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
@@ -1005,17 +1367,20 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   }
   
   try {
+    const endpointStartTime = Date.now();
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
     const now = new Date().toISOString();
     
     // Validate all tasks exist and get their current data
+    const validateStartTime = Date.now();
     const taskIds = updates.map(u => u.taskId);
     const placeholders = taskIds.map(() => '?').join(',');
     const currentTasks = await wrapQuery(
       db.prepare(`SELECT id, position, columnId, boardId, title FROM tasks WHERE id IN (${placeholders})`),
       'SELECT'
     ).all(...taskIds);
+    console.log(`⏱️  [batch-update-positions] Task validation took ${Date.now() - validateStartTime}ms`);
     
     if (currentTasks.length !== taskIds.length) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
@@ -1045,8 +1410,12 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     });
     
     // Execute all updates in a single transaction
-    await dbTransaction(db, () => {
-      const updateStmt = db.prepare(`
+    // For proxy databases, use batched transaction endpoint for better performance
+    // For direct databases, use standard transaction
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const updateQuery = `
         UPDATE tasks SET 
           position = ?, 
           columnId = ?,
@@ -1054,21 +1423,63 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
           pre_columnId = ?,
           updated_at = ?
         WHERE id = ?
-      `);
+      `;
       
-      updatesByColumn.forEach((columnUpdates, columnId) => {
-        columnUpdates.forEach(update => {
-          updateStmt.run(
-            update.position,
-            update.columnId,
-            update.previousBoardId,
-            update.previousColumnId,
-            now,
-            update.taskId
-          );
-        });
+      for (const columnUpdates of updatesByColumn.values()) {
+        for (const update of columnUpdates) {
+          batchQueries.push({
+            query: updateQuery,
+            params: [
+              update.position,
+              update.columnId,
+              update.previousBoardId,
+              update.previousColumnId,
+              now,
+              update.taskId
+            ]
+          });
+        }
+      }
+      
+      console.log(`🚀 [batch-update-positions] Using batched transaction for ${batchQueries.length} updates (proxy mode)`);
+      const startTime = Date.now();
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+      
+      const duration = Date.now() - startTime;
+      console.log(`✅ [batch-update-positions] Batched transaction completed in ${duration}ms for ${batchQueries.length} updates`);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        const updateStmt = db.prepare(`
+          UPDATE tasks SET 
+            position = ?, 
+            columnId = ?,
+            pre_boardId = ?, 
+            pre_columnId = ?,
+            updated_at = ?
+          WHERE id = ?
+        `);
+        
+        // Wrap the statement for async support
+        const wrappedStmt = wrapQuery(updateStmt, 'UPDATE');
+        
+        // Execute all updates
+        for (const columnUpdates of updatesByColumn.values()) {
+          for (const update of columnUpdates) {
+            await dbRun(wrappedStmt,
+              update.position,
+              update.columnId,
+              update.previousBoardId,
+              update.previousColumnId,
+              now,
+              update.taskId
+            );
+          }
+        }
       });
-    });
+    }
     
     // Log activity for tasks that changed columns (batch these too if possible)
     const columnMoves = [];
@@ -1082,6 +1493,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     
     // Batch fetch column info for activity logging
     if (columnMoves.length > 0) {
+      const activityStartTime = Date.now();
       const columnIds = [...new Set([...columnMoves.map(m => m.columnId), ...columnMoves.map(m => m.previousColumnId)])];
       const columnPlaceholders = columnIds.map(() => '?').join(',');
       const columns = await wrapQuery(
@@ -1089,8 +1501,10 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
         'SELECT'
       ).all(...columnIds);
       const columnMap = new Map(columns.map(c => [c.id, c]));
+      console.log(`⏱️  [batch-update-positions] Column fetch took ${Date.now() - activityStartTime}ms`);
       
       // Log activities (can be done in parallel)
+      const logStartTime = Date.now();
       await Promise.all(columnMoves.map(async (move) => {
         const oldColumn = columnMap.get(move.previousColumnId);
         const newColumn = columnMap.get(move.columnId);
@@ -1122,12 +1536,14 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
           toColumnName: newColumn?.title
         });
       }));
+      console.log(`⏱️  [batch-update-positions] Activity logging took ${Date.now() - logStartTime}ms`);
     }
     
     // Publish WebSocket updates for all changed tasks
-    // Note: We publish individual events (not a batch) since WebSocket messages are lightweight
-    // The performance bottleneck was the HTTP requests and DB updates, which are now batched
-    const taskResponses = await Promise.all(taskIds.map(id => fetchTaskWithRelationships(db, id)));
+    // Use batched fetching for much better performance (1 query instead of N queries)
+    const fetchStartTime = Date.now();
+    const taskResponses = await fetchTasksWithRelationshipsBatch(db, taskIds);
+    console.log(`⏱️  [batch-update-positions] Fetching ${taskIds.length} tasks with relationships (batched) took ${Date.now() - fetchStartTime}ms`);
     
     // Publish individual WebSocket events for each task (grouped by board for efficiency)
     const tasksByBoard = new Map();
@@ -1142,6 +1558,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     });
     
     // Publish individual events (WebSocket is fast, the bottleneck was HTTP/DB)
+    const wsStartTime = Date.now();
     const tenantId = getTenantId(req);
     await Promise.all(Array.from(tasksByBoard.entries()).flatMap(([boardId, tasks]) =>
       tasks.map(task =>
@@ -1152,6 +1569,10 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
         }, tenantId)
       )
     ));
+    console.log(`⏱️  [batch-update-positions] WebSocket publishing took ${Date.now() - wsStartTime}ms`);
+    
+    const totalTime = Date.now() - endpointStartTime;
+    console.log(`⏱️  [batch-update-positions] Total endpoint time: ${totalTime}ms for ${updates.length} updates`);
     
     res.json({ message: `Updated ${updates.length} task positions successfully` });
   } catch (error) {
@@ -1180,32 +1601,76 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const previousColumnId = currentTask.columnId;
     const previousBoardId = currentTask.boardId;
 
-    await dbTransaction(db, async () => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const now = new Date().toISOString();
+      
       if (newPosition > currentPosition) {
         // Moving down: shift tasks between current and new position up by 1
-        await wrapQuery(db.prepare(`
-          UPDATE tasks SET position = position - 1 
-          WHERE columnId = ? AND position > ? AND position <= ?
-        `), 'UPDATE').run(columnId, currentPosition, newPosition);
+        batchQueries.push({
+          query: `
+            UPDATE tasks SET position = position - 1 
+            WHERE columnId = ? AND position > ? AND position <= ?
+          `,
+          params: [columnId, currentPosition, newPosition]
+        });
       } else {
         // Moving up: shift tasks between new and current position down by 1
-        await wrapQuery(db.prepare(`
-          UPDATE tasks SET position = position + 1 
-          WHERE columnId = ? AND position >= ? AND position < ?
-        `), 'UPDATE').run(columnId, newPosition, currentPosition);
+        batchQueries.push({
+          query: `
+            UPDATE tasks SET position = position + 1 
+            WHERE columnId = ? AND position >= ? AND position < ?
+          `,
+          params: [columnId, newPosition, currentPosition]
+        });
       }
 
       // Update the moved task to its new position and track previous location
-      await wrapQuery(db.prepare(`
-        UPDATE tasks SET 
-          position = ?, 
-          columnId = ?,
-          pre_boardId = ?, 
-          pre_columnId = ?,
-          updated_at = ?
-        WHERE id = ?
-      `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
-    });
+      batchQueries.push({
+        query: `
+          UPDATE tasks SET 
+            position = ?, 
+            columnId = ?,
+            pre_boardId = ?, 
+            pre_columnId = ?,
+            updated_at = ?
+          WHERE id = ?
+        `,
+        params: [newPosition, columnId, previousBoardId, previousColumnId, now, taskId]
+      });
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        if (newPosition > currentPosition) {
+          // Moving down: shift tasks between current and new position up by 1
+          await wrapQuery(db.prepare(`
+            UPDATE tasks SET position = position - 1 
+            WHERE columnId = ? AND position > ? AND position <= ?
+          `), 'UPDATE').run(columnId, currentPosition, newPosition);
+        } else {
+          // Moving up: shift tasks between new and current position down by 1
+          await wrapQuery(db.prepare(`
+            UPDATE tasks SET position = position + 1 
+            WHERE columnId = ? AND position >= ? AND position < ?
+          `), 'UPDATE').run(columnId, newPosition, currentPosition);
+        }
+
+        // Update the moved task to its new position and track previous location
+        await wrapQuery(db.prepare(`
+          UPDATE tasks SET 
+            position = ?, 
+            columnId = ?,
+            pre_boardId = ?, 
+            pre_columnId = ?,
+            updated_at = ?
+          WHERE id = ?
+        `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
+      });
+    }
 
     // Log reorder activity
     await logTaskActivity(
@@ -1351,16 +1816,20 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     const originalColumnId = task.columnId;
     
     // Start transaction for atomic operation
-    await dbTransaction(db, async () => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const now = new Date().toISOString();
+      
       // Shift existing tasks in target column to make room at position 0
-      await wrapQuery(
-        db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 
-        'UPDATE'
-      ).run(targetColumn.id);
+      batchQueries.push({
+        query: 'UPDATE tasks SET position = position + 1 WHERE columnId = ?',
+        params: [targetColumn.id]
+      });
       
       // Update the existing task to move it to the new location
-      await wrapQuery(
-        db.prepare(`
+      batchQueries.push({
+        query: `
           UPDATE tasks SET 
             columnId = ?, 
             boardId = ?, 
@@ -1369,14 +1838,40 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
             pre_columnId = ?,
             updated_at = ?
           WHERE id = ?
-        `), 
-        'UPDATE'
-      ).run(
-        targetColumn.id, targetBoardId, originalBoardId, originalColumnId,
-        new Date().toISOString(), taskId
-      );
+        `,
+        params: [targetColumn.id, targetBoardId, originalBoardId, originalColumnId, now, taskId]
+      });
       
-    });
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Shift existing tasks in target column to make room at position 0
+        await wrapQuery(
+          db.prepare('UPDATE tasks SET position = position + 1 WHERE columnId = ?'), 
+          'UPDATE'
+        ).run(targetColumn.id);
+        
+        // Update the existing task to move it to the new location
+        await wrapQuery(
+          db.prepare(`
+            UPDATE tasks SET 
+              columnId = ?, 
+              boardId = ?, 
+              position = 0,
+              pre_boardId = ?, 
+              pre_columnId = ?,
+              updated_at = ?
+            WHERE id = ?
+          `), 
+          'UPDATE'
+        ).run(
+          targetColumn.id, targetBoardId, originalBoardId, originalColumnId,
+          new Date().toISOString(), taskId
+        );
+      });
+    }
     
     // Log move activity
     const originalBoard = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);

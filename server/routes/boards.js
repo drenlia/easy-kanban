@@ -5,7 +5,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -231,12 +231,14 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     
     const tenantId = getTenantId(req);
     
-    defaultColumns.forEach((col, index) => {
+    const wrappedColumnStmt = wrapQuery(columnStmt, 'INSERT');
+    
+    for (const [index, col] of defaultColumns.entries()) {
       const columnId = `${col.id}-${id}`;
       const isFinished = col.id === 'completed';
       const isArchived = col.id === 'archive';
       
-      columnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
+      await wrappedColumnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
       
       // Publish column creation to Redis for real-time updates
       redisService.publish('column-created', {
@@ -252,7 +254,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()
       }, tenantId);
-    });
+    }
     
     const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
     
@@ -366,24 +368,57 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const allBoards = await wrapQuery(db.prepare('SELECT id, position FROM boards ORDER BY position ASC'), 'SELECT').all();
 
     // Reset all positions to simple integers (0, 1, 2, 3, etc.)
-    await dbTransaction(db, async () => {
-      for (let index = 0; index < allBoards.length; index++) {
-        await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, allBoards[index].id);
-      }
-
-      // Now get the normalized positions and find the target and dragged boards
-      const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
-      const currentIndex = normalizedBoards.findIndex(b => b.id === boardId);
+    // Now get the normalized positions and find the target and dragged boards
+    const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
+    const currentIndex = normalizedBoards.findIndex(b => b.id === boardId);
+    
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
       
+      // Reset all positions
+      for (let index = 0; index < allBoards.length; index++) {
+        batchQueries.push({
+          query: updateQuery,
+          params: [index, allBoards[index].id]
+        });
+      }
+      
+      // Swap positions if needed
       if (currentIndex !== -1 && currentIndex !== newPosition) {
-        // Simple swap: just swap the two positions
         const targetBoard = normalizedBoards[newPosition];
         if (targetBoard) {
-          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
-          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
+          batchQueries.push({
+            query: updateQuery,
+            params: [newPosition, boardId]
+          });
+          batchQueries.push({
+            query: updateQuery,
+            params: [currentIndex, targetBoard.id]
+          });
         }
       }
-    });
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        for (let index = 0; index < allBoards.length; index++) {
+          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, allBoards[index].id);
+        }
+
+        if (currentIndex !== -1 && currentIndex !== newPosition) {
+          // Simple swap: just swap the two positions
+          const targetBoard = normalizedBoards[newPosition];
+          if (targetBoard) {
+            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
+            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
+          }
+        }
+      });
+    }
 
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);

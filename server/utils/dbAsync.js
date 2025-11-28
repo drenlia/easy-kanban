@@ -41,11 +41,15 @@ export async function dbRun(stmt, ...params) {
 
 /**
  * Execute db.exec() with async support
+ * 
+ * For proxy databases, this will execute statements sequentially.
+ * Errors are thrown immediately if a statement fails.
  */
 export async function dbExec(db, sql) {
   if (isProxyDatabase(db)) {
     return await db.exec(sql);
   }
+  // Direct DB (better-sqlite3) - sync execution
   return Promise.resolve(db.exec(sql));
 }
 

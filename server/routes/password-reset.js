@@ -1,5 +1,5 @@
 import express from 'express';
-import { dbTransaction } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -178,19 +178,40 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
     // Use transaction to update password and mark token as used
-    await dbTransaction(db, async () => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      
       // Update user password
-      await wrapQuery(
-        db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?'), 
-        'UPDATE'
-      ).run(passwordHash, resetToken.user_id);
+      batchQueries.push({
+        query: 'UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?',
+        params: [passwordHash, resetToken.user_id]
+      });
       
       // Mark token as used
-      await wrapQuery(
-        db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?'), 
-        'UPDATE'
-      ).run(resetToken.id);
-    });
+      batchQueries.push({
+        query: 'UPDATE password_reset_tokens SET used = 1 WHERE id = ?',
+        params: [resetToken.id]
+      });
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Update user password
+        await wrapQuery(
+          db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?'), 
+          'UPDATE'
+        ).run(passwordHash, resetToken.user_id);
+        
+        // Mark token as used
+        await wrapQuery(
+          db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?'), 
+          'UPDATE'
+        ).run(resetToken.id);
+      });
+    }
     
     console.log('✅ Password reset successful for:', resetToken.email);
     

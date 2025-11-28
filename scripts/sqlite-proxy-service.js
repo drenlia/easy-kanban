@@ -47,6 +47,11 @@ function getDatabase(tenantId) {
   return db;
 }
 
+// Configuration for query logging
+const LOG_SLOW_QUERIES = process.env.LOG_SLOW_QUERIES !== 'false'; // Default: true
+const SLOW_QUERY_THRESHOLD_MS = parseInt(process.env.SLOW_QUERY_THRESHOLD_MS || '100', 10); // Default: 100ms
+const LOG_ALL_QUERIES = process.env.LOG_ALL_QUERIES === 'true'; // Default: false (only log slow queries)
+
 // Execute query with queuing (ensures serial execution per tenant)
 async function executeQuery(tenantId, query, params = []) {
   // Get or create queue for this tenant
@@ -57,18 +62,61 @@ async function executeQuery(tenantId, query, params = []) {
   // Queue this query to execute after previous ones
   const previousQuery = queryQueues.get(tenantId);
   const currentQuery = previousQuery.then(() => {
+    const startTime = process.hrtime.bigint(); // High-resolution timer (nanoseconds)
     const db = getDatabase(tenantId);
-    const stmt = db.prepare(query);
-    
-    // Determine query type
     const queryUpper = query.trim().toUpperCase();
-    if (queryUpper.startsWith('SELECT')) {
-      if (queryUpper.includes('LIMIT 1') || queryUpper.match(/SELECT\s+\w+\s+FROM/)) {
-        return { type: 'get', result: stmt.get(...params) };
+    
+    try {
+      const stmt = db.prepare(query);
+      
+      // Determine query type
+      let result;
+      if (queryUpper.startsWith('SELECT')) {
+        if (queryUpper.includes('LIMIT 1') || queryUpper.match(/SELECT\s+\w+\s+FROM/)) {
+          result = { type: 'get', result: stmt.get(...params) };
+        } else {
+          result = { type: 'all', result: stmt.all(...params) };
+        }
+      } else {
+        result = { type: 'run', result: stmt.run(...params) };
       }
-      return { type: 'all', result: stmt.all(...params) };
-    } else {
-      return { type: 'run', result: stmt.run(...params) };
+      
+      // Calculate execution time (convert nanoseconds to milliseconds)
+      const durationNs = process.hrtime.bigint() - startTime;
+      const durationMs = Number(durationNs) / 1_000_000;
+      
+      // Log query execution time (only if enabled and meets threshold)
+      if (LOG_SLOW_QUERIES && (LOG_ALL_QUERIES || durationMs >= SLOW_QUERY_THRESHOLD_MS)) {
+        const queryPreview = query.length > 80 ? query.substring(0, 80) + '...' : query;
+        console.log(`⏱️  [Proxy] Query took ${durationMs.toFixed(2)}ms (tenant: ${tenantId}): ${queryPreview}`);
+      }
+      
+      return result;
+    } catch (error) {
+      // Handle expected SQLite errors for schema operations
+      // These are normal for existing databases and should not propagate as errors
+      const errorMsg = (error.message || '').toLowerCase();
+      const isSchemaOperation = queryUpper.startsWith('CREATE') || 
+                                 queryUpper.startsWith('ALTER') ||
+                                 queryUpper.startsWith('DROP');
+      
+      // For CREATE/ALTER/DROP operations, ignore "already exists" and "duplicate" errors
+      // These are expected when running schema initialization on existing databases
+      if (isSchemaOperation && (
+          errorMsg.includes('duplicate column name') ||
+          errorMsg.includes('duplicate column') ||
+          errorMsg.includes('duplicate table') ||
+          errorMsg.includes('already exists') ||
+          errorMsg.includes('duplicate index')
+        )) {
+        // Return success for CREATE/ALTER/DROP operations that fail due to existing schema
+        // This allows schema initialization to be idempotent
+        console.log(`ℹ️  Schema operation skipped (already exists): ${query.substring(0, 80)}...`);
+        return { type: 'run', result: { changes: 0, lastInsertRowid: null } };
+      }
+      
+      // Re-throw unexpected errors
+      throw error;
     }
   });
   
@@ -87,9 +135,9 @@ app.get('/health', (req, res) => {
 
 // Execute SQL query endpoint
 app.post('/query', async (req, res) => {
+  const { tenantId, query, params = [] } = req.body;
+  
   try {
-    const { tenantId, query, params = [] } = req.body;
-    
     if (!tenantId || !query) {
       return res.status(400).json({ 
         error: 'Missing required fields: tenantId and query' 
@@ -97,18 +145,35 @@ app.post('/query', async (req, res) => {
     }
     
     // Validate query (prevent dangerous operations)
+    // Allow safe ALTER operations (ADD COLUMN), but block destructive ones
     const queryUpper = query.trim().toUpperCase();
-    const dangerous = ['DROP', 'ALTER', 'ATTACH', 'DETACH', 'VACUUM'];
-    if (dangerous.some(cmd => queryUpper.includes(cmd))) {
+    
+    // Block dangerous operations (check for SQL commands, not words in identifiers)
+    // Use word boundaries or specific patterns to avoid false positives
+    if (queryUpper.includes('DROP TABLE') || 
+        queryUpper.includes('DROP INDEX') || 
+        queryUpper.includes('DROP VIEW') || 
+        queryUpper.includes('DROP TRIGGER') ||
+        (queryUpper.includes('ALTER TABLE') && queryUpper.includes('DROP')) ||
+        queryUpper.startsWith('ATTACH ') ||  // Only block if ATTACH is at start (SQL command)
+        queryUpper.includes(' ATTACH ') ||   // Or if ATTACH is a separate word
+        queryUpper.startsWith('DETACH ') ||  // Only block if DETACH is at start
+        queryUpper.includes(' DETACH ') ||   // Or if DETACH is a separate word
+        queryUpper.startsWith('VACUUM') ||    // VACUUM command
+        queryUpper.includes(' VACUUM ')) {   // Or as separate word
+      console.error(`🚫 Blocked dangerous query for tenant ${tenantId}: ${query.substring(0, 100)}...`);
       return res.status(403).json({ 
         error: 'Dangerous operations not allowed via proxy' 
       });
     }
     
+    // Allow: CREATE, ALTER TABLE ... ADD COLUMN, INSERT, UPDATE, DELETE, SELECT, etc.
+    
     const result = await executeQuery(tenantId, query, params);
     res.json(result);
     
   } catch (error) {
+    // Log unexpected errors (expected errors are already handled in executeQuery)
     console.error('Query error:', error);
     res.status(500).json({ 
       error: error.message,
@@ -128,6 +193,9 @@ app.post('/transaction', async (req, res) => {
       });
     }
     
+    console.log(`📦 [Proxy] Received batched transaction: ${queries.length} queries for tenant ${tenantId}`);
+    const startTime = process.hrtime.bigint(); // High-resolution timer
+    
     const db = getDatabase(tenantId);
     const results = db.transaction(() => {
       return queries.map(({ query, params = [] }) => {
@@ -144,6 +212,11 @@ app.post('/transaction', async (req, res) => {
         }
       });
     })();
+    
+    // Calculate execution time (convert nanoseconds to milliseconds)
+    const durationNs = process.hrtime.bigint() - startTime;
+    const durationMs = Number(durationNs) / 1_000_000;
+    console.log(`✅ [Proxy] Batched transaction completed in ${durationMs.toFixed(2)}ms for ${queries.length} queries (tenant: ${tenantId})`);
     
     res.json({ results });
     

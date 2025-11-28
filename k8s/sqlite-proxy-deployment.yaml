@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlite-proxy
+  namespace: easy-kanban
+  labels:
+    app: sqlite-proxy
+    component: database-proxy
+spec:
+  replicas: 1  # Single instance for single-writer guarantee per database
+  selector:
+    matchLabels:
+      app: sqlite-proxy
+      component: database-proxy
+  template:
+    metadata:
+      labels:
+        app: sqlite-proxy
+        component: database-proxy
+    spec:
+      containers:
+      - name: sqlite-proxy
+        # Option 1: Use same Easy-Kanban image (simplest - already has all dependencies)
+        # Replace with your actual Easy-Kanban image name
+        image: IMAGE_NAME_PLACEHOLDER
+        # Option 2: Use a separate minimal proxy image (more efficient)
+        # image: your-registry/easy-kanban-proxy:latest
+        imagePullPolicy: Always  # Always pull to ensure we get the latest image with scripts
+        command: ["node", "scripts/sqlite-proxy-service.js"]
+        ports:
+        - containerPort: 3001
+          name: proxy
+        env:
+        - name: PORT
+          value: "3001"
+        - name: DB_BASE_PATH
+          value: "/data"
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-data
+          mountPath: /data
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: easy-kanban-shared-pvc-data
+      restartPolicy: Always
+

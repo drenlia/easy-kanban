@@ -103,7 +103,8 @@ const getTenantDatabase = async (tenantId) => {
     const cached = dbCache.get(cacheKey);
     // Verify database is still open
     try {
-      cached.db.prepare('SELECT 1').get();
+      const { wrapQuery } = await import('../utils/queryLogger.js');
+      await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
       return cached;
     } catch (error) {
       // Database closed, remove from cache
@@ -247,12 +248,14 @@ export const closeAllTenantDatabases = () => {
 };
 
 // Get all cached tenant databases (for scheduled jobs in multi-tenant mode)
-export const getAllTenantDatabases = () => {
+export const getAllTenantDatabases = async () => {
   const databases = [];
+  const { wrapQuery } = await import('../utils/queryLogger.js');
+  
   for (const [tenantId, dbInfo] of dbCache.entries()) {
     try {
-      // Verify database is still open
-      dbInfo.db.prepare('SELECT 1').get();
+      // Verify database is still open (async for proxy support)
+      await wrapQuery(dbInfo.db.prepare('SELECT 1'), 'SELECT').get();
       databases.push({ tenantId: tenantId === 'default' ? null : tenantId, db: dbInfo.db });
     } catch (error) {
       // Database closed, skip it

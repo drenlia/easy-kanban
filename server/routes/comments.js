@@ -5,7 +5,7 @@ import { dirname } from 'path';
 import fs from 'fs';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { dbTransaction } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -23,36 +23,82 @@ router.post('/', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    await dbTransaction(db, async () => {
-      // Insert comment
-      await wrapQuery(db.prepare(`
-        INSERT INTO comments (id, taskId, text, authorId, createdAt)
-        VALUES (?, ?, ?, ?, ?)
-      `), 'INSERT').run(
-        comment.id,
-        comment.taskId,
-        comment.text,
-        comment.authorId,
-        comment.createdAt
-      );
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
       
-      // Insert attachments if any
+      // Add comment INSERT
+      batchQueries.push({
+        query: `
+          INSERT INTO comments (id, taskId, text, authorId, createdAt)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+        params: [
+          comment.id,
+          comment.taskId,
+          comment.text,
+          comment.authorId,
+          comment.createdAt
+        ]
+      });
+      
+      // Add attachment INSERTs if any
       if (comment.attachments?.length > 0) {
+        const attachmentQuery = `
+          INSERT INTO attachments (id, commentId, name, url, type, size)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        
         for (const attachment of comment.attachments) {
-          await wrapQuery(db.prepare(`
-            INSERT INTO attachments (id, commentId, name, url, type, size)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `), 'INSERT').run(
-            attachment.id,
-            comment.id,
-            attachment.name,
-            attachment.url,
-            attachment.type,
-            attachment.size
-          );
+          batchQueries.push({
+            query: attachmentQuery,
+            params: [
+              attachment.id,
+              comment.id,
+              attachment.name,
+              attachment.url,
+              attachment.type,
+              attachment.size
+            ]
+          });
         }
       }
-    });
+      
+      // Execute all inserts in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Insert comment
+        await wrapQuery(db.prepare(`
+          INSERT INTO comments (id, taskId, text, authorId, createdAt)
+          VALUES (?, ?, ?, ?, ?)
+        `), 'INSERT').run(
+          comment.id,
+          comment.taskId,
+          comment.text,
+          comment.authorId,
+          comment.createdAt
+        );
+        
+        // Insert attachments if any
+        if (comment.attachments?.length > 0) {
+          for (const attachment of comment.attachments) {
+            await wrapQuery(db.prepare(`
+              INSERT INTO attachments (id, commentId, name, url, type, size)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `), 'INSERT').run(
+              attachment.id,
+              comment.id,
+              attachment.name,
+              attachment.url,
+              attachment.type,
+              attachment.size
+            );
+          }
+        }
+      });
+    }
     
     // Update storage usage if attachments were added
     if (comment.attachments?.length > 0) {

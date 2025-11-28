@@ -3,6 +3,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -161,11 +162,28 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
       position: index
     }));
     
-    await dbTransaction(db, async () => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const updateQuery = 'UPDATE priorities SET position = ? WHERE id = ?';
+      
       for (const update of priorityUpdates) {
-        await wrapQuery(db.prepare('UPDATE priorities SET position = ? WHERE id = ?'), 'UPDATE').run(update.position, update.id);
+        batchQueries.push({
+          query: updateQuery,
+          params: [update.position, update.id]
+        });
       }
-    });
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        for (const update of priorityUpdates) {
+          await wrapQuery(db.prepare('UPDATE priorities SET position = ? WHERE id = ?'), 'UPDATE').run(update.position, update.id);
+        }
+      });
+    }
     
     // Return updated priorities
     const updatedPriorities = await wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();

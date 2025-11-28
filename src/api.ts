@@ -291,6 +291,11 @@ export const updateTask = async (task: Task) => {
   return data;
 };
 
+export const batchUpdateTasks = async (tasks: Task[]) => {
+  const { data } = await api.post<{ tasks: Task[]; updated: number }>('/tasks/batch-update', { tasks });
+  return data.tasks;
+};
+
 export const deleteTask = async (id: string) => {
   const { data } = await api.delete(`/tasks/${id}`);
   return data;

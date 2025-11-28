@@ -76,11 +76,26 @@ class DatabaseProxy {
     }
     
     // Split multiple statements and execute sequentially
+    // Continue on errors for CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, etc.
     const statements = sql.split(';').filter(s => s.trim());
+    const errors = [];
+    
     for (const stmt of statements) {
       if (stmt.trim()) {
-        await this.executeQuery(stmt.trim(), []);
+        try {
+          await this.executeQuery(stmt.trim(), []);
+        } catch (error) {
+          // Proxy service handles expected SQLite errors (duplicate column, already exists, etc.)
+          // at the service level, so we only get unexpected errors here
+          // Collect errors but continue executing remaining statements
+          errors.push({ statement: stmt.substring(0, 50), error: error.message || 'Unknown error' });
+        }
       }
+    }
+    
+    // If we collected non-ignorable errors, throw the first one
+    if (errors.length > 0) {
+      throw new Error(`Error executing SQL: ${errors[0].error} (in statement: ${errors[0].statement}...)`);
     }
   }
 
@@ -119,6 +134,62 @@ class DatabaseProxy {
     return await callback(...args);
   }
 
+  /**
+   * Execute a batch of queries in a single transaction
+   * This is optimized for operations that perform many database calls
+   * @param {Array<{query: string, params: Array}>} queries - Array of query objects
+   * @returns {Promise<Array>} Array of results matching the order of queries
+   */
+  async executeBatchTransaction(queries) {
+    if (this.closed) {
+      throw new Error('Database connection is closed');
+    }
+
+    if (!Array.isArray(queries) || queries.length === 0) {
+      return [];
+    }
+
+    console.log(`📦 [DatabaseProxy] Executing batched transaction: ${queries.length} queries for tenant ${this.tenantId}`);
+    const startTime = Date.now();
+
+    try {
+      const response = await fetch(`${this.proxyUrl}/transaction`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenantId: this.tenantId,
+          queries: queries.map(({ query, params = [] }) => ({
+            query,
+            params
+          }))
+        })
+      });
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          const text = await response.text();
+          throw new Error(`Proxy transaction error (${response.status}): ${text.substring(0, 200)}`);
+        }
+        throw new Error(errorData.error || 'Transaction failed');
+      }
+
+      const result = await response.json();
+      const duration = Date.now() - startTime;
+      console.log(`✅ [DatabaseProxy] Batched transaction completed in ${duration}ms for ${queries.length} queries`);
+      return result.results || [];
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      console.error(`❌ [DatabaseProxy] Batched transaction failed after ${duration}ms:`, error.message);
+      // Convert fetch errors to SQLite-like errors
+      const sqliteError = new Error(error.message);
+      sqliteError.code = error.code || 'SQLITE_ERROR';
+      throw sqliteError;
+    }
+  }
+
   async pragma(name, options = {}) {
     if (this.closed) {
       throw new Error('Database connection is closed');
@@ -141,8 +212,18 @@ class DatabaseProxy {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Query failed');
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          // If response is not JSON, read as text
+          const text = await response.text();
+          throw new Error(`Proxy error (${response.status}): ${text.substring(0, 200)}`);
+        }
+        
+        // Proxy service handles expected SQLite errors (duplicate column, already exists, etc.)
+        // at the service level, so we only get unexpected errors here
+        throw new Error(errorData.error || 'Query failed');
       }
 
       return await response.json();

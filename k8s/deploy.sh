@@ -394,6 +394,23 @@ generate_manifests() {
         -e "s/name: easy-kanban-config-INSTANCE_NAME_PLACEHOLDER/name: easy-kanban-config/g" \
         ${SCRIPT_DIR}/app-deployment.yaml > "${TEMP_DIR}/app-deployment.yaml"
     
+    # Generate SQLite proxy deployment (uses same image as app)
+    # Detect image from existing deployment if available, otherwise use default
+    PROXY_IMAGE="easy-kanban:latest"  # Default fallback
+    if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+        EXISTING_IMAGE=$(kubectl get deployment easy-kanban -n "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+        if [ -n "$EXISTING_IMAGE" ] && [ "$EXISTING_IMAGE" != "" ]; then
+            PROXY_IMAGE="$EXISTING_IMAGE"
+        fi
+    fi
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        -e "s|IMAGE_NAME_PLACEHOLDER|${PROXY_IMAGE}|g" \
+        ${SCRIPT_DIR}/sqlite-proxy-deployment.yaml > "${TEMP_DIR}/sqlite-proxy-deployment.yaml"
+    
+    # Generate SQLite proxy service
+    sed -e "s/easy-kanban/${NAMESPACE}/g" \
+        ${SCRIPT_DIR}/sqlite-proxy-service.yaml > "${TEMP_DIR}/sqlite-proxy-service.yaml"
+    
     # Generate shared services (one service for all tenants)
     sed -e "s/easy-kanban/${NAMESPACE}/g" \
         -e "s/instance: INSTANCE_NAME_PLACEHOLDER/app: easy-kanban/g" \
@@ -414,14 +431,14 @@ generate_manifests
 
 # Apply the namespace first (shared namespace for multi-tenancy)
 echo ""
-echo "📦 Step 1/7: Applying namespace..."
+echo "📦 Step 1/8: Applying namespace..."
 echo "   Using shared namespace: ${NAMESPACE}"
 kubectl apply -f "${TEMP_DIR}/namespace.yaml"
 echo "   ✅ Namespace ready"
 
 # Check if Redis already exists in shared namespace (shared Redis for multi-tenancy)
 echo ""
-echo "📦 Step 2/7: Checking Redis deployment..."
+echo "📦 Step 2/8: Checking Redis deployment..."
 if kubectl get deployment redis -n "${NAMESPACE}" &>/dev/null; then
     echo "   🗄️  Redis already exists in shared namespace, reusing it..."
 else
@@ -438,9 +455,56 @@ else
     fi
 fi
 
+# Deploy SQLite Proxy Service (if not already deployed)
+echo ""
+echo "📦 Step 3/8: Deploying SQLite Proxy Service..."
+# Detect the image from existing Easy-Kanban deployment (if it exists)
+PROXY_IMAGE="easy-kanban:latest"  # Default fallback
+if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
+    EXISTING_IMAGE=$(kubectl get deployment easy-kanban -n "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [ -n "$EXISTING_IMAGE" ] && [ "$EXISTING_IMAGE" != "" ]; then
+        PROXY_IMAGE="$EXISTING_IMAGE"
+        echo "   📷 Using same image as Easy-Kanban app: ${PROXY_IMAGE}"
+    fi
+fi
+
+# Update the proxy deployment manifest with the detected image
+sed -i "s|IMAGE_NAME_PLACEHOLDER|${PROXY_IMAGE}|g" "${TEMP_DIR}/sqlite-proxy-deployment.yaml"
+
+if kubectl get deployment sqlite-proxy -n "${NAMESPACE}" &>/dev/null; then
+    echo "   🔗 SQLite Proxy already exists, checking if update needed..."
+    # Check if proxy needs update (compare image)
+    CURRENT_IMAGE=$(kubectl get deployment sqlite-proxy -n "${NAMESPACE}" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "")
+    if [ "${CURRENT_IMAGE}" != "${PROXY_IMAGE}" ]; then
+        echo "   🔄 Updating SQLite Proxy deployment (image: ${CURRENT_IMAGE} → ${PROXY_IMAGE})..."
+        kubectl apply -f "${TEMP_DIR}/sqlite-proxy-deployment.yaml"
+        kubectl apply -f "${TEMP_DIR}/sqlite-proxy-service.yaml"
+        echo "   ⏳ Waiting for SQLite Proxy to be ready (timeout: 60s)..."
+        if kubectl wait --for=condition=available --timeout=60s deployment/sqlite-proxy -n "${NAMESPACE}" 2>&1; then
+            echo "   ✅ SQLite Proxy updated and ready"
+        else
+            echo "   ⚠️  SQLite Proxy update may still be in progress"
+        fi
+    else
+        echo "   ✅ SQLite Proxy is already up to date (image: ${PROXY_IMAGE})"
+    fi
+else
+    echo "   🔗 Deploying SQLite Proxy Service (image: ${PROXY_IMAGE})..."
+    kubectl apply -f "${TEMP_DIR}/sqlite-proxy-deployment.yaml"
+    kubectl apply -f "${TEMP_DIR}/sqlite-proxy-service.yaml"
+    
+    # Wait for proxy to be ready
+    echo "   ⏳ Waiting for SQLite Proxy to be ready (timeout: 60s)..."
+    if kubectl wait --for=condition=available --timeout=60s deployment/sqlite-proxy -n "${NAMESPACE}" 2>&1; then
+        echo "   ✅ SQLite Proxy is ready"
+    else
+        echo "   ⚠️  SQLite Proxy may still be starting (this is OK, it will be ready soon)"
+    fi
+fi
+
 # Apply shared ConfigMap (only if it doesn't exist)
 echo ""
-echo "📦 Step 3/7: Applying ConfigMap..."
+echo "📦 Step 4/8: Applying ConfigMap..."
 if kubectl get configmap easy-kanban-config -n "${NAMESPACE}" &>/dev/null; then
     echo "   ⚙️  Shared ConfigMap already exists"
     # Check if STARTUP_TENANT_ID is already set
@@ -559,7 +623,7 @@ fi
 # Skip instance-specific storage for multi-tenant mode with shared NFS
 # All instances use the shared NFS PVCs (data, attachments, avatars) which are already created
 echo ""
-echo "📦 Step 4/7: Checking storage..."
+echo "📦 Step 5/8: Checking storage..."
 echo "   📦 Using shared NFS storage for multi-tenant deployment"
 echo "   Shared PVCs: easy-kanban-shared-pvc-data, easy-kanban-shared-pvc-attachments, easy-kanban-shared-pvc-avatars"
 echo "   Tenant data will be stored at: /app/server/data/tenants/${TENANT_ID}/"
@@ -579,7 +643,7 @@ fi
 
 # Deploy shared application (only if not already deployed)
 echo ""
-echo "📦 Step 5/7: Deploying application..."
+echo "📦 Step 6/8: Deploying application..."
 if kubectl get deployment easy-kanban -n "${NAMESPACE}" &>/dev/null; then
     echo "   🎯 Application already deployed (shared for all tenants)"
     # Only restart pods if STARTUP_TENANT_ID was actually updated (first tenant only)
@@ -615,7 +679,7 @@ fi
 
 # Apply shared services (only if not already deployed)
 echo ""
-echo "📦 Step 6/7: Applying services..."
+echo "📦 Step 7/8: Applying services..."
 if kubectl get service easy-kanban-service -n "${NAMESPACE}" &>/dev/null; then
     echo "   🔗 Shared services already exist, skipping..."
 else

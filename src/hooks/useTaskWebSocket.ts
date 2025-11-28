@@ -355,20 +355,14 @@ export const useTaskWebSocket = ({
     }
     
     if (currentSelectedBoard && data.boardId === currentSelectedBoard && data.task) {
-      // Skip entirely if we're in Gantt view - GanttViewV2 handles its own WebSocket events
-      if (taskFilters.viewModeRef.current === 'gantt') {
-        return;
-      }
+      // NOTE: We now process WebSocket events for Gantt view too
+      // GanttViewV2 no longer calls refreshBoardData (which was causing excessive /api/boards calls)
+      // Instead, we update the columns state here, which GanttViewV2 receives via props
+      // This is much more efficient than calling /api/boards for every task update
       
-      // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-      // This prevents duplicate processing when both App.tsx and GanttViewV2 process the same WebSocket event
+      // Skip if this update came from the current user's own batch update (to avoid duplicate processing)
+      // The batch update already updated the state optimistically
       if (window.justUpdatedFromWebSocket && data.task.updatedBy === currentUser?.id) {
-        return;
-      }
-      
-      // Also skip if this is a Gantt view update (indicated by the justUpdatedFromWebSocket flag)
-      // This prevents the infinite loop where both handlers process the same event
-      if (window.justUpdatedFromWebSocket) {
         return;
       }
       

@@ -12,6 +12,7 @@
         "@dnd-kit/modifiers": "^7.0.0",
         "@dnd-kit/sortable": "^8.0.0",
         "@dnd-kit/utilities": "^3.2.2",
+        "@socket.io/redis-adapter": "^7.2.0",
         "@tiptap/extension-bold": "^2.9.1",
         "@tiptap/extension-bullet-list": "^2.9.1",
         "@tiptap/extension-code": "2.26.3",
@@ -2647,6 +2648,21 @@
       "resolved": "https://registry.npmjs.org/@socket.io/component-emitter/-/component-emitter-3.1.2.tgz",
       "integrity": "sha512-9BCxFwvbGg/RsZK9tjXd8s4UcwR0MWeFQ1XEKIQVVvAGJyINdrqKMcTRyLoK8Rse1GjzLV9cwjWV1olXRWEXVA==",
       "license": "MIT"
+    },
+    "node_modules/@socket.io/redis-adapter": {
+      "version": "7.2.0",
+      "resolved": "https://registry.npmjs.org/@socket.io/redis-adapter/-/redis-adapter-7.2.0.tgz",
+      "integrity": "sha512-/r6oF6Myz0K9uatB/pfCi0BhKg/KRMh1OokrqcjlNz6aq40WiXdFLRbHJQuwGHq/KvB+D6141K+IynbVxZGvhw==",
+      "license": "MIT",
+      "dependencies": {
+        "debug": "~4.3.1",
+        "notepack.io": "~2.2.0",
+        "socket.io-adapter": "^2.4.0",
+        "uid2": "0.0.3"
+      },
+      "engines": {
+        "node": ">=10.0.0"
+      }
     },
     "node_modules/@standard-schema/spec": {
       "version": "1.0.0",
@@ -7847,6 +7863,12 @@
         "node": ">=0.10.0"
       }
     },
+    "node_modules/notepack.io": {
+      "version": "2.2.0",
+      "resolved": "https://registry.npmjs.org/notepack.io/-/notepack.io-2.2.0.tgz",
+      "integrity": "sha512-9b5w3t5VSH6ZPosoYnyDONnUTF8o0UkBw7JLA6eBlYJWyGT1Q3vQa8Hmuj1/X6RYvHjjygBDgw6fJhe0JEojfw==",
+      "license": "MIT"
+    },
     "node_modules/npm-audit-resolver": {
       "version": "3.0.0-RC.0",
       "resolved": "https://registry.npmjs.org/npm-audit-resolver/-/npm-audit-resolver-3.0.0-RC.0.tgz",
@@ -10712,6 +10734,11 @@
       "version": "2.1.0",
       "resolved": "https://registry.npmjs.org/uc.micro/-/uc.micro-2.1.0.tgz",
       "integrity": "sha512-ARDJmphmdvUk6Glw7y9DQ2bFkKBHwQHLi2lsaH6PPmz/Ka9sFOBsBluozhDltWmnv9u/cF6Rt87znRTPV+yp/A=="
+    },
+    "node_modules/uid2": {
+      "version": "0.0.3",
+      "resolved": "https://registry.npmjs.org/uid2/-/uid2-0.0.3.tgz",
+      "integrity": "sha512-5gSP1liv10Gjp8cMEnFd6shzkL/D6W1uhXSFNCxDC+YI8+L8wkCYCbJ7n77Ezb4wE/xzMogecE+DtamEe9PZjg=="
     },
     "node_modules/undici-types": {
       "version": "6.21.0",

@@ -98,12 +98,12 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let taskTicket = null;
     
     try {
-      const taskDetails = database.prepare(
+      const taskDetails = await wrapQuery(database.prepare(
         `SELECT t.ticket, b.project 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
          WHERE t.id = ?`
-      ).get(taskId);
+      ), 'SELECT').get(taskId);
       
       if (taskDetails) {
         projectIdentifier = taskDetails.project;
@@ -193,7 +193,7 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
 
-    stmt.run(
+    await wrapQuery(stmt, 'INSERT').run(
       userId,
       roleId,
       action,
@@ -330,7 +330,7 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `);
 
-    stmt.run(
+    await wrapQuery(stmt, 'INSERT').run(
       userId,
       roleId,
       action,
@@ -494,14 +494,14 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
 
   // Special handling for memberId and requesterId changes - resolve member IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
-    const getMemberName = (memberId) => {
+    const getMemberName = async (memberId) => {
       if (!memberId || !finalDb) return t('activity.unassigned');
       try {
-        const member = finalDb.prepare(`
+        const member = await wrapQuery(finalDb.prepare(`
           SELECT m.name 
           FROM members m 
           WHERE m.id = ?
-        `).get(memberId);
+        `), 'SELECT').get(memberId);
         return member?.name || t('activity.unknownUser');
       } catch (error) {
         console.warn('Failed to resolve member name for member ID:', memberId, error.message);
@@ -509,8 +509,8 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
       }
     };
 
-    const oldName = getMemberName(oldValue);
-    const newName = getMemberName(newValue);
+    const oldName = await getMemberName(oldValue);
+    const newName = await getMemberName(newValue);
 
     if (field === 'memberId') {
       if (oldValue === null || oldValue === undefined || oldValue === '') {
@@ -571,12 +571,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     let columnId = null;
 
     try {
-      const taskInfo = database.prepare(
+      const taskInfo = await wrapQuery(database.prepare(
         `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
          WHERE t.id = ?`
-      ).get(taskId);
+      ), 'SELECT').get(taskId);
       
       if (taskInfo) {
         taskTitle = taskInfo.title || 'Unknown Task';
@@ -593,12 +593,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     let fallbackRole = null;
 
     try {
-      const roleResult = database.prepare(
+      const roleResult = await wrapQuery(database.prepare(
         `SELECT ur.role_id, r.name as role_name 
          FROM user_roles ur 
          JOIN roles r ON ur.role_id = r.id 
          WHERE ur.user_id = ?`
-      ).get(userId);
+      ), 'SELECT').get(userId);
       userRole = roleResult?.role_id || null;
     } catch (roleError) {
       console.warn('Failed to get user role for comment activity:', roleError.message);
@@ -670,12 +670,12 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
 
     // Get project identifier and task ticket for enhanced context (always enabled)
     try {
-      const taskDetails = database.prepare(
+      const taskDetails = await wrapQuery(database.prepare(
         `SELECT t.ticket, b.project 
          FROM tasks t 
          LEFT JOIN boards b ON t.boardId = b.id 
          WHERE t.id = ?`
-      ).get(taskId);
+      ), 'SELECT').get(taskId);
       
       if (taskDetails && (taskDetails.project || taskDetails.ticket)) {
         const identifiers = [];

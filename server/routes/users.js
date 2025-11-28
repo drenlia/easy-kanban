@@ -164,7 +164,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     // Update the member's name in the members table
     const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    updateMemberStmt.run(trimmedDisplayName, userId);
+    await wrapQuery(updateMemberStmt, 'UPDATE').run(trimmedDisplayName, userId);
     
     // Get the member ID for Redis publishing
     const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);

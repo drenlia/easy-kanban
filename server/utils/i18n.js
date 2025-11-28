@@ -53,11 +53,12 @@ function loadTranslations(lang) {
 /**
  * Get APP_LANGUAGE setting from database
  * @param {Object} db - Database instance
- * @returns {string} Language code ('en' or 'fr')
+ * @returns {Promise<string>} Language code ('en' or 'fr')
  */
-export function getAppLanguage(db) {
+export async function getAppLanguage(db) {
   try {
-    const setting = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_LANGUAGE');
+    const { wrapQuery } = await import('./queryLogger.js');
+    const setting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_LANGUAGE');
     const lang = setting?.value || 'EN';
     return lang.toUpperCase() === 'FR' ? 'fr' : 'en';
   } catch (error) {

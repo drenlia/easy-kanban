@@ -8,27 +8,20 @@ import bcrypt from 'bcrypt';
 import { runMigrations } from '../migrations/index.js';
 import { initializeDemoData } from './demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbExec, dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Utility function to generate project identifiers
 const generateProjectIdentifier = async (db, prefix = 'PROJ-') => {
-  const isProxy = db && db.constructor.name === 'DatabaseProxy';
-  
-  // Get the highest existing project number
-  const result = isProxy
-    ? await db.prepare(`
-        SELECT project FROM boards 
-        WHERE project IS NOT NULL AND project LIKE ?
-        ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
-        LIMIT 1
-      `).get(`${prefix}%`, prefix.length + 1)
-    : db.prepare(`
-        SELECT project FROM boards 
-        WHERE project IS NOT NULL AND project LIKE ?
-        ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
-        LIMIT 1
-      `).get(`${prefix}%`, prefix.length + 1);
+  // Use consistent async approach for both proxy and direct DB
+  const stmt = db.prepare(`
+    SELECT project FROM boards 
+    WHERE project IS NOT NULL AND project LIKE ?
+    ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
+    LIMIT 1
+  `);
+  const result = await dbGet(stmt, `${prefix}%`, prefix.length + 1);
   
   let nextNumber = 1;
   if (result && result.project) {
@@ -127,7 +120,7 @@ const initializeDefaultPriorities = async (db) => {
   const isProxy = db && db.constructor.name === 'DatabaseProxy';
   
   if (isProxy) {
-    const prioritiesCount = await db.prepare('SELECT COUNT(*) as count FROM priorities').get();
+    const prioritiesCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM priorities'), 'SELECT').get();
     if (prioritiesCount.count === 0) {
       const defaultPriorities = [
         { priority: 'low', color: '#10B981', position: 0, initial: 0 },
@@ -138,26 +131,26 @@ const initializeDefaultPriorities = async (db) => {
 
       const priorityStmt = db.prepare('INSERT INTO priorities (priority, color, position, initial) VALUES (?, ?, ?, ?)');
       for (const p of defaultPriorities) {
-        await priorityStmt.run(p.priority, p.color, p.position, p.initial || 0);
+        await wrapQuery(priorityStmt, 'INSERT').run(p.priority, p.color, p.position, p.initial || 0);
       }
       
       console.log('✅ Initialized default priorities (low, medium, high, urgent)');
       console.log('   Default priority: medium');
     } else {
       // Ensure at least one priority is marked as default
-      const defaultPriorityCount = await db.prepare('SELECT COUNT(*) as count FROM priorities WHERE initial = 1').get();
+      const defaultPriorityCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM priorities WHERE initial = 1'), 'SELECT').get();
       if (defaultPriorityCount.count === 0) {
         // Set medium as default if no default exists
-        const mediumPriority = await db.prepare('SELECT id FROM priorities WHERE priority = ?').get('medium');
+        const mediumPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get('medium');
         if (mediumPriority) {
-          await db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?').run(mediumPriority.id);
+          await wrapQuery(db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?'), 'UPDATE').run(mediumPriority.id);
           console.log('✅ Set "medium" as default priority');
         } else {
           // If medium doesn't exist, set the first priority as default
-          const firstPriority = await db.prepare('SELECT id FROM priorities ORDER BY position ASC LIMIT 1').get();
+          const firstPriority = await wrapQuery(db.prepare('SELECT id FROM priorities ORDER BY position ASC LIMIT 1'), 'SELECT').get();
           if (firstPriority) {
-            await db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?').run(firstPriority.id);
-            const priorityName = await db.prepare('SELECT priority FROM priorities WHERE id = ?').get(firstPriority.id);
+            await wrapQuery(db.prepare('UPDATE priorities SET initial = 1 WHERE id = ?'), 'UPDATE').run(firstPriority.id);
+            const priorityName = await wrapQuery(db.prepare('SELECT priority FROM priorities WHERE id = ?'), 'SELECT').get(firstPriority.id);
             console.log(`✅ Set "${priorityName?.priority || 'first priority'}" as default priority`);
           }
         }
@@ -728,12 +721,10 @@ const CREATE_TABLES_SQL = `
 // Create database tables (async for proxy support)
 const createTables = async (db) => {
   const isProxy = db && db.constructor.name === 'DatabaseProxy';
-  if (isProxy) {
-    await db.exec(CREATE_TABLES_SQL);
-  } else {
-    // Direct DB (better-sqlite3) - sync execution, but in async function
-    db.exec(CREATE_TABLES_SQL);
-  }
+  
+  // Proxy service handles expected SQLite errors (duplicate column, already exists, etc.)
+  // at the service level, so we can just execute the SQL directly
+  await dbExec(db, CREATE_TABLES_SQL);
 };
 
 // Initialize default data
@@ -792,13 +783,8 @@ const initializeDefaultData = async (db, tenantId = null) => {
       'text/html': true,
       'application/json': true
     });
-    if (isProxy) {
-      await db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-        .run('UPLOAD_FILETYPES', defaultFileTypes);
-    } else {
-      db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-        .run('UPLOAD_FILETYPES', defaultFileTypes);
-    }
+    const uploadFileTypesStmt = db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)');
+    await dbRun(uploadFileTypesStmt, 'UPLOAD_FILETYPES', defaultFileTypes);
     console.log('✅ Initialized UPLOAD_FILETYPES with default file types (including GIF)');
   }
   
@@ -969,11 +955,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
           console.log('ℹ️  UPLOAD_FILETYPES already configured, keeping existing value');
         }
       } else {
-        if (isProxy) {
-          await settingsStmt.run(key, value);
-        } else {
-          settingsStmt.run(key, value);
-        }
+        await dbRun(settingsStmt, key, value);
       }
     }
 
@@ -1040,28 +1022,12 @@ const initializeDefaultData = async (db, tenantId = null) => {
       // Assign user role to system account
       const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
       const userRoleId = userRoleResult.id;
-      if (isProxy) {
-        await db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(systemUserId, userRoleId);
-      } else {
-        db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(systemUserId, userRoleId);
-      }
+      const userRoleStmt = db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)');
+      await dbRun(userRoleStmt, systemUserId, userRoleId);
 
       // Create system member record
-      if (isProxy) {
-        await db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)').run(
-          systemMemberId, 
-          'SYSTEM', 
-          '#1E40AF', // Blue color
-          systemUserId
-        );
-      } else {
-        db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)').run(
-          systemMemberId, 
-          'SYSTEM', 
-          '#1E40AF', // Blue color
-          systemUserId
-        );
-      }
+      const systemMemberStmt = db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)');
+      await dbRun(systemMemberStmt, systemMemberId, 'SYSTEM', '#1E40AF', systemUserId);
       
       console.log('🤖 System account created for orphaned task management');
     }
@@ -1071,9 +1037,9 @@ const initializeDefaultData = async (db, tenantId = null) => {
   await initializeDefaultPriorities(db);
 
   // Initialize default data if no boards exist
-  const boardsCount = isProxy
-    ? (await db.prepare('SELECT COUNT(*) as count FROM boards').get()).count
-    : db.prepare('SELECT COUNT(*) as count FROM boards').get().count;
+  const boardsCountStmt = db.prepare('SELECT COUNT(*) as count FROM boards');
+  const boardsCountResult = await dbGet(boardsCountStmt);
+  const boardsCount = boardsCountResult.count;
   if (boardsCount === 0) {
     // Always create a default board with columns
     const boardId = crypto.randomUUID();
@@ -1106,62 +1072,6 @@ const initializeDefaultData = async (db, tenantId = null) => {
     await initializeDemoData(db, boardId, defaultColumns);
   }
 
-  // Database migrations (legacy - these columns are now in CREATE_TABLES_SQL, but kept for backward compatibility)
-  try {
-    // Ensure members table has created_at column (migration)
-    await wrapQuery(db.prepare('ALTER TABLE members ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add dueDate column to tasks table (migration)  
-    await wrapQuery(db.prepare('ALTER TABLE tasks ADD COLUMN dueDate TEXT'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add position column to priorities table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE priorities ADD COLUMN position INTEGER NOT NULL DEFAULT 0'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add projectFilter column to views table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE views ADD COLUMN projectFilter TEXT'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add taskFilter column to views table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE views ADD COLUMN taskFilter TEXT'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add boardColumnFilter column to views table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE views ADD COLUMN boardColumnFilter TEXT'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add force_logout column to users table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE users ADD COLUMN force_logout INTEGER DEFAULT 0'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
-
-  try {
-    // Add is_archived column to columns table (migration)
-    await wrapQuery(db.prepare('ALTER TABLE columns ADD COLUMN is_archived BOOLEAN DEFAULT 0'), 'ALTER').run();
-  } catch (error) {
-    // Column already exists, ignore error
-  }
 
 
   // Clean up orphaned members (members without corresponding users)
@@ -1176,11 +1086,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
     if (orphanedMembers.length > 0) {
       const deleteMemberStmt = db.prepare('DELETE FROM members WHERE id = ?');
       for (const member of orphanedMembers) {
-        if (isProxy) {
-          await deleteMemberStmt.run(member.id);
-        } else {
-          deleteMemberStmt.run(member.id);
-        }
+        await dbRun(deleteMemberStmt, member.id);
       }
     }
   } catch (error) {
@@ -1215,24 +1121,14 @@ const initializeDefaultData = async (db, tenantId = null) => {
     
     if (!currentVersion) {
       // APP_VERSION doesn't exist in settings, insert it
-      if (isProxy) {
-        await db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-          .run('APP_VERSION', appVersion);
-      } else {
-        db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)')
-          .run('APP_VERSION', appVersion);
-      }
+      const insertVersionStmt = db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)');
+      await dbRun(insertVersionStmt, 'APP_VERSION', appVersion);
       console.log(`✅ Initialized APP_VERSION=${appVersion}`);
       versionChanged = true;
     } else if (currentVersion.value !== appVersion) {
       // APP_VERSION has changed, update it
-      if (isProxy) {
-        await db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
-          .run(appVersion, 'APP_VERSION');
-      } else {
-        db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?')
-          .run(appVersion, 'APP_VERSION');
-      }
+      const updateVersionStmt = db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?');
+      await dbRun(updateVersionStmt, appVersion, 'APP_VERSION');
       console.log(`✅ Updated APP_VERSION from ${currentVersion.value} to ${appVersion}`);
       console.log(`   🔄 Users will be notified to refresh their browsers`);
       versionChanged = true;
@@ -1268,60 +1164,10 @@ export const initializeDatabase = async (tenantId = null) => {
     const db = new DatabaseProxy(tenantId, process.env.SQLITE_PROXY_URL);
     
     // Initialize tables and migrations via proxy (async)
+    // Proxy service handles expected SQLite errors (duplicate column, already exists, etc.)
     await createTables(db);
     await initializeDefaultPriorities(db);
-    try {
-      await runMigrations(db);
-    } catch (error) {
-      console.error('❌ Failed to run migrations:', error);
-      throw error;
-    }
-    
-    // Safety check for priority_id (async)
-    try {
-      const tableInfo = await wrapQuery(db.prepare('PRAGMA table_info(tasks)'), 'PRAGMA').all();
-      const columnNames = tableInfo.map(col => col.name);
-      
-      if (!columnNames.includes('priority_id')) {
-        console.log('⚠️  priority_id column missing - adding it now...');
-        await db.exec('ALTER TABLE tasks ADD COLUMN priority_id INTEGER');
-        
-        const priorities = await wrapQuery(db.prepare('SELECT id, priority FROM priorities'), 'SELECT').all();
-        if (priorities.length > 0) {
-          const priorityMap = new Map();
-          priorities.forEach(p => {
-            priorityMap.set(p.priority.toLowerCase(), p.id);
-          });
-          
-          const defaultPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE initial = 1'), 'SELECT').get();
-          const defaultPriorityId = defaultPriority ? defaultPriority.id : priorities[0].id;
-          
-          for (const [priorityName, priorityId] of priorityMap.entries()) {
-            await wrapQuery(db.prepare(`
-              UPDATE tasks 
-              SET priority_id = ? 
-              WHERE LOWER(priority) = ? AND priority_id IS NULL
-            `), 'UPDATE').run(priorityId, priorityName);
-          }
-          
-          await wrapQuery(db.prepare(`
-            UPDATE tasks 
-            SET priority_id = ? 
-            WHERE priority_id IS NULL
-          `), 'UPDATE').run(defaultPriorityId);
-          
-          console.log('✅ priority_id column added and populated');
-        }
-        
-        try {
-          await db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_priority_id ON tasks(priority_id)');
-        } catch (err) {
-          // Index might already exist
-        }
-      }
-    } catch (error) {
-      console.error('⚠️  Warning: Could not verify/add priority_id column:', error.message);
-    }
+    await runMigrations(db);
     
     const versionInfo = await initializeDefaultData(db, tenantId);
     return { 
@@ -1354,56 +1200,6 @@ export const initializeDatabase = async (tenantId = null) => {
   } catch (error) {
     console.error('❌ Failed to run migrations:', error);
     throw error;
-  }
-  
-  // Safety check: Ensure priority_id column exists (defensive measure in case migration failed)
-  try {
-    const tableInfo = await db.prepare('PRAGMA table_info(tasks)').all();
-    const columnNames = tableInfo.map(col => col.name);
-    
-    if (!columnNames.includes('priority_id')) {
-      console.log('⚠️  priority_id column missing - adding it now...');
-      await db.exec('ALTER TABLE tasks ADD COLUMN priority_id INTEGER');
-      
-      // Try to populate priority_id from existing priority names
-      const priorities = await db.prepare('SELECT id, priority FROM priorities').all();
-      if (priorities.length > 0) {
-        const priorityMap = new Map();
-        priorities.forEach(p => {
-          priorityMap.set(p.priority.toLowerCase(), p.id);
-        });
-        
-        const defaultPriority = await db.prepare('SELECT id FROM priorities WHERE initial = 1').get();
-        const defaultPriorityId = defaultPriority ? defaultPriority.id : priorities[0].id;
-        
-        for (const [priorityName, priorityId] of priorityMap.entries()) {
-          await db.prepare(`
-            UPDATE tasks 
-            SET priority_id = ? 
-            WHERE LOWER(priority) = ? AND priority_id IS NULL
-          `).run(priorityId, priorityName);
-        }
-        
-        // Set default for any remaining
-        await db.prepare(`
-          UPDATE tasks 
-          SET priority_id = ? 
-          WHERE priority_id IS NULL
-        `).run(defaultPriorityId);
-        
-        console.log('✅ priority_id column added and populated');
-      }
-      
-      // Add index
-      try {
-        await db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_priority_id ON tasks(priority_id)');
-      } catch (err) {
-        // Index might already exist
-      }
-    }
-  } catch (error) {
-    console.error('⚠️  Warning: Could not verify/add priority_id column:', error.message);
-    // Don't throw - this is a defensive check, not critical
   }
   
   // Initialize default data and capture version info (must run AFTER migrations)
