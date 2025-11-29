@@ -65,7 +65,7 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error fetching instance info:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToFetchInstanceInformation') 
@@ -95,7 +95,7 @@ router.get('/owner-info', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error fetching owner info:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToFetchOwnerInformation') 
@@ -108,7 +108,7 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { email } = req.body;
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     if (!email) {
       return res.status(400).json({ 
@@ -143,7 +143,7 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error setting instance owner:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToSetInstanceOwner') 
@@ -168,7 +168,7 @@ router.get('/settings', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error fetching settings:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToFetchSettings') 
@@ -183,7 +183,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     const { key } = req.params;
     const { value } = req.body;
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     if (value === undefined || value === null) {
       return res.status(400).json({ 
@@ -207,7 +207,7 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error updating setting:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdateSetting') 
@@ -221,7 +221,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const settings = req.body;
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     if (!settings || typeof settings !== 'object') {
       return res.status(400).json({ 
@@ -252,7 +252,7 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error updating settings:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdateSettings') 
@@ -297,7 +297,7 @@ router.get('/users', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error fetching users:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToFetchUsers') 
@@ -313,7 +313,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     
     // Validate required fields
     if (!email || !password || !firstName || !lastName || !role) {
-      const t = getTranslator(db);
+      const t = await getTranslator(db);
       return res.status(400).json({ 
         success: false,
         error: t('errors.emailPasswordFirstNameLastNameRoleRequired') 
@@ -323,7 +323,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      const t = getTranslator(db);
+      const t = await getTranslator(db);
       return res.status(400).json({ 
         success: false,
         error: t('errors.invalidEmailAddressFormat') 
@@ -403,7 +403,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     
     console.log(`✅ Admin portal created user: ${email} (${firstName} ${lastName})`);
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.json({
       success: true,
       message: t('success.userCreatedSuccessfully'),
@@ -418,7 +418,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating user:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToCreateUser') 
@@ -523,14 +523,14 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     
     console.log(`✅ Admin portal updated user: ${userId}`);
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.json({
       success: true,
       message: t('success.userUpdatedSuccessfully')
     });
   } catch (error) {
     console.error('Error updating user:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdateUser') 
@@ -544,7 +544,7 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Check if user exists
     const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
@@ -566,7 +566,7 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToDeleteUser') 
@@ -783,7 +783,7 @@ router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
     const { key } = req.params;
     const { value } = req.body;
 
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Validate key
     const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
@@ -825,7 +825,7 @@ router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating plan setting:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdatePlanSetting') 
@@ -839,7 +839,7 @@ router.delete('/plan/:key', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { key } = req.params;
 
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Validate key
     const allowedKeys = ['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'];
@@ -870,7 +870,7 @@ router.delete('/plan/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting plan setting:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToDeletePlanSetting') 
@@ -888,7 +888,7 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { key } = req.params;
 
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const result = await wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
     
     if (result.changes === 0) {
@@ -906,7 +906,7 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting setting:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToDeleteSetting') 
@@ -920,7 +920,7 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { key, value } = req.body;
 
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     if (!key || value === undefined) {
       return res.status(400).json({ 
@@ -951,7 +951,7 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating setting:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToCreateSetting') 
@@ -969,7 +969,7 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { status } = req.body;
 
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Validate status
     const validStatuses = ['deploying', 'active', 'suspended', 'terminated', 'failed'];
@@ -1007,7 +1007,7 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating instance status:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdateInstanceStatus') 
@@ -1028,7 +1028,7 @@ router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance status:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToFetchInstanceStatus') 
@@ -1047,7 +1047,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // Validate required fields
     if (!email || !firstName || !lastName || !role) {
@@ -1156,7 +1156,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating user:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToUpdateUser') 
@@ -1170,7 +1170,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const db = getRequestDatabase(req);
     const { email, adminName } = req.body;
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     if (!email) {
       return res.status(400).json({ 
@@ -1264,7 +1264,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error sending invitation:', error);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ 
       success: false,
       error: t('errors.failedToSendInvitation') 
