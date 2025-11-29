@@ -2250,6 +2250,11 @@ const TaskCard = React.memo(function TaskCard({
     return false;
   }
   
+  // Re-render if task view mode changes (expanded/compact/shrink)
+  if (prevProps.taskViewMode !== nextProps.taskViewMode) {
+    return false;
+  }
+  
   // All other prop changes can be ignored (like callback functions, etc.)
   // These don't affect the visual output
   return true; // Don't re-render

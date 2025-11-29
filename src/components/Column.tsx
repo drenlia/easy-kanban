@@ -593,7 +593,7 @@ export default function KanbanColumn({
     }
     
     return taskElements;
-  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t]);
+  }, [filteredTasks, members, onRemoveTask, onEditTask, onCopyTask, onTaskDragStart, onTaskDragEnd, onSelectTask, draggedTask, dragPreview, column.id, column.title, isDragging, t, taskViewMode, currentUser, siteSettings, column.is_finished, column.is_archived, draggedColumn, availablePriorities, selectedTask, availableTags, onTagAdd, onTagRemove, boards, columns, selectedSprintId, availableSprints, isLinkingMode, linkingSourceTask, onStartLinking, onFinishLinking, hoveredLinkTask, onLinkToolHover, onLinkToolHoverEnd, getTaskRelationshipType]);
 
   // Combine sortable and column droppable refs for the column container
   const setColumnRef = (node: HTMLElement | null) => {
@@ -663,19 +663,21 @@ export default function KanbanColumn({
           <div className="flex items-start gap-2">
             <span className="text-yellow-600">⚠️</span>
             <div className="whitespace-pre-line">
-              {columnWarnings[column.id].split('\n').map((line, index) => (
-                <div key={index}>
-                  {line.includes('**Tip:**') ? (
-                    <>
-                      {line.split('**Tip:**')[0]}
-                      <span className="font-bold">Tip:</span>
-                      {line.split('**Tip:**')[1]}
-                    </>
-                  ) : (
-                    line
-                  )}
-                </div>
-              ))}
+              {columnWarnings[column.id].split('\n').map((line, index) => {
+                const tipLabel = t('column.tip');
+                const tipMarker = `**${tipLabel}**`;
+                if (line.includes(tipMarker)) {
+                  const parts = line.split(tipMarker);
+                  return (
+                    <div key={index}>
+                      {parts[0]}
+                      <span className="font-bold">{tipLabel}</span>
+                      {parts[1]}
+                    </div>
+                  );
+                }
+                return <div key={index}>{line}</div>;
+              })}
             </div>
           </div>
           {onDismissColumnWarning && (

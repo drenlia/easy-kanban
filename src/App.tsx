@@ -107,6 +107,7 @@ declare global {
 
 // Inner App component that uses hooks (must be inside SettingsProvider)
 function AppContent() {
+  const { t } = useTranslation('tasks');
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [boards, setBoards] = useState<Board[]>([]);
   const [selectedBoard, setSelectedBoard] = useState<string | null>(null);
@@ -2157,6 +2158,21 @@ function AppContent() {
       
       // Check if the new task would be filtered out and show warning
       const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, taskFilters.searchFilters, taskFilters.isSearchActive);
+      const wouldBeFilteredBySprint = (() => {
+        // Check if task matches sprint filtering criteria
+        if (taskFilters.selectedSprintId === null) {
+          return false; // No sprint filter active
+        }
+        
+        if (taskFilters.selectedSprintId === 'backlog') {
+          // Backlog shows only tasks without sprintId - new tasks match this, so no warning
+          return false;
+        }
+        
+        // Specific sprint selected - task must have matching sprintId
+        // New tasks don't have sprintId set initially, so they would be filtered out
+        return newTask.sprintId !== taskFilters.selectedSprintId;
+      })();
       const wouldBeFilteredByMembers = (() => {
         // Check if task matches member filtering criteria
         if (!taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
@@ -2211,10 +2227,28 @@ function AppContent() {
         return !hasMatchingMember; // Return true if would be filtered out
       })();
       
-      if (wouldBeFilteredBySearch || wouldBeFilteredByMembers) {
+      if (wouldBeFilteredBySearch || wouldBeFilteredBySprint || wouldBeFilteredByMembers) {
+        // Build a more specific message based on which filters are active
+        const activeFilterTypes: string[] = [];
+        if (wouldBeFilteredBySearch) activeFilterTypes.push(t('column.filterTypes.searchFilters'));
+        if (wouldBeFilteredBySprint) activeFilterTypes.push(t('column.filterTypes.sprintSelection'));
+        if (wouldBeFilteredByMembers) activeFilterTypes.push(t('column.filterTypes.memberFilters'));
+        
+        const andConjunction = t('column.and');
+        const filterList = activeFilterTypes.length === 1 
+          ? activeFilterTypes[0]
+          : activeFilterTypes.length === 2
+          ? `${activeFilterTypes[0]} ${andConjunction} ${activeFilterTypes[1]}`
+          : `${activeFilterTypes.slice(0, -1).join(', ')}, ${andConjunction} ${activeFilterTypes[activeFilterTypes.length - 1]}`;
+        
+        const tipLabel = t('column.tip');
+        const message = wouldBeFilteredBySprint && !wouldBeFilteredBySearch
+          ? `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipSprintOnly')}`
+          : `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipGeneral')}`;
+        
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: 'Task created but hidden by active filters.\n**Tip:** Click "Clear" to see all tasks and disable relevant filters.'
+          [columnId]: message
         }));
       }
       

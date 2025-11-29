@@ -119,7 +119,17 @@
     "dismissWarning": "Ignorer l'avertissement",
     "task": "tâche",
     "tasks": "tâches",
-    "newColumn": "Nouvelle colonne"
+    "newColumn": "Nouvelle colonne",
+    "taskHiddenByFilters": "Tâche créée mais masquée par les {{filterList}} actifs.",
+    "tip": "Conseil :",
+    "tipSprintOnly": "Sélectionnez \"Tous les sprints\" dans le sélecteur de sprint pour voir toutes les tâches.",
+    "tipGeneral": "Effacez vos filtres ou ajustez votre sélection de sprint pour voir cette tâche.",
+    "filterTypes": {
+      "searchFilters": "filtres de recherche",
+      "sprintSelection": "sélection de sprint",
+      "memberFilters": "filtres de membres"
+    },
+    "and": "et"
   },
   "deleteConfirmation": {
     "areYouSure": "Êtes-vous sûr ?",
