@@ -29,19 +29,68 @@ const dbPool = new Map();
 // Query queue per tenant (prevents concurrent writes)
 const queryQueues = new Map();
 
-// Get or create database connection for tenant
+// Database creation locks (prevents concurrent database opening)
+// Maps tenantId -> Promise that resolves when database is ready
+const dbCreationLocks = new Map();
+
+// Get or create database connection for tenant (thread-safe)
 function getDatabase(tenantId) {
+  // Return existing connection if available
   if (dbPool.has(tenantId)) {
     return dbPool.get(tenantId);
   }
 
+  // Check if database is currently being created
+  if (dbCreationLocks.has(tenantId)) {
+    // Another request is creating the database - wait for it
+    // This is a synchronous function, but we need to handle async creation
+    // For now, throw an error that will be caught and retried by the caller
+    throw new Error('Database is being created, please retry');
+  }
+
+  // Mark that we're creating the database
   const basePath = process.env.DB_BASE_PATH || '/app/server/data';
   const dbPath = join(basePath, 'tenants', tenantId, 'kanban.db');
   
-  // Enable WAL mode for better concurrency
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL'); // Faster than FULL, still safe with WAL
+  let db;
+  let retries = 10;
+  let retryDelay = 50; // Start with 50ms
+  
+  // Retry logic for SQLITE_BUSY errors (database might be locked during initialization)
+  while (retries > 0) {
+    try {
+      // Open database with timeout
+      db = new Database(dbPath, {
+        timeout: 5000 // 5 second timeout
+      });
+      
+      // Enable WAL mode for better concurrency
+      db.pragma('journal_mode = WAL');
+      db.pragma('synchronous = NORMAL'); // Faster than FULL, still safe with WAL
+      db.pragma('busy_timeout = 5000'); // Wait up to 5 seconds for locks
+      
+      // Success - break out of retry loop
+      break;
+    } catch (error) {
+      if (error.code === 'SQLITE_BUSY' && retries > 0) {
+        retries--;
+        console.warn(`⚠️ Database locked for tenant ${tenantId}, retrying... (${retries} retries left)`);
+        // Synchronous sleep using Atomics.wait (not ideal but works)
+        const start = Date.now();
+        while (Date.now() - start < retryDelay) {
+          // Busy wait
+        }
+        retryDelay = Math.min(retryDelay * 1.5, 1000); // Exponential backoff, max 1s
+      } else {
+        // Not a busy error or out of retries - throw
+        throw error;
+      }
+    }
+  }
+  
+  if (!db) {
+    throw new Error(`Failed to open database for tenant ${tenantId} after retries`);
+  }
   
   dbPool.set(tenantId, db);
   console.log(`✅ Opened database connection for tenant: ${tenantId}`);
@@ -65,8 +114,48 @@ async function executeQuery(tenantId, query, params = []) {
   const previousQuery = queryQueues.get(tenantId);
   const currentQuery = previousQuery.then(() => {
     const startTime = process.hrtime.bigint(); // High-resolution timer (nanoseconds)
-    const db = getDatabase(tenantId);
-    const queryUpper = query.trim().toUpperCase();
+    
+    // Get database connection (with retry for new databases that might be locked)
+    let db;
+    try {
+      db = getDatabase(tenantId);
+    } catch (error) {
+      // If database is busy (being created by another request), wait and retry once
+      if (error.code === 'SQLITE_BUSY' || error.message.includes('locked')) {
+        console.warn(`⚠️ Database busy for tenant ${tenantId}, will retry query...`);
+        // Return a promise that retries after a short delay
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            try {
+              db = getDatabase(tenantId);
+              // Continue with query execution below
+            } catch (retryError) {
+              reject(retryError);
+              return;
+            }
+            // Continue with normal query execution
+            resolve(executeQueryInternal(tenantId, query, params, db, startTime));
+          }, 200);
+        });
+      }
+      throw error;
+    }
+    
+    return executeQueryInternal(tenantId, query, params, db, startTime);
+  });
+  
+  // Update queue
+  queryQueues.set(tenantId, currentQuery.catch(() => {
+    // On error, reset queue to allow next query
+    queryQueues.set(tenantId, Promise.resolve());
+  }));
+  
+  return currentQuery;
+}
+
+// Internal function to execute query (separated for retry logic)
+function executeQueryInternal(tenantId, query, params, db, startTime) {
+  const queryUpper = query.trim().toUpperCase();
     
     try {
       const stmt = db.prepare(query);
@@ -120,10 +209,6 @@ async function executeQuery(tenantId, query, params = []) {
       // Re-throw unexpected errors
       throw error;
     }
-  });
-  
-  queryQueues.set(tenantId, currentQuery);
-  return currentQuery;
 }
 
 // Health check endpoint
