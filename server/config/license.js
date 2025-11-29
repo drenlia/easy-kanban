@@ -23,15 +23,19 @@ class LicenseManager {
       return null; // No limits when licensing is disabled
     }
 
+    const isMultiTenant = process.env.MULTI_TENANT === 'true';
+
     try {
       // Try to get limits from license_settings table first
-      const licenseSettings = wrapQuery(
+      const licenseSettings = await wrapQuery(
         this.db.prepare('SELECT setting_key, setting_value FROM license_settings'),
         'SELECT'
       ).all();
 
       if (licenseSettings.length > 0) {
-        const limits = { ...this.defaultLimits };
+        // In multi-tenant mode, only use database values (no fallback to env vars)
+        // In single-tenant mode, merge database values with env var defaults
+        const limits = isMultiTenant ? {} : { ...this.defaultLimits };
         
         licenseSettings.forEach(setting => {
           const key = setting.setting_key;
@@ -50,7 +54,13 @@ class LicenseManager {
       console.warn('Failed to read license settings from database:', error.message);
     }
 
-    // Fallback to environment variables
+    // In multi-tenant mode, never fallback to environment variables
+    // Each tenant must have their license settings in the database
+    if (isMultiTenant) {
+      return null;
+    }
+
+    // Fallback to environment variables (only in single-tenant mode)
     return this.defaultLimits;
   }
 
@@ -63,7 +73,7 @@ class LicenseManager {
   async getUserCount() {
     try {
       const systemUserId = '00000000-0000-0000-0000-000000000000';
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND id != ?'),
         'SELECT'
       ).get(systemUserId);
@@ -77,7 +87,7 @@ class LicenseManager {
   // Get task count for a specific board
   async getTaskCount(boardId) {
     try {
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare('SELECT COUNT(*) as count FROM tasks WHERE boardId = ?'),
         'SELECT'
       ).get(boardId);
@@ -91,7 +101,7 @@ class LicenseManager {
   // Get total task count across all boards
   async getTotalTaskCount() {
     try {
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare('SELECT COUNT(*) as count FROM tasks'),
         'SELECT'
       ).get();
@@ -105,7 +115,7 @@ class LicenseManager {
   // Get board count
   async getBoardCount() {
     try {
-      const result = wrapQuery(
+      const result = await wrapQuery(
         this.db.prepare('SELECT COUNT(*) as count FROM boards'),
         'SELECT'
       ).get();
@@ -189,7 +199,7 @@ class LicenseManager {
     if (!this.enabled) return;
 
     try {
-      wrapQuery(
+      await wrapQuery(
         this.db.prepare('INSERT OR REPLACE INTO license_settings (setting_key, setting_value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)'),
         'INSERT'
       ).run(key, value);
@@ -202,7 +212,7 @@ class LicenseManager {
   // Get board task counts for detailed breakdown
   async getBoardTaskCounts() {
     try {
-      const boards = wrapQuery(
+      const boards = await wrapQuery(
         this.db.prepare(`
           SELECT 
             b.id,

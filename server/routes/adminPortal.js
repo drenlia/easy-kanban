@@ -418,11 +418,19 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating user:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToCreateUser') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToCreateUser') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to create user' 
+      });
+    }
   }
 });
 
@@ -530,11 +538,19 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating user:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToUpdateUser') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToUpdateUser') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to update user' 
+      });
+    }
   }
 });
 
@@ -645,13 +661,20 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Get database values from license_settings table for comparison
+    const isMultiTenant = process.env.MULTI_TENANT === 'true';
+    
+    // Get database values from license_settings table
     const dbSettings = {};
     try {
       const licenseSettings = await wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
       licenseSettings.forEach(setting => {
         if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.setting_key)) {
-          dbSettings[setting.setting_key] = setting.setting_value;
+          // Parse numeric values, keep string values as-is
+          if (setting.setting_key === 'SUPPORT_TYPE') {
+            dbSettings[setting.setting_key] = setting.setting_value;
+          } else {
+            dbSettings[setting.setting_key] = parseInt(setting.setting_value);
+          }
         }
       });
     } catch (error) {
@@ -667,45 +690,70 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     };
 
-    // Combine actual in-memory values with database overrides
+    // In multi-tenant mode, database values are the source of truth
+    // In single-tenant mode, licenseInfo.limits already merges db with env vars
+    // For display purposes, prioritize database values when available
+    const getDisplayValue = (key) => {
+      if (isMultiTenant) {
+        // In multi-tenant mode, always use database value if available
+        return dbSettings[key] !== undefined ? dbSettings[key] : licenseInfo.limits[key];
+      } else {
+        // In single-tenant mode, licenseInfo.limits already has the merged value
+        return licenseInfo.limits[key];
+      }
+    };
+
     const planInfo = {
-      plan: licenseInfo.limits.SUPPORT_TYPE || 'basic',
+      plan: getDisplayValue('SUPPORT_TYPE') || 'basic',
       usage: licenseInfo.usage,
       limitsReached: licenseInfo.limitsReached,
+      // For backward compatibility, also include the limits object with display values
+      limits: {
+        USER_LIMIT: getDisplayValue('USER_LIMIT'),
+        TASK_LIMIT: getDisplayValue('TASK_LIMIT'),
+        BOARD_LIMIT: getDisplayValue('BOARD_LIMIT'),
+        STORAGE_LIMIT: getDisplayValue('STORAGE_LIMIT'),
+        SUPPORT_TYPE: getDisplayValue('SUPPORT_TYPE')
+      },
       features: [
         {
           key: 'USER_LIMIT',
-          inMemory: licenseInfo.limits.USER_LIMIT,
-          database: dbSettings.USER_LIMIT || null,
+          value: getDisplayValue('USER_LIMIT'),
+          inMemory: isMultiTenant ? null : licenseInfo.limits.USER_LIMIT, // Only show in-memory in single-tenant
+          database: dbSettings.USER_LIMIT !== undefined ? dbSettings.USER_LIMIT : null,
           currentUsage: licenseInfo.usage.users,
           limitReached: licenseInfo.limitsReached.users
         },
         {
           key: 'TASK_LIMIT',
-          inMemory: licenseInfo.limits.TASK_LIMIT,
-          database: dbSettings.TASK_LIMIT || null,
+          value: getDisplayValue('TASK_LIMIT'),
+          inMemory: isMultiTenant ? null : licenseInfo.limits.TASK_LIMIT,
+          database: dbSettings.TASK_LIMIT !== undefined ? dbSettings.TASK_LIMIT : null,
           currentUsage: licenseInfo.usage.totalTasks,
           limitReached: false // Task limit is per board, not global
         },
         {
           key: 'BOARD_LIMIT',
-          inMemory: licenseInfo.limits.BOARD_LIMIT,
-          database: dbSettings.BOARD_LIMIT || null,
+          value: getDisplayValue('BOARD_LIMIT'),
+          inMemory: isMultiTenant ? null : licenseInfo.limits.BOARD_LIMIT,
+          database: dbSettings.BOARD_LIMIT !== undefined ? dbSettings.BOARD_LIMIT : null,
           currentUsage: licenseInfo.usage.boards,
           limitReached: licenseInfo.limitsReached.boards
         },
         {
           key: 'STORAGE_LIMIT',
-          inMemory: licenseInfo.limits.STORAGE_LIMIT,
-          database: dbSettings.STORAGE_LIMIT || null,
+          value: getDisplayValue('STORAGE_LIMIT'),
+          inMemory: isMultiTenant ? null : licenseInfo.limits.STORAGE_LIMIT,
+          database: dbSettings.STORAGE_LIMIT !== undefined ? dbSettings.STORAGE_LIMIT : null,
           currentUsage: licenseInfo.usage.storage,
           currentUsageFormatted: formatBytes(licenseInfo.usage.storage),
           limitReached: licenseInfo.limitsReached.storage
         },
         {
           key: 'SUPPORT_TYPE',
-          inMemory: licenseInfo.limits.SUPPORT_TYPE,
-          database: dbSettings.SUPPORT_TYPE || null
+          value: getDisplayValue('SUPPORT_TYPE'),
+          inMemory: isMultiTenant ? null : licenseInfo.limits.SUPPORT_TYPE,
+          database: dbSettings.SUPPORT_TYPE !== undefined ? dbSettings.SUPPORT_TYPE : null
         }
       ],
       boardTaskCounts: licenseInfo.boardTaskCounts
@@ -718,8 +766,20 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
   } catch (error) {
     console.error('Error fetching plan info:', error);
     
-    // Fallback to environment variables if LicenseManager fails
-    console.log('🔄 Falling back to environment variables...');
+    const isMultiTenant = process.env.MULTI_TENANT === 'true';
+    
+    // In multi-tenant mode, never fallback to environment variables
+    // Each tenant must have their license settings in the database
+    if (isMultiTenant) {
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch license information. License settings must be configured in the database for this tenant.',
+        message: 'In multi-tenant mode, license settings are tenant-specific and must be stored in the database.'
+      });
+    }
+    
+    // Fallback to environment variables only in single-tenant mode
+    console.log('🔄 Falling back to environment variables (single-tenant mode)...');
     const fallbackLimits = {
       USER_LIMIT: parseInt(process.env.USER_LIMIT) || 5,
       TASK_LIMIT: parseInt(process.env.TASK_LIMIT) || 100,
@@ -825,11 +885,19 @@ router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating plan setting:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToUpdatePlanSetting') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToUpdatePlanSetting') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to update plan setting' 
+      });
+    }
   }
 });
 
@@ -906,11 +974,19 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error deleting setting:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToDeleteSetting') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToDeleteSetting') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to delete setting' 
+      });
+    }
   }
 });
 
@@ -951,11 +1027,19 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating setting:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToCreateSetting') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToCreateSetting') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to create setting' 
+      });
+    }
   }
 });
 
@@ -1156,11 +1240,19 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating user:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToUpdateUser') 
-    });
+    try {
+      const db = getRequestDatabase(req);
+      const t = await getTranslator(db);
+      res.status(500).json({ 
+        success: false,
+        error: t('errors.failedToUpdateUser') 
+      });
+    } catch (fallbackError) {
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to update user' 
+      });
+    }
   }
 });
 
