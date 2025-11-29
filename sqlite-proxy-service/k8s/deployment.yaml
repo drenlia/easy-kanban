@@ -20,7 +20,6 @@ spec:
     spec:
       containers:
       - name: sqlite-proxy
-        # Standalone SQLite Proxy Service (minimal image, ~50MB)
         image: internal-registry.kube-system.svc.cluster.local:5000/sqlite-proxy:latest
         imagePullPolicy: Always
         ports:
