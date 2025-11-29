@@ -50,6 +50,12 @@ export const handleSameColumnReorder = async (
       return;
   }
 
+  // Store previous state for rollback on error
+  const previousColumnState = {
+    ...columns[columnId],
+    tasks: [...columnTasks]
+  };
+
   // Optimistic update - reorder in UI immediately
   const oldIndex = currentIndex;
   const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
@@ -96,8 +102,22 @@ export const handleSameColumnReorder = async (
       // The next poll will sync the state if needed
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
-    // console.error('❌ Failed to reorder tasks:', error);
-    await refreshBoardData();
+    // Rollback optimistic update on error
+    console.error('❌ Failed to reorder tasks, rolling back:', error);
+    setColumns(prev => ({
+      ...prev,
+      [columnId]: previousColumnState
+    }));
+    
+    // Reset WebSocket flag
+    if (window.setJustUpdatedFromWebSocket) {
+      window.setJustUpdatedFromWebSocket(false);
+    }
+    
+    // Try to refresh from server, but don't wait for it (it might also fail)
+    refreshBoardData().catch(() => {
+      // Server refresh also failed, but we've already rolled back the UI
+    });
   }
 };
 
@@ -150,6 +170,16 @@ export const handleCrossColumnMove = async (
     position: idx
   }));
 
+  // Store previous state for rollback on error
+  const previousSourceColumnState = {
+    ...sourceColumn,
+    tasks: [...sourceColumn.tasks]
+  };
+  const previousTargetColumnState = {
+    ...targetColumn,
+    tasks: [...targetColumn.tasks]
+  };
+
   // Update UI optimistically
   setColumns(prev => ({
     ...prev,
@@ -200,9 +230,18 @@ export const handleCrossColumnMove = async (
       // The next poll will sync the state if needed
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
-    // console.error('Failed to update cross-column move:', error);
-    // On error, we do want to refresh to get the correct state
-    await refreshBoardData();
+    // Rollback optimistic update on error
+    console.error('❌ Failed to update cross-column move, rolling back:', error);
+    setColumns(prev => ({
+      ...prev,
+      [sourceColumnId]: previousSourceColumnState,
+      [targetColumnId]: previousTargetColumnState
+    }));
+    
+    // Try to refresh from server, but don't wait for it (it might also fail)
+    refreshBoardData().catch(() => {
+      // Server refresh also failed, but we've already rolled back the UI
+    });
   }
 };
 

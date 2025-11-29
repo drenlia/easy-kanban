@@ -19,7 +19,7 @@ export const initializeScheduler = (db) => {
       try {
         if (isMultiTenant()) {
           // Multi-tenant: run for all tenant databases
-          const tenantDbs = getAllTenantDatabases();
+          const tenantDbs = await getAllTenantDatabases();
           console.log(`📸 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
           for (const { tenantId, db: tenantDb } of tenantDbs) {
             try {
@@ -49,7 +49,7 @@ export const initializeScheduler = (db) => {
       try {
         if (isMultiTenant()) {
           // Multi-tenant: run for all tenant databases
-          const tenantDbs = getAllTenantDatabases();
+          const tenantDbs = await getAllTenantDatabases();
           console.log(`🏆 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
           for (const { tenantId, db: tenantDb } of tenantDbs) {
             try {
@@ -79,7 +79,7 @@ export const initializeScheduler = (db) => {
       try {
         if (isMultiTenant()) {
           // Multi-tenant: run for all tenant databases
-          const tenantDbs = getAllTenantDatabases();
+          const tenantDbs = await getAllTenantDatabases();
           console.log(`🧹 [CRON] Processing ${tenantDbs.length} tenant(s)...`);
           for (const { tenantId, db: tenantDb } of tenantDbs) {
             try {

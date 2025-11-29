@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import redisService from './redisService.js';
 import { JWT_SECRET } from '../middleware/auth.js';
 import { extractTenantId, getTenantDatabase } from '../middleware/tenantRouting.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 class WebSocketService {
   constructor() {
@@ -93,7 +94,7 @@ class WebSocketService {
     
     
     // Add authentication middleware
-    this.io.use((socket, next) => {
+    this.io.use(async (socket, next) => {
       const token = socket.handshake.auth.token;
       
       if (!token) {
@@ -101,11 +102,8 @@ class WebSocketService {
         return next(new Error('Authentication required'));
       }
       
-      jwt.verify(token, JWT_SECRET, (err, decoded) => {
-        if (err) {
-          console.log('❌ WebSocket auth failed:', err.message);
-          return next(new Error('Invalid token'));
-        }
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
         
         // Extract tenant ID from hostname (for multi-tenant isolation)
         const hostname = socket.handshake.headers.host || socket.handshake.headers['x-forwarded-host'] || '';
@@ -114,9 +112,9 @@ class WebSocketService {
         // In multi-tenant mode, verify user exists in the tenant's database
         if (process.env.MULTI_TENANT === 'true' && tenantId) {
           try {
-            const dbInfo = getTenantDatabase(tenantId);
+            const dbInfo = await getTenantDatabase(tenantId);
             if (dbInfo && dbInfo.db) {
-              const userInDb = dbInfo.db.prepare('SELECT id FROM users WHERE id = ?').get(decoded.id);
+              const userInDb = await wrapQuery(dbInfo.db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
               if (!userInDb) {
                 console.log(`❌ WebSocket auth failed: User ${decoded.email} (${decoded.id}) does not exist in tenant ${tenantId}'s database`);
                 return next(new Error('Invalid token for this tenant'));
@@ -143,7 +141,10 @@ class WebSocketService {
         
         console.log('✅ WebSocket authenticated:', decoded.email, tenantId ? `(tenant: ${tenantId})` : '');
         next();
-      });
+      } catch (err) {
+        console.log('❌ WebSocket auth failed:', err.message);
+        return next(new Error('Invalid token'));
+      }
     });
     
 
@@ -266,7 +267,6 @@ class WebSocketService {
     // Task updates - broadcast to tenant-specific clients
     redisService.subscribeToAllTenants('task-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();
-      console.log(`📡 [${timestamp}] WebSocket broadcasting task-updated (tenant: ${tenantId || 'single'}, task: ${data.task?.id})`);
       
       if (tenantId) {
         // Multi-tenant: broadcast only to clients of this tenant

@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { getRequestDatabase } from './tenantRouting.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 // JWT configuration
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -12,34 +13,41 @@ const JWT_EXPIRES_IN = '24h';
 console.log('🔑 Auth middleware initialized with JWT_SECRET:', JWT_SECRET ? `${JWT_SECRET.substring(0, 8)}...` : 'undefined');
 
 // Authentication middleware
-export const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+export const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      // Return 401 for authentication errors (invalid/expired token)
-      // This distinguishes from 403 which should be used for authorization errors (insufficient permissions)
-      return res.status(401).json({ error: 'Invalid or expired token' });
+    if (!token) {
+      console.log(`❌ [AUTH] No token provided for ${req.method} ${req.path}`);
+      return res.status(401).json({ error: 'Access token required' });
     }
+
+    // Verify JWT token
+    const user = await new Promise((resolve, reject) => {
+      jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+          console.log(`❌ [AUTH] JWT verification failed for ${req.method} ${req.path}:`, err.message);
+          reject(err);
+        } else {
+          resolve(decoded);
+        }
+      });
+    });
     
     // In multi-tenant mode, verify user exists in the current tenant's database
     // This ensures tokens from one tenant cannot be used on another tenant
     const db = getRequestDatabase(req);
     if (process.env.MULTI_TENANT === 'true' && db) {
       try {
-        const userInDb = db.prepare('SELECT id FROM users WHERE id = ?').get(user.id);
+        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(user.id);
         
         if (!userInDb) {
-          console.log(`❌ Token validation failed: User ${user.email} (${user.id}) does not exist in current tenant's database`);
+          console.log(`❌ [AUTH] Token validation failed: User ${user.email} (${user.id}) does not exist in current tenant's database`);
           return res.status(401).json({ error: 'Invalid token for this tenant' });
         }
       } catch (dbError) {
-        console.error('❌ Error checking user in tenant database:', dbError);
+        console.error('❌ [AUTH] Error checking user in tenant database:', dbError);
         // If database check fails, reject the token for security
         return res.status(401).json({ error: 'Authentication failed' });
       }
@@ -47,7 +55,12 @@ export const authenticateToken = (req, res, next) => {
     
     req.user = user;
     next();
-  });
+  } catch (err) {
+    // Return 401 for authentication errors (invalid/expired token)
+    // This distinguishes from 403 which should be used for authorization errors (insufficient permissions)
+    console.error(`❌ [AUTH] Authentication error for ${req.method} ${req.path}:`, err.message);
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 };
 
 // Role-based access control middleware

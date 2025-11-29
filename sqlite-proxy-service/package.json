@@ -1,0 +1,27 @@
+{
+  "name": "sqlite-proxy-service",
+  "version": "1.0.0",
+  "description": "Standalone SQLite Proxy Service for Easy Kanban - Centralized database access to prevent NFS locking issues",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "sqlite",
+    "proxy",
+    "database",
+    "multi-tenant"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^5.1.0",
+    "better-sqlite3": "^12.4.1"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+

@@ -50,6 +50,7 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   const [authChecked, setAuthChecked] = useState(false); // Track if auth has been checked
   const isProcessingOAuthRef = useRef(false);
   const [justRedirected, setJustRedirected] = useState(false); // Prevent auto-board-selection after redirect
+  const mountCheckCompletedRef = useRef(false); // Track if mount check has completed
   
   // Intended destination for redirecting after login
   const [intendedDestination, setIntendedDestination] = useState<string | null>(INITIAL_INTENDED_DESTINATION);
@@ -58,6 +59,13 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
   useEffect(() => {
     // Only redirect after auth has been checked
     if (!authChecked) {
+      return;
+    }
+    
+    // Don't redirect if we have a token (user might be in the process of logging in)
+    const token = localStorage.getItem('authToken');
+    if (token && !isAuthenticated) {
+      console.log('🔑 Token exists but not authenticated yet - waiting for auth check to complete');
       return;
     }
     
@@ -221,28 +229,70 @@ export const useAuth = (callbacks: UseAuthCallbacks): UseAuthReturn => {
 
   // Check authentication on app load
   useEffect(() => {
+    // Skip if mount check already completed (prevent multiple runs)
+    if (mountCheckCompletedRef.current) {
+      console.log('🔑 Skipping mount auth check - already completed');
+      return;
+    }
+    
+    // Skip if already authenticated (e.g., just logged in)
+    if (isAuthenticated && currentUser) {
+      console.log('🔑 Skipping mount auth check - user already authenticated');
+      setAuthChecked(true);
+      mountCheckCompletedRef.current = true;
+      return;
+    }
+    
     const token = localStorage.getItem('authToken');
+    console.log('🔑 Mount auth check starting:', { hasToken: !!token, isAuthenticated, hasCurrentUser: !!currentUser });
+    
     if (token) {
       // Verify token and get current user
       api.getCurrentUser()
         .then(response => {
+          console.log('🔑 Mount auth check succeeded');
           setCurrentUser(response.user);
           setIsAuthenticated(true);
           setAuthChecked(true);
+          mountCheckCompletedRef.current = true;
           markAsAuthenticated(); // Mark as authenticated for auth error handler
         })
-        .catch(() => {
-          // Clear all authentication data on error
-          localStorage.removeItem('authToken');
-          setIsAuthenticated(false);
-          setCurrentUser(null);
-          setAuthChecked(true);
-          // Reset to kanban page to avoid admin page issues
-          callbacks.onPageChange('kanban');
+        .catch((error) => {
+          // Only clear token if it's a real auth error (401), not network errors
+          // Network errors or 503s shouldn't clear the token
+          console.log('🔑 getCurrentUser on mount failed:', {
+            status: error.response?.status,
+            message: error.message,
+            hasToken: !!localStorage.getItem('authToken')
+          });
+          
+          if (error.response?.status === 401) {
+            console.log('🔑 Token validation failed on mount (401) - clearing token');
+            // Clear all authentication data on error
+            localStorage.removeItem('authToken');
+            setIsAuthenticated(false);
+            setCurrentUser(null);
+            setAuthChecked(true);
+            mountCheckCompletedRef.current = true;
+            // Reset to kanban page to avoid admin page issues
+            callbacks.onPageChange('kanban');
+          } else {
+            // Network error or other issue - don't clear token, just mark as checked
+            console.warn('⚠️ Failed to verify token on mount (non-401 error), keeping token:', error.message);
+            setAuthChecked(true);
+            mountCheckCompletedRef.current = true;
+            // Still try to set user as authenticated if we have a token
+            const token = localStorage.getItem('authToken');
+            if (token) {
+              setIsAuthenticated(true);
+            }
+          }
         });
     } else {
       // No token, user is not authenticated
+      console.log('🔑 Mount auth check - no token found');
       setAuthChecked(true);
+      mountCheckCompletedRef.current = true;
     }
   }, []); // Only run once on mount
 

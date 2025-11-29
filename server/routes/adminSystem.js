@@ -14,11 +14,11 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 const router = express.Router();
 
 // Database migrations status endpoint
-router.get('/migrations', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/migrations', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const { getMigrationStatus } = require('../migrations/index.js');
-    const status = getMigrationStatus(db);
+    const { getMigrationStatus } = await import('../migrations/index.js');
+    const status = await getMigrationStatus(db);
     
     res.json({
       success: true,
@@ -118,7 +118,7 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
     
     if (isLicensingEnabled || isDemoMode) {
       // When licensing is enabled OR in demo mode, use instance storage usage (STORAGE_USED from settings)
-      const storageUsage = getStorageUsage(db);
+      const storageUsage = await getStorageUsage(db);
       let storageLimit;
       
       if (isLicensingEnabled) {
@@ -147,7 +147,7 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
         diskPercent = systemDiskInfo.percent;
       } else {
         // Fallback: use attachment storage usage with a reasonable default limit
-        const storageUsage = getStorageUsage(db);
+        const storageUsage = await getStorageUsage(db);
         diskUsed = storageUsage;
         diskTotal = 5368709120; // 5GB default
         diskPercent = diskTotal > 0 ? Math.round((storageUsage / diskTotal) * 100) : 0;

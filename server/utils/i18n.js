@@ -53,11 +53,12 @@ function loadTranslations(lang) {
 /**
  * Get APP_LANGUAGE setting from database
  * @param {Object} db - Database instance
- * @returns {string} Language code ('en' or 'fr')
+ * @returns {Promise<string>} Language code ('en' or 'fr')
  */
-export function getAppLanguage(db) {
+export async function getAppLanguage(db) {
   try {
-    const setting = db.prepare('SELECT value FROM settings WHERE key = ?').get('APP_LANGUAGE');
+    const { wrapQuery } = await import('./queryLogger.js');
+    const setting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_LANGUAGE');
     const lang = setting?.value || 'EN';
     return lang.toUpperCase() === 'FR' ? 'fr' : 'en';
   } catch (error) {
@@ -111,8 +112,8 @@ export function t(key, params = {}, lang = 'en') {
  * @param {Object} db - Database instance
  * @returns {Function} Translation function bound to the app language
  */
-export function getTranslator(db) {
-  const lang = getAppLanguage(db);
+export async function getTranslator(db) {
+  const lang = await getAppLanguage(db);
   return (key, params = {}) => t(key, params, lang);
 }
 
@@ -121,8 +122,8 @@ export function getTranslator(db) {
  * @param {Object} db - Database instance
  * @returns {Array} Array of column objects with id and title
  */
-export function getDefaultBoardColumns(db) {
-  const lang = getAppLanguage(db);
+export async function getDefaultBoardColumns(db) {
+  const lang = await getAppLanguage(db);
   const translations = loadTranslations(lang);
   const columns = translations.boardColumns;
   

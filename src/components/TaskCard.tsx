@@ -299,7 +299,9 @@ const TaskCard = React.memo(function TaskCard({
 
   // Wrap listeners to prevent drag from starting on elements with data-no-dnd attribute
   const listeners = React.useMemo(() => {
-    if (!originalListeners) return originalListeners;
+    if (!originalListeners) {
+      return originalListeners;
+    }
     
     return {
       ...originalListeners,
@@ -308,13 +310,16 @@ const TaskCard = React.memo(function TaskCard({
         const target = e.target as HTMLElement;
         if (target.closest('[data-no-dnd="true"]')) {
           // Don't start drag for elements marked with data-no-dnd
+          e.preventDefault();
+          e.stopPropagation();
           return;
         }
-        // Call original listener
+        // Call original listener - CRITICAL: Don't prevent default or stop propagation
+        // The sensor needs these events to track pointer movement
         originalListeners.onPointerDown?.(e);
       }
     };
-  }, [originalListeners]);
+  }, [originalListeners, task.id]);
 
   // @dnd-kit droppable hook for cross-column insertion
   // CRITICAL: Disable task droppable when a column is being dragged to prevent interference
@@ -1207,14 +1212,41 @@ const TaskCard = React.memo(function TaskCard({
           setIsHoveringDescription(false);
         }}
         onMouseUp={isLinkingMode ? (e) => {
+          console.log('🔗 TaskCard onMouseUp in linking mode:', {
+            taskId: task.id,
+            sourceTaskId: linkingSourceTask?.id,
+            isDifferentTask: linkingSourceTask?.id !== task.id
+          });
           e.preventDefault();
           e.stopPropagation();
           if (onFinishLinking) {
             if (linkingSourceTask?.id !== task.id) {
               // Different task - create relationship
+              console.log('🔗 Creating relationship:', linkingSourceTask?.ticket, '→', task.ticket);
               onFinishLinking(task);
             } else {
               // Same task - cancel linking
+              console.log('🔗 Same task - canceling linking');
+              onFinishLinking(null);
+            }
+          }
+        } : undefined}
+        onPointerUp={isLinkingMode ? (e) => {
+          console.log('🔗 TaskCard onPointerUp in linking mode:', {
+            taskId: task.id,
+            sourceTaskId: linkingSourceTask?.id,
+            isDifferentTask: linkingSourceTask?.id !== task.id
+          });
+          e.preventDefault();
+          e.stopPropagation();
+          if (onFinishLinking) {
+            if (linkingSourceTask?.id !== task.id) {
+              // Different task - create relationship
+              console.log('🔗 Creating relationship (pointer):', linkingSourceTask?.ticket, '→', task.ticket);
+              onFinishLinking(task);
+            } else {
+              // Same task - cancel linking
+              console.log('🔗 Same task - canceling linking (pointer)');
               onFinishLinking(null);
             }
           }
@@ -2148,6 +2180,84 @@ const TaskCard = React.memo(function TaskCard({
       )}
     </>
   );
+}, (prevProps, nextProps) => {
+  // Custom comparison function to prevent unnecessary re-renders
+  // Only re-render if props that actually affect the component have changed
+  
+  // Always re-render if task data changes
+  if (prevProps.task.id !== nextProps.task.id ||
+      prevProps.task.title !== nextProps.task.title ||
+      prevProps.task.description !== nextProps.task.description ||
+      prevProps.task.position !== nextProps.task.position ||
+      prevProps.task.columnId !== nextProps.task.columnId ||
+      prevProps.task.memberId !== nextProps.task.memberId ||
+      prevProps.task.priority !== nextProps.task.priority ||
+      prevProps.task.sprintId !== nextProps.task.sprintId) {
+    return false; // Re-render
+  }
+  
+  // Re-render if selected task changes
+  if (prevProps.selectedTask?.id !== nextProps.selectedTask?.id) {
+    return false;
+  }
+  
+  // Re-render if member changes
+  if (prevProps.member?.id !== nextProps.member?.id) {
+    return false;
+  }
+  
+  // Re-render if linking mode state changes
+  if (prevProps.isLinkingMode !== nextProps.isLinkingMode ||
+      prevProps.linkingSourceTask?.id !== nextProps.linkingSourceTask?.id) {
+    return false;
+  }
+  
+  // Re-render if hovered link task changes
+  if (prevProps.hoveredLinkTask?.id !== nextProps.hoveredLinkTask?.id) {
+    return false;
+  }
+  
+  // IGNORE isDragDisabled changes when it's just due to column drag
+  // This prevents thousands of re-renders when dragging a column
+  // Only re-render if isDragDisabled changes AND it's not just because a column is being dragged
+  if (prevProps.isDragDisabled !== nextProps.isDragDisabled) {
+    // If isColumnBeingDragged is true, ignore isDragDisabled changes
+    // This means the drag disable is just because a column is being dragged,
+    // not because of actual task drag state
+    if (nextProps.isColumnBeingDragged) {
+      // Don't re-render just because column drag disabled tasks
+      // But still check other props
+    } else {
+      // isDragDisabled changed for a real reason (not column drag)
+      return false; // Re-render
+    }
+  }
+  
+  // Re-render if column state changes
+  if (prevProps.columnIsFinished !== nextProps.columnIsFinished ||
+      prevProps.columnIsArchived !== nextProps.columnIsArchived) {
+    return false;
+  }
+  
+  // Re-render if available tags/priorities arrays change (reference check)
+  if (prevProps.availableTags !== nextProps.availableTags ||
+      prevProps.availablePriorities !== nextProps.availablePriorities) {
+    return false;
+  }
+  
+  // Re-render if sprint filter changes
+  if (prevProps.selectedSprintId !== nextProps.selectedSprintId) {
+    return false;
+  }
+  
+  // Re-render if task view mode changes (expanded/compact/shrink)
+  if (prevProps.taskViewMode !== nextProps.taskViewMode) {
+    return false;
+  }
+  
+  // All other prop changes can be ignored (like callback functions, etc.)
+  // These don't affect the visual output
+  return true; // Don't re-render
 });
 
 export default TaskCard;

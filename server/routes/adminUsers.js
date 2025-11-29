@@ -1,4 +1,5 @@
 import express from 'express';
+import { dbTransaction } from '../utils/dbAsync.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
@@ -14,7 +15,7 @@ import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js'
 const router = express.Router();
 
 // Get all users (admin only)
-router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     // Prevent browser caching of admin user data
@@ -24,7 +25,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
       'Expires': '0'
     });
     
-    const users = wrapQuery(db.prepare(`
+    const users = await wrapQuery(db.prepare(`
       SELECT u.*, GROUP_CONCAT(r.name) as roles, m.name as member_name, m.color as member_color
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
@@ -62,7 +63,7 @@ router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
 router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { userId } = req.params;
     const { displayName } = req.body;
     
@@ -77,7 +78,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     }
     
     // Check for duplicate display name (excluding current user)
-    const existingMember = wrapQuery(
+    const existingMember = await wrapQuery(
       db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
       'SELECT'
     ).get(trimmedDisplayName, userId);
@@ -89,7 +90,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     console.log('🏷️ Updating member name for user:', userId, 'to:', trimmedDisplayName);
     
     // Get member info before update for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id, color FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id, color FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     if (!member) {
       console.log('❌ No member found for user:', userId);
@@ -97,7 +98,7 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
     }
     
     // Update the member's name in the members table
-    const updateMemberStmt = wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
+    const updateMemberStmt = await wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE');
     const result = updateMemberStmt.run(trimmedDisplayName, userId);
     
     if (result.changes === 0) {
@@ -139,7 +140,7 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
 
   try {
     // Get current user status to check if they're being activated
-    const currentUser = wrapQuery(db.prepare('SELECT is_active FROM users WHERE id = ?'), 'SELECT').get(userId);
+    const currentUser = await wrapQuery(db.prepare('SELECT is_active FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!currentUser) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -166,13 +167,13 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
     }
 
     // Check if email already exists for another user
-    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
+    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
     if (existingUser) {
       return res.status(400).json({ error: 'Email already exists' });
     }
 
     // Update user
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE users SET email = ?, first_name = ?, last_name = ?, is_active = ? 
       WHERE id = ?
     `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
@@ -218,7 +219,7 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
     }
 
     // Get current role
-    const currentRoles = wrapQuery(db.prepare(`
+    const currentRoles = await wrapQuery(db.prepare(`
       SELECT r.name FROM roles r 
       JOIN user_roles ur ON r.id = ur.role_id 
       WHERE ur.user_id = ?
@@ -226,16 +227,16 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
 
     if (currentRoles.length > 0 && currentRoles[0].name !== role) {
       // Remove current role
-      wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
       
       // Assign new role
-      const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+      const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
       if (roleId) {
-        wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+        await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
       }
 
       // Update the user's updated_at timestamp
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         UPDATE users 
         SET updated_at = datetime('now')
         WHERE id = ?
@@ -329,7 +330,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = wrapQuery(
+    const appUrlSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('APP_URL');
@@ -390,7 +391,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }
     
     // Check if email already exists
-    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
       return res.status(400).json({ error: `User with email ${email} already exists` });
     }
@@ -403,15 +404,15 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     // Create user (active if specified, otherwise inactive and requires email verification)
     const userIsActive = isActive ? 1 : 0;
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, is_active, auth_provider) 
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, userIsActive, 'local');
     
     // Assign role
-    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
     if (roleId) {
-      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
     // Create team member automatically with custom display name if provided and random color
@@ -436,7 +437,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }
     
     const memberColor = getRandomColor(); // Random color from palette
-    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, memberName, memberColor, userId);
     
     // Generate default avatar SVG for new local users with matching background color
@@ -445,7 +446,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     const avatarPath = createDefaultAvatar(memberName, userId, memberColor, tenantId);
     if (avatarPath) {
       // Update user with default avatar path
-      wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+      await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     }
     
     // Only generate invitation token and send email if user is not active
@@ -458,7 +459,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       
       // Store invitation token
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
         VALUES (?, ?, ?, ?, datetime('now'))
       `), 'INSERT').run(
@@ -469,7 +470,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       );
       
       // Get admin user info for email
-      const adminUser = wrapQuery(
+      const adminUser = await wrapQuery(
         db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
         'SELECT'
       ).get(req.user.userId);
@@ -512,6 +513,18 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       timestamp: new Date().toISOString()
     }, getTenantId(req));
     
+    // Publish member-created event for real-time member list updates
+    console.log('📤 Publishing member-created to Redis');
+    await redisService.publish('member-created', {
+      member: {
+        id: memberId,
+        name: memberName,
+        color: memberColor,
+        userId: userId
+      },
+      timestamp: new Date().toISOString()
+    }, getTenantId(req));
+    
     // Prepare response message based on creation mode
     let message = 'User created successfully.';
     if (isActive) {
@@ -545,7 +558,7 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = wrapQuery(
+    const appUrlSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('APP_URL');
@@ -567,7 +580,7 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
   
   try {
     // Get user details
-    const user = wrapQuery(
+    const user = await wrapQuery(
       db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 
       'SELECT'
     ).get(userId);
@@ -586,14 +599,14 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     }
 
     // Delete any existing invitation tokens for this user
-    wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+    await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
 
     // Generate new invitation token
     const inviteToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
     // Store new invitation token
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
       VALUES (?, ?, ?, ?, datetime('now'))
     `), 'INSERT').run(
@@ -604,7 +617,7 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     );
     
     // Get admin user info for email
-    const adminUser = wrapQuery(
+    const adminUser = await wrapQuery(
       db.prepare('SELECT first_name, last_name FROM users WHERE id = ?'), 
       'SELECT'
     ).get(req.user.userId);
@@ -647,19 +660,19 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
 });
 
 // Get task count for a user (for deletion confirmation)
-router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { userId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
     // Count tasks where this user is either the assignee (memberId) or requester (requesterId)
     // First get the member ID for this user
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     let taskCount = 0;
     if (member) {
-      const assignedTasks = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE memberId = ?'), 'SELECT').get(member.id);
-      const requestedTasks = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE requesterId = ?'), 'SELECT').get(member.id);
+      const assignedTasks = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE memberId = ?'), 'SELECT').get(member.id);
+      const requestedTasks = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE requesterId = ?'), 'SELECT').get(member.id);
       taskCount = (assignedTasks?.count || 0) + (requestedTasks?.count || 0);
     }
     
@@ -671,7 +684,7 @@ router.get('/:userId/task-count', authenticateToken, requireRole(['admin']), (re
 });
 
 // Delete user
-router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req, res) => {
   const { userId } = req.params;
   const db = getRequestDatabase(req);
   
@@ -682,21 +695,23 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
     }
 
     // Get user details before deletion (needed for response)
-    const user = wrapQuery(db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 'SELECT').get(userId);
+    const user = await wrapQuery(db.prepare('SELECT id, email, first_name, last_name, is_active, auth_provider FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
     // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
     const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    const systemMemberId = '00000000-0000-0000-0000-000000000001';
+    const tenantId = getTenantId(req);
     
     // Get the member ID for the user being deleted (before deletion)
-    const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const userMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     // Get all tasks that will be reassigned (for WebSocket notifications)
     let tasksToReassign = [];
     if (userMember) {
-      tasksToReassign = wrapQuery(
+      tasksToReassign = await wrapQuery(
         db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
         'SELECT'
       ).all(userMember.id, userMember.id);
@@ -704,55 +719,88 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
     }
     
     // Begin transaction for cascading deletion
-    const transaction = db.transaction(() => {
-      try {
-        // 1. Delete activity records (no FK constraint, so won't cascade)
-        wrapQuery(db.prepare('DELETE FROM activity WHERE userId = ?'), 'DELETE').run(userId);
+    await dbTransaction(db, async () => {
+      // 0. Ensure SYSTEM account exists (create if missing, e.g., if it was deleted)
+      const existingSystemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get(systemMemberId);
+      if (!existingSystemMember) {
+        console.log('⚠️  SYSTEM account not found, creating it...');
+        
+        // Check if SYSTEM user exists
+        const existingSystemUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(SYSTEM_USER_ID);
+        
+        if (!existingSystemUser) {
+          // Create SYSTEM user account
+          const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
+          const systemAvatarPath = createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId);
+          
+          await wrapQuery(db.prepare(`
+            INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', 0);
+          
+          // Assign user role to system account
+          const userRole = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+          if (userRole) {
+            await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(SYSTEM_USER_ID, userRole.id);
+          }
+        }
+        
+        // Create system member record
+        await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
+          systemMemberId, 
+          'SYSTEM', 
+          '#1E40AF', // Blue color
+          SYSTEM_USER_ID
+        );
+        
+        console.log('✅ SYSTEM account created successfully');
+      }
+      
+      // 1. Delete activity records (no FK constraint, so won't cascade)
+      await wrapQuery(db.prepare('DELETE FROM activity WHERE userId = ?'), 'DELETE').run(userId);
         
         // 2. Delete comments made by the user (references members without CASCADE)
         if (userMember) {
-          wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = ?'), 'DELETE').run(userMember.id);
+          await wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = ?'), 'DELETE').run(userMember.id);
         }
         
         // 3. Delete watchers (should cascade but let's be explicit)
         if (userMember) {
-          wrapQuery(db.prepare('DELETE FROM watchers WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await wrapQuery(db.prepare('DELETE FROM watchers WHERE memberId = ?'), 'DELETE').run(userMember.id);
         }
         
         // 4. Delete collaborators (should cascade but let's be explicit)
         if (userMember) {
-          wrapQuery(db.prepare('DELETE FROM collaborators WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await wrapQuery(db.prepare('DELETE FROM collaborators WHERE memberId = ?'), 'DELETE').run(userMember.id);
         }
         
         // 5. Update planning_periods to set created_by to NULL (references users without CASCADE)
-        wrapQuery(db.prepare('UPDATE planning_periods SET created_by = NULL WHERE created_by = ?'), 'UPDATE').run(userId);
+        await wrapQuery(db.prepare('UPDATE planning_periods SET created_by = NULL WHERE created_by = ?'), 'UPDATE').run(userId);
         
         // 6. Delete user roles (should cascade but let's be explicit)
-        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
         
         // 7. Delete user settings (should cascade but let's be explicit)
-        wrapQuery(db.prepare('DELETE FROM user_settings WHERE userId = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM user_settings WHERE userId = ?'), 'DELETE').run(userId);
         
         // 8. Delete views (should cascade but let's be explicit)
-        wrapQuery(db.prepare('DELETE FROM views WHERE userId = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM views WHERE userId = ?'), 'DELETE').run(userId);
         
         // 9. Delete password reset tokens (should cascade but let's be explicit)
-        wrapQuery(db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?'), 'DELETE').run(userId);
         
         // 10. Delete user invitations (should cascade but let's be explicit)
-        wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
         
         // 11. Reassign tasks assigned to the user to the system account (preserve task history)
-        const systemMemberId = '00000000-0000-0000-0000-000000000001';
-        
         if (userMember) {
-          wrapQuery(
+          await wrapQuery(
             db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 
             'UPDATE'
           ).run(systemMemberId, userMember.id);
           
           // 12. Reassign tasks requested by the user to the system account
-          wrapQuery(
+          await wrapQuery(
             db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 
             'UPDATE'
           ).run(systemMemberId, userMember.id);
@@ -760,32 +808,24 @@ router.delete('/:userId', authenticateToken, requireRole(['admin']), async (req,
         
         // 13. Delete the member record
         if (userMember) {
-          wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+          await wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
         }
         
         // 14. Finally, delete the user account
-        wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
         
         console.log(`🗑️ User deleted successfully: ${user.email}`);
-        
-      } catch (error) {
-        console.error('Error during user deletion transaction:', error);
-        throw error;
-      }
     });
-    
-    // Execute the transaction
-    transaction();
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
-      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
+      const systemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
       
       if (systemMember) {
         console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
         for (const task of tasksToReassign) {
           // Get the full updated task details with priority info
-          const updatedTask = wrapQuery(
+          const updatedTask = await wrapQuery(
             db.prepare(`
               SELECT t.*, 
                      p.id as priorityId,
@@ -901,14 +941,14 @@ router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (r
 
   try {
     // Get member info before update for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id, name FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id, name FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     if (!member) {
       return res.status(404).json({ error: 'Member not found for this user' });
     }
     
     // Update member color
-    const result = wrapQuery(db.prepare('UPDATE members SET color = ? WHERE user_id = ?'), 'UPDATE').run(color, userId);
+    const result = await wrapQuery(db.prepare('UPDATE members SET color = ? WHERE user_id = ?'), 'UPDATE').run(color, userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Member not found for this user' });
@@ -942,10 +982,10 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
   try {
     const avatarPath = `/avatars/${req.file.filename}`;
     // Update user's avatar_path in database
-    wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+    await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
     
     // Get the member ID for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -970,16 +1010,16 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
 });
 
 // Admin avatar removal endpoint
-router.delete('/:userId/avatar', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req, res) => {
   const { userId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
     // Clear avatar_path in database
-    wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(userId);
+    await wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(userId);
     
     // Get the member ID for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
     if (member) {

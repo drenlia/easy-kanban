@@ -501,31 +501,31 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
 
       {/* Edit Priority Modal */}
       {showEditPriorityForm && editingPriority && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 dark:bg-black dark:bg-opacity-70 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border border-gray-300 dark:border-gray-600 w-96 shadow-lg rounded-md bg-white dark:bg-gray-800">
             <div className="mt-3">
               <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100 mb-4">{t('priorities.editPriorityTitle')}</h3>
               <form onSubmit={handleEditPriority}>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.priorityName')}</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('priorities.priorityName')}</label>
                     <input
                       type="text"
                       required
                       value={editingPriority.priority}
                       onChange={(e) => setEditingPriority(prev => prev ? { ...prev, priority: e.target.value } : null)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                       placeholder={t('priorities.enterPriorityName')}
                     />
                   </div>
                   
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">{t('priorities.color')}</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('priorities.color')}</label>
                     <input
                       type="color"
                       value={editingPriority.color}
                       onChange={(e) => setEditingPriority(prev => prev ? { ...prev, color: e.target.value } : null)}
-                      className="w-full h-12 border border-gray-300 rounded-md cursor-pointer"
+                      className="w-full h-12 border border-gray-300 dark:border-gray-600 rounded-md cursor-pointer"
                     />
                   </div>
                 </div>
@@ -534,7 +534,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isSubmitting ? t('priorities.updating') : t('priorities.updatePriority')}
                   </button>
@@ -544,7 +544,7 @@ const AdminPrioritiesTab: React.FC<AdminPrioritiesTabProps> = ({
                       setShowEditPriorityForm(false);
                       setEditingPriority(null);
                     }}
-                    className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                    className="flex-1 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-md hover:bg-gray-400 dark:hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
                   >
                     {t('priorities.cancel')}
                   </button>

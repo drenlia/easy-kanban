@@ -16,13 +16,13 @@ export const checkAndAwardAchievements = async (db) => {
     const newAchievements = [];
     
     // Get all active badges from database
-    const badges = wrapQuery(
+    const badges = await wrapQuery(
       db.prepare('SELECT * FROM badges WHERE is_active = 1 ORDER BY condition_value ASC'),
       'SELECT'
     ).all();
     
     // Get all active users with their current stats
-    const users = wrapQuery(
+    const users = await wrapQuery(
       db.prepare(`
         SELECT DISTINCT 
           u.id as user_id,
@@ -37,7 +37,7 @@ export const checkAndAwardAchievements = async (db) => {
     
     for (const user of users) {
       // Get user's current stats from user_points
-      const userStats = wrapQuery(
+      const userStats = await wrapQuery(
         db.prepare(`
           SELECT 
             COALESCE(SUM(tasks_created), 0) as tasks_created,
@@ -62,7 +62,7 @@ export const checkAndAwardAchievements = async (db) => {
       };
       
       // Get badges already awarded to this user
-      const awardedBadges = wrapQuery(
+      const awardedBadges = await wrapQuery(
         db.prepare('SELECT badge_id FROM user_achievements WHERE user_id = ?'),
         'SELECT'
       ).all(user.user_id);
@@ -114,7 +114,7 @@ export const checkAndAwardAchievements = async (db) => {
           const achievementId = crypto.randomUUID();
           const now = new Date().toISOString();
           
-          wrapQuery(
+          await wrapQuery(
             db.prepare(`
               INSERT INTO user_achievements (
                 id, user_id, badge_id, badge_name, badge_icon, badge_color,
@@ -141,7 +141,7 @@ export const checkAndAwardAchievements = async (db) => {
             const currentYear = new Date().getFullYear();
             const currentMonth = new Date().getMonth() + 1;
             
-            wrapQuery(
+            await wrapQuery(
               db.prepare(`
                 INSERT INTO user_points (
                   id, user_id, user_name, user_email, period_year, period_month,

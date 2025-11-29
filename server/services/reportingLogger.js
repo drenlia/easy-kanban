@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { TASK_ACTIONS, TAG_ACTIONS, COMMENT_ACTIONS } from '../constants/activityActions.js';
+import { dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
 
 // Global database instance (will be set by initReportingLogger)
 let dbInstance = null;
@@ -45,12 +46,12 @@ const DEFAULT_POINTS_CONFIG = {
  * Get points configuration from database settings
  * Falls back to default values if settings not found
  */
-export const getPointsConfig = (db) => {
+export const getPointsConfig = async (db) => {
   if (!db) return DEFAULT_POINTS_CONFIG;
   
   try {
     const settings = {};
-    const rows = db.prepare("SELECT key, value FROM settings WHERE key LIKE 'REPORTS_POINTS_%'").all();
+    const rows = await dbAll(db.prepare("SELECT key, value FROM settings WHERE key LIKE 'REPORTS_POINTS_%'"));
     
     rows.forEach(row => {
       settings[row.key] = row.value;
@@ -132,19 +133,20 @@ export const logActivity = async (db, eventData) => {
     const periodMonth = now.getMonth() + 1;
     const periodWeek = getWeekNumber(now);
 
-    db.prepare(`
-      INSERT INTO activity_events (
-        id, event_type, user_id, user_name, user_email,
-        task_id, task_title, task_ticket,
-        board_id, board_name,
-        column_id, column_name,
-        from_column_id, from_column_name,
-        to_column_id, to_column_name,
-        effort_points, priority_name,
-        tags, metadata,
-        created_at, period_year, period_month, period_week
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    await dbRun(
+      db.prepare(`
+        INSERT INTO activity_events (
+          id, event_type, user_id, user_name, user_email,
+          task_id, task_title, task_ticket,
+          board_id, board_name,
+          column_id, column_name,
+          from_column_id, from_column_name,
+          to_column_id, to_column_name,
+          effort_points, priority_name,
+          tags, metadata,
+          created_at, period_year, period_month, period_week
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `),
       eventId, eventType, userId, userName, userEmail,
       taskId, taskTitle, taskTicket,
       boardId, boardName,
@@ -173,7 +175,7 @@ export const logActivity = async (db, eventData) => {
 const awardPoints = async (db, eventType, userId, userName, eventData) => {
   try {
     // Get current points configuration from database settings
-    const POINTS = getPointsConfig(db);
+    const POINTS = await getPointsConfig(db);
     
     let points = 0;
 
@@ -240,17 +242,20 @@ const awardPoints = async (db, eventType, userId, userName, eventData) => {
 const updateUserPoints = async (db, userId, userName, eventType, points, eventData = {}) => {
   try {
     // Get current points configuration
-    const POINTS = getPointsConfig(db);
+    const POINTS = await getPointsConfig(db);
     
     const now = new Date();
     const periodYear = now.getFullYear();
     const periodMonth = now.getMonth() + 1;
 
     // Get or create user points record
-    const existing = db.prepare(`
-      SELECT * FROM user_points 
-      WHERE user_id = ? AND period_year = ? AND period_month = ?
-    `).get(userId, periodYear, periodMonth);
+    const existing = await dbGet(
+      db.prepare(`
+        SELECT * FROM user_points 
+        WHERE user_id = ? AND period_year = ? AND period_month = ?
+      `),
+      userId, periodYear, periodMonth
+    );
 
     if (existing) {
       // Update existing record
@@ -264,13 +269,14 @@ const updateUserPoints = async (db, userId, userName, eventType, points, eventDa
         watchers_added: (existing.watchers_added || 0) + (eventType === 'watcher_added' ? 1 : 0)
       };
 
-      db.prepare(`
-        UPDATE user_points 
-        SET total_points = ?, tasks_completed = ?, total_effort_completed = ?,
-            comments_added = ?, tasks_created = ?, collaborations = ?,
-            watchers_added = ?, last_updated = ?
-        WHERE id = ?
-      `).run(
+      await dbRun(
+        db.prepare(`
+          UPDATE user_points 
+          SET total_points = ?, tasks_completed = ?, total_effort_completed = ?,
+              comments_added = ?, tasks_created = ?, collaborations = ?,
+              watchers_added = ?, last_updated = ?
+          WHERE id = ?
+        `),
         updates.total_points, updates.tasks_completed, updates.total_effort_completed,
         updates.comments_added, updates.tasks_created, updates.collaborations,
         updates.watchers_added, now.toISOString(), existing.id
@@ -297,13 +303,14 @@ const updateUserPoints = async (db, userId, userName, eventType, points, eventDa
         last_updated: now.toISOString()
       };
 
-      db.prepare(`
-        INSERT INTO user_points (
-          id, user_id, user_name, total_points, tasks_completed,
-          total_effort_completed, comments_added, tasks_created,
-          collaborations, watchers_added, period_year, period_month, last_updated
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      await dbRun(
+        db.prepare(`
+          INSERT INTO user_points (
+            id, user_id, user_name, total_points, tasks_completed,
+            total_effort_completed, comments_added, tasks_created,
+            collaborations, watchers_added, period_year, period_month, last_updated
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `),
         newRecord.id, newRecord.user_id, newRecord.user_name,
         newRecord.total_points, newRecord.tasks_completed,
         newRecord.total_effort_completed, newRecord.comments_added,
@@ -324,9 +331,12 @@ const updateUserPoints = async (db, userId, userName, eventType, points, eventDa
 const checkAchievements = async (db, userId, userName, stats, periodYear, periodMonth) => {
   try {
     // Get already earned achievements for this user
-    const earned = db.prepare(`
-      SELECT achievement_type FROM user_achievements WHERE user_id = ?
-    `).all(userId);
+    const earned = await dbAll(
+      db.prepare(`
+        SELECT achievement_type FROM user_achievements WHERE user_id = ?
+      `),
+      userId
+    );
     
     const earnedTypes = new Set(earned.map(a => a.achievement_type));
 
@@ -388,14 +398,17 @@ const getWeekNumber = (date) => {
 /**
  * Helper to get user info from database
  */
-export const getUserInfo = (db, userId) => {
+export const getUserInfo = async (db, userId) => {
   try {
-    const user = db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, m.name as member_name
-      FROM users u
-      LEFT JOIN members m ON u.id = m.user_id
-      WHERE u.id = ?
-    `).get(userId);
+    const user = await dbGet(
+      db.prepare(`
+        SELECT u.id, u.email, u.first_name, u.last_name, m.name as member_name
+        FROM users u
+        LEFT JOIN members m ON u.id = m.user_id
+        WHERE u.id = ?
+      `),
+      userId
+    );
 
     if (!user) return null;
 
@@ -413,9 +426,9 @@ export const getUserInfo = (db, userId) => {
 /**
  * Helper to get board info from database
  */
-export const getBoardInfo = (db, boardId) => {
+export const getBoardInfo = async (db, boardId) => {
   try {
-    const board = db.prepare('SELECT id, title FROM boards WHERE id = ?').get(boardId);
+    const board = await dbGet(db.prepare('SELECT id, title FROM boards WHERE id = ?'), boardId);
     return board ? { id: board.id, name: board.title } : null;
   } catch (error) {
     console.error('Failed to get board info:', error);
@@ -426,9 +439,9 @@ export const getBoardInfo = (db, boardId) => {
 /**
  * Helper to get column info from database
  */
-export const getColumnInfo = (db, columnId) => {
+export const getColumnInfo = async (db, columnId) => {
   try {
-    const column = db.prepare('SELECT id, title FROM columns WHERE id = ?').get(columnId);
+    const column = await dbGet(db.prepare('SELECT id, title FROM columns WHERE id = ?'), columnId);
     return column ? { id: column.id, name: column.title } : null;
   } catch (error) {
     console.error('Failed to get column info:', error);

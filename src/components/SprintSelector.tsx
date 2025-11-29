@@ -185,7 +185,7 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600"
+        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 relative"
         title={t('sprintSelector.selectSprint')}
         data-tour-id="sprint-selector"
       >
@@ -193,6 +193,10 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
         <span className="max-w-[150px] truncate">
           {selectedSprintId === 'backlog' ? t('sprintSelector.backlog') : selectedSprint ? selectedSprint.name : t('sprintSelector.allSprints')}
         </span>
+        {/* Red dot indicator when a sprint filter is active */}
+        {selectedSprintId !== null && (
+          <span className="absolute -top-1 -right-1 h-2.5 w-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800" title={t('sprintSelector.filterActive')} />
+        )}
         <ChevronDown className="h-4 w-4" />
       </button>
 

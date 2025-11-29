@@ -33,12 +33,12 @@ router.use(adminPortalRateLimit);
 // ================================
 
 // Get instance information
-router.get('/info', authenticateAdminPortal, (req, res) => {
+router.get('/info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
     // Read APP_URL from database settings (not modifiable by users, set by frontend on first login)
-    const appUrlSetting = wrapQuery(
+    const appUrlSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('APP_URL');
@@ -79,10 +79,10 @@ router.get('/info', authenticateAdminPortal, (req, res) => {
 // ================================
 
 // Get instance owner information
-router.get('/owner-info', authenticateAdminPortal, (req, res) => {
+router.get('/owner-info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
+    const ownerSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
     const ownerEmail = ownerSetting ? ownerSetting.value : null;
     
     res.json({
@@ -104,7 +104,7 @@ router.get('/owner-info', authenticateAdminPortal, (req, res) => {
 });
 
 // Set instance owner (admin portal only)
-router.put('/owner', authenticateAdminPortal, (req, res) => {
+router.put('/owner', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { email } = req.body;
@@ -118,7 +118,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
     }
     
     // Validate that the user exists
-    const user = wrapQuery(db.prepare('SELECT id, email FROM users WHERE email = ?'), 'SELECT').get(email);
+    const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE email = ?'), 'SELECT').get(email);
     if (!user) {
       return res.status(400).json({ 
         success: false,
@@ -127,7 +127,7 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
     }
     
     // Set owner in settings
-    wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'), 'INSERT')
+    await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'), 'INSERT')
       .run('OWNER', email, new Date().toISOString());
     
     console.log(`✅ Admin portal set instance owner to: ${email}`);
@@ -152,10 +152,10 @@ router.put('/owner', authenticateAdminPortal, (req, res) => {
 });
 
 // Get all settings
-router.get('/settings', authenticateAdminPortal, (req, res) => {
+router.get('/settings', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const settings = wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -265,10 +265,10 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 // ================================
 
 // Get all users
-router.get('/users', authenticateAdminPortal, (req, res) => {
+router.get('/users', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const users = wrapQuery(db.prepare(`
+    const users = await wrapQuery(db.prepare(`
       SELECT 
         u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
         GROUP_CONCAT(r.name) as roles
@@ -331,7 +331,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     }
     
     // Check if email already exists
-    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
@@ -344,15 +344,15 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     
     // Create user
     const userId = crypto.randomUUID();
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, is_active) 
       VALUES (?, ?, ?, ?, ?, ?)
     `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, isActive ? 1 : 0);
     
     // Assign role
-    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
     if (roleId) {
-      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
     // Create member for the user
@@ -363,8 +363,43 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     if (memberName.length > 30) {
       memberName = memberName.substring(0, 30);
     }
-    wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
       .run(memberId, memberName, memberColor, userId);
+    
+    // Publish to Redis for real-time updates
+    const tenantId = getTenantId(req);
+    console.log('📤 Publishing user-created and member-created to Redis for admin portal');
+    await redisService.publish('user-created', {
+      user: { 
+        id: userId, 
+        email, 
+        firstName, 
+        lastName, 
+        role, 
+        isActive: !!isActive,
+        displayName: memberName,
+        memberColor: memberColor,
+        authProvider: 'local',
+        createdAt: new Date().toISOString(),
+        joined: new Date().toISOString()
+      },
+      member: { id: memberId, name: memberName, color: memberColor },
+      timestamp: new Date().toISOString()
+    }, tenantId).catch(err => {
+      console.error('Failed to publish user-created event:', err);
+    });
+    
+    await redisService.publish('member-created', {
+      member: {
+        id: memberId,
+        name: memberName,
+        color: memberColor,
+        userId: userId
+      },
+      timestamp: new Date().toISOString()
+    }, tenantId).catch(err => {
+      console.error('Failed to publish member-created event:', err);
+    });
     
     console.log(`✅ Admin portal created user: ${email} (${firstName} ${lastName})`);
     
@@ -399,7 +434,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const { email, firstName, lastName, role, isActive } = req.body;
     
     // Check if user exists
-    const user = wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -409,23 +444,23 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     
     // Update user fields
     if (email !== undefined) {
-      wrapQuery(db.prepare('UPDATE users SET email = ? WHERE id = ?'), 'UPDATE').run(email, userId);
+      await wrapQuery(db.prepare('UPDATE users SET email = ? WHERE id = ?'), 'UPDATE').run(email, userId);
     }
     if (firstName !== undefined) {
-      wrapQuery(db.prepare('UPDATE users SET first_name = ? WHERE id = ?'), 'UPDATE').run(firstName, userId);
+      await wrapQuery(db.prepare('UPDATE users SET first_name = ? WHERE id = ?'), 'UPDATE').run(firstName, userId);
     }
     if (lastName !== undefined) {
-      wrapQuery(db.prepare('UPDATE users SET last_name = ? WHERE id = ?'), 'UPDATE').run(lastName, userId);
+      await wrapQuery(db.prepare('UPDATE users SET last_name = ? WHERE id = ?'), 'UPDATE').run(lastName, userId);
     }
     if (isActive !== undefined) {
-      wrapQuery(db.prepare('UPDATE users SET is_active = ? WHERE id = ?'), 'UPDATE').run(isActive ? 1 : 0, userId);
+      await wrapQuery(db.prepare('UPDATE users SET is_active = ? WHERE id = ?'), 'UPDATE').run(isActive ? 1 : 0, userId);
     }
     
     // Update role if provided
     let roleChanged = false;
     if (role !== undefined) {
       // Get current role to check if it changed
-      const currentRole = wrapQuery(db.prepare(`
+      const currentRole = await wrapQuery(db.prepare(`
         SELECT r.name FROM roles r
         JOIN user_roles ur ON r.id = ur.role_id
         WHERE ur.user_id = ?
@@ -434,18 +469,18 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       if (currentRole !== role) {
         roleChanged = true;
         // Remove existing roles
-        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
         
         // Add new role
-        const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+        const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
         if (roleId) {
-          wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+          await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
         }
       }
     }
     
     // Get updated user data for WebSocket event
-    const updatedUser = wrapQuery(db.prepare(`
+    const updatedUser = await wrapQuery(db.prepare(`
       SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url,
              r.name as role
       FROM users u
@@ -504,7 +539,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
 });
 
 // Delete user
-router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
+router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
@@ -512,7 +547,7 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
     const t = getTranslator(db);
     
     // Check if user exists
-    const user = wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -521,7 +556,7 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
     }
     
     // Delete user (cascade will handle related records)
-    wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+    await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
     
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
     
@@ -544,11 +579,11 @@ router.delete('/users/:userId', authenticateAdminPortal, (req, res) => {
 // ================================
 
 // Health check endpoint
-router.get('/health', authenticateAdminPortal, (req, res) => {
+router.get('/health', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     // Check database connection
-    const dbCheck = wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
+    const dbCheck = await wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
     
     res.json({
       success: true,
@@ -613,7 +648,7 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
     // Get database values from license_settings table for comparison
     const dbSettings = {};
     try {
-      const licenseSettings = wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
+      const licenseSettings = await wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
       licenseSettings.forEach(setting => {
         if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.setting_key)) {
           dbSettings[setting.setting_key] = setting.setting_value;
@@ -742,7 +777,7 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
 });
 
 // Update plan setting
-router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
+router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { key } = req.params;
@@ -771,13 +806,13 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
     }
 
     // Update or insert license setting
-    const existingSetting = wrapQuery(db.prepare('SELECT id FROM license_settings WHERE setting_key = ?'), 'SELECT').get(key);
+    const existingSetting = await wrapQuery(db.prepare('SELECT id FROM license_settings WHERE setting_key = ?'), 'SELECT').get(key);
     
     if (existingSetting) {
-      wrapQuery(db.prepare('UPDATE license_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?'), 'UPDATE')
+      await wrapQuery(db.prepare('UPDATE license_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?'), 'UPDATE')
         .run(value, key);
     } else {
-      wrapQuery(db.prepare('INSERT INTO license_settings (setting_key, setting_value) VALUES (?, ?)'), 'INSERT')
+      await wrapQuery(db.prepare('INSERT INTO license_settings (setting_key, setting_value) VALUES (?, ?)'), 'INSERT')
         .run(key, value);
     }
 
@@ -799,7 +834,7 @@ router.put('/plan/:key', authenticateAdminPortal, (req, res) => {
 });
 
 // Delete plan setting (remove database override)
-router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
+router.delete('/plan/:key', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { key } = req.params;
@@ -816,7 +851,7 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
     }
 
     // Delete the license setting (this removes the database override)
-    const result = wrapQuery(db.prepare('DELETE FROM license_settings WHERE setting_key = ?'), 'DELETE')
+    const result = await wrapQuery(db.prepare('DELETE FROM license_settings WHERE setting_key = ?'), 'DELETE')
       .run(key);
 
     if (result.changes === 0) {
@@ -848,13 +883,13 @@ router.delete('/plan/:key', authenticateAdminPortal, (req, res) => {
 // ================================
 
 // Delete a setting
-router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
+router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { key } = req.params;
 
     const t = getTranslator(db);
-    const result = wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
+    const result = await wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
     
     if (result.changes === 0) {
       return res.status(404).json({ 
@@ -880,7 +915,7 @@ router.delete('/settings/:key', authenticateAdminPortal, (req, res) => {
 });
 
 // Add a new setting
-router.post('/settings', authenticateAdminPortal, (req, res) => {
+router.post('/settings', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { key, value } = req.body;
@@ -895,7 +930,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
     }
 
     // Check if setting already exists
-    const existingSetting = wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get(key);
+    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get(key);
     if (existingSetting) {
       return res.status(400).json({ 
         success: false,
@@ -904,7 +939,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
     }
 
     // Insert new setting
-    wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
+    await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
       .run(key, value);
 
     console.log(`✅ Admin portal created setting: ${key} = ${value}`);
@@ -929,7 +964,7 @@ router.post('/settings', authenticateAdminPortal, (req, res) => {
 // ================================
 
 // Update instance status in settings
-router.put('/instance-status', authenticateAdminPortal, (req, res) => {
+router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { status } = req.body;
@@ -946,13 +981,13 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
     }
 
     // Update or insert INSTANCE_STATUS setting
-    const existingSetting = wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     
     if (existingSetting) {
-      wrapQuery(db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'), 'UPDATE')
+      await wrapQuery(db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'), 'UPDATE')
         .run(status, 'INSTANCE_STATUS');
     } else {
-      wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
+      await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
         .run('INSTANCE_STATUS', status);
     }
 
@@ -981,10 +1016,10 @@ router.put('/instance-status', authenticateAdminPortal, (req, res) => {
 });
 
 // Get current instance status
-router.get('/instance-status', authenticateAdminPortal, (req, res) => {
+router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     const status = statusSetting ? statusSetting.value : 'active';
 
     res.json({
@@ -1032,7 +1067,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     }
     
     // Check if user exists
-    const existingUser = wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(userId);
+    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(userId);
     if (!existingUser) {
       return res.status(404).json({ 
         success: false,
@@ -1041,7 +1076,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     }
     
     // Check if email is already taken by another user
-    const emailTaken = wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
+    const emailTaken = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
     if (emailTaken) {
       return res.status(400).json({ 
         success: false,
@@ -1050,27 +1085,27 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     }
     
     // Update user
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE users 
       SET email = ?, first_name = ?, last_name = ?, is_active = ?
       WHERE id = ?
     `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
     
     // Update role
-    const roleId = wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
+    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
     if (roleId) {
       // Remove existing roles
-      wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
       // Add new role
-      wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
     }
     
     // Update member name
-    wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
+    await wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
       .run(`${firstName} ${lastName}`, userId);
     
     // Get updated user data for WebSocket event
-    const updatedUser = wrapQuery(db.prepare(`
+    const updatedUser = await wrapQuery(db.prepare(`
       SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
       FROM users u
       WHERE u.id = ?
@@ -1145,7 +1180,7 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     }
     
     // Find user by email
-    const user = wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(email);
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(email);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -1166,18 +1201,18 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
     // Store invitation token
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT OR REPLACE INTO user_invitations (user_id, token, expires_at, created_at) 
       VALUES (?, ?, ?, ?)
     `), 'INSERT').run(user.id, inviteToken, expiresAt.toISOString(), new Date().toISOString());
     
     // Get site name from settings
-    const siteNameSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
+    const siteNameSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
     const siteName = siteNameSetting?.value || 'Easy Kanban';
     
     // Generate invitation URL using tenant-specific URL
     // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
-    const appUrlSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
+    const appUrlSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
     let baseUrl = process.env.BASE_URL;
     
     if (!baseUrl) {

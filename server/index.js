@@ -89,12 +89,12 @@ let versionInfo = { appVersion: null, versionChanged: false };
 // For multi-tenant mode (Kubernetes), database will be initialized per-request via middleware
 // Optionally, can pre-initialize a tenant at startup using STARTUP_TENANT_ID env var
 if (!isMultiTenant()) {
-  const dbInit = initializeDatabase();
+  const dbInit = await initializeDatabase();
   defaultDb = dbInit.db;
   versionInfo = { appVersion: dbInit.appVersion, versionChanged: dbInit.versionChanged };
   
   // Initialize services with default database (single-tenant mode)
-  initializeInstanceStatus(defaultDb);
+  await initializeInstanceStatus(defaultDb);
   initActivityLogger(defaultDb);
   initReportingLogger(defaultDb);
   initNotificationService(defaultDb);
@@ -110,7 +110,7 @@ if (!isMultiTenant()) {
   if (startupTenantId) {
     console.log(`🔧 Pre-initializing tenant database for: ${startupTenantId}`);
     try {
-      const dbInfo = getTenantDatabase(startupTenantId);
+      const dbInfo = await getTenantDatabase(startupTenantId);
       console.log(`✅ Tenant '${startupTenantId}' database pre-initialized at startup`);
     } catch (error) {
       console.warn(`⚠️ Failed to pre-initialize tenant '${startupTenantId}':`, error.message);
@@ -130,16 +130,19 @@ const app = express();
 
 // Trust proxy - required when running behind reverse proxy (K8s ingress, nginx, etc.)
 // This allows Express to correctly identify client IPs from X-Forwarded-For headers
-// Set TRUST_PROXY env var to 'false' to disable, a number (e.g., '1') to trust N proxies, or leave unset to trust all
-// For K8s deployments, typically trust the first proxy (ingress controller)
+// Set TRUST_PROXY env var to 'false' to disable, a number (e.g., '1') to trust N proxies, or leave unset
+// Default behavior:
+//   - Docker (MULTI_TENANT=false): trust proxy = false (no reverse proxy by default)
+//   - K8s (MULTI_TENANT=true): trust proxy = true (behind ingress)
 if (process.env.TRUST_PROXY === 'false') {
   app.set('trust proxy', false);
 } else if (process.env.TRUST_PROXY) {
   const proxyCount = parseInt(process.env.TRUST_PROXY);
   app.set('trust proxy', isNaN(proxyCount) ? true : proxyCount);
 } else {
-  // Default: trust all proxies (safe for K8s/cloud deployments)
-  app.set('trust proxy', true);
+  // Default: trust proxy only in multi-tenant mode (K8s with ingress)
+  // For Docker deployments without reverse proxy, set TRUST_PROXY=false explicitly
+  app.set('trust proxy', process.env.MULTI_TENANT === 'true');
 }
 
 // Make default database available to routes (for single-tenant mode)
@@ -157,7 +160,7 @@ app.use((req, res, next) => {
 });
 
 // Add app version header to all responses
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   // Use database from request (set by tenantRouting in multi-tenant mode)
   const db = getRequestDatabase(req, defaultDb);
   let version = '0';
@@ -165,7 +168,7 @@ app.use((req, res, next) => {
   try {
     if (db) {
       // Database available - use getAppVersion which can read from version.json, ENV, or database
-      version = getAppVersion(db);
+      version = await getAppVersion(db);
     } else {
       // No database available - try version.json or ENV (getAppVersion would throw if db is null)
       try {
@@ -270,12 +273,18 @@ if (isMultiTenant()) {
 }
 
 // Add instance status middleware (uses database from request)
-app.use((req, res, next) => {
-  const db = getRequestDatabase(req, defaultDb);
-  if (db) {
-    return checkInstanceStatus(db)(req, res, next);
+app.use(async (req, res, next) => {
+  try {
+    const db = getRequestDatabase(req, defaultDb);
+    if (db) {
+      return await checkInstanceStatus(db)(req, res, next);
+    }
+    next();
+  } catch (error) {
+    console.error('❌ [INSTANCE_STATUS] Error in middleware:', error);
+    // Fail open - allow request to continue if status check fails
+    next();
   }
-  next();
 });
 
 // Rate limiters are now imported from middleware/rateLimiters.js
@@ -392,7 +401,7 @@ app.use('/api/admin-portal', lazyRouteLoader('./routes/adminPortal.js'));
 // ================================
 
 // Version info endpoint (public, useful for debugging and K8s readiness checks)
-app.get('/api/version', (req, res) => {
+app.get('/api/version', async (req, res) => {
   try {
     // Try to read full version info from version.json
     const versionPath = new URL('./version.json', import.meta.url);
@@ -400,8 +409,9 @@ app.get('/api/version', (req, res) => {
     res.json(versionData);
   } catch (error) {
     // Fallback to basic version info
+    const version = await getAppVersion(defaultDb);
     res.json({
-      version: getAppVersion(defaultDb),
+      version,
       source: 'environment',
       environment: process.env.NODE_ENV || 'production'
     });
@@ -485,10 +495,10 @@ async function initializeServices() {
     
     // Broadcast app version to all connected clients
     // If version changed, broadcast immediately; otherwise wait briefly for WebSocket connections
-    const broadcastVersion = () => {
+    const broadcastVersion = async () => {
       // In single-tenant mode, broadcast version from default database
       if (defaultDb) {
-        const appVersion = getAppVersion(defaultDb);
+        const appVersion = await getAppVersion(defaultDb);
         redisService.publish('version-updated', { version: appVersion }, null);
         console.log(`📦 Broadcasting app version: ${appVersion}${versionInfo.versionChanged ? ' (version changed - notifying users)' : ''}`);
       }
@@ -498,7 +508,7 @@ async function initializeServices() {
     
     if (versionInfo.versionChanged && versionInfo.appVersion) {
       // Version changed - broadcast immediately to notify users
-      broadcastVersion();
+      await broadcastVersion();
     } else {
       // Normal startup - wait briefly for WebSocket connections
       setTimeout(broadcastVersion, 1000);
@@ -528,8 +538,8 @@ server.listen(PORT, '0.0.0.0', async () => {
   // Initialize after 30 seconds to allow server to stabilize
   // Only initialize for single-tenant mode (multi-tenant databases are created per-request)
   if (!isMultiTenant() && defaultDb) {
-    setTimeout(() => {
-      initializeStorageUsage(defaultDb);
+    setTimeout(async () => {
+      await initializeStorageUsage(defaultDb);
     }, 30000);
   } else {
     console.log('📊 Multi-tenant mode: Storage usage will be calculated per-tenant on first request');

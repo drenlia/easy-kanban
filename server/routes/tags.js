@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -11,7 +12,7 @@ const router = express.Router();
 
 // Get all tags (authenticated users only) - must come BEFORE admin routes
 // Skip if mounted at /api/admin/tags (admin routes will handle it)
-router.get('/', authenticateToken, (req, res, next) => {
+router.get('/', authenticateToken, async (req, res, next) => {
   // If this is mounted at /api/admin/tags, skip to next handler (admin route)
   if (req.baseUrl === '/api/admin/tags') {
     return next();
@@ -19,7 +20,7 @@ router.get('/', authenticateToken, (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    const tags = await wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
     res.json(tags);
   } catch (error) {
     console.error('Error fetching tags:', error);
@@ -43,12 +44,12 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 
   try {
-    const result = wrapQuery(db.prepare(`
+    const result = await wrapQuery(db.prepare(`
       INSERT INTO tags (tag, description, color) 
       VALUES (?, ?, ?)
     `), 'INSERT').run(tag, description || '', color || '#4F46E5');
     
-    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    const newTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis (user-created)');
@@ -69,10 +70,10 @@ router.post('/', authenticateToken, async (req, res, next) => {
 });
 
 // Admin tags endpoints (mounted at /api/admin/tags)
-router.get('/', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const tags = wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    const tags = await wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
     res.json(tags);
   } catch (error) {
     console.error('Error fetching admin tags:', error);
@@ -89,12 +90,12 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   }
 
   try {
-    const result = wrapQuery(db.prepare(`
+    const result = await wrapQuery(db.prepare(`
       INSERT INTO tags (tag, description, color) 
       VALUES (?, ?, ?)
     `), 'INSERT').run(tag, description || '', color || '#4F46E5');
     
-    const newTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    const newTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis');
@@ -124,11 +125,11 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
   }
 
   try {
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE tags SET tag = ?, description = ?, color = ? WHERE id = ?
     `), 'UPDATE').run(tag, description || '', color || '#4F46E5', tagId);
     
-    const updatedTag = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const updatedTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-updated to Redis');
@@ -149,12 +150,12 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
 });
 
 // Get tag usage count (for deletion confirmation)
-router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), async (req, res) => {
   const { tagId } = req.params;
   const db = getRequestDatabase(req);
   
   try {
-    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
+    const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
     res.json({ count: usageCount.count });
   } catch (error) {
     console.error('Error fetching tag usage:', error);
@@ -163,7 +164,7 @@ router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), (req, res
 });
 
 // Get batch tag usage counts (fixes N+1 problem)
-router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get('/usage/batch', authenticateToken, requireRole(['admin']), async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
@@ -185,7 +186,7 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), (req, res)
     
     // Batch fetch all usage counts in one query
     const placeholders = tagIds.map(() => '?').join(',');
-    const usageCounts = wrapQuery(db.prepare(`
+    const usageCounts = await wrapQuery(db.prepare(`
       SELECT tagId, COUNT(*) as count 
       FROM task_tags 
       WHERE tagId IN (${placeholders})
@@ -218,16 +219,16 @@ router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, 
   
   try {
     // Get tag info before deletion for Redis publishing
-    const tagToDelete = wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    const tagToDelete = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
     
     // Use transaction to ensure both operations succeed or fail together
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       // First remove all task associations
-      wrapQuery(db.prepare('DELETE FROM task_tags WHERE tagId = ?'), 'DELETE').run(tagId);
+      await wrapQuery(db.prepare('DELETE FROM task_tags WHERE tagId = ?'), 'DELETE').run(tagId);
       
       // Then delete the tag
-      wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
-    })();
+      await wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
+    });
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-deleted to Redis');

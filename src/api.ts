@@ -14,14 +14,20 @@ let hadTokenBefore = false; // Track if we ever had a token
 
 // Function to handle invalid token (only call when token WAS valid but is now invalid)
 const handleInvalidToken = () => {
-  if (isRedirecting) return;
+  if (isRedirecting) {
+    console.log('🔑 handleInvalidToken called but already redirecting, skipping');
+    return;
+  }
   
+  const stackTrace = new Error().stack;
   console.log('🔑 Token expired - redirecting to login');
+  console.log('🔑 handleInvalidToken call stack:', stackTrace);
   isRedirecting = true;
   hasInvalidToken = true;
   
   // Clear token
   localStorage.removeItem('authToken');
+  console.log('🔑 Token cleared by handleInvalidToken');
   
   // Set a flag to prevent reload loops
   sessionStorage.setItem('tokenExpiredRedirect', 'true');
@@ -42,16 +48,76 @@ api.interceptors.request.use((config) => {
     return Promise.reject(new Error('Invalid token - redirecting to login'));
   }
   
+  // Ensure config and url exist
+  if (!config) {
+    console.error('⚠️ Request interceptor: config is undefined');
+    return Promise.reject(new Error('Invalid request configuration'));
+  }
+  
   const token = localStorage.getItem('authToken');
   if (!token) {
     // No token available - this is OK if user hasn't logged in yet
     // Don't redirect, just reject the request
+    // But don't reject for public endpoints
+    const publicEndpoints = [
+      '/api/auth/login',
+      '/auth/login', // Also check without /api prefix
+      '/api/auth/register',
+      '/auth/register',
+      '/api/auth/activate-account',
+      '/auth/activate-account',
+      '/api/auth/forgot-password',
+      '/auth/forgot-password',
+      '/api/auth/reset-password',
+      '/auth/reset-password',
+      '/api/auth/check-default-admin',
+      '/auth/check-default-admin',
+      '/api/auth/check-demo-user',
+      '/auth/check-demo-user',
+      '/api/auth/instance-status',
+      '/auth/instance-status',
+      '/api/auth/is-owner', // Allow owner check without token (will return false if not authenticated)
+      '/auth/is-owner', // Also check without /api prefix
+      '/api/settings',
+      '/settings',
+      '/api/health',
+      '/health',
+      '/api/ready',
+      '/ready',
+      '/api/auth/google/url',
+      '/auth/google/url',
+      '/api/auth/google/callback',
+      '/auth/google/callback',
+      '/api/password-reset/request',
+      '/password-reset/request',
+      '/api/password-reset/reset',
+      '/password-reset/reset',
+      '/api/password-reset/validate-token',
+      '/password-reset/validate-token',
+      '/api/admin-portal/license-info',
+      '/admin-portal/license-info'
+    ];
+    if (config.url && publicEndpoints.some(endpoint => config.url.startsWith(endpoint))) {
+      // Public endpoint - allow request without token
+      return config;
+    }
+    // Log more details for debugging
+    console.warn(`⚠️ Request rejected - no token available for ${config.url || 'unknown endpoint'}`, {
+      url: config.url,
+      method: config.method,
+      isRedirecting,
+      hasInvalidToken,
+      hadTokenBefore
+    });
     return Promise.reject(new Error('No auth token available'));
   }
   
   // Track that we have/had a token
   hadTokenBefore = true;
   
+  if (!config.headers) {
+    config.headers = {};
+  }
   config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -73,14 +139,31 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && !isRedirecting) {
       // Check if this is a token expiration (we had a token before)
       // vs never having logged in (no token)
-      const hadToken = hadTokenBefore || localStorage.getItem('authToken');
+      const currentToken = localStorage.getItem('authToken');
+      const hadToken = hadTokenBefore || currentToken;
       
-      if (hadToken) {
-        console.log(`🔑 Auth error 401 detected - token expired, redirecting to login`);
+      if (hadToken && currentToken) {
+        console.log(`🔑 Auth error 401 detected for ${error.config?.url} - token expired, redirecting to login`);
+        console.log(`🔑 Error details:`, {
+          url: error.config?.url,
+          method: error.config?.method,
+          status: error.response?.status,
+          message: error.response?.data?.error || error.message,
+          hadTokenBefore,
+          currentTokenExists: !!currentToken
+        });
         handleInvalidToken();
       } else {
         console.log(`🔑 Auth error 401 detected - no token present (user not logged in)`);
       }
+    } else if (error.message === 'No auth token available') {
+      // This is a request rejection, not a response error - don't clear token
+      // Just log it for debugging - this happens when token is missing, not when it's invalid
+      const currentToken = localStorage.getItem('authToken');
+      console.warn(`⚠️ Request rejected - no token available for ${error.config?.url || 'unknown'}. Token in storage: ${!!currentToken}`);
+    } else if (error.response?.status === 503) {
+      // Service unavailable - don't clear token, just log
+      console.warn(`⚠️ Service unavailable (503) for ${error.config?.url} - keeping token`);
     }
     return Promise.reject(error);
   }
@@ -206,6 +289,11 @@ export const updateTask = async (task: Task) => {
   // });
   
   return data;
+};
+
+export const batchUpdateTasks = async (tasks: Task[]) => {
+  const { data } = await api.post<{ tasks: Task[]; updated: number }>('/tasks/batch-update', { tasks });
+  return data.tasks;
 };
 
 export const deleteTask = async (id: string) => {

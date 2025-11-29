@@ -119,7 +119,17 @@
     "dismissWarning": "Dismiss warning",
     "task": "task",
     "tasks": "tasks",
-    "newColumn": "New Column"
+    "newColumn": "New Column",
+    "taskHiddenByFilters": "Task created but hidden by active {{filterList}}.",
+    "tip": "Tip:",
+    "tipSprintOnly": "Select \"All Sprints\" in the sprint selector to view all tasks.",
+    "tipGeneral": "Clear your filters or adjust your sprint selection to view this task.",
+    "filterTypes": {
+      "searchFilters": "search filters",
+      "sprintSelection": "sprint selection",
+      "memberFilters": "member filters"
+    },
+    "and": "and"
   },
   "deleteConfirmation": {
     "areYouSure": "Are you sure?",

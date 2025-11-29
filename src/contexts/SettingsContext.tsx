@@ -140,21 +140,36 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     const handleAuthTokenChanged = (e: CustomEvent) => {
       // Auth status changed (same tab - logout/login), refetch settings with correct endpoint
       const hasToken = e.detail?.hasToken !== false; // Default to true if not specified
+      const actualToken = localStorage.getItem('authToken');
       console.log('📨 [SettingsContext] Auth token changed (custom event), refetching settings...', {
         hasToken,
-        willCheckAdmin: hasToken
+        actualTokenExists: !!actualToken,
+        willCheckAdmin: hasToken && !!actualToken
       });
+      
+      // If event says hasToken but token doesn't exist, wait a bit for it to be set
+      if (hasToken && !actualToken) {
+        console.warn('📨 [SettingsContext] Event says hasToken but token not in localStorage yet, waiting...');
+        // Clear any pending debounce
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          const tokenAfterWait = localStorage.getItem('authToken');
+          if (tokenAfterWait) {
+            console.log('📨 [SettingsContext] Token now available, fetching settings');
+            fetchSettings();
+          } else {
+            console.warn('📨 [SettingsContext] Token still not available after wait, using public endpoint');
+            fetchSettings(); // Will use public endpoint
+          }
+        }, 200);
+        return;
+      }
+      
       // Clear any pending debounce
       if (debounceTimer) clearTimeout(debounceTimer);
       // Debounce to prevent rapid successive calls, but ensure token is available
       debounceTimer = setTimeout(() => {
-        // Double-check token is available before fetching (important for OAuth flow)
-        if (hasToken && !localStorage.getItem('authToken')) {
-          console.warn('📨 [SettingsContext] Token not yet available, retrying in 50ms...');
-          setTimeout(() => fetchSettings(), 50);
-        } else {
-          fetchSettings();
-        }
+        fetchSettings();
       }, 100);
     };
 

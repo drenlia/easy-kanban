@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
+import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
@@ -56,7 +57,7 @@ const formatViewForResponse = (view) => {
 };
 
 // GET /api/views - Get all saved filter views for the current user
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     if (!db) {
@@ -64,13 +65,11 @@ router.get('/', authenticateToken, (req, res) => {
     }
     const userId = req.user.id;
     
-    const stmt = db.prepare(`
+    const views = await wrapQuery(db.prepare(`
       SELECT * FROM views 
       WHERE userId = ? 
       ORDER BY filterName ASC
-    `);
-    
-    const views = stmt.all(userId);
+    `), 'SELECT').all(userId);
     const formattedViews = views.map(formatViewForResponse);
     
     res.json(formattedViews);
@@ -81,7 +80,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // GET /api/views/shared - Get shared filter views from other users
-router.get('/shared', authenticateToken, (req, res) => {
+router.get('/shared', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     if (!db) {
@@ -89,7 +88,7 @@ router.get('/shared', authenticateToken, (req, res) => {
     }
     const userId = req.user.id;
     
-    const stmt = db.prepare(`
+    const views = await wrapQuery(db.prepare(`
       SELECT v.*, 
              CASE 
                WHEN u.first_name IS NOT NULL AND u.last_name IS NOT NULL 
@@ -102,9 +101,7 @@ router.get('/shared', authenticateToken, (req, res) => {
       LEFT JOIN users u ON v.userId = u.id
       WHERE v.shared = 1 AND v.userId != ?
       ORDER BY v.filterName ASC
-    `);
-    
-    const views = stmt.all(userId);
+    `), 'SELECT').all(userId);
     
     const formattedViews = views.map(view => {
       const formatted = formatViewForResponse(view);
@@ -120,7 +117,7 @@ router.get('/shared', authenticateToken, (req, res) => {
 });
 
 // GET /api/views/:id - Get a specific saved filter view
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     if (!db) {
@@ -129,12 +126,10 @@ router.get('/:id', authenticateToken, (req, res) => {
     const userId = req.user.id;
     const viewId = req.params.id;
     
-    const stmt = db.prepare(`
+    const view = await wrapQuery(db.prepare(`
       SELECT * FROM views 
       WHERE id = ? AND userId = ?
-    `);
-    
-    const view = stmt.get(viewId, userId);
+    `), 'SELECT').get(viewId, userId);
     
     if (!view) {
       return res.status(404).json({ error: 'Filter view not found' });
@@ -167,10 +162,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     
     // Check if a view with this name already exists for this user
-    const existingView = db.prepare(`
+    const existingView = await wrapQuery(db.prepare(`
       SELECT id FROM views 
       WHERE filterName = ? AND userId = ?
-    `).get(filterName.trim(), userId);
+    `), 'SELECT').get(filterName.trim(), userId);
     
     if (existingView) {
       return res.status(409).json({ error: 'A filter with this name already exists' });
@@ -178,15 +173,13 @@ router.post('/', authenticateToken, async (req, res) => {
     
     const validatedFilters = validateFilterData(filters);
     
-    const stmt = db.prepare(`
+    const result = await wrapQuery(db.prepare(`
       INSERT INTO views (
         filterName, userId, shared, textFilter, dateFromFilter, dateToFilter,
         dueDateFromFilter, dueDateToFilter, memberFilters, priorityFilters,
         tagFilters, projectFilter, taskFilter
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const result = stmt.run(
+    `), 'INSERT').run(
       filterName.trim(),
       userId,
       shared ? 1 : 0,
@@ -203,7 +196,7 @@ router.post('/', authenticateToken, async (req, res) => {
     );
     
     // Fetch the created view to return
-    const createdView = db.prepare('SELECT * FROM views WHERE id = ?').get(result.lastInsertRowid);
+    const createdView = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
     const formattedView = formatViewForResponse(createdView);
     
     // Publish to Redis for real-time updates if the filter is shared
@@ -235,10 +228,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const { filterName, filters, shared } = req.body;
     
     // Check if view exists and belongs to user
-    const existingView = db.prepare(`
+    const existingView = await wrapQuery(db.prepare(`
       SELECT * FROM views 
       WHERE id = ? AND userId = ?
-    `).get(viewId, userId);
+    `), 'SELECT').get(viewId, userId);
     
     if (!existingView) {
       return res.status(404).json({ error: 'Filter view not found' });
@@ -251,10 +244,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
       
       // Check if another view with this name exists (excluding current view)
-      const nameConflict = db.prepare(`
+      const nameConflict = await wrapQuery(db.prepare(`
         SELECT id FROM views 
         WHERE filterName = ? AND userId = ? AND id != ?
-      `).get(filterName.trim(), userId, viewId);
+      `), 'SELECT').get(filterName.trim(), userId, viewId);
       
       if (nameConflict) {
         return res.status(409).json({ error: 'A filter with this name already exists' });
@@ -294,16 +287,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     params.push(viewId, userId);
     
-    const stmt = db.prepare(`
+    await wrapQuery(db.prepare(`
       UPDATE views 
       SET ${setClause}
       WHERE id = ? AND userId = ?
-    `);
-    
-    stmt.run(...params);
+    `), 'UPDATE').run(...params);
     
     // Fetch updated view
-    const updatedView = db.prepare('SELECT * FROM views WHERE id = ?').get(viewId);
+    const updatedView = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ?'), 'SELECT').get(viewId);
     const formattedView = formatViewForResponse(updatedView);
     
     // Publish to Redis for real-time updates if shared status changed or filter is shared
@@ -341,18 +332,16 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const viewId = req.params.id;
     
     // Get the view before deleting to check if it was shared
-    const viewToDelete = db.prepare('SELECT * FROM views WHERE id = ? AND userId = ?').get(viewId, userId);
+    const viewToDelete = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ? AND userId = ?'), 'SELECT').get(viewId, userId);
     
     if (!viewToDelete) {
       return res.status(404).json({ error: 'Filter view not found' });
     }
     
-    const stmt = db.prepare(`
+    const result = await wrapQuery(db.prepare(`
       DELETE FROM views 
       WHERE id = ? AND userId = ?
-    `);
-    
-    const result = stmt.run(viewId, userId);
+    `), 'DELETE').run(viewId, userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Filter view not found' });

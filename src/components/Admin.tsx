@@ -731,7 +731,7 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       }
       
       // Show brief success message for auto-save
-      toast.success(t('settingSavedAutomatically', { key }), '', 3000);
+      toast.success(t('settingsSavedSuccessfully'), '', 3000);
       
     } catch (err) {
       toast.error(t('failedToSaveSetting', { key }), '');

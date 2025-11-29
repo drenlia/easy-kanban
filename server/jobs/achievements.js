@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbTransaction, dbRun, isProxyDatabase } from '../utils/dbAsync.js';
 import redisService from '../services/redisService.js';
 
 /**
@@ -16,13 +17,13 @@ export const checkAllUserAchievements = async (db) => {
     const newAchievements = [];
     
     // Get all active badges from database
-    const badges = wrapQuery(
+    const badges = await wrapQuery(
       db.prepare('SELECT * FROM badges WHERE is_active = 1 ORDER BY condition_value ASC'),
       'SELECT'
     ).all();
     
     // Get all users with their current stats
-    const users = wrapQuery(db.prepare(`
+    const users = await wrapQuery(db.prepare(`
       SELECT 
         u.id as user_id,
         u.email as user_email,
@@ -41,7 +42,7 @@ export const checkAllUserAchievements = async (db) => {
     const placeholders = userIds.map(() => '?').join(',');
     
     // Batch fetch all user stats (fixes N+1 problem)
-    const allUserStats = wrapQuery(
+    const allUserStats = await wrapQuery(
       db.prepare(`
         SELECT 
           user_id,
@@ -66,7 +67,7 @@ export const checkAllUserAchievements = async (db) => {
     });
     
     // Batch fetch all awarded badges (fixes N+1 problem)
-    const allAwardedBadges = wrapQuery(
+    const allAwardedBadges = await wrapQuery(
       db.prepare(`
         SELECT user_id, badge_id 
         FROM user_achievements 
@@ -108,7 +109,26 @@ export const checkAllUserAchievements = async (db) => {
     const now = new Date().toISOString();
     
     // Process all users and badges in a single transaction for better performance
-    db.transaction(() => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      const achievementQuery = `
+        INSERT INTO user_achievements (
+          id, user_id, badge_id, achievement_type, badge_name, badge_icon, badge_color,
+          points_earned, earned_at, period_year, period_month
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `;
+      const pointsQuery = `
+        INSERT INTO user_points (
+          id, user_id, user_name, period_year, period_month,
+          total_points, last_updated
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id, period_year, period_month) 
+        DO UPDATE SET 
+          total_points = total_points + ?,
+          last_updated = ?
+      `;
+      
       for (const user of users) {
         // Get user's stats (default to zeros if not found)
         const userStats = statsByUserId.get(user.user_id) || {
@@ -168,33 +188,39 @@ export const checkAllUserAchievements = async (db) => {
           if (conditionMet) {
             const achievementId = crypto.randomUUID();
             
-            insertAchievementStmt.run(
-              achievementId,
-              user.user_id,
-              badge.id,
-              badge.condition_type, // achievement_type (e.g. tasks_completed, comments_added, etc.)
-              badge.name,
-              badge.icon,
-              badge.color,
-              badge.points_reward,
-              now,
-              currentYear,
-              currentMonth
-            );
+            batchQueries.push({
+              query: achievementQuery,
+              params: [
+                achievementId,
+                user.user_id,
+                badge.id,
+                badge.condition_type,
+                badge.name,
+                badge.icon,
+                badge.color,
+                badge.points_reward,
+                now,
+                currentYear,
+                currentMonth
+              ]
+            });
             
             // Award bonus points if badge has a reward
             if (badge.points_reward > 0) {
-              insertPointsStmt.run(
-                crypto.randomUUID(),
-                user.user_id,
-                user.user_name,
-                currentYear,
-                currentMonth,
-                badge.points_reward,
-                now,
-                badge.points_reward,
-                now
-              );
+              batchQueries.push({
+                query: pointsQuery,
+                params: [
+                  crypto.randomUUID(),
+                  user.user_id,
+                  user.user_name,
+                  currentYear,
+                  currentMonth,
+                  badge.points_reward,
+                  now,
+                  badge.points_reward,
+                  now
+                ]
+              });
               
               pointsAwarded += badge.points_reward;
             }
@@ -212,7 +238,123 @@ export const checkAllUserAchievements = async (db) => {
           }
         }
       }
-    })();
+      
+      // Execute all inserts in a single batched transaction
+      if (batchQueries.length > 0) {
+        await db.executeBatchTransaction(batchQueries);
+      }
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Wrap statements for async support
+        const wrappedAchievementStmt = wrapQuery(insertAchievementStmt, 'INSERT');
+        const wrappedPointsStmt = wrapQuery(insertPointsStmt, 'INSERT');
+        
+        for (const user of users) {
+          // Get user's stats (default to zeros if not found)
+          const userStats = statsByUserId.get(user.user_id) || {
+            tasks_created: 0,
+            tasks_completed: 0,
+            total_effort_completed: 0,
+            comments_added: 0,
+            collaborations: 0,
+            watchers_added: 0,
+            total_points: 0
+          };
+          
+          // Get badges already awarded to this user
+          const awardedBadgeIds = awardedBadgesByUserId.get(user.user_id) || new Set();
+          
+          // Check each badge condition
+          for (const badge of badges) {
+            // Skip if already awarded
+            if (awardedBadgeIds.has(badge.id)) continue;
+            
+            // Check if user meets the condition
+            let conditionMet = false;
+            let currentValue = 0;
+            
+            switch (badge.condition_type) {
+              case 'tasks_created':
+                currentValue = userStats.tasks_created;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'tasks_completed':
+                currentValue = userStats.tasks_completed;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'total_effort_completed':
+                currentValue = userStats.total_effort_completed;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'comments_added':
+                currentValue = userStats.comments_added;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'collaborations':
+                currentValue = userStats.collaborations;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'watchers_added':
+                currentValue = userStats.watchers_added;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+              case 'total_points':
+                currentValue = userStats.total_points;
+                conditionMet = currentValue >= badge.condition_value;
+                break;
+            }
+            
+            // Award badge if condition met
+            if (conditionMet) {
+              const achievementId = crypto.randomUUID();
+              
+              await dbRun(wrappedAchievementStmt,
+                achievementId,
+                user.user_id,
+                badge.id,
+                badge.condition_type,
+                badge.name,
+                badge.icon,
+                badge.color,
+                badge.points_reward,
+                now,
+                currentYear,
+                currentMonth
+              );
+              
+              // Award bonus points if badge has a reward
+              if (badge.points_reward > 0) {
+                await dbRun(wrappedPointsStmt,
+                  crypto.randomUUID(),
+                  user.user_id,
+                  user.user_name,
+                  currentYear,
+                  currentMonth,
+                  badge.points_reward,
+                  now,
+                  badge.points_reward,
+                  now
+                );
+                
+                pointsAwarded += badge.points_reward;
+              }
+              
+              badgesAwarded++;
+              newAchievements.push({
+                userId: user.user_id,
+                userName: user.user_name,
+                badge: badge.name,
+                icon: badge.icon,
+                points: badge.points_reward
+              });
+              
+              console.log(`🏆 Awarded "${badge.name}" to ${user.user_name || user.user_email} (+${badge.points_reward} points)`);
+            }
+          }
+        }
+      });
+    }
     
     // Publish new achievements to WebSocket for real-time notifications
     if (newAchievements.length > 0) {
@@ -242,7 +384,7 @@ export const checkAllUserAchievements = async (db) => {
  * @param {number} year - Year (optional, defaults to current)
  * @param {number} month - Month (optional, if not provided returns all-time)
  */
-export const getLeaderboard = (db, year = null, month = null) => {
+export const getLeaderboard = async (db, year = null, month = null) => {
   try {
     let query = `
       SELECT 
@@ -271,7 +413,7 @@ export const getLeaderboard = (db, year = null, month = null) => {
       LIMIT 50
     `;
     
-    const leaderboard = wrapQuery(db.prepare(query), 'SELECT').all(...params);
+    const leaderboard = await wrapQuery(db.prepare(query), 'SELECT').all(...params);
     
     // Add rank
     leaderboard.forEach((user, index) => {

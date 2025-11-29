@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { wrapQuery } from '../utils/queryLogger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,7 +56,7 @@ function generateRandomPassword(length = 12) {
  * @param {Object} db - Database instance
  * @returns {Array} Array of demo user objects with credentials
  */
-export function createDemoUsers(db) {
+export async function createDemoUsers(db) {
   if (process.env.DEMO_ENABLED !== 'true') {
     return [];
   }
@@ -86,26 +87,27 @@ export function createDemoUsers(db) {
     }
   ];
 
-  const userRoleId = db.prepare('SELECT id FROM roles WHERE name = ?').get('user').id;
+  const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+  const userRoleId = userRoleResult.id;
   const createdUsers = [];
 
-  demoUsers.forEach(user => {
+  for (const user of demoUsers) {
     const userId = crypto.randomUUID();
     const password = generateRandomPassword(12);
     const passwordHash = bcrypt.hashSync(password, 10);
     const avatarPath = createLetterAvatar(user.letter, userId, user.color);
 
     // Create user
-    db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(userId, user.email, passwordHash, user.firstName, user.lastName, avatarPath);
+    `), 'INSERT').run(userId, user.email, passwordHash, user.firstName, user.lastName, avatarPath);
 
     // Assign user role
-    db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)').run(userId, userRoleId);
+    await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, userRoleId);
 
     // Store password in settings for easy retrieval
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+    await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'), 'INSERT').run(
       `DEMO_PASSWORD_${user.email}`,
       password
     );
@@ -120,7 +122,7 @@ export function createDemoUsers(db) {
     });
 
     console.log(`✅ Created demo user: ${user.firstName} ${user.lastName} (${user.email})`);
-  });
+  }
 
   return createdUsers;
 }
@@ -132,7 +134,7 @@ export function createDemoUsers(db) {
  * @param {string} boardId - Existing board ID to add demo data to
  * @param {Array} columns - Array of existing column objects
  */
-export function initializeDemoData(db, boardId, columns) {
+export async function initializeDemoData(db, boardId, columns) {
   if (process.env.DEMO_ENABLED !== 'true') {
     console.log('⏭️  Demo data initialization skipped (DEMO_ENABLED is not true)');
     return;
@@ -141,32 +143,33 @@ export function initializeDemoData(db, boardId, columns) {
   console.log('🎭 Initializing demo data...');
   
   // Initialize demo settings
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('STORAGE_USED', '0');
+  await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'), 'INSERT').run('STORAGE_USED', '0');
   console.log('✅ Set STORAGE_USED=0 for demo');
   
   // Create demo users first
-  const demoUsers = createDemoUsers(db);
+  const demoUsers = await createDemoUsers(db);
   if (demoUsers.length === 0) {
     console.log('⚠️  No demo users created, skipping demo data');
     return;
   }
 
   // Create members for demo users
-  const members = demoUsers.map(user => {
+  const members = [];
+  for (const user of demoUsers) {
     const memberId = crypto.randomUUID();
-    db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)').run(
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
       memberId,
       `${user.firstName} ${user.lastName}`,
       user.color,
       user.id
     );
-    return { id: memberId, name: `${user.firstName} ${user.lastName}`, userId: user.id };
-  });
+    members.push({ id: memberId, name: `${user.firstName} ${user.lastName}`, userId: user.id });
+  }
 
   console.log(`✅ Created ${members.length} team members`);
 
   // Get the project identifier for the board
-  const board = db.prepare('SELECT project FROM boards WHERE id = ?').get(boardId);
+  const board = await wrapQuery(db.prepare('SELECT project FROM boards WHERE id = ?'), 'SELECT').get(boardId);
   const projectIdentifier = board?.project || 'PROJ-0001';
 
   const now = new Date().toISOString();
@@ -334,7 +337,8 @@ export function initializeDemoData(db, boardId, columns) {
 
   const createdTasks = []; // Store task info for later use (relationships, leaderboard, etc.)
   
-  demoTasks.forEach((task, index) => {
+  for (let index = 0; index < demoTasks.length; index++) {
+    const task = demoTasks[index];
     const taskId = crypto.randomUUID();
     const ticketNumber = String(index + 1).padStart(5, '0'); // TASK-00001, TASK-00002, etc.
     const columnIndex = Math.floor(index / 3); // 0-4 for each column
@@ -342,7 +346,7 @@ export function initializeDemoData(db, boardId, columns) {
     
     const assignedMember = members[task.assignedTo];
     
-    taskStmt.run(
+    await wrapQuery(taskStmt, 'INSERT').run(
       taskId,
       task.title,
       task.description,
@@ -369,7 +373,7 @@ export function initializeDemoData(db, boardId, columns) {
       completedDate: task.completedDate || null,
       effort: task.effort
     });
-  });
+  }
 
   console.log(`✅ Created ${demoTasks.length} demo tasks assigned to team members`);
 
@@ -378,10 +382,10 @@ export function initializeDemoData(db, boardId, columns) {
   const sprintEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const sprintId = crypto.randomUUID();
   
-  db.prepare(`
+  await wrapQuery(db.prepare(`
     INSERT INTO planning_periods (id, name, start_date, end_date, description, is_active, board_id, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `), 'INSERT').run(
     sprintId,
     'Sprint 1 - Demo Sprint',
     sprintStartDate,
@@ -399,49 +403,50 @@ export function initializeDemoData(db, boardId, columns) {
   // TODO: Uncomment when sprint_tasks table is created
   /*
   // Assign all tasks to the sprint
-  const createdTaskIds = db.prepare('SELECT id FROM tasks WHERE boardId = ?').all(boardId).map(t => t.id);
+  const createdTaskIdsResult = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE boardId = ?'), 'SELECT').all(boardId);
+  const createdTaskIds = createdTaskIdsResult.map(t => t.id);
   const sprintTaskStmt = db.prepare('INSERT INTO sprint_tasks (sprint_id, task_id) VALUES (?, ?)');
-  createdTaskIds.forEach(taskId => {
-    sprintTaskStmt.run(sprintId, taskId);
-  });
+  for (const taskId of createdTaskIds) {
+    await wrapQuery(sprintTaskStmt, 'INSERT').run(sprintId, taskId);
+  }
   */
 
   // TODO: Update completed tasks with realistic completion dates
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const completedColumnId = columns.find(c => c.title === 'Completed')?.id;
-  const completedTasks = db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?').all(completedColumnId, boardId);
+  const completedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(completedColumnId, boardId);
   
-  completedTasks.forEach((task, index) => {
+  for (const [index, task] of completedTasks.entries()) {
     // Spread completions: 10 days ago, 8 days ago, 5 days ago
     const daysAgo = [10, 8, 5][index] || 3;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
     );
-  });
+  }
   */
 
   // TODO: Update archived tasks with older completion dates
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const archiveColumnId = columns.find(c => c.title === 'Archive')?.id;
-  const archivedTasks = db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?').all(archiveColumnId, boardId);
+  const archivedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(archiveColumnId, boardId);
   
-  archivedTasks.forEach((task, index) => {
+  for (const [index, task] of archivedTasks.entries()) {
     // Archived tasks completed 14, 12, 11 days ago
     const daysAgo = [14, 12, 11][index] || 10;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
     );
-  });
+  }
   */
 
   // console.log(`✅ Updated ${completedTasks.length + archivedTasks.length} tasks with completion dates`);
@@ -457,20 +462,20 @@ export function initializeDemoData(db, boardId, columns) {
   ];
 
   const tagIds = {};
-  tags.forEach(tagData => {
-    const result = db.prepare('INSERT INTO tags (tag, color) VALUES (?, ?)').run(tagData.name, tagData.color);
+  for (const tagData of tags) {
+    const result = await wrapQuery(db.prepare('INSERT INTO tags (tag, color) VALUES (?, ?)'), 'INSERT').run(tagData.name, tagData.color);
     tagIds[tagData.name] = result.lastInsertRowid;
-  });
+  }
 
   console.log(`✅ Created ${tags.length} tags`);
 
   // Assign tags to tasks (get fresh task list with IDs)
-  const allTasks = db.prepare(`
+  const allTasks = await wrapQuery(db.prepare(`
     SELECT t.id, t.title 
     FROM tasks t 
     WHERE t.boardId = ? 
     ORDER BY t.position
-  `).all(boardId);
+  `), 'SELECT').all(boardId);
 
   // Tag assignments (based on task titles/descriptions)
   const tagAssignments = [
@@ -488,13 +493,13 @@ export function initializeDemoData(db, boardId, columns) {
   ];
 
   const taskTagStmt = db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)');
-  tagAssignments.forEach(assignment => {
+  for (const assignment of tagAssignments) {
     if (allTasks[assignment.taskIndex]) {
-      assignment.tags.forEach(tagName => {
-        taskTagStmt.run(allTasks[assignment.taskIndex].id, tagIds[tagName]);
-      });
+      for (const tagName of assignment.tags) {
+        await wrapQuery(taskTagStmt, 'INSERT').run(allTasks[assignment.taskIndex].id, tagIds[tagName]);
+      }
     }
-  });
+  }
 
   console.log(`✅ Assigned tags to tasks`);
 
@@ -516,10 +521,10 @@ export function initializeDemoData(db, boardId, columns) {
   `);
 
   let relationshipCount = 0;
-  relationships.forEach(rel => {
+  for (const rel of relationships) {
     if (rel.type === 'parent' && allTasks[rel.parentIndex] && allTasks[rel.childIndex]) {
       // Create parent relationship
-      relationshipStmt.run(
+      await wrapQuery(relationshipStmt, 'INSERT').run(
         allTasks[rel.parentIndex].id,
         'parent',
         allTasks[rel.childIndex].id,
@@ -527,7 +532,7 @@ export function initializeDemoData(db, boardId, columns) {
         now
       );
       // Create inverse child relationship
-      relationshipStmt.run(
+      await wrapQuery(relationshipStmt, 'INSERT').run(
         allTasks[rel.childIndex].id,
         'child',
         allTasks[rel.parentIndex].id,
@@ -537,14 +542,14 @@ export function initializeDemoData(db, boardId, columns) {
       relationshipCount += 2;
     } else if (rel.type === 'related' && allTasks[rel.task1Index] && allTasks[rel.task2Index]) {
       // Create related relationship (bidirectional)
-      relationshipStmt.run(
+      await wrapQuery(relationshipStmt, 'INSERT').run(
         allTasks[rel.task1Index].id,
         'related',
         allTasks[rel.task2Index].id,
         now,
         now
       );
-      relationshipStmt.run(
+      await wrapQuery(relationshipStmt, 'INSERT').run(
         allTasks[rel.task2Index].id,
         'related',
         allTasks[rel.task1Index].id,
@@ -553,7 +558,7 @@ export function initializeDemoData(db, boardId, columns) {
       );
       relationshipCount += 2;
     }
-  });
+  }
 
   console.log(`✅ Created ${relationshipCount} task relationships (${relationships.length} logical relationships)`);
 
@@ -609,11 +614,11 @@ export function initializeDemoData(db, boardId, columns) {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  comments.forEach(comment => {
+  for (const comment of comments) {
     if (allTasks[comment.taskIndex]) {
       const commentDate = new Date(Date.now() - comment.createdDaysAgo * 24 * 60 * 60 * 1000).toISOString();
       
-      commentStmt.run(
+      await wrapQuery(commentStmt, 'INSERT').run(
         crypto.randomUUID(),
         allTasks[comment.taskIndex].id,
         comment.memberId, // authorId references members(id)
@@ -622,7 +627,7 @@ export function initializeDemoData(db, boardId, columns) {
         commentDate
       );
     }
-  });
+  }
 
   console.log(`✅ Created ${comments.length} comments on tasks`);
 
@@ -666,14 +671,14 @@ export function initializeDemoData(db, boardId, columns) {
   `);
 
   let activityCount = 0;
-  activityEvents.forEach(event => {
+  for (const event of activityEvents) {
     if (createdTasks[event.taskIndex]) {
       const task = createdTasks[event.taskIndex];
       const member = members.find(m => m.id === event.memberId);
-      if (!member) return;
+      if (!member) continue;
       
-      const user = db.prepare('SELECT id, email FROM users WHERE id = ?').get(member.userId);
-      if (!user) return;
+      const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE id = ?'), 'SELECT').get(member.userId);
+      if (!user) continue;
       
       const eventTimestamp = new Date(Date.now() - event.daysAgo * 24 * 60 * 60 * 1000);
       const eventDate = eventTimestamp.toISOString();
@@ -694,7 +699,7 @@ export function initializeDemoData(db, boardId, columns) {
         eventType = 'comment_added';
       }
       
-      activityStmt.run(
+      await wrapQuery(activityStmt, 'INSERT').run(
         crypto.randomUUID(),
         eventType,
         user.id,
@@ -715,7 +720,7 @@ export function initializeDemoData(db, boardId, columns) {
       
       activityCount++;
     }
-  });
+  }
 
   console.log(`✅ Created ${activityCount} activity events for leaderboard`);
 
@@ -736,9 +741,9 @@ export function initializeDemoData(db, boardId, columns) {
   // Calculate points for each demo user
   const userPointsData = [];
   
-  members.forEach(member => {
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(member.userId);
-    if (!user) return;
+  for (const member of members) {
+    const user = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(member.userId);
+    if (!user) continue;
     
     // Count activities for this user
     const userEvents = activityEvents.filter(e => e.memberId === member.id);
@@ -778,7 +783,7 @@ export function initializeDemoData(db, boardId, columns) {
         commentsAdded
       });
     }
-  });
+  }
   
   // Insert user_points records
   const userPointsStmt = db.prepare(`
@@ -790,8 +795,8 @@ export function initializeDemoData(db, boardId, columns) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   
-  userPointsData.forEach(data => {
-    userPointsStmt.run(
+  for (const data of userPointsData) {
+    await wrapQuery(userPointsStmt, 'INSERT').run(
       crypto.randomUUID(),
       data.userId,
       data.userName,
@@ -805,7 +810,7 @@ export function initializeDemoData(db, boardId, columns) {
       currentMonth,
       now
     );
-  });
+  }
   
   console.log(`✅ Created ${userPointsData.length} user_points records for leaderboard`);
   
@@ -827,7 +832,8 @@ export function initializeDemoData(db, boardId, columns) {
     const snapshotDateStr = currentDate.toISOString().split('T')[0];
     
     // For each task, create a snapshot showing its state on that date
-    createdTasks.forEach((task, index) => {
+    for (let index = 0; index < createdTasks.length; index++) {
+      const task = createdTasks[index];
       const taskData = demoTasks[index];
       const taskStartDate = new Date(taskData.startDate || sprintStartDate);
       
@@ -841,17 +847,20 @@ export function initializeDemoData(db, boardId, columns) {
         const column = columns[task.columnIndex];
         
         // Get tags for this task
-        const taskTagsResult = db.prepare('SELECT tagId FROM task_tags WHERE taskId = ?').all(task.id);
-        const taskTagsList = taskTagsResult.map(tt => {
-          const tag = db.prepare('SELECT tag, color FROM tags WHERE id = ?').get(tt.tagId);
-          return tag ? tag.tag : null;
-        }).filter(Boolean);
+        const taskTagsResult = await wrapQuery(db.prepare('SELECT tagId FROM task_tags WHERE taskId = ?'), 'SELECT').all(task.id);
+        const taskTagsList = [];
+        for (const tt of taskTagsResult) {
+          const tag = await wrapQuery(db.prepare('SELECT tag, color FROM tags WHERE id = ?'), 'SELECT').get(tt.tagId);
+          if (tag) {
+            taskTagsList.push(tag.tag);
+          }
+        }
         
         // Find the assignee member
         const assigneeMember = members.find(m => m.id === task.memberId);
         const assigneeName = assigneeMember ? assigneeMember.name : 'Unknown';
         
-        db.prepare(`
+        await wrapQuery(db.prepare(`
           INSERT OR IGNORE INTO task_snapshots (
             id, snapshot_date, task_id, task_title, task_ticket, task_description,
             board_id, board_name, column_id, column_name,
@@ -859,7 +868,7 @@ export function initializeDemoData(db, boardId, columns) {
             effort_points, priority_name, tags, status, is_completed, is_deleted, created_at, completed_at
           )
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
+        `), 'INSERT').run(
           crypto.randomUUID(),
           snapshotDateStr,
           task.id,
@@ -886,7 +895,7 @@ export function initializeDemoData(db, boardId, columns) {
         
         snapshotCount++;
       }
-    });
+    }
     
     // Move to next day
     currentDate.setDate(currentDate.getDate() + 1);

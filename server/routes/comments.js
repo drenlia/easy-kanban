@@ -5,6 +5,7 @@ import { dirname } from 'path';
 import fs from 'fs';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -22,146 +23,178 @@ router.post('/', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Begin transaction
-    db.prepare('BEGIN').run();
-
-    try {
-      // Insert comment
-      const commentStmt = db.prepare(`
-        INSERT INTO comments (id, taskId, text, authorId, createdAt)
-        VALUES (?, ?, ?, ?, ?)
-      `);
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
       
-      commentStmt.run(
-        comment.id,
-        comment.taskId,
-        comment.text,
-        comment.authorId,
-        comment.createdAt
-      );
+      // Add comment INSERT
+      batchQueries.push({
+        query: `
+          INSERT INTO comments (id, taskId, text, authorId, createdAt)
+          VALUES (?, ?, ?, ?, ?)
+        `,
+        params: [
+          comment.id,
+          comment.taskId,
+          comment.text,
+          comment.authorId,
+          comment.createdAt
+        ]
+      });
       
-      // Insert attachments if any
+      // Add attachment INSERTs if any
       if (comment.attachments?.length > 0) {
-        const attachmentStmt = db.prepare(`
+        const attachmentQuery = `
           INSERT INTO attachments (id, commentId, name, url, type, size)
           VALUES (?, ?, ?, ?, ?, ?)
-        `);
+        `;
         
-        comment.attachments.forEach(attachment => {
-          attachmentStmt.run(
-            attachment.id,
-            comment.id,
-            attachment.name,
-            attachment.url,
-            attachment.type,
-            attachment.size
-          );
-        });
-      }
-
-      // Commit transaction
-      db.prepare('COMMIT').run();
-      
-      // Update storage usage if attachments were added
-      if (comment.attachments?.length > 0) {
-        updateStorageUsage(db);
-      }
-      
-      // Log comment creation activity
-      await logCommentActivity(
-        userId,
-        COMMENT_ACTIONS.CREATE,
-        comment.id,
-        comment.taskId,
-        `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
-        { commentContent: comment.text, db: db, tenantId: getTenantId(req) }
-      );
-      
-      // Log to reporting system
-      try {
-        const userInfo = reportingLogger.getUserInfo(db, userId);
-        const taskInfo = wrapQuery(db.prepare(`
-          SELECT t.*, b.title as board_title, c.title as column_title
-          FROM tasks t
-          LEFT JOIN boards b ON t.boardId = b.id
-          LEFT JOIN columns c ON t.columnId = c.id
-          WHERE t.id = ?
-        `), 'SELECT').get(comment.taskId);
-        
-        if (userInfo && taskInfo) {
-          await reportingLogger.logActivity(db, {
-            eventType: 'comment_added',
-            userId: userInfo.id,
-            userName: userInfo.name,
-            userEmail: userInfo.email,
-            taskId: taskInfo.id,
-            taskTitle: taskInfo.title,
-            taskTicket: taskInfo.ticket,
-            boardId: taskInfo.boardId,
-            boardName: taskInfo.board_title,
-            columnId: taskInfo.columnId,
-            columnName: taskInfo.column_title,
-            effortPoints: taskInfo.effort,
-            priorityName: taskInfo.priority
+        for (const attachment of comment.attachments) {
+          batchQueries.push({
+            query: attachmentQuery,
+            params: [
+              attachment.id,
+              comment.id,
+              attachment.name,
+              attachment.url,
+              attachment.type,
+              attachment.size
+            ]
           });
         }
-      } catch (reportError) {
-        console.error('Failed to log comment to reporting system:', reportError);
       }
       
-      // Get the task's board ID for Redis publishing
-      const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
-      
-      // Fetch the complete comment with attachments from database
-      // Include author info (name and color) like in tasks.js
-      const createdComment = wrapQuery(db.prepare(`
-        SELECT 
-          c.id,
-          c.taskId,
-          c.text,
-          c.authorId,
-          c.createdAt,
-          c.updated_at as updatedAt,
-          m.name as authorName,
-          m.color as authorColor
-        FROM comments c
-        LEFT JOIN members m ON c.authorId = m.id
-        WHERE c.id = ?
-      `), 'SELECT').get(comment.id);
-      
-      if (!createdComment) {
-        return res.status(500).json({ error: 'Failed to retrieve created comment' });
-      }
-      
-      const attachments = wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(comment.id);
-      createdComment.attachments = attachments || [];
-      
-      // Ensure taskId is included in the comment object
-      if (!createdComment.taskId) {
-        createdComment.taskId = comment.taskId;
-      }
-      
-      // Publish to Redis for real-time updates
-      if (task?.boardId) {
-        const tenantId = getTenantId(req);
-        console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
-        await redisService.publish('comment-created', {
-          boardId: task.boardId,
-          taskId: comment.taskId,
-          comment: createdComment,
-          timestamp: new Date().toISOString()
-        }, tenantId);
-        console.log('✅ Comment-created published to Redis');
-      } else {
-        console.warn('⚠️ Cannot publish comment-created: task boardId not found for taskId:', comment.taskId);
-      }
-      
-      res.json(createdComment);
-    } catch (error) {
-      // Rollback on error
-      db.prepare('ROLLBACK').run();
-      throw error;
+      // Execute all inserts in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Insert comment
+        await wrapQuery(db.prepare(`
+          INSERT INTO comments (id, taskId, text, authorId, createdAt)
+          VALUES (?, ?, ?, ?, ?)
+        `), 'INSERT').run(
+          comment.id,
+          comment.taskId,
+          comment.text,
+          comment.authorId,
+          comment.createdAt
+        );
+        
+        // Insert attachments if any
+        if (comment.attachments?.length > 0) {
+          for (const attachment of comment.attachments) {
+            await wrapQuery(db.prepare(`
+              INSERT INTO attachments (id, commentId, name, url, type, size)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `), 'INSERT').run(
+              attachment.id,
+              comment.id,
+              attachment.name,
+              attachment.url,
+              attachment.type,
+              attachment.size
+            );
+          }
+        }
+      });
     }
+    
+    // Update storage usage if attachments were added
+    if (comment.attachments?.length > 0) {
+      await updateStorageUsage(db);
+    }
+    
+    // Log comment creation activity
+    await logCommentActivity(
+      userId,
+      COMMENT_ACTIONS.CREATE,
+      comment.id,
+      comment.taskId,
+      `added comment: "${comment.text.length > 50 ? comment.text.substring(0, 50) + '...' : comment.text}"`,
+      { commentContent: comment.text, db: db, tenantId: getTenantId(req) }
+    );
+    
+    // Log to reporting system
+    try {
+      const userInfo = await reportingLogger.getUserInfo(db, userId);
+      const taskInfo = await wrapQuery(db.prepare(`
+        SELECT t.*, b.title as board_title, c.title as column_title
+        FROM tasks t
+        LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN columns c ON t.columnId = c.id
+        WHERE t.id = ?
+      `), 'SELECT').get(comment.taskId);
+      
+      if (userInfo && taskInfo) {
+        await reportingLogger.logActivity(db, {
+          eventType: 'comment_added',
+          userId: userInfo.id,
+          userName: userInfo.name,
+          userEmail: userInfo.email,
+          taskId: taskInfo.id,
+          taskTitle: taskInfo.title,
+          taskTicket: taskInfo.ticket,
+          boardId: taskInfo.boardId,
+          boardName: taskInfo.board_title,
+          columnId: taskInfo.columnId,
+          columnName: taskInfo.column_title,
+          effortPoints: taskInfo.effort,
+          priorityName: taskInfo.priority
+        });
+      }
+    } catch (reportError) {
+      console.error('Failed to log comment to reporting system:', reportError);
+    }
+    
+    // Get the task's board ID for Redis publishing
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
+    
+    // Fetch the complete comment with attachments from database
+    // Include author info (name and color) like in tasks.js
+    const createdComment = await wrapQuery(db.prepare(`
+      SELECT 
+        c.id,
+        c.taskId,
+        c.text,
+        c.authorId,
+        c.createdAt,
+        c.updated_at as updatedAt,
+        m.name as authorName,
+        m.color as authorColor
+      FROM comments c
+      LEFT JOIN members m ON c.authorId = m.id
+      WHERE c.id = ?
+    `), 'SELECT').get(comment.id);
+    
+    if (!createdComment) {
+      return res.status(500).json({ error: 'Failed to retrieve created comment' });
+    }
+    
+    const attachments = await wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(comment.id);
+    createdComment.attachments = attachments || [];
+    
+    // Ensure taskId is included in the comment object
+    if (!createdComment.taskId) {
+      createdComment.taskId = comment.taskId;
+    }
+    
+    // Publish to Redis for real-time updates
+    if (task?.boardId) {
+      const tenantId = getTenantId(req);
+      console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
+      await redisService.publish('comment-created', {
+        boardId: task.boardId,
+        taskId: comment.taskId,
+        comment: createdComment,
+        timestamp: new Date().toISOString()
+      }, tenantId);
+      console.log('✅ Comment-created published to Redis');
+    } else {
+      console.warn('⚠️ Cannot publish comment-created: task boardId not found for taskId:', comment.taskId);
+    }
+    
+    res.json(createdComment);
   } catch (error) {
     console.error('Error creating comment:', error);
     res.status(500).json({ error: 'Failed to create comment' });
@@ -177,15 +210,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
   
   try {
     // Get original comment first
-    const originalComment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    const originalComment = await wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(id);
     
     if (!originalComment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
     // Update comment text in database
-    const stmt = db.prepare('UPDATE comments SET text = ? WHERE id = ?');
-    const result = stmt.run(text, id);
+    const result = await wrapQuery(db.prepare('UPDATE comments SET text = ? WHERE id = ?'), 'UPDATE').run(text, id);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Comment not found' });
@@ -202,11 +234,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     );
     
     // Get the task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(originalComment.taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(originalComment.taskId);
     
     // Return updated comment with attachments
     // Include author info (name and color) like in tasks.js
-    const updatedComment = wrapQuery(db.prepare(`
+    const updatedComment = await wrapQuery(db.prepare(`
       SELECT 
         c.id,
         c.taskId,
@@ -225,7 +257,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
-    const attachments = wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
+    const attachments = await wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
     updatedComment.attachments = attachments || [];
     
     // Publish to Redis for real-time updates
@@ -256,15 +288,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   
   try {
     // Get comment details before deleting
-    const commentToDelete = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+    const commentToDelete = await wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(id);
     
     if (!commentToDelete) {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
     // Get attachments before deleting the comment
-    const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE commentId = ?');
-    const attachments = attachmentsStmt.all(id);
+    const attachments = await wrapQuery(db.prepare('SELECT url FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
 
     // Get tenant-specific storage paths (set by tenant routing middleware)
     const getStoragePaths = (req) => {
@@ -301,11 +332,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
 
     // Delete the comment (cascades to attachments)
-    const stmt = db.prepare('DELETE FROM comments WHERE id = ?');
-    stmt.run(id);
+    await wrapQuery(db.prepare('DELETE FROM comments WHERE id = ?'), 'DELETE').run(id);
     
     // Update storage usage after deleting comment (which cascades to attachments)
-    updateStorageUsage(db);
+    await updateStorageUsage(db);
 
     // Log comment deletion activity
     await logCommentActivity(
@@ -318,7 +348,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     );
 
     // Get the task's board ID for Redis publishing
-    const task = wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(commentToDelete.taskId);
+    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(commentToDelete.taskId);
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
@@ -341,10 +371,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 // Get comment attachments endpoint
-router.get('/:commentId/attachments', authenticateToken, (req, res) => {
+router.get('/:commentId/attachments', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const attachments = db.prepare(`
+    const attachments = await wrapQuery(db.prepare(`
       SELECT 
         id,
         name,
@@ -353,7 +383,7 @@ router.get('/:commentId/attachments', authenticateToken, (req, res) => {
         size
       FROM attachments
       WHERE commentId = ?
-    `).all(req.params.commentId);
+    `), 'SELECT').all(req.params.commentId);
 
     res.json(attachments);
   } catch (error) {

@@ -88,13 +88,13 @@ const getTenantStoragePaths = (tenantId) => {
 // - Creating tables
 // - Running migrations
 // - Initializing default data
-const initializeDatabaseForTenant = (tenantId) => {
+const initializeDatabaseForTenant = async (tenantId) => {
   // Use the refactored initializeDatabase from database.js
-  return initializeDatabase(tenantId);
+  return await initializeDatabase(tenantId);
 };
 
 // Get or create database connection for tenant
-const getTenantDatabase = (tenantId) => {
+const getTenantDatabase = async (tenantId) => {
   // Normalize tenantId for cache key (null for single-tenant)
   const cacheKey = tenantId || 'default';
   
@@ -103,7 +103,8 @@ const getTenantDatabase = (tenantId) => {
     const cached = dbCache.get(cacheKey);
     // Verify database is still open
     try {
-      cached.db.prepare('SELECT 1').get();
+      const { wrapQuery } = await import('../utils/queryLogger.js');
+      await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
       return cached;
     } catch (error) {
       // Database closed, remove from cache
@@ -112,7 +113,7 @@ const getTenantDatabase = (tenantId) => {
   }
   
   // Initialize database (creates tables, runs migrations, etc.)
-  const dbInfo = initializeDatabaseForTenant(tenantId);
+  const dbInfo = await initializeDatabaseForTenant(tenantId);
   
   // If version changed, broadcast to this tenant
   if (dbInfo.versionChanged && dbInfo.appVersion) {
@@ -136,7 +137,7 @@ const getTenantDatabase = (tenantId) => {
 };
 
 // Tenant routing middleware
-export const tenantRouting = (req, res, next) => {
+export const tenantRouting = async (req, res, next) => {
   try {
     // Extract tenant ID from hostname
     // Priority order:
@@ -175,7 +176,7 @@ export const tenantRouting = (req, res, next) => {
     req.tenantId = tenantId;
     
     // Get or create tenant database
-    const dbInfo = getTenantDatabase(tenantId);
+    const dbInfo = await getTenantDatabase(tenantId);
     
     // Log database path for debugging
     if (isMultiTenant() && tenantId) {
@@ -247,12 +248,14 @@ export const closeAllTenantDatabases = () => {
 };
 
 // Get all cached tenant databases (for scheduled jobs in multi-tenant mode)
-export const getAllTenantDatabases = () => {
+export const getAllTenantDatabases = async () => {
   const databases = [];
+  const { wrapQuery } = await import('../utils/queryLogger.js');
+  
   for (const [tenantId, dbInfo] of dbCache.entries()) {
     try {
-      // Verify database is still open
-      dbInfo.db.prepare('SELECT 1').get();
+      // Verify database is still open (async for proxy support)
+      await wrapQuery(dbInfo.db.prepare('SELECT 1'), 'SELECT').get();
       databases.push({ tenantId: tenantId === 'default' ? null : tenantId, db: dbInfo.db });
     } catch (error) {
       // Database closed, skip it

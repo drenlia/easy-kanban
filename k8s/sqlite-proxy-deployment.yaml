@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sqlite-proxy
+  namespace: easy-kanban
+  labels:
+    app: sqlite-proxy
+    component: database-proxy
+spec:
+  replicas: 1  # Single instance for single-writer guarantee per database
+  selector:
+    matchLabels:
+      app: sqlite-proxy
+      component: database-proxy
+  template:
+    metadata:
+      labels:
+        app: sqlite-proxy
+        component: database-proxy
+    spec:
+      containers:
+      - name: sqlite-proxy
+        # Standalone SQLite Proxy Service (minimal image, ~50MB)
+        image: internal-registry.kube-system.svc.cluster.local:5000/sqlite-proxy:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3001
+          name: proxy
+        env:
+        - name: PORT
+          value: "3001"
+        - name: DB_BASE_PATH
+          value: "/app/server/data"
+        - name: NODE_ENV
+          value: "production"
+        - name: LOG_SLOW_QUERIES
+          value: "true"
+        - name: SLOW_QUERY_THRESHOLD_MS
+          value: "100"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: app-data
+          mountPath: /app/server/data
+          readOnly: false
+      volumes:
+      - name: app-data
+        persistentVolumeClaim:
+          claimName: easy-kanban-shared-pvc-data
+      restartPolicy: Always
+

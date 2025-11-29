@@ -6,12 +6,12 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 const router = express.Router();
 
 // Activity Feed endpoint
-router.get('/feed', authenticateToken, (req, res) => {
+router.get('/feed', authenticateToken, async (req, res) => {
   const { limit = 20 } = req.query;
   const db = getRequestDatabase(req);
   
   try {
-    const activities = wrapQuery(db.prepare(`
+    const activities = await wrapQuery(db.prepare(`
       SELECT 
         a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
         datetime(a.created_at) || 'Z' as created_at,
@@ -38,13 +38,13 @@ router.get('/feed', authenticateToken, (req, res) => {
 });
 
 // User Status endpoint for permission refresh
-router.get('/status', authenticateToken, (req, res) => {
+router.get('/status', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const db = getRequestDatabase(req);
   
   try {
     // Get current user status and permissions
-    const user = wrapQuery(db.prepare(`
+    const user = await wrapQuery(db.prepare(`
       SELECT u.is_active, u.force_logout, r.name as role 
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id

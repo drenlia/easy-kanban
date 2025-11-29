@@ -46,6 +46,13 @@ data:
   # Set by deploy.sh based on instance name
   STARTUP_TENANT_ID: ""
   
+  # SQLite Proxy Configuration (for multi-tenant NFS setups)
+  # When MULTI_TENANT=true and SQLITE_PROXY_URL is set, app will use proxy for all DB operations
+  # This ensures single-writer semantics and prevents SQLite locking issues on NFS
+  # Leave empty or unset to use direct database connections (single-tenant or non-NFS)
+  # Format: http://service-name:port (Kubernetes service name)
+  SQLITE_PROXY_URL: "http://sqlite-proxy:3001"  # Proxy enabled - set to "" to disable
+  
   # Email configuration (optional - can be set later)
   # EMAIL_HOST: "smtp.gmail.com"
   # EMAIL_PORT: "587"

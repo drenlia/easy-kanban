@@ -1,8 +1,11 @@
 import express from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
+import { createDefaultAvatar } from '../utils/avatarGenerator.js';
+import { dbTransaction, dbExec } from '../utils/dbAsync.js';
 import redisService from '../services/redisService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
@@ -70,10 +73,10 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
   try {
     const db = getRequestDatabase(req);
     const avatarPath = `/avatars/${req.file.filename}`;
-    wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
+    await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
     
     // Get the member ID for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -106,10 +109,10 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 router.delete('/avatar', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
+    await wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
     
     // Get the member ID for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -135,7 +138,7 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
 router.put('/profile', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     const { displayName } = req.body;
     const userId = req.user.id;
     
@@ -150,7 +153,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     }
     
     // Check for duplicate display name (excluding current user)
-    const existingMember = wrapQuery(
+    const existingMember = await wrapQuery(
       db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
       'SELECT'
     ).get(trimmedDisplayName, userId);
@@ -161,10 +164,10 @@ router.put('/profile', authenticateToken, async (req, res) => {
     
     // Update the member's name in the members table
     const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    updateMemberStmt.run(trimmedDisplayName, userId);
+    await wrapQuery(updateMemberStmt, 'UPDATE').run(trimmedDisplayName, userId);
     
     // Get the member ID for Redis publishing
-    const member = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -190,7 +193,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
 });
 
 // Delete user account
-router.delete('/account', authenticateToken, (req, res) => {
+router.delete("/account", authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const userId = req.user.id;
@@ -200,18 +203,23 @@ router.delete('/account', authenticateToken, (req, res) => {
     // No additional user ID parameter needed - use the authenticated user's ID
     
     // Check if user exists and is active
-    const user = wrapQuery(db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ? AND is_active = 1'), 'SELECT').get(userId);
+    const user = await wrapQuery(db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ? AND is_active = 1'), 'SELECT').get(userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found or already inactive' });
     }
     
+    // Get the SYSTEM user ID (00000000-0000-0000-0000-000000000000)
+    const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+    const systemMemberId = '00000000-0000-0000-0000-000000000001';
+    const tenantId = getTenantId(req);
+    
     // Get the member ID for the user being deleted (before deletion)
-    const userMember = wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    const userMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
     // Get all tasks that will be reassigned (for WebSocket notifications)
     let tasksToReassign = [];
     if (userMember) {
-      tasksToReassign = wrapQuery(
+      tasksToReassign = await wrapQuery(
         db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
         'SELECT'
       ).all(userMember.id, userMember.id);
@@ -219,54 +227,79 @@ router.delete('/account', authenticateToken, (req, res) => {
     }
     
     // Begin transaction for cascading deletion
-    const transaction = db.transaction(() => {
-      try {
-        // 1. Delete user roles
-        wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+    await dbTransaction(db, async () => {
+      // 0. Ensure SYSTEM account exists (create if missing, e.g., if it was deleted)
+      const existingSystemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get(systemMemberId);
+      if (!existingSystemMember) {
+        console.log('⚠️  SYSTEM account not found, creating it...');
         
-        // 2. Delete comments made by the user
-        wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
+        // Check if SYSTEM user exists
+        const existingSystemUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(SYSTEM_USER_ID);
         
-        // 3. Reassign tasks assigned to the user to the system account (preserve task history)
-        const systemMemberId = '00000000-0000-0000-0000-000000000001';
+        if (!existingSystemUser) {
+          // Create SYSTEM user account
+          const systemPasswordHash = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10); // Random unguessable password
+          const systemAvatarPath = createDefaultAvatar('System', SYSTEM_USER_ID, '#1E40AF', tenantId);
+          
+          await wrapQuery(db.prepare(`
+            INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', 0);
+          
+          // Assign user role to system account
+          const userRole = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+          if (userRole) {
+            await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(SYSTEM_USER_ID, userRole.id);
+          }
+        }
         
-        wrapQuery(
-          db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = (SELECT id FROM members WHERE user_id = ?)'), 
-          'UPDATE'
-        ).run(systemMemberId, userId);
+        // Create system member record
+        await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
+          systemMemberId, 
+          'SYSTEM', 
+          '#1E40AF', // Blue color
+          SYSTEM_USER_ID
+        );
         
-        // 4. Reassign tasks requested by the user to the system account
-        wrapQuery(
-          db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = (SELECT id FROM members WHERE user_id = ?)'), 
-          'UPDATE'
-        ).run(systemMemberId, userId);
-        
-        // 5. Delete the member record
-        wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
+        console.log('✅ SYSTEM account created successfully');
+      }
+      
+      // 1. Delete user roles
+      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      
+      // 2. Delete comments made by the user
+      await wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
+      
+      // 3. Reassign tasks assigned to the user to the system account (preserve task history)
+      await wrapQuery(
+        db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = (SELECT id FROM members WHERE user_id = ?)'), 
+        'UPDATE'
+      ).run(systemMemberId, userId);
+      
+      // 4. Reassign tasks requested by the user to the system account
+      await wrapQuery(
+        db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = (SELECT id FROM members WHERE user_id = ?)'), 
+        'UPDATE'
+      ).run(systemMemberId, userId);
+      
+      // 5. Delete the member record
+        await wrapQuery(db.prepare('DELETE FROM members WHERE user_id = ?'), 'DELETE').run(userId);
         
         // 6. Finally, delete the user account
-        wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+        await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
         
         console.log(`🗑️ Account deleted successfully for user: ${user.email}`);
-        
-      } catch (error) {
-        console.error('Error during account deletion transaction:', error);
-        throw error;
-      }
     });
-    
-    // Execute the transaction
-    transaction();
     
     // Publish task-updated events for all reassigned tasks (for real-time updates)
     if (tasksToReassign.length > 0) {
-      const systemMember = wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
+      const systemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
       
       if (systemMember) {
         console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
         for (const task of tasksToReassign) {
           // Get the full updated task details with priority info
-          const updatedTask = wrapQuery(
+          const updatedTask = await wrapQuery(
             db.prepare(`
               SELECT t.*, 
                      p.id as priorityId,
@@ -319,7 +352,6 @@ router.delete('/account', authenticateToken, (req, res) => {
             updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
             updatedTask.priorityColor = updatedTask.priorityColor || null;
             
-            const tenantId = getTenantId(req);
             redisService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
@@ -336,7 +368,6 @@ router.delete('/account', authenticateToken, (req, res) => {
     }
     
     // Publish to Redis for real-time updates to admins viewing user list
-    const tenantId = getTenantId(req);
     console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);
     
     // Publish member-deleted for task/member updates
@@ -383,13 +414,13 @@ router.delete('/account', authenticateToken, (req, res) => {
 });
 
 // User Settings endpoints
-router.get('/settings', authenticateToken, (req, res) => {
+router.get('/settings', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const db = getRequestDatabase(req);
   
   try {
     // Create user_settings table if it doesn't exist
-    db.exec(`
+    await dbExec(db, `
       CREATE TABLE IF NOT EXISTS user_settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId TEXT NOT NULL,
@@ -401,7 +432,7 @@ router.get('/settings', authenticateToken, (req, res) => {
       )
     `);
     
-    const settings = wrapQuery(db.prepare(`
+    const settings = await wrapQuery(db.prepare(`
       SELECT setting_key, setting_value 
       FROM user_settings 
       WHERE userId = ?
@@ -435,7 +466,7 @@ router.get('/settings', authenticateToken, (req, res) => {
   }
 });
 
-router.put('/settings', authenticateToken, (req, res) => {
+router.put('/settings', authenticateToken, async (req, res) => {
   const userId = req.user.id;
   const { setting_key, setting_value } = req.body;
   const db = getRequestDatabase(req);
@@ -456,7 +487,7 @@ router.put('/settings', authenticateToken, (req, res) => {
     
     // Special handling for selectedSprintId null value - delete the row to represent "All Sprints"
     if (setting_value === null && setting_key === 'selectedSprintId') {
-      wrapQuery(db.prepare(`
+      await wrapQuery(db.prepare(`
         DELETE FROM user_settings 
         WHERE userId = ? AND setting_key = ?
       `), 'DELETE').run(userId, setting_key);
@@ -467,7 +498,7 @@ router.put('/settings', authenticateToken, (req, res) => {
     // Convert value to string safely
     const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
     
-    wrapQuery(db.prepare(`
+    await wrapQuery(db.prepare(`
       INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
       VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     `), 'INSERT').run(userId, setting_key, valueString);

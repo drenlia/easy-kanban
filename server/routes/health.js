@@ -18,7 +18,7 @@ export const markServerReady = () => {
 };
 
 // Readiness check handler - exported for use in multiple routes
-export const readyHandler = (req, res) => {
+export const readyHandler = async (req, res) => {
   try {
     // Check if services are initialized first (before database check)
     if (!servicesInitialized) {
@@ -38,7 +38,7 @@ export const readyHandler = (req, res) => {
     
     if (db) {
       try {
-        const dbCheck = wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+        const dbCheck = await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
         if (!dbCheck) {
           console.warn('⚠️ Readiness check: database query returned no result');
           // Still consider ready if services are initialized - database might be in transition
@@ -88,13 +88,13 @@ export const readyHandler = (req, res) => {
 };
 
 // Readiness check endpoint - checks if all services are initialized and ready
-router.get('/ready', readyHandler);
+router.get("/ready", readyHandler);
 
 // Health check endpoint (liveness probe - checks if server is running)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+    await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),

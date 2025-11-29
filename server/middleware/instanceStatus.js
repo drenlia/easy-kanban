@@ -7,7 +7,7 @@ import { getTranslator } from '../utils/i18n.js';
  * Valid statuses: 'deploying', 'active', 'suspended', 'terminated', 'failed'
  */
 export const checkInstanceStatus = (db) => {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     try {
       // Skip status check for essential endpoints that need to work even when suspended
       const skipPaths = [
@@ -33,7 +33,7 @@ export const checkInstanceStatus = (db) => {
       }
 
       // Get instance status from settings
-      const statusSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+      const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
       const status = statusSetting ? statusSetting.value : 'active';
 
       // Allow access only if status is active
@@ -93,12 +93,12 @@ const getStatusMessage = (status, t = (key) => key) => {
  * Only sets to 'active' if the setting doesn't exist at all
  * Preserves existing status values (suspended/inactive) on restart
  */
-export const initializeInstanceStatus = (db) => {
+export const initializeInstanceStatus = async (db) => {
   try {
-    const existingSetting = wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
+    const existingSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
     
     if (!existingSetting) {
-      wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
+      await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
         .run('INSTANCE_STATUS', 'active');
       console.log('✅ Initialized INSTANCE_STATUS setting to active');
     } else {

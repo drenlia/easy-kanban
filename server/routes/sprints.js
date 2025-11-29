@@ -8,11 +8,11 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 const router = express.Router();
 
 // GET /api/admin/sprints - Get all planning periods/sprints (accessible to all authenticated users for filtering)
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const sprints = wrapQuery(
+    const sprints = await wrapQuery(
       db.prepare(`
         SELECT id, name, start_date, end_date, is_active, description, created_at, updated_at
         FROM planning_periods
@@ -29,11 +29,11 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // GET /api/admin/sprints/active - Get currently active sprint (must come before /:id routes)
-router.get('/active', authenticateToken, (req, res) => {
+router.get('/active', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const activeSprint = wrapQuery(
+    const activeSprint = await wrapQuery(
       db.prepare(`
         SELECT id, name, start_date, end_date, is_active, description, created_at
         FROM planning_periods
@@ -56,13 +56,13 @@ router.get('/active', authenticateToken, (req, res) => {
 });
 
 // GET /api/admin/sprints/:id/usage - Get sprint usage count (for deletion confirmation)
-router.get('/:id/usage', authenticateToken, requireRole(['admin']), (req, res) => {
+router.get("/:id", authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;
     
     // Count tasks that use this sprint (by sprint_id)
-    const usageCount = wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE sprint_id = ?'), 'SELECT').get(id);
+    const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE sprint_id = ?'), 'SELECT').get(id);
     res.json({ count: usageCount.count });
   } catch (error) {
     console.error('Error fetching sprint usage:', error);
@@ -95,13 +95,13 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     // If this sprint is being set as active, deactivate all others
     if (is_active) {
-      wrapQuery(
+      await wrapQuery(
         db.prepare('UPDATE planning_periods SET is_active = 0 WHERE is_active = 1'),
         'UPDATE'
       ).run();
     }
     
-    wrapQuery(
+    await wrapQuery(
       db.prepare(`
         INSERT INTO planning_periods (
           id, name, start_date, end_date, is_active, description, created_at, updated_at
@@ -119,7 +119,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       now
     );
     
-    const newSprint = wrapQuery(
+    const newSprint = await wrapQuery(
       db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
       'SELECT'
     ).get(sprintId);
@@ -140,14 +140,14 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 });
 
 // PUT /api/admin/sprints/:id - Update a sprint
-router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) => {
+router.put("/:id", authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;
     const { name, start_date, end_date, is_active, description } = req.body;
     
     // Check if sprint exists
-    const existing = wrapQuery(
+    const existing = await wrapQuery(
       db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
       'SELECT'
     ).get(id);
@@ -172,13 +172,13 @@ router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) =
     
     // If this sprint is being set as active, deactivate all others
     if (is_active) {
-      wrapQuery(
+      await wrapQuery(
         db.prepare('UPDATE planning_periods SET is_active = 0 WHERE is_active = 1 AND id != ?'),
         'UPDATE'
       ).run(id);
     }
     
-    wrapQuery(
+    await wrapQuery(
       db.prepare(`
         UPDATE planning_periods
         SET name = ?, start_date = ?, end_date = ?, is_active = ?, description = ?, updated_at = ?
@@ -195,7 +195,7 @@ router.put('/:id', authenticateToken, requireRole(['admin']), async (req, res) =
       id
     );
     
-    const updated = wrapQuery(
+    const updated = await wrapQuery(
       db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
       'SELECT'
     ).get(id);
@@ -222,7 +222,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     const { id } = req.params;
     
     // Check if sprint exists
-    const existing = wrapQuery(
+    const existing = await wrapQuery(
       db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
       'SELECT'
     ).get(id);
@@ -232,7 +232,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     }
     
     // Get tasks using this sprint
-    const tasksUsingSprint = wrapQuery(db.prepare(`
+    const tasksUsingSprint = await wrapQuery(db.prepare(`
       SELECT id, ticket, title, boardId
       FROM tasks 
       WHERE sprint_id = ?
@@ -240,12 +240,12 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     `), 'SELECT').all(id);
     
     // Use transaction to ensure atomicity
-    db.transaction(() => {
+    await dbTransaction(db, async () => {
       // If sprint is in use, set sprint_id to null for all tasks
       if (tasksUsingSprint.length > 0) {
         console.log(`📋 Removing sprint assignment from ${tasksUsingSprint.length} tasks`);
         
-        wrapQuery(db.prepare(`
+        await wrapQuery(db.prepare(`
           UPDATE tasks 
           SET sprint_id = NULL
           WHERE sprint_id = ?
@@ -255,11 +255,11 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
       }
       
       // Now delete the sprint
-      wrapQuery(
+      await wrapQuery(
         db.prepare('DELETE FROM planning_periods WHERE id = ?'),
         'DELETE'
       ).run(id);
-    })();
+    });
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-deleted to Redis');
@@ -285,7 +285,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
         
         for (const task of tasks) {
           // Fetch updated task data
-          const updatedTask = wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          const updatedTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
           
           if (updatedTask) {
             await redisService.publish('task-updated', {

@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom';
 import TaskDependencyArrows from './gantt/TaskDependencyArrows';
 import { DRAG_TYPES, GanttDragItem, SortableTaskRowItem } from './gantt/types';
 import { GanttHeader } from './gantt/GanttHeader';
-import { getAllPriorities, addTaskRelationship, removeTaskRelationship, getUserSettings } from '../api';
+import { getAllPriorities, addTaskRelationship, removeTaskRelationship, getUserSettings, batchUpdateTasks } from '../api';
 import websocketClient from '../services/websocketClient';
 import { loadUserPreferencesAsync, saveUserPreferences, loadUserPreferences } from '../utils/userPreferences';
 import { useGanttScrollPosition, getLeftmostVisibleDateFromDOM } from '../hooks/useGanttScrollPosition';
@@ -491,15 +491,33 @@ const GanttViewV2 = ({
           }
           
           // Batch updates to prevent rapid-fire WebSocket events
-          const batchUpdates = () => {
+          const batchUpdates = async () => {
             const updates = Array.from(pendingUpdatesRef.current.values());
             if (updates.length > 0) {
-              // Process all updates at once
-              updates.forEach(async (updatedTask) => {
+              try {
+                // Use batch update API for better performance (single HTTP request instead of N)
+                const updatedTasks = await batchUpdateTasks(updates);
+                console.log(`✅ [Gantt] Batch updated ${updatedTasks.length} tasks via batch-update endpoint`);
+                
+                // Don't call onUpdateTask for each task - we already did batch update
+                // This avoids N redundant updateTask API calls (we already did batch update)
+                // and prevents N potential board refetches
+                // The WebSocket events will handle the state updates automatically
+                // We skip calling onUpdateTask to prevent redundant API calls
+                console.log(`✅ [Gantt] Skipping individual onUpdateTask calls - batch update complete, WebSocket will sync state`);
+              } catch (error) {
+                console.error('❌ [Gantt] Batch update failed, falling back to individual updates:', error);
+                // Fallback to individual updates if batch fails
                 if (onUpdateTask) {
-                  await onUpdateTask(updatedTask);
+                  for (const updatedTask of updates) {
+                    try {
+                      await onUpdateTask(updatedTask);
+                    } catch (individualError) {
+                      console.error(`Failed to update task ${updatedTask.id}:`, individualError);
+                    }
+                  }
                 }
-              });
+              }
               pendingUpdatesRef.current.clear();
             }
           };
@@ -859,31 +877,16 @@ const GanttViewV2 = ({
     };
   }, []);
 
-  // WebSocket listeners for task updates (to refresh task data when priorities change)
+  // WebSocket listeners for task updates
+  // NOTE: We DON'T refresh board data for task updates in Gantt view because:
+  // 1. The useTaskWebSocket hook in App.tsx already updates the state via WebSocket events
+  // 2. Batch updates would trigger N refreshes (one per task), causing excessive /api/boards calls
+  // 3. The WebSocket handler updates columns state directly, so no refresh is needed
+  // We only refresh for task creation/deletion which might need full board structure
   useEffect(() => {
-    const handleTaskUpdated = async (data: any) => {
-      // Only refresh if the task is for the current board
-      if (data.boardId === boardId && onRefreshData) {
-        try {
-          // Set flag to prevent polling from overriding this update
-          if (window.setJustUpdatedFromWebSocket) {
-            window.setJustUpdatedFromWebSocket(true);
-            // Reset the flag after a short delay
-            setTimeout(() => {
-              if (window.setJustUpdatedFromWebSocket) {
-                window.setJustUpdatedFromWebSocket(false);
-              }
-            }, 2000);
-          }
-          await onRefreshData();
-        } catch (error) {
-          console.error('Failed to refresh board data after task update:', error);
-        }
-      }
-    };
-
     const handleTaskCreated = async (data: any) => {
       // Only refresh if the task is for the current board
+      // Task creation might need full board refresh to get new task with all relationships
       if (data.boardId === boardId && onRefreshData) {
         try {
           await onRefreshData();
@@ -895,6 +898,7 @@ const GanttViewV2 = ({
 
     const handleTaskDeleted = async (data: any) => {
       // Only refresh if the task is for the current board
+      // Task deletion might need full board refresh to ensure proper cleanup
       if (data.boardId === boardId && onRefreshData) {
         try {
           await onRefreshData();
@@ -904,14 +908,17 @@ const GanttViewV2 = ({
       }
     };
 
-    // Register WebSocket event listeners
-    websocketClient.onTaskUpdated(handleTaskUpdated);
+    // NOTE: We intentionally do NOT listen to task-updated events here
+    // The useTaskWebSocket hook in App.tsx already handles task updates via WebSocket
+    // and updates the state directly without needing a full board refresh
+    // This prevents N calls to /api/boards when batch updating multiple tasks
+
+    // Register WebSocket event listeners (only for create/delete)
     websocketClient.onTaskCreated(handleTaskCreated);
     websocketClient.onTaskDeleted(handleTaskDeleted);
 
     // Cleanup function
     return () => {
-      websocketClient.offTaskUpdated(handleTaskUpdated);
       websocketClient.offTaskCreated(handleTaskCreated);
       websocketClient.offTaskDeleted(handleTaskDeleted);
     };

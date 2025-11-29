@@ -8,7 +8,7 @@ import { getRequestDatabase } from '../middleware/tenantRouting.js';
 const router = express.Router();
 
 // Get all members
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     // Prevent browser caching of member data
     res.set({
@@ -29,7 +29,7 @@ router.get('/', authenticateToken, (req, res) => {
       ? '' // Include all members (including System User) when requested
       : "WHERE m.id != '00000000-0000-0000-0000-000000000001'"; // Exclude System User otherwise
     
-    const stmt = wrapQuery(db.prepare(`
+    const members = await wrapQuery(db.prepare(`
       SELECT 
         m.id, m.name, m.color, m.user_id, m.created_at,
         u.avatar_path, u.auth_provider, u.google_avatar_url
@@ -37,8 +37,7 @@ router.get('/', authenticateToken, (req, res) => {
       LEFT JOIN users u ON m.user_id = u.id
       ${whereClause}
       ORDER BY m.created_at ASC
-    `), 'SELECT');
-    const members = stmt.all();
+    `), 'SELECT').all();
     
     const transformedMembers = members.map(member => ({
       id: member.id,
@@ -65,7 +64,7 @@ router.post('/', checkUserLimit, async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Check for duplicate member name
-    const existingMember = wrapQuery(
+    const existingMember = await wrapQuery(
       db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?)'), 
       'SELECT'
     ).get(name);
@@ -74,7 +73,7 @@ router.post('/', checkUserLimit, async (req, res) => {
       return res.status(400).json({ error: 'This display name is already taken by another user' });
     }
     
-    wrapQuery(db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'), 'INSERT').run(id, name, color);
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'), 'INSERT').run(id, name, color);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-created to Redis');
@@ -96,7 +95,7 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    wrapQuery(db.prepare('DELETE FROM members WHERE id = ?'), 'DELETE').run(id);
+    await wrapQuery(db.prepare('DELETE FROM members WHERE id = ?'), 'DELETE').run(id);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-deleted to Redis');

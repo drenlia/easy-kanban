@@ -1,4 +1,5 @@
 import express from 'express';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
@@ -42,7 +43,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Find user by email
-    const user = wrapQuery(
+    const user = await wrapQuery(
       db.prepare('SELECT id, email, first_name, last_name FROM users WHERE email = ? AND is_active = 1'), 
       'SELECT'
     ).get(email);
@@ -59,7 +60,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
     
     // Store reset token in database
-    wrapQuery(
+    await wrapQuery(
       db.prepare(`
         INSERT INTO password_reset_tokens (user_id, token, expires_at) 
         VALUES (?, ?, ?)
@@ -72,7 +73,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     let baseUrl = null;
     
     // Try to get APP_URL from database first (tenant-specific)
-    const appUrlSetting = wrapQuery(
+    const appUrlSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'),
       'SELECT'
     ).get('APP_URL');
@@ -101,7 +102,7 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     console.log('🔗 Reset URL:', resetUrl);
     
     // Check if email is enabled in settings
-    const mailEnabledSetting = wrapQuery(
+    const mailEnabledSetting = await wrapQuery(
       db.prepare('SELECT value FROM settings WHERE key = ?'), 
       'SELECT'
     ).get('MAIL_ENABLED');
@@ -111,13 +112,13 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
       const emailSettings = {};
       const settingsKeys = ['MAIL_HOST', 'MAIL_PORT', 'MAIL_USER', 'MAIL_PASS', 'MAIL_FROM', 'SITE_NAME'];
       
-      settingsKeys.forEach(key => {
-        const setting = wrapQuery(
+      for (const key of settingsKeys) {
+        const setting = await wrapQuery(
           db.prepare('SELECT value FROM settings WHERE key = ?'), 
           'SELECT'
         ).get(key);
         emailSettings[key] = setting ? setting.value : '';
-      });
+      }
       
       // Send email using EmailService
       try {
@@ -159,7 +160,7 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Find valid reset token
-    const resetToken = wrapQuery(
+    const resetToken = await wrapQuery(
       db.prepare(`
         SELECT rt.*, u.email, u.first_name, u.last_name 
         FROM password_reset_tokens rt
@@ -177,19 +178,40 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
     // Use transaction to update password and mark token as used
-    db.transaction(() => {
+    if (isProxyDatabase(db)) {
+      // Proxy mode: Collect all queries and send as batch
+      const batchQueries = [];
+      
       // Update user password
-      wrapQuery(
-        db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?'), 
-        'UPDATE'
-      ).run(passwordHash, resetToken.user_id);
+      batchQueries.push({
+        query: 'UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?',
+        params: [passwordHash, resetToken.user_id]
+      });
       
       // Mark token as used
-      wrapQuery(
-        db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?'), 
-        'UPDATE'
-      ).run(resetToken.id);
-    })();
+      batchQueries.push({
+        query: 'UPDATE password_reset_tokens SET used = 1 WHERE id = ?',
+        params: [resetToken.id]
+      });
+      
+      // Execute all updates in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+    } else {
+      // Direct DB mode: Use standard transaction
+      await dbTransaction(db, async () => {
+        // Update user password
+        await wrapQuery(
+          db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?'), 
+          'UPDATE'
+        ).run(passwordHash, resetToken.user_id);
+        
+        // Mark token as used
+        await wrapQuery(
+          db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?'), 
+          'UPDATE'
+        ).run(resetToken.id);
+      });
+    }
     
     console.log('✅ Password reset successful for:', resetToken.email);
     
@@ -204,7 +226,7 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
 });
 
 // Verify reset token (for frontend validation)
-router.get('/verify/:token', (req, res) => {
+router.get('/verify/:token', async (req, res) => {
   const { token } = req.params;
   
   if (!token) {
@@ -215,7 +237,7 @@ router.get('/verify/:token', (req, res) => {
     const db = getRequestDatabase(req);
     
     // Check if token is valid
-    const resetToken = wrapQuery(
+    const resetToken = await wrapQuery(
       db.prepare(`
         SELECT rt.*, u.email 
         FROM password_reset_tokens rt
