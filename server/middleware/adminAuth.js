@@ -13,7 +13,8 @@ export const authenticateAdminPortal = (req, res, next) => {
   }
 
   // Get the instance token from environment variable
-  const instanceToken = process.env.INSTANCE_TOKEN;
+  // Trim whitespace/newlines that might be introduced when reading from environment
+  const instanceToken = process.env.INSTANCE_TOKEN?.trim();
   
   if (!instanceToken) {
     console.error('❌ INSTANCE_TOKEN environment variable not set');
@@ -23,9 +24,12 @@ export const authenticateAdminPortal = (req, res, next) => {
     });
   }
 
-  // Validate the token
-  if (token !== instanceToken) {
+  // Validate the token (trim both to handle any whitespace issues)
+  const trimmedToken = token.trim();
+  if (trimmedToken !== instanceToken) {
     console.warn(`⚠️ Invalid admin portal token attempt from ${req.ip}`);
+    console.warn(`   Expected: ${instanceToken.substring(0, 20)}... (length: ${instanceToken.length})`);
+    console.warn(`   Received: ${trimmedToken.substring(0, 20)}... (length: ${trimmedToken.length})`);
     return res.status(403).json({ 
       error: 'Invalid admin portal token',
       message: 'The provided token does not match the instance token'
