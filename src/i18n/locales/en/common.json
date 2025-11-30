@@ -18,7 +18,9 @@
     "confirm": "Confirm",
     "yes": "Yes",
     "no": "No",
-    "ok": "OK"
+    "ok": "OK",
+    "continue": "Continue",
+    "back": "Back"
   },
   "labels": {
     "name": "Name",

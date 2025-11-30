@@ -4,6 +4,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import redisService from '../services/redisService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { isProxyDatabase, dbTransaction } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -45,8 +46,9 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const mailManaged = settings.find(s => s.key === 'MAIL_MANAGED')?.value === 'true';
     
     settings.forEach(setting => {
-      // Hide sensitive SMTP fields when email is managed
-      if (mailManaged && ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD'].includes(setting.key)) {
+      // Hide sensitive SMTP fields when email is managed (credentials and server details)
+      // But allow SMTP_FROM_EMAIL and SMTP_FROM_NAME to be visible/editable
+      if (mailManaged && ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_SECURE'].includes(setting.key)) {
         settingsObj[setting.key] = '';
       } else {
         settingsObj[setting.key] = setting.value;
@@ -245,7 +247,8 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
       'SMTP_USERNAME',
       'SMTP_PASSWORD',
       'SMTP_FROM_EMAIL',
-      'SMTP_FROM_NAME'
+      'SMTP_FROM_NAME',
+      'SMTP_SECURE' // Clear SMTP_SECURE so admin can set their own preference
     ];
     
     // Clear all mail-related settings in a single transaction

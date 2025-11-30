@@ -101,37 +101,16 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
     console.log('🔐 Password reset requested for:', user.email);
     console.log('🔗 Reset URL:', resetUrl);
     
-    // Check if email is enabled in settings
-    const mailEnabledSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'), 
-      'SELECT'
-    ).get('MAIL_ENABLED');
-    
-    if (mailEnabledSetting && mailEnabledSetting.value === 'true') {
-      // Get email settings
-      const emailSettings = {};
-      const settingsKeys = ['MAIL_HOST', 'MAIL_PORT', 'MAIL_USER', 'MAIL_PASS', 'MAIL_FROM', 'SITE_NAME'];
-      
-      for (const key of settingsKeys) {
-        const setting = await wrapQuery(
-          db.prepare('SELECT value FROM settings WHERE key = ?'), 
-          'SELECT'
-        ).get(key);
-        emailSettings[key] = setting ? setting.value : '';
-      }
-      
-      // Send email using EmailService
-      try {
-        const EmailService = await import('../services/emailService.js');
-        const emailService = new EmailService.default(db);
-        await emailService.sendPasswordResetEmail(user, resetToken, resetUrl);
-        console.log('✅ Password reset email sent to:', user.email);
-      } catch (emailError) {
-        console.error('❌ Failed to send password reset email:', emailError);
-        // Don't reveal email sending failures to user
-      }
-    } else {
-      console.log('📧 Email not configured. Reset link logged above.');
+    // Send email using EmailService (which handles MAIL_ENABLED check and SMTP_ settings internally)
+    try {
+      const EmailService = await import('../services/emailService.js');
+      const emailService = new EmailService.default(db);
+      await emailService.sendPasswordResetEmail(user, resetToken, resetUrl);
+      console.log('✅ Password reset email sent to:', user.email);
+    } catch (emailError) {
+      console.error('❌ Failed to send password reset email:', emailError);
+      // Don't reveal email sending failures to user (EmailService handles validation internally)
+      console.log('📧 Email not configured or failed. Reset link logged above.');
     }
     
     res.json({ 

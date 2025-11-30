@@ -368,7 +368,10 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       const loadedSettings = systemSettings || {};
       const settingsWithDefaults = {
         ...loadedSettings,
-        TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true'
+        TASK_DELETE_CONFIRM: loadedSettings.TASK_DELETE_CONFIRM || 'true',
+        // Ensure SMTP_SECURE has a default value if not in database
+        // This ensures it's always in editingSettings and will be saved when user clicks Save/Test
+        SMTP_SECURE: loadedSettings.SMTP_SECURE || 'tls'
       };
       
       setSettings(settingsWithDefaults);
@@ -663,6 +666,17 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       // Use passed settings if available, otherwise use editingSettings
       const settingsToSave = newSettings || editingSettings;
       
+      // Ensure SMTP_SECURE is included if we're saving SMTP settings
+      // This handles the case where SMTP_SECURE is not in the database but should be saved with default 'tls'
+      const hasSmtpSettings = Object.keys(settingsToSave).some(key => key.startsWith('SMTP_'));
+      if (hasSmtpSettings) {
+        // If SMTP_SECURE is not in editingSettings or is empty, use the dropdown's default value 'tls'
+        // This ensures that even after clearing managed settings, the default 'tls' will be saved
+        if (!('SMTP_SECURE' in settingsToSave) || !settingsToSave.SMTP_SECURE || settingsToSave.SMTP_SECURE.trim() === '') {
+          settingsToSave.SMTP_SECURE = 'tls';
+        }
+      }
+      
       // Save each setting individually
       for (const [key, value] of Object.entries(settingsToSave)) {
         // Skip WEBSITE_URL - it's read-only and set during instance purchase
@@ -675,15 +689,26 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
           continue;
         }
         
-        if (value !== settings[key]) {
+        // Normalize values for comparison (treat undefined and empty string as the same)
+        const normalizedValue = (value || '').trim();
+        const normalizedCurrent = (settings[key] || '').trim();
+        
+        // For SMTP_SECURE, ensure default value is set if not present
+        let valueToSave = normalizedValue;
+        if (key === 'SMTP_SECURE' && !valueToSave) {
+          valueToSave = 'tls'; // Default value
+        }
+        
+        // Save if value is different from current (handles undefined vs empty string)
+        if (valueToSave !== normalizedCurrent) {
           // Skip console log for NOTIFICATION_* settings to reduce noise
           if (!key.startsWith('NOTIFICATION_')) {
             console.log(`Saving setting: ${key}`, {
-              oldValue: settings[key],
-              newValue: value
+              oldValue: settings[key] || '(empty)',
+              newValue: valueToSave
             });
           }
-          await api.put('/admin/settings', { key, value });
+          await api.put('/admin/settings', { key, value: valueToSave });
           hasChanges = true;
           changedKeys.push(key);
         }
@@ -889,20 +914,51 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     try {
       setIsTestingEmail(true);
       
-      // First, save any unsaved settings
+      // First, save any unsaved SMTP settings (only save SMTP-related settings)
+      const smtpKeys = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME', 'SMTP_SECURE'];
       let hasChanges = false;
-      for (const [key, value] of Object.entries(editingSettings)) {
-        if (value !== settings[key]) {
-          await api.put('/admin/settings', { key, value });
+      for (const key of smtpKeys) {
+        // For SMTP_SECURE, use the dropdown's displayed value (which defaults to 'tls' if not in editingSettings)
+        // This ensures we save the default value even if it's not explicitly in editingSettings
+        let value = editingSettings[key];
+        
+        const currentValue = settings[key];
+        
+        // Normalize values: treat undefined and empty string as the same
+        let normalizedValue = (value || '').trim();
+        
+        // For SMTP_SECURE, always ensure it has a default value of 'tls' if empty
+        // This is critical because the dropdown shows 'tls' as default, so we must save it
+        if (key === 'SMTP_SECURE' && !normalizedValue) {
+          normalizedValue = 'tls'; // Default value - this must be saved even if empty in editingSettings
+        }
+        
+        const normalizedCurrent = (currentValue || '').trim();
+        
+        // Save if:
+        // 1. Value exists (not empty) AND is different from current, OR
+        // 2. For SMTP_SECURE, always save if current is empty/undefined (to ensure default is set)
+        const shouldSave = normalizedValue && (
+          normalizedValue !== normalizedCurrent || 
+          (key === 'SMTP_SECURE' && !normalizedCurrent)
+        );
+        
+        if (shouldSave) {
+          console.log(`Saving SMTP setting: ${key}`, { oldValue: currentValue || '(empty)', newValue: normalizedValue });
+          await api.put('/admin/settings', { key, value: normalizedValue });
           hasChanges = true;
         }
       }
       
       if (hasChanges) {
+        // Wait a bit to ensure database writes are committed
+        await new Promise(resolve => setTimeout(resolve, 200));
         await loadData(); // Reload settings
         if (onSettingsChanged) {
           onSettingsChanged();
         }
+        // Wait a bit more to ensure settings are refreshed in context
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
       
       // Now test the email

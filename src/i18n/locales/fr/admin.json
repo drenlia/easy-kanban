@@ -257,6 +257,7 @@
     "managedEmailDescription": "Votre service de messagerie est actuellement géré par Easy Kanban. Cela signifie que les emails sont envoyés en utilisant notre infrastructure avec l'adresse d'expéditeur",
     "switchToCustomSMTP": "Passer à SMTP personnalisé",
     "switchToCustomSMTPConfirm": "Êtes-vous sûr de vouloir passer aux paramètres SMTP personnalisés ? Cela effacera les paramètres gérés actuels et vous obligera à configurer votre propre serveur SMTP. Vous devrez tester la configuration avant qu'elle ne puisse être activée.",
+    "switchToCustomSMTPConfirmFinal": "⚠️ Avertissement : Cette action ne peut pas être annulée. Une fois que vous passez aux paramètres SMTP personnalisés, vous ne pourrez plus revenir au service de messagerie géré. Êtes-vous absolument sûr de vouloir continuer ?",
     "switchedToCustomSMTP": "Passage aux paramètres SMTP personnalisés réussi",
     "failedToSwitchToCustomSMTP": "Échec du passage aux paramètres SMTP personnalisés",
     "mailServerStatus": "État du serveur de messagerie",

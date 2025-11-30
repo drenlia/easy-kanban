@@ -12,18 +12,31 @@ class EmailService {
   }
 
   /**
-   * Get email settings from database
+   * Get email settings from database (async to support proxy databases)
    */
-  getEmailSettings() {
+  async getEmailSettings() {
     const emailSettings = {};
     const settingsKeys = ['MAIL_ENABLED', 'SMTP_HOST', 'SMTP_PORT', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM_EMAIL', 'SMTP_FROM_NAME', 'SMTP_SECURE', 'SITE_NAME'];
     
-    settingsKeys.forEach(key => {
-      const setting = wrapQuery(
+    // Use Promise.all to fetch all settings in parallel
+    const settingPromises = settingsKeys.map(async (key) => {
+      const setting = await wrapQuery(
         this.db.prepare('SELECT value FROM settings WHERE key = ?'), 
         'SELECT'
       ).get(key);
-      emailSettings[key] = setting ? setting.value : '';
+      let value = setting ? setting.value : '';
+      
+      // Set default value for SMTP_SECURE if not set
+      if (key === 'SMTP_SECURE' && !value) {
+        value = 'tls'; // Default to TLS
+      }
+      
+      return { key, value };
+    });
+    
+    const settings = await Promise.all(settingPromises);
+    settings.forEach(({ key, value }) => {
+      emailSettings[key] = value;
     });
     
     return emailSettings;
@@ -32,8 +45,8 @@ class EmailService {
   /**
    * Check if email is enabled and properly configured
    */
-  validateEmailConfig() {
-    const settings = this.getEmailSettings();
+  async validateEmailConfig() {
+    const settings = await this.getEmailSettings();
     
     // Check if email is enabled
     if (settings.MAIL_ENABLED !== 'true') {
@@ -81,8 +94,8 @@ class EmailService {
   /**
    * Validate email configuration for testing (doesn't require MAIL_ENABLED to be true)
    */
-  validateEmailConfigForTesting() {
-    const settings = this.getEmailSettings();
+  async validateEmailConfigForTesting() {
+    const settings = await this.getEmailSettings();
     
     // Check if demo mode is enabled
     if (process.env.DEMO_ENABLED === 'true') {
@@ -119,23 +132,26 @@ class EmailService {
    */
   async createTransporter(settings) {
     if (!settings) {
-      const validation = this.validateEmailConfig();
+      const validation = await this.validateEmailConfig();
       if (!validation.valid) {
         throw new Error(validation.error);
       }
       settings = validation.settings;
     }
 
+    // Ensure SMTP_SECURE has a default value
+    const smtpSecure = settings.SMTP_SECURE || 'tls';
+    
     const transporter = nodemailer.createTransport({
       host: settings.SMTP_HOST,
       port: parseInt(settings.SMTP_PORT),
-      secure: settings.SMTP_SECURE === 'ssl', // true for SSL (port 465), false for TLS (port 587)
+      secure: smtpSecure === 'ssl', // true for SSL (port 465), false for TLS (port 587)
       auth: {
         user: settings.SMTP_USERNAME,
         pass: settings.SMTP_PASSWORD
       },
       // Additional options for better compatibility
-      requireTLS: settings.SMTP_SECURE === 'tls',
+      requireTLS: smtpSecure === 'tls',
       tls: {
         rejectUnauthorized: false // Allow self-signed certificates
       }
@@ -152,7 +168,7 @@ class EmailService {
    * Send test email to verify configuration
    */
   async sendTestEmail(recipientEmail) {
-    const validation = this.validateEmailConfigForTesting();
+    const validation = await this.validateEmailConfigForTesting();
     if (!validation.valid) {
       throw validation;
     }
@@ -178,7 +194,7 @@ class EmailService {
               <li><strong>From:</strong> ${settings.SMTP_FROM_EMAIL}</li>
               <li><strong>SMTP Host:</strong> ${settings.SMTP_HOST}</li>
               <li><strong>SMTP Port:</strong> ${settings.SMTP_PORT}</li>
-              <li><strong>Security:</strong> ${settings.SMTP_SECURE.toUpperCase()}</li>
+              <li><strong>Security:</strong> ${(settings.SMTP_SECURE || 'tls').toUpperCase()}</li>
             </ul>
           </div>
           <p>Best regards,<br><strong>Easy Kanban System</strong></p>
@@ -199,7 +215,7 @@ class EmailService {
         to: recipientEmail,
         host: settings.SMTP_HOST,
         port: settings.SMTP_PORT,
-        secure: settings.SMTP_SECURE.toUpperCase(),
+        secure: (settings.SMTP_SECURE || 'tls').toUpperCase(),
         from: settings.SMTP_FROM_EMAIL,
         user: settings.SMTP_USERNAME
       },
@@ -211,7 +227,7 @@ class EmailService {
    * Send password reset email
    */
   async sendPasswordResetEmail(user, resetToken, resetUrl) {
-    const validation = this.validateEmailConfig();
+    const validation = await this.validateEmailConfig();
     if (!validation.valid) {
       console.log('📧 Email not sent - validation failed:', validation.error);
       return { success: false, reason: validation.error };
@@ -251,7 +267,7 @@ class EmailService {
    * Generic method to send any email
    */
   async sendEmail(emailOptions) {
-    const validation = this.validateEmailConfig();
+    const validation = await this.validateEmailConfig();
     if (!validation.valid) {
       throw validation;
     }

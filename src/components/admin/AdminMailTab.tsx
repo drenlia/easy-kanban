@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { createPortal } from 'react-dom';
 import api from '../../api';
 import { toast } from '../../utils/toast';
 
@@ -64,6 +65,9 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
   onSettingsReload,
 }) => {
   const { t } = useTranslation('admin');
+  const [showFirstConfirm, setShowFirstConfirm] = useState(false);
+  const [showSecondConfirm, setShowSecondConfirm] = useState(false);
+  
   const handleInputChange = (key: string, value: string) => {
     onSettingsChange({ ...editingSettings, [key]: value });
   };
@@ -119,44 +123,12 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
                 <div className="flex-1">
                   <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">{t('mail.managedEmailService')}</h3>
                   <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                    {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">noreply@ezkan.cloud</code>.
+                    {t('mail.managedEmailDescription')} <code className="bg-blue-100 dark:bg-blue-800 px-1 rounded">{editingSettings.SMTP_FROM_EMAIL || 'noreply@ezkan.cloud'}</code>.
                   </p>
                   <div className="mt-3">
                     <button
                       type="button"
-                      onClick={async () => {
-                        if (confirm(t('mail.switchToCustomSMTPConfirm'))) {
-                          try {
-                            // Clear all mail-related settings in the database with a single API call
-                            await api.post('/admin/settings/clear-mail');
-                            
-                            // Reload settings from server to get the cleared values
-                            if (onSettingsReload) {
-                              await onSettingsReload();
-                            }
-                            
-                            // Update local state to clear all mail-related fields
-                            const updatedSettings = {
-                              ...editingSettings,
-                              MAIL_MANAGED: 'false',
-                              SMTP_HOST: '',
-                              SMTP_PORT: '',
-                              SMTP_USERNAME: '',
-                              SMTP_PASSWORD: '',
-                              SMTP_FROM_EMAIL: '',
-                              SMTP_FROM_NAME: '',
-                              MAIL_ENABLED: 'false',
-                            };
-                            onSettingsChange(updatedSettings);
-                            
-                            // Show success message
-                            toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
-                          } catch (error) {
-                            console.error('Failed to switch to custom SMTP:', error);
-                            toast.error(t('mail.failedToSwitchToCustomSMTP') || 'Failed to switch to custom SMTP settings', '');
-                          }
-                        }
-                      }}
+                      onClick={() => setShowFirstConfirm(true)}
                       className="text-sm bg-blue-100 dark:bg-blue-800 text-blue-800 dark:text-blue-200 px-3 py-1 rounded-md hover:bg-blue-200 dark:hover:bg-blue-700 transition-colors"
                     >
                       {t('mail.switchToCustomSMTP')}
@@ -576,6 +548,122 @@ const AdminMailTab: React.FC<AdminMailTabProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* First Confirmation Modal */}
+      {showFirstConfirm && createPortal(
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start mb-4">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="ml-3 flex-1">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                  {t('mail.switchToCustomSMTP')}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {t('mail.switchToCustomSMTPConfirm')}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowFirstConfirm(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                {t('buttons.cancel', { ns: 'common' })}
+              </button>
+              <button
+                onClick={() => {
+                  setShowFirstConfirm(false);
+                  setShowSecondConfirm(true);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                {t('buttons.continue', { ns: 'common' }) || 'Continue'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Second Confirmation Modal */}
+      {showSecondConfirm && createPortal(
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[10000]">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="flex items-start mb-4">
+              <div className="flex-shrink-0">
+                <svg className="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div className="ml-3 flex-1">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+                  {t('mail.switchToCustomSMTP')}
+                </h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  {t('mail.switchToCustomSMTPConfirmFinal')}
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowSecondConfirm(false);
+                  setShowFirstConfirm(true);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                {t('buttons.back', { ns: 'common' }) || 'Back'}
+              </button>
+              <button
+                onClick={async () => {
+                  setShowSecondConfirm(false);
+                  try {
+                    // Clear all mail-related settings in the database with a single API call
+                    await api.post('/admin/settings/clear-mail');
+                    
+                    // Reload settings from server to get the cleared values
+                    if (onSettingsReload) {
+                      await onSettingsReload();
+                    }
+                    
+                    // Update local state to clear all mail-related fields
+                    // Note: SMTP_SECURE is initialized to 'tls' (the default) so it will be saved
+                    // when the user saves or tests, even if they don't explicitly change the dropdown
+                    const updatedSettings = {
+                      ...editingSettings,
+                      MAIL_MANAGED: 'false',
+                      SMTP_HOST: '',
+                      SMTP_PORT: '',
+                      SMTP_USERNAME: '',
+                      SMTP_PASSWORD: '',
+                      SMTP_FROM_EMAIL: '',
+                      SMTP_FROM_NAME: '',
+                      SMTP_SECURE: 'tls', // Initialize to default 'tls' so it will be saved
+                      MAIL_ENABLED: 'false',
+                    };
+                    onSettingsChange(updatedSettings);
+                    
+                    // Show success message
+                    toast.success(t('mail.switchedToCustomSMTP') || 'Switched to custom SMTP settings', '');
+                  } catch (error) {
+                    console.error('Failed to switch to custom SMTP:', error);
+                    toast.error(t('mail.failedToSwitchToCustomSMTP') || 'Failed to switch to custom SMTP settings', '');
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-transparent rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              >
+                {t('buttons.confirm', { ns: 'common' }) || 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </>
   );
