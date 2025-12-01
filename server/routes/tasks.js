@@ -1053,23 +1053,27 @@ router.put('/:id', authenticateToken, async (req, res) => {
       const activityTime = Date.now() - activityStartTime;
       console.log(`⏱️  [PUT /tasks/:id] Activity logging took ${activityTime}ms`);
       
-      // Log to reporting system
+      // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
       // Check if this is a column move
       if (currentTask.columnId !== task.columnId) {
-      // Get column info to check if task is completed
-      const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(task.columnId);
-      const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask.columnId);
+        // Get column info to check if task is completed
+        const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(task.columnId);
+        const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(currentTask.columnId);
         
         const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
-        await logReportingActivity(db, eventType, userId, id, {
+        logReportingActivity(db, eventType, userId, id, {
           fromColumnId: currentTask.columnId,
           fromColumnName: oldColumn?.title,
           toColumnId: task.columnId,
           toColumnName: newColumn?.title
+        }).catch(error => {
+          console.error('Background reporting activity logging failed:', error);
         });
       } else {
         // Regular update
-        await logReportingActivity(db, 'task_updated', userId, id);
+        logReportingActivity(db, 'task_updated', userId, id).catch(error => {
+          console.error('Background reporting activity logging failed:', error);
+        });
       }
     }
     
