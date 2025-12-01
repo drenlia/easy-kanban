@@ -13,6 +13,8 @@ spec:
       labels:
         app: nfs-server
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s2
       initContainers:
       - name: create-export-dirs
         image: busybox:latest

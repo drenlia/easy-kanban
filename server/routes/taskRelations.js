@@ -58,7 +58,8 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     
     // Log tag association activity
     if (tag && task) {
-      await logActivity(
+      // Fire-and-forget: Don't await activity logging to avoid blocking API response
+      logActivity(
         userId,
         TAG_ACTIONS.ASSOCIATE,
         `associated tag "${tag.tag}" with task "${task.title}"`,
@@ -70,7 +71,9 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
           tenantId: getTenantId(req),
           db: db
         }
-      );
+      ).catch(error => {
+        console.error('Background activity logging failed:', error);
+      });
       
       // Log to reporting system
       try {
@@ -145,7 +148,8 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     
     // Log tag disassociation activity
     if (tag && task) {
-      await logActivity(
+      // Fire-and-forget: Don't await activity logging to avoid blocking API response
+      logActivity(
         userId,
         TAG_ACTIONS.DISASSOCIATE,
         `removed tag "${tag.tag}" from task "${task.title}"`,
@@ -157,7 +161,9 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
           tenantId: getTenantId(req),
           db: db
         }
-      );
+      ).catch(error => {
+        console.error('Background activity logging failed:', error);
+      });
     }
     
     // Publish to Redis for real-time updates

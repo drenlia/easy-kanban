@@ -737,7 +737,8 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
     const board = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
     const taskRef = ticket ? ` (${ticket})` : '';
-    await logTaskActivity(
+    // Fire-and-forget: Don't await activity logging to avoid blocking API response
+    logTaskActivity(
       userId,
       TASK_ACTIONS.CREATE,
       task.id,
@@ -748,7 +749,9 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
         tenantId: getTenantId(req),
         db: db
       }
-    );
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
     
     // Log to reporting system
     await logReportingActivity(db, 'task_created', userId, task.id);
@@ -841,8 +844,8 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
       );
     });
     
-    // Log task creation activity
-    await logTaskActivity(
+    // Log task creation activity (fire-and-forget: Don't await to avoid blocking API response)
+    logTaskActivity(
       userId,
       TASK_ACTIONS.CREATE,
       task.id,
@@ -853,7 +856,9 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
         tenantId: getTenantId(req),
         db: db
       }
-    );
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
     
     // Log to reporting system
     await logReportingActivity(db, 'task_created', userId, task.id);
@@ -897,12 +902,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const task = req.body;
   const userId = req.user?.id || 'system';
   
+  const endpointStartTime = Date.now();
+  
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
     const now = new Date().toISOString();
     
     // Get current task for change tracking and previous location
+    const validationStartTime = Date.now();
     const currentTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(id);
     if (!currentTask) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
@@ -991,6 +999,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
       }
     }
     
+    const validationTime = Date.now() - validationStartTime;
+    console.log(`⏱️  [PUT /tasks/:id] Task validation took ${validationTime}ms`);
+    
+    const dbUpdateStartTime = Date.now();
     await wrapQuery(db.prepare(`
       UPDATE tasks SET title = ?, description = ?, memberId = ?, requesterId = ?, startDate = ?, 
       dueDate = ?, effort = ?, priority = ?, priority_id = ?, columnId = ?, boardId = ?, position = ?, 
@@ -1000,9 +1012,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
       task.dueDate, task.effort, priorityName, priorityId, task.columnId, task.boardId, task.position || 0,
       task.sprintId || null, previousBoardId, previousColumnId, now, id
     );
+    const dbUpdateTime = Date.now() - dbUpdateStartTime;
+    console.log(`⏱️  [PUT /tasks/:id] Database updates took ${dbUpdateTime}ms`);
     
     // Log activity if there were changes
     if (changes.length > 0) {
+      const activityStartTime = Date.now();
       const details = changes.length === 1 ? changes[0] : `${t('activity.updatedTaskPrefix')} ${changes.join(', ')}`;
       
       // For single field changes, pass old and new values for better email templates
@@ -1016,7 +1031,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
       }
       
-      await logTaskActivity(
+      // Fire-and-forget: Don't await activity logging to avoid blocking API response
+      // Activity logging can take 500-600ms on EFS, but we don't need to wait for it
+      logTaskActivity(
         userId,
         TASK_ACTIONS.UPDATE,
         id,
@@ -1029,7 +1046,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
           tenantId: getTenantId(req),
           db: db
         }
-      );
+      ).catch(error => {
+        console.error('Background activity logging failed:', error);
+        // Don't throw - activity logging should never break main flow
+      });
+      const activityTime = Date.now() - activityStartTime;
+      console.log(`⏱️  [PUT /tasks/:id] Activity logging took ${activityTime}ms`);
       
       // Log to reporting system
       // Check if this is a column move
@@ -1053,9 +1075,13 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Fetch the updated task with all relationships (comments, watchers, collaborators, tags)
     // This ensures the WebSocket event includes complete task data so frontend doesn't need to merge
+    const fetchStartTime = Date.now();
     const taskResponse = await fetchTaskWithRelationships(db, id);
+    const fetchTime = Date.now() - fetchStartTime;
+    console.log(`⏱️  [PUT /tasks/:id] Fetching task with relationships took ${fetchTime}ms`);
     
     // Publish to Redis for real-time updates (includes complete task data with relationships)
+    const wsStartTime = Date.now();
     const webSocketData = {
       boardId: taskResponse.boardId,
       task: {
@@ -1065,6 +1091,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
       timestamp: new Date().toISOString()
     };
     await redisService.publish('task-updated', webSocketData, getTenantId(req));
+    const wsTime = Date.now() - wsStartTime;
+    console.log(`⏱️  [PUT /tasks/:id] WebSocket publishing took ${wsTime}ms`);
+    
+    const totalTime = Date.now() - endpointStartTime;
+    console.log(`⏱️  [PUT /tasks/:id] Total endpoint time: ${totalTime}ms`);
     
     res.json(taskResponse);
   } catch (error) {
@@ -1328,7 +1359,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     }
     
     // Log deletion activity
-    await logTaskActivity(
+    // Fire-and-forget: Don't await activity logging to avoid blocking API response
+    logTaskActivity(
       userId,
       TASK_ACTIONS.DELETE,
       id,
@@ -1339,7 +1371,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         tenantId: getTenantId(req),
         db: db
       }
-    );
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
     
     // Publish to Redis for real-time updates
     await redisService.publish('task-deleted', {
@@ -1503,13 +1537,13 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       const columnMap = new Map(columns.map(c => [c.id, c]));
       console.log(`⏱️  [batch-update-positions] Column fetch took ${Date.now() - activityStartTime}ms`);
       
-      // Log activities (can be done in parallel)
-      const logStartTime = Date.now();
-      await Promise.all(columnMoves.map(async (move) => {
+      // Log activities (fire-and-forget: Don't await to avoid blocking API response)
+      // Start all activity logs in parallel but don't wait for them
+      columnMoves.forEach((move) => {
         const oldColumn = columnMap.get(move.previousColumnId);
         const newColumn = columnMap.get(move.columnId);
         
-        await logTaskActivity(
+        logTaskActivity(
           userId,
           TASK_ACTIONS.UPDATE,
           move.taskId,
@@ -1525,18 +1559,22 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
             tenantId: getTenantId(req),
             db: db
           }
-        );
+        ).catch(error => {
+          console.error('Background activity logging failed:', error);
+        });
         
-        // Log to reporting system
+        // Log to reporting system (also fire-and-forget)
         const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
-        await logReportingActivity(db, eventType, userId, move.taskId, {
+        logReportingActivity(db, eventType, userId, move.taskId, {
           fromColumnId: move.previousColumnId,
           fromColumnName: oldColumn?.title,
           toColumnId: move.columnId,
           toColumnName: newColumn?.title
+        }).catch(error => {
+          console.error('Background reporting activity logging failed:', error);
         });
-      }));
-      console.log(`⏱️  [batch-update-positions] Activity logging took ${Date.now() - logStartTime}ms`);
+      });
+      // Note: Activity logging is now fire-and-forget, so timing measurement removed
     }
     
     // Publish WebSocket updates for all changed tasks
@@ -1672,8 +1710,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       });
     }
 
-    // Log reorder activity
-    await logTaskActivity(
+    // Log reorder activity (fire-and-forget: Don't await to avoid blocking API response)
+    logTaskActivity(
       userId,
       TASK_ACTIONS.UPDATE, // Reorder is a type of update
       taskId,
@@ -1688,7 +1726,9 @@ router.post('/reorder', authenticateToken, async (req, res) => {
         tenantId: getTenantId(req),
         db: db
       }
-    );
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
     
     // Log to reporting system - check if column changed
     if (previousColumnId !== columnId) {
@@ -1882,7 +1922,8 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       toBoard: targetBoard?.title || 'Unknown'
     });
     
-    await logTaskActivity(
+    // Fire-and-forget: Don't await activity logging to avoid blocking API response
+    logTaskActivity(
       userId,
       TASK_ACTIONS.MOVE,
       taskId,
@@ -1893,7 +1934,9 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
         tenantId: getTenantId(req),
         db: db
       }
-    );
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
     
     // Log to reporting system
     const newColumn = await wrapQuery(db.prepare('SELECT title, is_finished as is_done FROM columns WHERE id = ?'), 'SELECT').get(targetColumn.id);

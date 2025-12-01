@@ -63,11 +63,11 @@ GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Get MULTI_TENANT from ConfigMap (defaults to "true" for Kubernetes deployments)
-MULTI_TENANT=$(kubectl get configmap easy-kanban-config -n easy-kanban -o jsonpath='{.data.MULTI_TENANT}' 2>/dev/null || echo "true")
-if [ -z "$MULTI_TENANT" ] || [ "$MULTI_TENANT" != "true" ] && [ "$MULTI_TENANT" != "false" ]; then
-  MULTI_TENANT="true"  # Default to true for Kubernetes
-fi
+# For Kubernetes builds, MULTI_TENANT should always be "true"
+# The runtime ConfigMap can override this if needed, but the build should support multi-tenant
+MULTI_TENANT="true"
+echo -e "${CYAN}   Note: MULTI_TENANT is set to 'true' for Kubernetes builds${NC}"
+echo -e "${CYAN}   (Runtime ConfigMap can override this if needed)${NC}"
 
 echo -e "${CYAN}   Git Commit: ${GIT_COMMIT}${NC}"
 echo -e "${CYAN}   Git Branch: ${GIT_BRANCH}${NC}"
