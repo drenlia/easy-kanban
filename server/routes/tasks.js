@@ -1246,8 +1246,8 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
     const taskResponses = await fetchTasksWithRelationshipsBatch(db, taskIds);
     console.log(`⏱️  [batch-update] Fetching ${taskIds.length} tasks with relationships (batched) took ${Date.now() - fetchStartTime}ms`);
     
-    // Publish WebSocket updates for all changed tasks
-    // Publish individual events so frontend can handle them the same way as single updates
+    // Publish WebSocket updates for all changed tasks in the background (non-blocking)
+    // JSON.stringify() on large task objects can be slow, so we don't block the response
     const publishPromises = taskResponses.map(task =>
       redisService.publish('task-updated', {
         boardId: task.boardId,
@@ -1256,12 +1256,17 @@ router.post('/batch-update', authenticateToken, async (req, res) => {
           updatedBy: userId
         },
         timestamp: new Date().toISOString()
-      }, getTenantId(req))
+      }, getTenantId(req)).catch(error => {
+        console.error('❌ Background WebSocket publish failed:', error);
+      })
     );
     
-    await Promise.all(publishPromises);
+    // Start publishing in background (fire-and-forget)
+    Promise.all(publishPromises).catch(error => {
+      console.error('❌ Background WebSocket publish batch failed:', error);
+    });
     
-    console.log(`⏱️  [batch-update] Total endpoint time: ${Date.now() - endpointStartTime}ms for ${tasks.length} updates`);
+    console.log(`⏱️  [batch-update] Total endpoint time: ${Date.now() - endpointStartTime}ms for ${tasks.length} updates (WebSocket publishing in background)`);
     
     res.json({ tasks: taskResponses, updated: taskResponses.length });
   } catch (error) {
@@ -1599,22 +1604,30 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       });
     });
     
-    // Publish individual events (WebSocket is fast, the bottleneck was HTTP/DB)
-    const wsStartTime = Date.now();
+    // Publish individual events in the background (non-blocking)
+    // JSON.stringify() on large task objects can be slow, so we don't block the response
     const tenantId = getTenantId(req);
-    await Promise.all(Array.from(tasksByBoard.entries()).flatMap(([boardId, tasks]) =>
+    const publishPromises = Array.from(tasksByBoard.entries()).flatMap(([boardId, tasks]) =>
       tasks.map(task =>
         redisService.publish('task-updated', {
           boardId,
           task, // Single task per event (WebSocket handler expects this format)
           timestamp: now
-        }, tenantId)
+        }, tenantId).catch(error => {
+          console.error('❌ Background WebSocket publish failed:', error);
+        })
       )
-    ));
-    console.log(`⏱️  [batch-update-positions] WebSocket publishing took ${Date.now() - wsStartTime}ms`);
+    );
+    
+    // Start publishing in background (fire-and-forget)
+    Promise.all(publishPromises).then(() => {
+      // Optional: log success in background
+    }).catch(error => {
+      console.error('❌ Background WebSocket publish batch failed:', error);
+    });
     
     const totalTime = Date.now() - endpointStartTime;
-    console.log(`⏱️  [batch-update-positions] Total endpoint time: ${totalTime}ms for ${updates.length} updates`);
+    console.log(`⏱️  [batch-update-positions] Total endpoint time: ${totalTime}ms for ${updates.length} updates (WebSocket publishing in background)`);
     
     res.json({ message: `Updated ${updates.length} task positions successfully` });
   } catch (error) {
