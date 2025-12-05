@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 import { authenticateToken, JWT_SECRET } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { isMultiTenant, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
@@ -308,7 +308,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         
         // Publish task-updated event with complete task data (includes updated attachmentCount)
         const tenantId = req.tenantId || null;
-        await redisService.publish('task-updated', {
+        await notificationService.publish('task-updated', {
           boardId: task.boardId,
           task: taskResponse,
           timestamp: new Date().toISOString()
@@ -318,7 +318,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       // Also publish attachment-deleted for any handlers that might need it
       console.log('📤 Publishing attachment-deleted to Redis for board:', task.boardId);
       const tenantId = req.tenantId || null;
-      await redisService.publish('attachment-deleted', {
+      await notificationService.publish('attachment-deleted', {
         boardId: task.boardId,
         taskId: attachment.taskId,
         attachmentId: id,

@@ -5,7 +5,7 @@ import { dbTransaction } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
@@ -53,7 +53,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis (user-created)');
-    await redisService.publish('tag-created', {
+    await notificationService.publish('tag-created', {
       tag: newTag,
       timestamp: new Date().toISOString()
     });
@@ -99,7 +99,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis');
-    await redisService.publish('tag-created', {
+    await notificationService.publish('tag-created', {
       tag: newTag,
       timestamp: new Date().toISOString()
     });
@@ -133,7 +133,7 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-updated to Redis');
-    await redisService.publish('tag-updated', {
+    await notificationService.publish('tag-updated', {
       tag: updatedTag,
       timestamp: new Date().toISOString()
     });
@@ -232,7 +232,7 @@ router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, 
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-deleted to Redis');
-    await redisService.publish('tag-deleted', {
+    await notificationService.publish('tag-deleted', {
       tagId: tagId,
       tag: tagToDelete,
       timestamp: new Date().toISOString()

@@ -845,12 +845,11 @@ const GanttViewV2 = ({
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      try {
-        const priorities = await getAllPriorities();
-        setPriorities(priorities);
-      } catch (error) {
-        console.error('Failed to refresh priorities after deletion:', error);
-      }
+      // Just remove the deleted priority from the list - no need to refresh all priorities
+      // The task-updated events will handle updating affected tasks with the new priority
+      setPriorities(prevPriorities => 
+        prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+      );
     };
 
     const handlePriorityReordered = async (data: any) => {

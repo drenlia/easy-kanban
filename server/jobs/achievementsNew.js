@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 
 /**
  * Check all users for new achievements/badges using badges table
@@ -186,7 +186,7 @@ export const checkAndAwardAchievements = async (db) => {
     // Publish new achievements to WebSocket for real-time notifications
     if (newAchievements.length > 0) {
       try {
-        await redisService.publish('achievements-awarded', {
+        await notificationService.publish('achievements-awarded', {
           achievements: newAchievements,
           timestamp: new Date().toISOString()
         });

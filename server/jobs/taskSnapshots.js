@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { dbTransaction, dbRun, isProxyDatabase } from '../utils/dbAsync.js';
 
 /**
@@ -345,13 +345,13 @@ export const createDailyTaskSnapshots = async (db) => {
     
     // Broadcast snapshot update to all connected clients via WebSocket
     try {
-      await redisService.publish('task-snapshots-updated', JSON.stringify({
+      await notificationService.publish('task-snapshots-updated', {
         snapshotDate,
         taskCount: tasks.length,
         newSnapshots: newSnapshotCount,
         updatedSnapshots: updatedSnapshotCount,
         timestamp: new Date().toISOString()
-      }));
+      });
       console.log('✅ Task snapshots update broadcasted via Redis');
     } catch (publishError) {
       console.error('❌ Failed to publish task snapshots update:', publishError);

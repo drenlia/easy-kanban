@@ -395,28 +395,74 @@ router.post('/instance-portal/cancel-subscription', authenticateToken, requireRo
 // Check email server status
 router.get('/email-status', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
-    const { getNotificationService } = await import('../services/notificationService.js');
-    const notificationService = getNotificationService();
-    const emailValidation = notificationService.emailService.validateEmailConfig();
+    const db = getRequestDatabase(req);
     
-    console.log('🔍 Email status check:', {
-      valid: emailValidation.valid,
-      error: emailValidation.error,
-      mailEnabled: emailValidation.settings?.MAIL_ENABLED,
-      available: emailValidation.valid
-    });
+    // Check if email settings exist in database
+    const mailEnabled = await wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('MAIL_ENABLED');
+    
+    const smtpHost = await wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('SMTP_HOST');
+    
+    const smtpPort = await wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('SMTP_PORT');
+    
+    const smtpFrom = await wrapQuery(
+      db.prepare('SELECT value FROM settings WHERE key = ?'),
+      'SELECT'
+    ).get('SMTP_FROM_EMAIL');
+    
+    // Note: Email notification service (getNotificationService) is not yet implemented
+    // When implemented, this will check actual service availability
+    const isServiceImplemented = false;
+    const hasSettings = !!(mailEnabled?.value || smtpHost?.value);
     
     res.json({
-      available: emailValidation.valid,
-      error: emailValidation.error || null,
-      details: emailValidation.details || null,
-      settings: emailValidation.valid ? {
-        host: emailValidation.settings.SMTP_HOST,
-        port: emailValidation.settings.SMTP_PORT,
-        from: emailValidation.settings.SMTP_FROM_EMAIL,
-        enabled: emailValidation.settings.MAIL_ENABLED === 'true'
+      available: false, // Service not implemented yet
+      implemented: isServiceImplemented,
+      hasSettings: hasSettings,
+      error: isServiceImplemented ? null : 'Email notification service not yet implemented',
+      message: isServiceImplemented 
+        ? 'Email service is available' 
+        : 'Email notification service is not yet implemented. Notifications will remain in the queue until the service is available.',
+      details: {
+        serviceStatus: isServiceImplemented ? 'available' : 'not_implemented',
+        notificationsInQueue: 'pending' // Could query actual count if needed
+      },
+      settings: hasSettings ? {
+        mailEnabled: mailEnabled?.value === 'true',
+        host: smtpHost?.value || null,
+        port: smtpPort?.value || null,
+        from: smtpFrom?.value || null
       } : null
     });
+    return;
+    
+    // Original code (commented out until email service is implemented):
+    // console.log('🔍 Email status check:', {
+    //   valid: emailValidation.valid,
+    //   error: emailValidation.error,
+    //   mailEnabled: emailValidation.settings?.MAIL_ENABLED,
+    //   available: emailValidation.valid
+    // });
+    // 
+    // res.json({
+    //   available: emailValidation.valid,
+    //   error: emailValidation.error || null,
+    //   details: emailValidation.details || null,
+    //   settings: emailValidation.valid ? {
+    //     host: emailValidation.settings.SMTP_HOST,
+    //     port: emailValidation.settings.SMTP_PORT,
+    //     from: emailValidation.settings.SMTP_FROM_EMAIL,
+    //     enabled: emailValidation.settings.MAIL_ENABLED === 'true'
+    //   } : null
+    // });
   } catch (error) {
     console.error('Email status check error:', error);
     res.status(500).json({ 

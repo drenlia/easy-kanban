@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -11,7 +12,8 @@ router.get('/feed', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const activities = await wrapQuery(db.prepare(`
+    const isPostgres = isPostgresDatabase(db);
+    const query = `
       SELECT 
         a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
         datetime(a.created_at) || 'Z' as created_at,
@@ -28,7 +30,8 @@ router.get('/feed', authenticateToken, async (req, res) => {
       LEFT JOIN columns c ON a.columnId = c.id
       ORDER BY a.created_at DESC
       LIMIT ?
-    `), 'SELECT').all(parseInt(limit));
+    `;
+    const activities = await wrapQuery(db.prepare(convertSqlToPostgres(query, isPostgres)), 'SELECT').all(parseInt(limit));
     
     res.json(activities);
   } catch (error) {

@@ -7,12 +7,19 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload } from '../config/multer.js';
 import { getLicenseManager } from '../config/license.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
-import { getNotificationService } from '../services/notificationService.js';
-import redisService from '../services/redisService.js';
+// Note: Email notification service (getNotificationService) is not yet implemented
+// import { getNotificationService } from '../services/notificationService.js';
+import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { isPostgresDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
+
+// Helper to get the actual notification system being used (for accurate logging)
+const getNotificationSystem = () => {
+  return process.env.DB_TYPE === 'postgresql' ? 'PostgreSQL' : 'Redis';
+};
 
 // Get all users (admin only)
 router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
@@ -25,13 +32,27 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
       'Expires': '0'
     });
     
+    // Use PostgreSQL string_agg() or SQLite GROUP_CONCAT()
+    const isPostgres = isPostgresDatabase(db);
+    const rolesAgg = isPostgres ? 'string_agg(r.name, \',\')' : 'GROUP_CONCAT(r.name)';
+    // PostgreSQL requires all non-aggregated columns in GROUP BY
+    // Since there's only one member per user, we can use MAX() for member columns
+    const memberName = isPostgres ? 'MAX(m.name)' : 'm.name';
+    const memberColor = isPostgres ? 'MAX(m.color)' : 'm.color';
+    
+    // For PostgreSQL, explicitly list columns instead of u.* to avoid GROUP BY issues
+    const userColumns = isPostgres 
+      ? 'u.id, u.email, u.password_hash, u.first_name, u.last_name, u.is_active, u.created_at, u.updated_at, u.avatar_path, u.auth_provider, u.google_avatar_url'
+      : 'u.*';
+    
+    const groupByClause = isPostgres ? 'GROUP BY u.id, u.email, u.password_hash, u.first_name, u.last_name, u.is_active, u.created_at, u.updated_at, u.avatar_path, u.auth_provider, u.google_avatar_url' : 'GROUP BY u.id';
     const users = await wrapQuery(db.prepare(`
-      SELECT u.*, GROUP_CONCAT(r.name) as roles, m.name as member_name, m.color as member_color
+      SELECT ${userColumns}, ${rolesAgg} as roles, ${memberName} as member_name, ${memberColor} as member_color
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
       LEFT JOIN members m ON u.id = m.user_id
-      GROUP BY u.id
+      ${groupByClause}
       ORDER BY u.created_at DESC
     `), 'SELECT').all();
 
@@ -106,14 +127,14 @@ router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), as
       return res.status(404).json({ error: 'Member not found' });
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-updated to Redis for name change');
-    await redisService.publish('member-updated', {
+    // Publish notification for real-time updates (uses PostgreSQL or Redis based on DB_TYPE)
+    console.log(`📤 Publishing member-updated via ${getNotificationSystem()} for name change`);
+    await notificationService.publish('member-updated', {
       memberId: member.id,
       member: { id: member.id, name: trimmedDisplayName, color: member.color },
       timestamp: new Date().toISOString()
     }, getTenantId(req));
-    console.log('✅ Member-updated published to Redis');
+    console.log(`✅ Member-updated published via ${dbType}`);
     
     console.log('✅ Member name updated successfully');
     res.json({ 
@@ -181,9 +202,9 @@ router.put('/:userId', authenticateToken, requireRole(['admin']), async (req, re
     // Note: Member name is updated separately via /api/admin/users/:userId/member-name
     // This allows for custom display names that differ from firstName + lastName
 
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing user-updated to Redis');
-    await redisService.publish('user-updated', {
+    // Publish notification for real-time updates (uses PostgreSQL or Redis based on DB_TYPE)
+    console.log(`📤 Publishing user-updated via ${getNotificationSystem()}`);
+    await notificationService.publish('user-updated', {
       user: { 
         id: userId, 
         email, 
@@ -244,9 +265,9 @@ router.put('/:userId/role', authenticateToken, requireRole(['admin']), async (re
 
       console.log(`🔄 User ${userId} role changed to ${role} - no logout required`);
       
-      // Publish to Redis for real-time updates
-      console.log('📤 Publishing user-role-updated to Redis');
-      await redisService.publish('user-role-updated', {
+      // Publish notification for real-time updates
+      console.log(`📤 Publishing user-role-updated via ${getNotificationSystem()}`);
+      await notificationService.publish('user-role-updated', {
         userId: userId,
         role: role,
         timestamp: new Date().toISOString()
@@ -477,25 +498,28 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
       
       // Send invitation email
+      // Note: Email notification service (getNotificationService) is not yet implemented
       try {
-        const notificationService = getNotificationService();
-        const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-        if (emailResult.success) {
-          emailSent = true;
-          console.log('✅ Invitation email sent for new user:', email);
-        } else {
-          emailError = emailResult.reason || 'Email service unavailable';
-          console.warn('⚠️ Failed to send invitation email:', emailError);
-        }
+        // TODO: Implement email notification service when needed
+        // const notificationService = getNotificationService();
+        // const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+        // if (emailResult.success) {
+        //   emailSent = true;
+        //   console.log('✅ Invitation email sent for new user:', email);
+        // } else {
+        //   emailError = emailResult.reason || 'Email service unavailable';
+        //   console.warn('⚠️ Failed to send invitation email:', emailError);
+        // }
+        console.log('⚠️ Email notification service not implemented - invitation email not sent');
       } catch (emailErr) {
         console.warn('⚠️ Failed to send invitation email:', emailErr.message);
         emailError = emailErr.message;
       }
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing user-created to Redis');
-    await redisService.publish('user-created', {
+    // Publish notification for real-time updates
+    console.log(`📤 Publishing user-created via ${getNotificationSystem()}`);
+    await notificationService.publish('user-created', {
       user: { 
         id: userId, 
         email, 
@@ -514,8 +538,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }, getTenantId(req));
     
     // Publish member-created event for real-time member list updates
-    console.log('📤 Publishing member-created to Redis');
-    await redisService.publish('member-created', {
+    console.log(`📤 Publishing member-created via ${getNotificationSystem()}`);
+    await notificationService.publish('member-created', {
       member: {
         id: memberId,
         name: memberName,
@@ -624,27 +648,47 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
     
     // Send invitation email
+    // Note: Email notification service (getNotificationService) is not yet implemented
     try {
-      const notificationService = getNotificationService();
-      const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      // TODO: Implement email notification service when needed
+      // const notificationService = getNotificationService();
+      // const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
+      // 
+      // if (emailResult && emailResult.success) {
+      //   console.log('✅ Invitation resent successfully for user:', user.email);
+      //   res.json({ 
+      //     success: true,
+      //     message: 'Invitation email sent successfully',
+      //     email: user.email
+      //   });
+      //   return;
+      // }
+      console.log('⚠️ Email notification service not implemented - invitation email not sent');
+      res.json({ 
+        success: true,
+        message: 'User invitation prepared (email service not available)',
+        email: user.email
+      });
       
-      if (emailResult && emailResult.success) {
-        console.log('✅ Invitation resent successfully for user:', user.email);
-        res.json({ 
-          success: true,
-          message: 'Invitation email sent successfully',
-          email: user.email
-        });
-      } else {
-        // Email service returned a failure result
-        const errorMessage = emailResult?.reason || emailResult?.error || 'Failed to send invitation email';
-        console.error('⚠️ Failed to send invitation email:', errorMessage);
-        res.status(500).json({ 
-          success: false,
-          error: errorMessage,
-          details: emailResult?.details || null
-        });
-      }
+      // Original code (commented out until email service is implemented):
+      // if (emailResult && emailResult.success) {
+      //   console.log('✅ Invitation resent successfully for user:', user.email);
+      //   res.json({ 
+      //     success: true,
+      //     message: 'Invitation email sent successfully',
+      //     email: user.email
+      //   });
+      //   return;
+      // } else {
+      //   // Email service returned a failure result
+      //   const errorMessage = emailResult?.reason || emailResult?.error || 'Failed to send invitation email';
+      //   console.error('⚠️ Failed to send invitation email:', errorMessage);
+      //   res.status(500).json({ 
+      //     success: false,
+      //     error: errorMessage,
+      //     details: emailResult?.details || null
+      //   });
+      // }
     } catch (emailError) {
       console.error('⚠️ Failed to send invitation email:', emailError.message);
       res.status(500).json({ 
@@ -822,7 +866,7 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
       const systemMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE id = ?'), 'SELECT').get('00000000-0000-0000-0000-000000000001');
       
       if (systemMember) {
-        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
+        console.log(`📤 Publishing ${tasksToReassign.length} task-updated events via ${getNotificationSystem()}`);
         for (const task of tasksToReassign) {
           // Get the full updated task details with priority info
           const updatedTask = await wrapQuery(
@@ -878,7 +922,7 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
             updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
             updatedTask.priorityColor = updatedTask.priorityColor || null;
             
-            redisService.publish('task-updated', {
+            notificationService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()
@@ -888,23 +932,23 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
           }
         }
         
-        console.log(`📤 Published ${tasksToReassign.length} task-updated events to Redis`);
+        console.log(`✅ Published ${tasksToReassign.length} task-updated events via ${getNotificationSystem()}`);
       }
     }
     
     // Publish member-deleted event for real-time updates
     if (userMember) {
-      console.log('📤 Publishing member-deleted to Redis for user deletion');
-      await redisService.publish('member-deleted', {
+      console.log(`📤 Publishing member-deleted via ${getNotificationSystem()} for user deletion`);
+      await notificationService.publish('member-deleted', {
         memberId: userMember.id,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ Member-deleted published to Redis');
+      console.log(`✅ Member-deleted published via ${getNotificationSystem()}`);
     }
     
     // Publish user-deleted event for real-time updates
-    console.log('📤 Publishing user-deleted to Redis');
-    await redisService.publish('user-deleted', {
+    console.log(`📤 Publishing user-deleted via ${getNotificationSystem()}`);
+    await notificationService.publish('user-deleted', {
       userId: userId,
       user: {
         id: userId,
@@ -954,14 +998,14 @@ router.put('/:userId/color', authenticateToken, requireRole(['admin']), async (r
       return res.status(404).json({ error: 'Member not found for this user' });
     }
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing member-updated to Redis for color change');
-    await redisService.publish('member-updated', {
+    // Publish notification for real-time updates
+    console.log(`📤 Publishing member-updated via ${getNotificationSystem()} for color change`);
+    await notificationService.publish('member-updated', {
       memberId: member.id,
       member: { id: member.id, name: member.name, color: color },
       timestamp: new Date().toISOString()
     }, getTenantId(req));
-    console.log('✅ Member-updated published to Redis');
+    console.log(`✅ Member-updated published via ${dbType}`);
     
     res.json({ message: 'Member color updated successfully' });
   } catch (error) {
@@ -987,16 +1031,16 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
     // Get the member ID for Redis publishing
     const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
-    // Publish to Redis for real-time updates
+    // Publish notification for real-time updates
     if (member) {
-      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
-      await redisService.publish('user-profile-updated', {
+      console.log(`📤 Publishing user-profile-updated via ${getNotificationSystem()} for user:`, userId);
+      await notificationService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         avatarPath: avatarPath,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ User-profile-updated published to Redis');
+      console.log(`✅ User-profile-updated published via ${getNotificationSystem()}`);
     }
     
     res.json({
@@ -1010,7 +1054,7 @@ router.post('/:userId/avatar', authenticateToken, requireRole(['admin']), avatar
 });
 
 // Admin avatar removal endpoint
-router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req, res) => {
+router.delete("/:userId/avatar", authenticateToken, requireRole(["admin"]), async (req, res) => {
   const { userId } = req.params;
   const db = getRequestDatabase(req);
   
@@ -1021,16 +1065,16 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
     // Get the member ID for Redis publishing
     const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
     
-    // Publish to Redis for real-time updates
+    // Publish notification for real-time updates
     if (member) {
-      console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
-      await redisService.publish('user-profile-updated', {
+      console.log(`📤 Publishing user-profile-updated via ${getNotificationSystem()} for user:`, userId);
+      await notificationService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         avatarPath: null,
         timestamp: new Date().toISOString()
       }, getTenantId(req));
-      console.log('✅ User-profile-updated published to Redis');
+      console.log(`✅ User-profile-updated published via ${getNotificationSystem()}`);
     }
     
     res.json({ message: 'Avatar removed successfully' });

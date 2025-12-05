@@ -10,7 +10,7 @@ import { updateStorageUsage } from '../utils/storageUtils.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import { COMMENT_ACTIONS } from '../constants/activityActions.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
@@ -183,7 +183,7 @@ router.post('/', authenticateToken, async (req, res) => {
     if (task?.boardId) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
-      await redisService.publish('comment-created', {
+      await notificationService.publish('comment-created', {
         boardId: task.boardId,
         taskId: comment.taskId,
         comment: createdComment,
@@ -264,7 +264,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     if (task?.boardId) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-updated to Redis for board:', task.boardId);
-      await redisService.publish('comment-updated', {
+      await notificationService.publish('comment-updated', {
         boardId: task.boardId,
         taskId: originalComment.taskId,
         comment: updatedComment,
@@ -354,7 +354,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     if (task?.boardId) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-deleted to Redis for board:', task.boardId);
-      await redisService.publish('comment-deleted', {
+      await notificationService.publish('comment-deleted', {
         boardId: task.boardId,
         taskId: commentToDelete.taskId,
         commentId: id,

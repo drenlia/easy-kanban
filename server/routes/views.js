@@ -1,7 +1,7 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
@@ -202,7 +202,7 @@ router.post('/', authenticateToken, async (req, res) => {
     // Publish to Redis for real-time updates if the filter is shared
     if (shared) {
       console.log('📤 Publishing filter-created to Redis for shared filter:', formattedView.filterName);
-      await redisService.publish('filter-created', {
+      await notificationService.publish('filter-created', {
         filter: formattedView,
         timestamp: new Date().toISOString()
       });
@@ -305,7 +305,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     if (originalShared !== newShared || newShared) {
       console.log('📤 Publishing filter-updated to Redis for filter:', formattedView.filterName, 'shared:', newShared);
-      await redisService.publish('filter-updated', {
+      await notificationService.publish('filter-updated', {
         filter: formattedView,
         timestamp: new Date().toISOString()
       });
@@ -350,7 +350,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Publish to Redis for real-time updates if the filter was shared
     if (viewToDelete.shared) {
       console.log('📤 Publishing filter-deleted to Redis for shared filter:', viewToDelete.filterName);
-      await redisService.publish('filter-deleted', {
+      await notificationService.publish('filter-deleted', {
         filterId: viewId,
         filterName: viewToDelete.filterName,
         timestamp: new Date().toISOString()

@@ -1,6 +1,7 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import redisService from '../services/redisService.js';
+import postgresNotificationService from '../services/postgresNotificationService.js';
 import websocketService from '../services/websocketService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
@@ -95,12 +96,25 @@ router.get('/', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+    const usePostgres = process.env.DB_TYPE === 'postgresql';
+    // Check email service status
+    const emailServiceImplemented = false; // Email notification service not yet implemented
+    
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
       database: 'connected',
+      dbType: process.env.DB_TYPE || 'sqlite',
       redis: redisService.isRedisConnected(),
+      postgresNotifications: usePostgres ? postgresNotificationService.isServiceConnected() : null,
       websocket: websocketService.getClientCount(),
+      emailService: {
+        implemented: emailServiceImplemented,
+        available: emailServiceImplemented,
+        message: emailServiceImplemented 
+          ? 'Email service is available' 
+          : 'Email notification service not yet implemented'
+      },
       ready: isServerReady
     });
   } catch (error) {

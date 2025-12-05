@@ -2,7 +2,7 @@ import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isProxyDatabase, dbTransaction } from '../utils/dbAsync.js';
 
@@ -99,6 +99,8 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
+    // Use ? placeholders - PostgresDatabase adapter will convert to $1, $2 automatically
+    // The adapter will also convert INSERT OR REPLACE to ON CONFLICT DO UPDATE
     const result = await wrapQuery(
       db.prepare(`
         INSERT OR REPLACE INTO settings (key, value, updated_at) 
@@ -121,7 +123,7 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     const tenantId = getTenantId(req);
     console.log('📤 Publishing settings-updated to Redis');
     console.log('📤 Broadcasting value:', { key, value });
-    await redisService.publish('settings-updated', {
+    await notificationService.publish('settings-updated', {
       key: key,
       value: value,
       timestamp: new Date().toISOString()
@@ -206,6 +208,7 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     // Update APP_URL only if it's different
     if (!currentAppUrl || currentAppUrl.value !== normalizedUrl) {
+      // Use ? placeholders - PostgresDatabase adapter will convert automatically
       await wrapQuery(
         db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
         'INSERT'
@@ -252,13 +255,13 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     ];
     
     // Clear all mail-related settings in a single transaction
+    // Use ? placeholders - PostgresDatabase adapter will convert automatically
+    const insertQuery = `INSERT OR REPLACE INTO settings (key, value, updated_at) 
+                         VALUES (?, ?, CURRENT_TIMESTAMP)`;
+    
     if (isProxyDatabase(db)) {
       // Proxy mode: Collect all queries and send as batch
       const batchQueries = [];
-      const insertQuery = `
-        INSERT OR REPLACE INTO settings (key, value, updated_at) 
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-      `;
       
       // Clear SMTP fields (set to empty strings)
       for (const key of mailSettingsToClear) {
@@ -283,10 +286,7 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
-        const stmt = db.prepare(`
-          INSERT OR REPLACE INTO settings (key, value, updated_at) 
-          VALUES (?, ?, CURRENT_TIMESTAMP)
-        `);
+        const stmt = db.prepare(insertQuery);
         
         // Clear SMTP fields (set to empty strings)
         for (const key of mailSettingsToClear) {
@@ -302,7 +302,7 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     // Publish to Redis for real-time updates (single message for all changes)
     const tenantId = getTenantId(req);
     console.log('📤 Publishing mail-settings-cleared to Redis');
-    await redisService.publish('settings-updated', {
+    await notificationService.publish('settings-updated', {
       key: 'MAIL_SETTINGS_CLEARED',
       value: 'all',
       timestamp: new Date().toISOString(),

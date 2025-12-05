@@ -6,11 +6,11 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import { authenticateAdminPortal, adminPortalRateLimit } from '../middleware/adminAuth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { getNotificationService } from '../services/notificationService.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { isPostgresDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -268,10 +268,13 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 router.get('/users', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
+    // Use PostgreSQL string_agg() or SQLite GROUP_CONCAT()
+    const isPostgres = isPostgresDatabase(db);
+    const rolesAgg = isPostgres ? 'string_agg(r.name, \',\')' : 'GROUP_CONCAT(r.name)';
     const users = await wrapQuery(db.prepare(`
       SELECT 
         u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
-        GROUP_CONCAT(r.name) as roles
+        ${rolesAgg} as roles
       FROM users u
       LEFT JOIN user_roles ur ON u.id = ur.user_id
       LEFT JOIN roles r ON ur.role_id = r.id
@@ -369,7 +372,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
     console.log('📤 Publishing user-created and member-created to Redis for admin portal');
-    await redisService.publish('user-created', {
+    await notificationService.publish('user-created', {
       user: { 
         id: userId, 
         email, 
@@ -389,7 +392,7 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
       console.error('Failed to publish user-created event:', err);
     });
     
-    await redisService.publish('member-created', {
+    await notificationService.publish('member-created', {
       member: {
         id: memberId,
         name: memberName,
@@ -500,7 +503,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated to Redis for admin portal user update');
-    await redisService.publish('user-updated', {
+    await notificationService.publish('user-updated', {
       user: {
         id: updatedUser.id,
         email: updatedUser.email || email,
@@ -520,7 +523,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     // Publish role update if role changed
     if (roleChanged) {
       console.log('📤 Publishing user-role-updated to Redis for admin portal role change');
-      await redisService.publish('user-role-updated', {
+      await notificationService.publish('user-role-updated', {
         userId: userId,
         role: role,
         timestamp: new Date().toISOString()
@@ -1079,7 +1082,7 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
 
     // Publish instance status update to Redis for real-time updates
     const tenantId = getTenantId(req);
-    redisService.publish('instance-status-updated', {
+    notificationService.publish('instance-status-updated', {
       status,
       timestamp: new Date().toISOString()
     }, tenantId);
@@ -1198,7 +1201,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
-    await redisService.publish('user-updated', {
+    await notificationService.publish('user-updated', {
       user: {
         id: updatedUser.id,
         email: updatedUser.email,
@@ -1216,7 +1219,7 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     });
     
     // Publish role update
-    await redisService.publish('user-role-updated', {
+    await notificationService.publish('user-role-updated', {
       userId: userId,
       role: role,
       timestamp: new Date().toISOString()
@@ -1338,9 +1341,9 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
       await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
     } catch (importError) {
       console.error('Error importing NotificationService:', importError);
-      // Fallback to the singleton instance
-      const notificationService = getNotificationService();
-      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
+      // Note: Email notification service (getNotificationService) is not yet implemented
+      // Fallback is not available - email service needs to be implemented
+      console.warn('⚠️ Email notification service not available - invitation email not sent');
     }
     
     console.log(`✅ Invitation sent to user: ${email}`);

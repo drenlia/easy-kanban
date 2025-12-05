@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { TeamMember, SavedFilterView } from '../types';
-import { getMembers, getCurrentUser } from '../api';
+import { getMembers, getCurrentUser, getActivityFeed } from '../api';
 
 interface UseMemberWebSocketProps {
   // State setters
@@ -96,9 +96,22 @@ export const useMemberWebSocket = ({
     }
   }, [currentUser?.id, taskFilters.includeSystem, setCurrentUser, setMembers]);
 
-  const handleActivityUpdated = useCallback((data: any) => {
-    // Refresh activity feed
-    handleActivitiesUpdate(data.activities || []);
+  const handleActivityUpdated = useCallback(async (data: any) => {
+    // Since we now send minimal notifications (to avoid PostgreSQL 8000-byte limit),
+    // we need to fetch the full activity feed from the API
+    // Check if we have activities in the payload (backward compatibility with Redis)
+    if (data.activities && Array.isArray(data.activities) && data.activities.length > 0) {
+      // Old format with activities array - use it directly
+      handleActivitiesUpdate(data.activities);
+    } else {
+      // New minimal format - fetch from API
+      try {
+        const activities = await getActivityFeed(20);
+        handleActivitiesUpdate(activities);
+      } catch (error) {
+        console.error('Failed to fetch activity feed after notification:', error);
+      }
+    }
   }, [handleActivitiesUpdate]);
 
   const handleFilterCreated = useCallback((data: any) => {

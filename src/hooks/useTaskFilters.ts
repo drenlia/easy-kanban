@@ -5,6 +5,13 @@ import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } fro
 import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
 import { SYSTEM_MEMBER_ID } from '../constants/appConstants';
 
+// Extend Window interface for justUpdatedFromWebSocket flag
+declare global {
+  interface Window {
+    justUpdatedFromWebSocket?: boolean;
+  }
+}
+
 interface UseTaskFiltersProps {
   columns: Columns;
   members: TeamMember[];
@@ -51,6 +58,17 @@ export const useTaskFilters = ({
   const [currentFilterView, setCurrentFilterView] = useState<SavedFilterView | null>(null);
   const [sharedFilterViews, setSharedFilterViews] = useState<SavedFilterView[]>([]);
   const [filteredColumns, setFilteredColumns] = useState<Columns>({});
+  
+  // Track previous columns to detect when batch update completes
+  const prevColumnsRef = useRef<Columns>({});
+  const batchUpdateInProgressRef = useRef<boolean>(false);
+  
+  // CRITICAL: Use a ref to always access the latest columns value
+  // This prevents stale closure issues when filtering is delayed
+  const columnsRef = useRef<Columns>(columns);
+  useEffect(() => {
+    columnsRef.current = columns;
+  }, [columns]);
 
   // Update viewModeRef when viewMode changes
   useEffect(() => {
@@ -59,12 +77,40 @@ export const useTaskFilters = ({
 
   // Enhanced filtering effect with watchers/collaborators/requesters support
   useEffect(() => {
-    const performFiltering = () => {
+    // CRITICAL: Delay filtering if we just updated from WebSocket to prevent overwriting batch updates
+    // The batch processing sets this flag and clears it after 2 seconds
+    // We'll delay filtering to let the batch update complete, but still filter soon after
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    // Detect if this is a batch update (large change in task count or column structure)
+    const currentTaskCount = Object.values(columns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+    const prevTaskCount = Object.values(prevColumnsRef.current).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+    const isLargeChange = Math.abs(currentTaskCount - prevTaskCount) > 50; // Large change suggests batch update
+    
+    // Update refs
+    if (window.justUpdatedFromWebSocket || isLargeChange) {
+      batchUpdateInProgressRef.current = true;
+    }
+    prevColumnsRef.current = columns;
+    
+    // CRITICAL: Refactor performFiltering to accept columns as parameter to avoid stale closure
+    const performFiltering = (columnsToFilter: Columns = columns) => {
+      // CRITICAL: Don't filter if columns is empty - might be during batch update
+      if (!columnsToFilter || Object.keys(columnsToFilter).length === 0) {
+        return;
+      }
+      
+      // CRITICAL: Check if columns have tasks - if all columns are empty, something is wrong
+      const totalTasks = Object.values(columnsToFilter).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+      if (totalTasks === 0) {
+        return;
+      }
+      
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
       
       if (!isFiltering) {
-        setFilteredColumns(columns);
+        setFilteredColumns(columnsToFilter);
         return;
       }
 
@@ -161,7 +207,7 @@ export const useTaskFilters = ({
 
       const filteredColumns: any = {};
       
-      for (const [columnId, column] of Object.entries(columns)) {
+      for (const [columnId, column] of Object.entries(columnsToFilter)) {
         let columnTasks = column.tasks;
 
         // FIRST: Apply sprint filtering (if a sprint is selected)
@@ -204,10 +250,81 @@ export const useTaskFilters = ({
         };
       }
       
+      const filteredTaskCount = Object.values(filteredColumns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+      const originalTaskCount = Object.values(columnsToFilter).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+      
+      // CRITICAL: If filtering resulted in all tasks being removed, but we had tasks before,
+      // this might indicate a bug. However, we should still set filteredColumns to avoid
+      // showing stale data. The filtering logic should be correct.
+      // 
+      // But if we had NO tasks to begin with, don't update filteredColumns (might be during batch update)
+      if (originalTaskCount === 0 && filteredTaskCount === 0) {
+        return;
+      }
+      
+      // CRITICAL: Always set filteredColumns, even if some columns are empty
+      // This ensures the UI reflects the current filter state
       setFilteredColumns(filteredColumns);
     };
 
-    performFiltering();
+    if (window.justUpdatedFromWebSocket || batchUpdateInProgressRef.current) {
+      // Delay filtering to let batch update complete
+      // The batch update processes all updates in a single setColumns call, but React state updates
+      // are asynchronous, so we need to wait longer to ensure the state has fully settled
+      // We use a longer delay to ensure the batch update's setColumns has been applied
+      batchUpdateInProgressRef.current = false; // Reset flag
+      timeoutId = setTimeout(() => {
+        // CRITICAL: The effect will re-run when columns changes, so we don't need to manually
+        // read from the ref here. Instead, we should just let the effect run again naturally.
+        // But to ensure we have the latest data, we'll use a callback pattern to force
+        // the effect to re-evaluate with the latest columns value.
+        // 
+        // Actually, the best approach is to just let the effect run again when columns changes.
+        // The delay is just to prevent it from running too early. But we need to ensure
+        // we're using the latest columns value.
+        //
+        // Since the effect depends on `columns`, when columns changes (from batch update),
+        // the effect will run again. But we're delaying it, so we need to ensure we read
+        // the latest value. The ref should be updated by now, but let's also check the
+        // current columns value from the closure to be safe.
+        //
+        // Actually, the real issue is that we're delaying the effect, but when it runs,
+        // it uses the `columns` value from when the effect was set up, not the current value.
+        // So we need to use the ref OR trigger the effect to run again.
+        //
+        // The simplest solution: Don't delay if columns has already changed. Or use a
+        // different approach - use a state variable to track when batch update completes.
+        //
+        // For now, let's use the ref but also add a check to ensure it's up to date.
+        const latestColumns = columnsRef.current;
+        
+        // Also check the current columns from closure - if they're different, use the newer one
+        const currentColumnsFromClosure = columns;
+        const refTaskCount = Object.values(latestColumns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+        const closureTaskCount = Object.values(currentColumnsFromClosure).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+        
+        // Use whichever has more tasks (likely the updated one)
+        const columnsToUse = refTaskCount >= closureTaskCount ? latestColumns : currentColumnsFromClosure;
+        
+        if (!columnsToUse || Object.keys(columnsToUse).length === 0) {
+          return;
+        }
+        const totalTasks = Object.values(columnsToUse).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
+        if (totalTasks === 0) {
+          return;
+        }
+        
+        // CRITICAL: Pass the columns we determined to use
+        performFiltering(columnsToUse);
+      }, 400); // 400ms delay - enough for batch update to complete and React state to settle
+      
+      return () => {
+        if (timeoutId) clearTimeout(timeoutId);
+      };
+    } else {
+      // Run filtering immediately
+      performFiltering();
+    }
   }, [columns, searchFilters.text, searchFilters.dateFrom, searchFilters.dateTo, searchFilters.dueDateFrom, searchFilters.dueDateTo, searchFilters.selectedPriorities, searchFilters.selectedTags, searchFilters.projectId, searchFilters.taskId, isSearchActive, selectedMembers, includeAssignees, includeWatchers, includeCollaborators, includeRequesters, selectedSprintId, members, boards]);
 
   // Helper function to quickly check if a task should be included (synchronous checks only for WebSocket updates)

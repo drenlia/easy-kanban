@@ -66,10 +66,9 @@ export const handleSameColumnReorder = async (
     position: index
   }));
   
-  // Set flag to prevent WebSocket interference
-  if (window.setJustUpdatedFromWebSocket) {
-    window.setJustUpdatedFromWebSocket(true);
-  }
+  // NOTE: We don't set the flag here anymore
+  // The WebSocket handler will set it when the first update arrives
+  // This ensures WebSocket updates are processed correctly
   
   setColumns(prev => ({
     ...prev,
@@ -94,12 +93,8 @@ export const handleSameColumnReorder = async (
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
-      // Reset WebSocket flag after drag operation completes
-      if (window.setJustUpdatedFromWebSocket) {
-        window.setJustUpdatedFromWebSocket(false);
-      }
       // Note: We don't refresh immediately to preserve the optimistic update
-      // The next poll will sync the state if needed
+      // The WebSocket updates will sync the state correctly
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
     // Rollback optimistic update on error
@@ -108,11 +103,6 @@ export const handleSameColumnReorder = async (
       ...prev,
       [columnId]: previousColumnState
     }));
-    
-    // Reset WebSocket flag
-    if (window.setJustUpdatedFromWebSocket) {
-      window.setJustUpdatedFromWebSocket(false);
-    }
     
     // Try to refresh from server, but don't wait for it (it might also fail)
     refreshBoardData().catch(() => {
@@ -181,6 +171,8 @@ export const handleCrossColumnMove = async (
   };
 
   // Update UI optimistically
+  // NOTE: We don't set the WebSocket flag here - let the WebSocket handler set it
+  // This ensures WebSocket updates are processed correctly and can fix any issues with the optimistic update
   setColumns(prev => ({
     ...prev,
     [sourceColumnId]: {
@@ -227,7 +219,7 @@ export const handleCrossColumnMove = async (
     setTimeout(() => {
       setDragCooldown(false);
       // Note: We don't refresh immediately to preserve the optimistic update
-      // The next poll will sync the state if needed
+      // The WebSocket updates will sync the state correctly
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
     // Rollback optimistic update on error

@@ -1,6 +1,6 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
@@ -62,7 +62,7 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('column-created', {
+    await notificationService.publish('column-created', {
       boardId: boardId,
       column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },
       updatedBy: req.user?.id || 'system',
@@ -138,7 +138,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('column-updated', {
+    await notificationService.publish('column-updated', {
       boardId: column.boardId,
       column: { id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived },
       updatedBy: req.user?.id || 'system',
@@ -171,7 +171,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('column-deleted', {
+    await notificationService.publish('column-deleted', {
       boardId: column.boardId,
       columnId: id,
       updatedBy: req.user?.id || 'system',
@@ -227,7 +227,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 
     // Publish to Redis for real-time updates - include all columns
     const tenantId = getTenantId(req);
-    await redisService.publish('column-reordered', {
+    await notificationService.publish('column-reordered', {
       boardId: boardId,
       columnId: columnId,
       newPosition: newPosition,

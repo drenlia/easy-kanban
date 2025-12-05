@@ -1,11 +1,16 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
 
 const router = express.Router();
+
+// Helper to get the actual notification system being used (for accurate logging)
+const getNotificationSystem = () => {
+  return process.env.DB_TYPE === 'postgresql' ? 'PostgreSQL' : 'Redis';
+};
 
 // Get all priorities (authenticated users only) - must come BEFORE admin routes
 // Skip if mounted at /api/admin/priorities (admin routes will handle it)
@@ -121,20 +126,38 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     const maxPosition = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM priorities'), 'SELECT').get();
     const position = (maxPosition?.maxPos || -1) + 1;
     
-    const result = await wrapQuery(db.prepare(`
-      INSERT INTO priorities (priority, color, position, initial) 
-      VALUES (?, ?, ?, 0)
-    `), 'INSERT').run(priority, color, position);
+    // Insert the priority
+    // For PostgreSQL, we'll query by priority name (unique) after insert
+    // For SQLite, we can use lastInsertRowid
+    const isPostgres = isPostgresDatabase(db);
+    let newPriority;
     
-    const newPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    if (isPostgres) {
+      // PostgreSQL: Insert and then query by unique priority name
+      await wrapQuery(db.prepare(`
+        INSERT INTO priorities (priority, color, position, initial) 
+        VALUES ($1, $2, $3, 0)
+      `), 'INSERT').run(priority, color, position);
+      
+      // Query by priority name (unique constraint) to get the full record
+      newPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE priority = $1'), 'SELECT').get(priority);
+    } else {
+      // SQLite: Use lastInsertRowid
+      const result = await wrapQuery(db.prepare(`
+        INSERT INTO priorities (priority, color, position, initial) 
+        VALUES (?, ?, ?, 0)
+      `), 'INSERT').run(priority, color, position);
+      
+      newPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    }
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-created to Redis');
-    await redisService.publish('priority-created', {
+    console.log(`📤 Publishing priority-created via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-created', {
       priority: newPriority,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-created published to Redis');
+    console.log(`✅ Priority-created published via ${getNotificationSystem()}`);
     
     res.json(newPriority);
   } catch (error) {
@@ -189,12 +212,12 @@ router.put('/reorder', authenticateToken, requireRole(['admin']), async (req, re
     const updatedPriorities = await wrapQuery(db.prepare('SELECT * FROM priorities ORDER BY position ASC'), 'SELECT').all();
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-reordered to Redis');
-    await redisService.publish('priority-reordered', {
+    console.log(`📤 Publishing priority-reordered via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-reordered', {
       priorities: updatedPriorities,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-reordered published to Redis');
+    console.log(`✅ Priority-reordered published via ${getNotificationSystem()}`);
     
     res.json(updatedPriorities);
   } catch (error) {
@@ -220,12 +243,12 @@ router.put('/:priorityId', authenticateToken, requireRole(['admin']), async (req
     const updatedPriority = await wrapQuery(db.prepare('SELECT * FROM priorities WHERE id = ?'), 'SELECT').get(priorityId);
     
     // Publish to Redis for real-time updates
-    console.log('📤 Publishing priority-updated to Redis');
-    await redisService.publish('priority-updated', {
+    console.log(`📤 Publishing priority-updated via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-updated', {
       priority: updatedPriority,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-updated published to Redis');
+    console.log(`✅ Priority-updated published via ${getNotificationSystem()}`);
     
     res.json(updatedPriority);
   } catch (error) {
@@ -266,12 +289,12 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
     }
     
     // Check if priority is being used (by priority_id)
-    const tasksUsingPriority = await wrapQuery(db.prepare(`
-      SELECT id, ticket, title, boardId
-      FROM tasks 
-      WHERE priority_id = ?
-      ORDER BY ticket
-    `), 'SELECT').all(priorityId);
+    // For PostgreSQL, use lowercase column name with alias to preserve camelCase
+    const isPostgres = isPostgresDatabase(db);
+    const tasksQuery = isPostgres
+      ? `SELECT id, ticket, title, boardid as "boardId" FROM tasks WHERE priority_id = $1 ORDER BY ticket`
+      : `SELECT id, ticket, title, boardId FROM tasks WHERE priority_id = ? ORDER BY ticket`;
+    const tasksUsingPriority = await wrapQuery(db.prepare(tasksQuery), 'SELECT').all(priorityId);
     
     // Use transaction to ensure atomicity
     await dbTransaction(db, async () => {
@@ -292,14 +315,14 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
       await wrapQuery(db.prepare('DELETE FROM priorities WHERE id = ?'), 'DELETE').run(priorityId);
     });
     
-    // Publish priority deletion to Redis for real-time updates
-    console.log('📤 Publishing priority-deleted to Redis');
-    await redisService.publish('priority-deleted', {
+    // Publish priority deletion for real-time updates
+    console.log(`📤 Publishing priority-deleted via ${getNotificationSystem()}`);
+    await notificationService.publish('priority-deleted', {
       priorityId: priorityId,
       priority: priorityToDelete,
       timestamp: new Date().toISOString()
     });
-    console.log('✅ Priority-deleted published to Redis');
+    console.log(`✅ Priority-deleted published via ${getNotificationSystem()}`);
     
     // If tasks were reassigned, publish task updates for each affected board
     if (tasksUsingPriority.length > 0) {
@@ -315,13 +338,44 @@ router.delete('/:priorityId', authenticateToken, requireRole(['admin']), async (
         console.log(`📤 Publishing ${tasks.length} task updates for board ${boardId}`);
         
         for (const task of tasks) {
-          // Fetch updated task data
-          const updatedTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          // Fetch updated task data with priority information (including color)
+          // This ensures the frontend receives complete priority data for proper display
+          const updatedTask = await wrapQuery(
+            db.prepare(`
+              SELECT t.*, 
+                     p.id as priorityId,
+                     p.priority as priorityName,
+                     p.color as priorityColor
+              FROM tasks t
+              LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
+              WHERE t.id = ?
+            `),
+            'SELECT'
+          ).get(task.id);
           
           if (updatedTask) {
-            await redisService.publish('task-updated', {
+            // Ensure priority fields are properly set for frontend
+            // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
+            const priorityId = updatedTask.priorityId || updatedTask.priority_id || null;
+            const priorityName = updatedTask.priorityName || null; // Use JOIN value only, not task.priority
+            const priorityColor = updatedTask.priorityColor || null;
+            
+            // Build clean task object with explicit priority fields
+            // CRITICAL: Exclude the stale priority field from tasks table, use priorityName from JOIN only
+            // This ensures the frontend receives the correct priority data and overrides any cached values
+            const { priority: stalePriority, priority_id: stalePriorityId, ...taskWithoutStalePriority } = updatedTask;
+            const cleanTask = {
+              ...taskWithoutStalePriority,
+              // Explicitly set priority fields from JOIN (source of truth)
+              priority: priorityName, // Use priorityName from JOIN, not stale tasks.priority field
+              priorityId: priorityId,
+              priorityName: priorityName,
+              priorityColor: priorityColor
+            };
+            
+            await notificationService.publish('task-updated', {
               boardId: boardId,
-              task: updatedTask,
+              task: cleanTask,
               timestamp: new Date().toISOString()
             });
           }

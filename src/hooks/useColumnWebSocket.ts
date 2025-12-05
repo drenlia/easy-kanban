@@ -138,9 +138,15 @@ export const useColumnWebSocket = ({
   const handleColumnReordered = useCallback((data: any) => {
     if (!data.boardId || !data.columns) return;
     
+    // CRITICAL: Skip if we just updated from WebSocket to prevent overwriting batch updates
+    if (window.justUpdatedFromWebSocket) {
+      console.log('⏭️ [Column Reordered] Skipping - WebSocket update in progress');
+      return;
+    }
+    
     // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
     // But allow updates from other users
-    if (window.justUpdatedFromWebSocket && data.updatedBy === currentUser?.id) {
+    if (data.updatedBy === currentUser?.id) {
       return;
     }
     

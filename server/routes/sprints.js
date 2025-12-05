@@ -2,8 +2,9 @@ import express from 'express';
 import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -56,10 +57,21 @@ router.get('/active', authenticateToken, async (req, res) => {
 });
 
 // GET /api/admin/sprints/:id/usage - Get sprint usage count (for deletion confirmation)
-router.get("/:id", authenticateToken, async (req, res) => {
+// This route must come before the PUT /:id and DELETE /:id routes
+router.get("/:id/usage", authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;
+    
+    // Check if sprint exists first
+    const sprint = await wrapQuery(
+      db.prepare('SELECT id FROM planning_periods WHERE id = ?'),
+      'SELECT'
+    ).get(id);
+    
+    if (!sprint) {
+      return res.status(404).json({ error: 'Sprint not found' });
+    }
     
     // Count tasks that use this sprint (by sprint_id)
     const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE sprint_id = ?'), 'SELECT').get(id);
@@ -126,7 +138,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-created to Redis');
-    await redisService.publish('sprint-created', {
+    await notificationService.publish('sprint-created', {
       sprint: newSprint,
       timestamp: new Date().toISOString()
     });
@@ -202,7 +214,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-updated to Redis');
-    await redisService.publish('sprint-updated', {
+    await notificationService.publish('sprint-updated', {
       sprint: updated,
       timestamp: new Date().toISOString()
     });
@@ -263,7 +275,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-deleted to Redis');
-    await redisService.publish('sprint-deleted', {
+    await notificationService.publish('sprint-deleted', {
       sprintId: id,
       sprint: existing,
       timestamp: new Date().toISOString()
@@ -288,7 +300,7 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
           const updatedTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
           
           if (updatedTask) {
-            await redisService.publish('task-updated', {
+            await notificationService.publish('task-updated', {
               boardId: boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()

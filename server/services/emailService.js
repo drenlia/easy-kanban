@@ -237,7 +237,7 @@ class EmailService {
     const transporter = await this.createTransporter(settings);
 
     // Use EmailTemplates for consistent, translatable content
-    const emailTemplate = EmailTemplates.passwordReset({
+    const emailTemplate = await EmailTemplates.passwordReset({
       user,
       resetUrl,
       siteName: settings.SITE_NAME || 'Easy Kanban',

@@ -73,8 +73,9 @@ class LicenseManager {
   async getUserCount() {
     try {
       const systemUserId = '00000000-0000-0000-0000-000000000000';
+      // Use true instead of 1 for PostgreSQL compatibility (SQLite also accepts true)
       const result = await wrapQuery(
-        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND id != ?'),
+        this.db.prepare('SELECT COUNT(*) as count FROM users WHERE is_active = true AND id != ?'),
         'SELECT'
       ).get(systemUserId);
       return result.count;

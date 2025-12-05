@@ -2,7 +2,7 @@ import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkUserLimit } from '../middleware/licenseCheck.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 
 const router = express.Router();
@@ -77,7 +77,7 @@ router.post('/', checkUserLimit, async (req, res) => {
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-created to Redis');
-    await redisService.publish('member-created', {
+    await notificationService.publish('member-created', {
       member: { id, name, color },
       timestamp: new Date().toISOString()
     });
@@ -99,7 +99,7 @@ router.delete('/:id', async (req, res) => {
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-deleted to Redis');
-    await redisService.publish('member-deleted', {
+    await notificationService.publish('member-deleted', {
       memberId: id,
       timestamp: new Date().toISOString()
     });

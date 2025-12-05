@@ -10,9 +10,9 @@ export const EmailTemplates = {
    * User Invitation Template
    * Sent when an admin creates a new local account
    */
-  userInvite: (data) => {
+  userInvite: async (data) => {
     const { user, inviteUrl, adminName, siteName, db } = data;
-    const t = db ? getTranslator(db) : (key, options = {}) => key;
+    const t = db ? await getTranslator(db) : (key, options = {}) => key;
     
     return {
       subject: t('emails.userInvite.subject', { siteName: siteName || 'Easy Kanban' }),
@@ -88,7 +88,7 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
    * Task Notification Template
    * Sent when tasks are created, updated, assigned, etc.
    */
-  taskNotification: (data) => {
+  taskNotification: async (data) => {
     const { 
       user, 
       task, 
@@ -104,7 +104,7 @@ ${t('emails.userInvite.body6', { siteName: siteName || 'Easy Kanban' })}`,
       db
     } = data;
 
-    const t = db ? getTranslator(db) : (key, options = {}) => key;
+    const t = db ? await getTranslator(db) : (key, options = {}) => key;
 
     const getActionMessage = () => {
       const actionKey = actionType || 'default';
@@ -192,7 +192,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
    * Comment Notification Template
    * Sent when comments are added to tasks
    */
-  commentNotification: (data) => {
+  commentNotification: async (data) => {
     const { 
       user, 
       task, 
@@ -206,7 +206,7 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
       db
     } = data;
 
-    const t = db ? getTranslator(db) : (key, options = {}) => key;
+    const t = db ? await getTranslator(db) : (key, options = {}) => key;
 
     // Format timestamp for display
     const formattedTimestamp = timestamp ? formatDateTimeLocal(timestamp) : formatDateTimeLocal(new Date());
@@ -290,9 +290,9 @@ ${t('emails.taskNotification.common.teamSignature', { siteName: siteName || 'Eas
    * Password Reset Template
    * Sent when users request password reset
    */
-  passwordReset: (data) => {
+  passwordReset: async (data) => {
     const { user, resetUrl, siteName, db } = data;
-    const t = db ? getTranslator(db) : (key, options = {}) => key;
+    const t = db ? await getTranslator(db) : (key, options = {}) => key;
     
     return {
       subject: t('emails.passwordReset.subject'),

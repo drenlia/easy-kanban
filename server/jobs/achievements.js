@@ -359,7 +359,7 @@ export const checkAllUserAchievements = async (db) => {
     // Publish new achievements to WebSocket for real-time notifications
     if (newAchievements.length > 0) {
       try {
-        await redisService.publish('achievements-awarded', {
+        await notificationService.publish('achievements-awarded', {
           achievements: newAchievements,
           timestamp: new Date().toISOString()
         });

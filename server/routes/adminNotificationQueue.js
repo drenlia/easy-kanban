@@ -1,8 +1,9 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { getNotificationService } from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import EmailService from '../services/emailService.js';
+import { EmailTemplates } from '../services/emailTemplates.js';
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
     const db = getRequestDatabase(req);
     
     // Get all notification queue items with human-readable data
-    const notifications = wrapQuery(
+    const notificationsResult = await wrapQuery(
       db.prepare(`
         SELECT 
           nq.id,
@@ -52,13 +53,16 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
         LEFT JOIN users u ON nq.user_id = u.id
         LEFT JOIN members m ON u.id = m.user_id
         LEFT JOIN tasks t ON nq.task_id = t.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN columns c ON t.columnid = c.id
+        LEFT JOIN boards b ON t.boardid = b.id
         ORDER BY nq.updated_at DESC
         LIMIT 500
       `),
       'SELECT'
     ).all();
+
+    // Ensure we have an array (PostgreSQL returns array, but handle edge cases)
+    const notifications = Array.isArray(notificationsResult) ? notificationsResult : [];
 
     // Parse actor data from JSON
     const notificationsWithActor = notifications.map(notif => {
@@ -118,20 +122,16 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
     }
 
     const db = getRequestDatabase(req);
-    const notificationService = getNotificationService();
-
-    if (!notificationService) {
-      return res.status(500).json({ error: 'Notification service not available' });
-    }
-
+    const emailService = new EmailService(db);
+    
     let sentCount = 0;
     let failedCount = 0;
     const errors = [];
-
+    
     for (const notificationId of notificationIds) {
       try {
         // Get notification from queue
-        const notification = wrapQuery(
+        const notification = await wrapQuery(
           db.prepare(`
             SELECT *
             FROM notification_queue
@@ -151,27 +151,77 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
         const participants = JSON.parse(notification.participants_data);
         const actor = JSON.parse(notification.actor_data);
 
-        // Create notification data for sending
-        const notificationData = {
-          userId: notification.user_id, // Recipient
-          taskId: notification.task_id,
-          action: notification.change_count > 1 ? 'consolidated_update' : notification.action,
-          details: notification.details,
+        // Get recipient user info
+        const recipientUser = await wrapQuery(
+          db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
+          'SELECT'
+        ).get(notification.user_id);
+
+        if (!recipientUser) {
+          errors.push(`Recipient user ${notification.user_id} not found for notification ${notificationId}`);
+          failedCount++;
+          continue;
+        }
+
+        // Get board info for task URL
+        const boardInfo = await wrapQuery(
+          db.prepare('SELECT id, title FROM boards WHERE id = ?'),
+          'SELECT'
+        ).get(task.boardId || task.boardid);
+
+        // Get APP_URL for building task URL
+        const appUrlSetting = await wrapQuery(
+          db.prepare('SELECT value FROM settings WHERE key = ?'),
+          'SELECT'
+        ).get('APP_URL');
+        
+        let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+        baseUrl = baseUrl.replace(/\/$/, '');
+        
+        // Build task URL - use ticket if available, otherwise use task ID
+        const taskTicket = task.ticket || task.id;
+        const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+
+        // Get site name
+        const siteNameSetting = await wrapQuery(
+          db.prepare('SELECT value FROM settings WHERE key = ?'),
+          'SELECT'
+        ).get('SITE_NAME');
+        const siteName = siteNameSetting?.value || 'Easy Kanban';
+
+        // Determine action type and details
+        const actionType = notification.change_count > 1 ? 'consolidated_update' : notification.action;
+        const actionDetails = notification.details;
+
+        // Create email template data
+        const emailTemplateData = {
+          user: recipientUser,
+          task: task,
+          board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
+          project: null,
+          actionType: actionType,
+          actionDetails: actionDetails,
+          taskUrl: taskUrl,
+          siteName: siteName,
           oldValue: notification.old_value,
           newValue: notification.new_value,
-          task,
-          participants,
-          actor,
-          notificationType: notification.notification_type,
-          changeCount: notification.change_count,
-          timestamp: notification.last_change_time
+          timestamp: notification.last_change_time,
+          db: db
         };
 
-        // Send immediately
-        await notificationService.sendEmailDirectly(notificationData);
+        // Generate email content using template
+        const emailContent = await EmailTemplates.taskNotification(emailTemplateData);
+
+        // Send email
+        await emailService.sendEmail({
+          to: recipientUser.email,
+          subject: emailContent.subject,
+          text: emailContent.text,
+          html: emailContent.html
+        });
 
         // Mark as sent
-        wrapQuery(
+        await wrapQuery(
           db.prepare(`
             UPDATE notification_queue
             SET status = 'sent', sent_at = CURRENT_TIMESTAMP

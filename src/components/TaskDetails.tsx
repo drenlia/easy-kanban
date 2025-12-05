@@ -199,6 +199,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     setCommentAttachments({});
   }, [task.id]); // Only depend on task.id to trigger when switching tasks
 
+  // Update local date state when task dates change (from WebSocket updates)
+  // This is separate from the task.id effect to handle date updates for the same task
+  useEffect(() => {
+    // Update local state when task dates change (from WebSocket or other updates)
+    setLocalStartDate(task.startDate);
+    setLocalDueDate(task.dueDate || '');
+  }, [task.startDate, task.dueDate]); // Update when dates change, even if task ID is same
+
   // Auto-refresh comments when task prop updates (from polling)
   useEffect(() => {
     // Don't process updates if we're currently editing a comment

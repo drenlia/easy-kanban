@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
@@ -24,7 +24,8 @@ router.post('/login', loginLimiter, async (req, res) => {
   
   try {
     // Find user by email
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1'), 'SELECT').get(email);
+    // Note: is_active is BOOLEAN in PostgreSQL, so use = true instead of = 1
+    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ? AND is_active = true'), 'SELECT').get(email);
     
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -49,7 +50,8 @@ router.post('/login', loginLimiter, async (req, res) => {
     const userRoles = roles.map(r => r.name);
     
     // Clear force_logout flag on successful login
-    await wrapQuery(db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?'), 'UPDATE').run(user.id);
+    // Note: force_logout is BOOLEAN in PostgreSQL, so use = false instead of = 0
+    await wrapQuery(db.prepare('UPDATE users SET force_logout = false WHERE id = ?'), 'UPDATE').run(user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)
@@ -135,7 +137,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     // Activate user and update password
     await wrapQuery(db.prepare(`
       UPDATE users 
-      SET is_active = 1, password_hash = ?, updated_at = CURRENT_TIMESTAMP
+      SET is_active = true, password_hash = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `), 'UPDATE').run(passwordHash, invitation.user_id);
     
@@ -166,7 +168,7 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     // Publish to Redis for real-time updates to admin panel
     const tenantId = getTenantId(req);
     console.log('📤 Publishing user-updated to Redis for account activation');
-    redisService.publish('user-updated', {
+    notificationService.publish('user-updated', {
       user: {
         id: updatedUser.id,
         email: updatedUser.email,
@@ -616,7 +618,7 @@ router.get('/google/callback', async (req, res) => {
             // Activate the account and convert to Google auth
             await wrapQuery(db.prepare(`
               UPDATE users 
-              SET is_active = 1,
+              SET is_active = true,
                   auth_provider = 'google', 
                   google_avatar_url = ?,
                   updated_at = datetime('now')
@@ -629,7 +631,7 @@ router.get('/google/callback', async (req, res) => {
             console.log('🔐 [GOOGLE SSO] ✅ Invited user activated and converted to Google auth');
             
             // Update user object to reflect activation
-            user.is_active = 1;
+            user.is_active = true;
             user.auth_provider = 'google';
             
             // Get member info for the activated user
@@ -640,7 +642,7 @@ router.get('/google/callback', async (req, res) => {
             
             // Publish user-updated for admin panel
             const tenantId = getTenantId(req);
-            redisService.publish('user-updated', {
+            notificationService.publish('user-updated', {
               user: {
                 id: user.id,
                 email: user.email,
@@ -659,7 +661,7 @@ router.get('/google/callback', async (req, res) => {
             
             // Publish member-updated for Kanban board team members list
             if (memberInfo) {
-              redisService.publish('member-updated', {
+              notificationService.publish('member-updated', {
                 memberId: memberInfo.id,
                 member: {
                   id: memberInfo.id,
@@ -729,7 +731,8 @@ router.get('/google/callback', async (req, res) => {
     console.log('🔐 [GOOGLE SSO] User roles found:', userRoles);
     
     // Clear force_logout flag on successful login
-    await wrapQuery(db.prepare('UPDATE users SET force_logout = 0 WHERE id = ?'), 'UPDATE').run(user.id);
+    // Note: force_logout is BOOLEAN in PostgreSQL, so use = false instead of = 0
+    await wrapQuery(db.prepare('UPDATE users SET force_logout = false WHERE id = ?'), 'UPDATE').run(user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)

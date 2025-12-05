@@ -8,7 +8,7 @@
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { initializeDatabase, getDbPath } from '../config/database.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -117,7 +117,7 @@ const getTenantDatabase = async (tenantId) => {
   
   // If version changed, broadcast to this tenant
   if (dbInfo.versionChanged && dbInfo.appVersion) {
-    redisService.publish('version-updated', { version: dbInfo.appVersion }, tenantId);
+    notificationService.publish('version-updated', { version: dbInfo.appVersion }, tenantId);
     console.log(`📦 Broadcasting version update to tenant ${tenantId || 'default'}: ${dbInfo.appVersion}`);
   }
   

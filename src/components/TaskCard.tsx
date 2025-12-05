@@ -1759,13 +1759,26 @@ const TaskCard = React.memo(function TaskCard({
               style={(() => {
                 // Always use priorityId to find the current priority (handles renamed priorities)
                 // Fall back to priorityName from API (from JOIN), then stored priority name
-                const priorityOption = task.priorityId 
+                let priorityOption = task.priorityId 
                   ? availablePriorities.find(p => p.id === task.priorityId)
-                  : (task.priorityName 
-                    ? availablePriorities.find(p => p.priority === task.priorityName)
-                    : (task.priority 
-                      ? availablePriorities.find(p => p.priority === task.priority)
-                      : null));
+                  : null;
+                
+                // If priorityId lookup failed, try priorityName (from WebSocket JOIN)
+                if (!priorityOption && task.priorityName) {
+                  priorityOption = availablePriorities.find(p => p.priority === task.priorityName);
+                }
+                
+                // Last fallback: try stored priority name
+                if (!priorityOption && task.priority) {
+                  priorityOption = availablePriorities.find(p => p.priority === task.priority);
+                }
+                
+                // If we have priorityColor from WebSocket but no matching priority in availablePriorities,
+                // use the color directly (handles deleted priority reassignment)
+                if (!priorityOption && task.priorityColor) {
+                  return getPriorityColors(task.priorityColor);
+                }
+                
                 return priorityOption ? getPriorityColors(priorityOption.color) : { backgroundColor: '#f3f4f6', color: '#6b7280' };
               })()}
               title={t('taskCard.clickToChangePriority')}

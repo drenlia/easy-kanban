@@ -1,11 +1,11 @@
 import express from 'express';
 import { wrapQuery } from '../utils/queryLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase, isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
 
 const router = express.Router();
 
@@ -17,8 +17,63 @@ router.get('/', authenticateToken, async (req, res) => {
     const columnsStmt = await wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
     
         // Updated query to include tags, watchers, and collaborators
-    const tasksStmt = await wrapQuery(
-      db.prepare(`
+    const isPostgres = isPostgresDatabase(db);
+    const tasksQuery = isPostgres ? `
+        SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberid as "memberId", t.requesterid as "requesterId", 
+               t.startdate as "startDate", t.duedate as "dueDate", t.effort, t.priority, t.priority_id as "priority_id", t.columnid as "columnId", t.boardid as "boardId", t.sprint_id as "sprint_id",
+               t.created_at, t.updated_at,
+               p.id as "priorityId",
+               p.priority as "priorityName",
+               p.color as "priorityColor",
+               CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                    THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                    ELSE NULL END as attachmentCount,
+          COALESCE(json_agg(json_build_object(
+              'id', c.id,
+              'text', c.text,
+              'authorId', c.authorid,
+              'createdAt', c.createdat
+          )) FILTER (WHERE c.id IS NOT NULL), '[]'::json) as comments,
+          COALESCE(json_agg(json_build_object(
+              'id', tag.id,
+              'tag', tag.tag,
+              'description', tag.description,
+              'color', tag.color
+          )) FILTER (WHERE tag.id IS NOT NULL), '[]'::json) as tags,
+          COALESCE(json_agg(json_build_object(
+              'id', watcher.id,
+              'name', watcher.name,
+              'color', watcher.color,
+              'user_id', watcher.user_id,
+              'email', watcher_user.email,
+              'avatarUrl', watcher_user.avatar_path,
+              'googleAvatarUrl', watcher_user.google_avatar_url
+          )) FILTER (WHERE watcher.id IS NOT NULL), '[]'::json) as watchers,
+          COALESCE(json_agg(json_build_object(
+              'id', collaborator.id,
+              'name', collaborator.name,
+              'color', collaborator.color,
+              'user_id', collaborator.user_id,
+              'email', collaborator_user.email,
+              'avatarUrl', collaborator_user.avatar_path,
+              'googleAvatarUrl', collaborator_user.google_avatar_url
+          )) FILTER (WHERE collaborator.id IS NOT NULL), '[]'::json) as collaborators
+        FROM tasks t
+        LEFT JOIN comments c ON c.taskid = t.id
+        LEFT JOIN task_tags tt ON tt.taskid = t.id
+        LEFT JOIN tags tag ON tag.id = tt.tagid
+        LEFT JOIN watchers w ON w.taskid = t.id
+        LEFT JOIN members watcher ON watcher.id = w.memberid
+        LEFT JOIN users watcher_user ON watcher_user.id = watcher.user_id
+        LEFT JOIN collaborators col ON col.taskid = t.id
+        LEFT JOIN members collaborator ON collaborator.id = col.memberid
+        LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
+        LEFT JOIN attachments a ON a.taskid = t.id
+        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
+        WHERE t.columnid = $1
+        GROUP BY t.id, p.id
+        ORDER BY t.position ASC
+` : `
         SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
                t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
                t.created_at, t.updated_at,
@@ -81,7 +136,9 @@ router.get('/', authenticateToken, async (req, res) => {
         WHERE t.columnId = ?
         GROUP BY t.id, p.id
         ORDER BY t.position ASC
-`),
+`;
+    const tasksStmt = await wrapQuery(
+      db.prepare(tasksQuery),
       'SELECT'
     );
 
@@ -91,20 +148,64 @@ router.get('/', authenticateToken, async (req, res) => {
       
       await Promise.all(columns.map(async column => {
         const tasksRaw = await tasksStmt.all(column.id);
+        // Helper to parse JSON (handles both string and object from PostgreSQL)
+        const parseJsonField = (field) => {
+          // Handle null, undefined, or empty values
+          if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+            return [];
+          }
+          // PostgreSQL returns JSON as objects/arrays directly
+          if (Array.isArray(field)) {
+            return field.filter(Boolean);
+          }
+          // If it's already an object (PostgreSQL JSON type), wrap in array if needed
+          if (typeof field === 'object') {
+            return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
+          }
+          // If it's a string, try to parse it (SQLite format)
+          if (typeof field === 'string') {
+            // Handle empty string or whitespace
+            const trimmed = field.trim();
+            if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
+              return [];
+            }
+            try {
+              const parsed = JSON.parse(trimmed);
+              return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+            } catch (e) {
+              console.warn('Failed to parse JSON field:', e.message, 'Value:', field);
+              return [];
+            }
+          }
+          return [];
+        };
+        
+        // Helper to deduplicate by id
+        const deduplicateById = (arr) => {
+          const seen = new Set();
+          return arr.filter(item => {
+            if (!item || !item.id) return false;
+            if (seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+          });
+        };
+        
         const tasks = tasksRaw.map(task => ({
           ...task,
-          // Use priorityName from JOIN (current name) or fallback to stored priority
-          priority: task.priorityName || task.priority || null,
+          // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
+          // If priorityName is null, the priority was deleted or doesn't exist, so return null
+          priority: task.priorityName || null, // Use JOIN value only, not task.priority
           priorityId: task.priorityId || null,
-          priorityName: task.priorityName || task.priority || null,
+          priorityName: task.priorityName || null, // Use JOIN value only, not task.priority
           priorityColor: task.priorityColor || null,
           sprintId: task.sprint_id || null, // Map snake_case to camelCase
           createdAt: task.created_at, // Map snake_case to camelCase
           updatedAt: task.updated_at, // Map snake_case to camelCase
-          comments: task.comments === '[null]' ? [] : JSON.parse(task.comments).filter(Boolean),
-          tags: task.tags === '[null]' ? [] : JSON.parse(task.tags).filter(Boolean),
-          watchers: task.watchers === '[null]' ? [] : JSON.parse(task.watchers).filter(Boolean),
-          collaborators: task.collaborators === '[null]' ? [] : JSON.parse(task.collaborators).filter(Boolean)
+          comments: deduplicateById(parseJsonField(task.comments)),
+          tags: deduplicateById(parseJsonField(task.tags)),
+          watchers: deduplicateById(parseJsonField(task.watchers)),
+          collaborators: deduplicateById(parseJsonField(task.collaborators))
         }));
         
         // Get all comment IDs from all tasks in this column
@@ -241,7 +342,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
       await wrappedColumnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
       
       // Publish column creation to Redis for real-time updates
-      redisService.publish('column-created', {
+      notificationService.publish('column-created', {
         boardId: id,
         column: { 
           id: columnId, 
@@ -259,7 +360,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
     
     // Publish to Redis for real-time updates
-    redisService.publish('board-created', {
+    notificationService.publish('board-created', {
       boardId: id,
       board: newBoard,
       timestamp: new Date().toISOString()
@@ -315,7 +416,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-updated', {
+    await notificationService.publish('board-updated', {
       boardId: id,
       board: { id, title },
       timestamp: new Date().toISOString()
@@ -339,7 +440,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-deleted', {
+    await notificationService.publish('board-deleted', {
       boardId: id,
       timestamp: new Date().toISOString()
     }, tenantId);
@@ -422,7 +523,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
 
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
-    await redisService.publish('board-reordered', {
+    await notificationService.publish('board-reordered', {
       boardId: boardId,
       newPosition: newPosition,
       timestamp: new Date().toISOString()

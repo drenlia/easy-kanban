@@ -97,13 +97,13 @@ export const useSettingsWebSocket = ({
 
   const handlePriorityDeleted = useCallback(async (data: any) => {
     console.log('📨 Priority deleted via WebSocket:', data);
-    try {
-      const priorities = await getAllPriorities();
-      setAvailablePriorities(priorities);
-      console.log('📨 Priorities refreshed after deletion');
-    } catch (error) {
-      console.error('Failed to refresh priorities after deletion:', error);
-    }
+    // Remove the deleted priority from availablePriorities list
+    // This ensures TaskCard won't find the deleted priority when looking up by priorityId
+    // The task-updated events (published separately) will update all affected tasks with the new priority
+    setAvailablePriorities(prevPriorities => 
+      prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+    );
+    console.log('📨 Priority removed from availablePriorities (affected tasks will be updated via task-updated events)');
   }, [setAvailablePriorities]);
 
   const handlePriorityReordered = useCallback(async (data: any) => {

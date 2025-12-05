@@ -1,5 +1,7 @@
 import { wrapQuery } from '../utils/queryLogger.js';
 import crypto from 'crypto';
+import EmailService from './emailService.js';
+import { EmailTemplates } from './emailTemplates.js';
 
 /**
  * Notification Throttler Service
@@ -237,50 +239,80 @@ class NotificationThrottler {
     try {
       console.log(`📧 [THROTTLER] Sending grouped notification for user ${baseNotification.user_id}, task ${baseNotification.task_id} (${notifications.length} change(s))`);
       
-      const { getNotificationService } = await import('./notificationService.js');
-      const notificationService = getNotificationService();
-      
-      if (!notificationService) {
-        throw new Error('Notification service not available');
-      }
-
       // Parse stored JSON data from the most recent notification
       const task = JSON.parse(baseNotification.task_data);
       const participants = JSON.parse(baseNotification.participants_data);
       const actor = JSON.parse(baseNotification.actor_data);
 
-      // Create consolidated notification data with all changes
-      const consolidatedData = {
-        userId: baseNotification.user_id,
-        taskId: baseNotification.task_id,
-        action: notifications.length > 1 ? 'consolidated_update' : baseNotification.action,
-        details: notifications.length > 1 
-          ? `${notifications.length} changes made to this task` 
-          : baseNotification.details,
+      // Get recipient user info
+      const recipientUser = await wrapQuery(
+        this.db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
+        'SELECT'
+      ).get(baseNotification.user_id);
+
+      if (!recipientUser) {
+        throw new Error(`Recipient user ${baseNotification.user_id} not found`);
+      }
+
+      // Get board info for task URL
+      const boardInfo = await wrapQuery(
+        this.db.prepare('SELECT id, title FROM boards WHERE id = ?'),
+        'SELECT'
+      ).get(task.boardId || task.boardid);
+
+      // Get APP_URL for building task URL
+      const appUrlSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('APP_URL');
+      
+      let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+      baseUrl = baseUrl.replace(/\/$/, '');
+      
+      // Build task URL - use ticket if available, otherwise use task ID
+      const taskTicket = task.ticket || task.id;
+      const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+
+      // Get site name
+      const siteNameSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('SITE_NAME');
+      const siteName = siteNameSetting?.value || 'Easy Kanban';
+
+      // Determine action type and details
+      const actionType = notifications.length > 1 ? 'consolidated_update' : baseNotification.action;
+      const actionDetails = notifications.length > 1 
+        ? `${notifications.length} changes made to this task` 
+        : baseNotification.details;
+
+      // Create email template data
+      const emailTemplateData = {
+        user: recipientUser,
+        task: task,
+        board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
+        project: null, // Could be extracted from task if available
+        actionType: actionType,
+        actionDetails: actionDetails,
+        taskUrl: taskUrl,
+        siteName: siteName,
         oldValue: baseNotification.old_value,
         newValue: baseNotification.new_value,
-        task,
-        participants,
-        actor,
-        notificationType: baseNotification.notification_type,
-        changeCount: notifications.length,
-        timeSpan: this.calculateTimeSpan(
-          new Date(notifications[notifications.length - 1].first_change_time),
-          new Date(baseNotification.last_change_time)
-        ),
-        timestamp: baseNotification.last_change_time, // Use most recent timestamp
-        allChanges: notifications.map(n => ({
-          action: n.action,
-          details: n.details,
-          oldValue: n.old_value,
-          newValue: n.new_value,
-          timestamp: n.last_change_time,
-          actor: JSON.parse(n.actor_data)
-        }))
+        timestamp: baseNotification.last_change_time,
+        db: this.db
       };
 
-      // Send the consolidated notification
-      await notificationService.sendEmailDirectly(consolidatedData);
+      // Generate email content using template
+      const emailContent = await EmailTemplates.taskNotification(emailTemplateData);
+
+      // Send email using EmailService
+      const emailService = new EmailService(this.db);
+      await emailService.sendEmail({
+        to: recipientUser.email,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html
+      });
 
       // Mark all notifications in the group as sent
       const notificationIds = notifications.map(n => n.id);
@@ -322,42 +354,78 @@ class NotificationThrottler {
     try {
       console.log(`📧 [THROTTLER] Sending notification ${queuedNotification.id} to user ${queuedNotification.user_id} for task ${queuedNotification.task_id}`);
       
-      const { getNotificationService } = await import('./notificationService.js');
-      const notificationService = getNotificationService();
-      
-      if (!notificationService) {
-        throw new Error('Notification service not available');
-      }
-
       // Parse stored JSON data
       const task = JSON.parse(queuedNotification.task_data);
       const participants = JSON.parse(queuedNotification.participants_data);
       const actor = JSON.parse(queuedNotification.actor_data);
 
-      // Create consolidated notification data
-      // Note: userId here should be the RECIPIENT (queuedNotification.user_id), not the actor
-      // The actor is in the actor object
-      const consolidatedData = {
-        userId: queuedNotification.user_id, // This is the recipient's user ID
-        taskId: queuedNotification.task_id,
-        action: queuedNotification.change_count > 1 ? 'consolidated_update' : queuedNotification.action,
-        details: queuedNotification.details,
+      // Get recipient user info
+      const recipientUser = await wrapQuery(
+        this.db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
+        'SELECT'
+      ).get(queuedNotification.user_id);
+
+      if (!recipientUser) {
+        throw new Error(`Recipient user ${queuedNotification.user_id} not found`);
+      }
+
+      // Get board info for task URL
+      const boardInfo = await wrapQuery(
+        this.db.prepare('SELECT id, title FROM boards WHERE id = ?'),
+        'SELECT'
+      ).get(task.boardId || task.boardid);
+
+      // Get APP_URL for building task URL
+      const appUrlSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('APP_URL');
+      
+      let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+      baseUrl = baseUrl.replace(/\/$/, '');
+      
+      // Build task URL - use ticket if available, otherwise use task ID
+      const taskTicket = task.ticket || task.id;
+      const taskUrl = `${baseUrl}/#task#${taskTicket}`;
+
+      // Get site name
+      const siteNameSetting = await wrapQuery(
+        this.db.prepare('SELECT value FROM settings WHERE key = ?'),
+        'SELECT'
+      ).get('SITE_NAME');
+      const siteName = siteNameSetting?.value || 'Easy Kanban';
+
+      // Determine action type and details
+      const actionType = queuedNotification.change_count > 1 ? 'consolidated_update' : queuedNotification.action;
+      const actionDetails = queuedNotification.details;
+
+      // Create email template data
+      const emailTemplateData = {
+        user: recipientUser,
+        task: task,
+        board: boardInfo || { id: task.boardId || task.boardid, name: 'Unknown Board' },
+        project: null,
+        actionType: actionType,
+        actionDetails: actionDetails,
+        taskUrl: taskUrl,
+        siteName: siteName,
         oldValue: queuedNotification.old_value,
         newValue: queuedNotification.new_value,
-        task,
-        participants,
-        actor,
-        notificationType: queuedNotification.notification_type,
-        changeCount: queuedNotification.change_count,
-        timeSpan: this.calculateTimeSpan(
-          new Date(queuedNotification.first_change_time),
-          new Date(queuedNotification.last_change_time)
-        )
+        timestamp: queuedNotification.last_change_time,
+        db: this.db
       };
 
-      // Send the notification directly (don't queue it again!)
-      // sendEmailDirectly expects userId to be the recipient's user ID
-      await notificationService.sendEmailDirectly(consolidatedData);
+      // Generate email content using template
+      const emailContent = await EmailTemplates.taskNotification(emailTemplateData);
+
+      // Send email using EmailService
+      const emailService = new EmailService(this.db);
+      await emailService.sendEmail({
+        to: recipientUser.email,
+        subject: emailContent.subject,
+        text: emailContent.text,
+        html: emailContent.html
+      });
 
       // Mark as sent
       await wrapQuery(
@@ -414,23 +482,29 @@ class NotificationThrottler {
   async sendImmediateNotification(userId, taskId, notificationData) {
     try {
       console.log(`📧 [THROTTLER] Sending immediate notification to user ${userId} for task ${taskId} (delay=0)`);
-      const { getNotificationService } = await import('./notificationService.js');
-      const notificationService = getNotificationService();
+      // Note: Email notification service (getNotificationService) is not yet implemented
+      // const { getNotificationService } = await import('./notificationService.js');
+      // const notificationService = getNotificationService();
+      // 
+      // if (notificationService) {
+      console.warn('⚠️ Email notification service not implemented - skipping email send');
+      return; // Skip email sending until service is implemented
       
-      if (notificationService) {
-        // userId parameter is the RECIPIENT, but notificationData.userId is the ACTOR
-        // Override notificationData.userId to be the recipient for sendEmailDirectly
-        const notificationDataWithRecipient = {
-          ...notificationData,
-          userId: userId  // Set userId to the recipient (not the actor)
-        };
-        
-        // Send email directly without going through the queue
-        await notificationService.sendEmailDirectly(notificationDataWithRecipient);
-        console.log(`✅ [THROTTLER] Immediate notification sent successfully to user ${userId} for task ${taskId}`);
-      } else {
-        console.warn(`⚠️ [THROTTLER] Notification service not available for immediate notification to user ${userId}`);
-      }
+      // Original code (commented out until email service is implemented):
+      // if (notificationService) {
+      //   // userId parameter is the RECIPIENT, but notificationData.userId is the ACTOR
+      //   // Override notificationData.userId to be the recipient for sendEmailDirectly
+      //   const notificationDataWithRecipient = {
+      //     ...notificationData,
+      //     userId: userId  // Set userId to the recipient (not the actor)
+      //   };
+      //   
+      //   // Send email directly without going through the queue
+      //   await notificationService.sendEmailDirectly(notificationDataWithRecipient);
+      //   console.log(`✅ [THROTTLER] Immediate notification sent successfully to user ${userId} for task ${taskId}`);
+      // } else {
+      //   console.warn(`⚠️ [THROTTLER] Notification service not available for immediate notification to user ${userId}`);
+      // }
     } catch (error) {
       console.error(`❌ [THROTTLER] Failed to send immediate notification to user ${userId}:`, error);
     }

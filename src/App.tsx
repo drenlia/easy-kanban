@@ -100,6 +100,7 @@ declare global {
   interface Window {
     justUpdatedFromWebSocket?: boolean;
     setJustUpdatedFromWebSocket?: (value: boolean) => void;
+    lastWebSocketUpdateTime?: number;
   }
 }
 
@@ -1707,6 +1708,12 @@ function AppContent() {
             }
           } else if (selectedBoard && loadedBoards.length > 0) {
             // Board already selected, just update its columns
+            // CRITICAL: Skip if we just updated from WebSocket to prevent overwriting batch updates
+            if (window.justUpdatedFromWebSocket) {
+              console.log('⏭️ [Initial Load] Skipping columns update - WebSocket update in progress');
+              return;
+            }
+            
             const boardToUse = loadedBoards.find(b => b.id === selectedBoard);
             if (boardToUse) {
               setColumns(boardToUse.columns || {});
@@ -1779,11 +1786,33 @@ function AppContent() {
       const boardInState = boards.find(b => b.id === selectedBoard);
       if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
         // Board data already loaded, set columns immediately to prevent blank screen
-        const newColumns = JSON.parse(JSON.stringify(boardInState.columns));
-        setColumns(newColumns);
+        // CRITICAL: Always sync columns from boards state when switching boards
+        // This ensures priority updates (and other changes) are visible immediately
+        // The WebSocket flag only prevents overwriting during active batch processing
+        // After batch processing completes (2 seconds), we should sync to get latest data
+        const lastUpdateTime = window.lastWebSocketUpdateTime || 0;
+        const timeSinceUpdate = Date.now() - lastUpdateTime;
+        const shouldSync = !window.justUpdatedFromWebSocket || timeSinceUpdate > 2000;
+        
+        if (shouldSync) {
+          // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
+          // Only copy what we need - columns structure and task arrays
+          const newColumns: Columns = {};
+          Object.keys(boardInState.columns || {}).forEach(columnId => {
+            const column = boardInState.columns[columnId];
+            if (column) {
+              newColumns[columnId] = {
+                ...column,
+                tasks: [...(column.tasks || [])]
+              };
+            }
+          });
+          setColumns(newColumns);
+        }
         setIsSwitchingBoard(false);
       } else {
         // Board data not loaded yet, fetch it (refreshBoardData will load relationships)
+        // CRITICAL: refreshBoardData already checks the flag, so it's safe to call
         refreshBoardData().finally(() => {
           // Clear switching state after data is loaded
           setIsSwitchingBoard(false);
@@ -1833,6 +1862,14 @@ function AppContent() {
   // TODO: Implement simpler real-time solution (polling or SSE)
 
   const refreshBoardData = useCallback(async () => {
+    // CRITICAL: Skip refresh if we just updated from WebSocket to prevent overwriting real-time updates
+    // This is especially important for batch position updates (259 tasks) where WebSocket updates
+    // are processed together and should not be overwritten by a refresh
+    if (window.justUpdatedFromWebSocket) {
+      console.log('⏭️ [refreshBoardData] Skipping refresh - WebSocket update in progress');
+      return;
+    }
+    
     try {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
@@ -1843,7 +1880,19 @@ function AppContent() {
           const board = loadedBoards.find(b => b.id === selectedBoard);
           if (board) {
             // Force a deep clone to ensure React detects the change at all levels
-            const newColumns = board.columns ? JSON.parse(JSON.stringify(board.columns)) : {};
+            // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
+            const newColumns: Columns = {};
+            if (board.columns) {
+              Object.keys(board.columns).forEach(columnId => {
+                const column = board.columns[columnId];
+                if (column) {
+                  newColumns[columnId] = {
+                    ...column,
+                    tasks: [...(column.tasks || [])]
+                  };
+                }
+              });
+            }
             setColumns(newColumns);
             
             // Relationships are loaded by the board selection effect above, no need to load here

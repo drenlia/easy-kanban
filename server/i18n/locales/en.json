@@ -252,6 +252,7 @@
           "status_changed": "Task status has been changed",
           "priority_changed": "Task priority has been changed",
           "due_date_changed": "Task due date has been changed",
+          "consolidated_update": "Multiple changes have been made to a task you're involved in",
           "default": "Task activity notification"
         },
         "project": "Project:",

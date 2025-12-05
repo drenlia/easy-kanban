@@ -1,6 +1,5 @@
 import { isValidAction } from '../constants/activityActions.js';
-import { getNotificationService } from './notificationService.js';
-import redisService from './redisService.js';
+import notificationService from './notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { dbAll } from '../utils/dbAsync.js';
 import { wrapQuery } from '../utils/queryLogger.js';
@@ -204,57 +203,44 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       enhancedDetails
     );
 
-    // Publish activity update to Redis for real-time updates
+    // Publish activity update for real-time updates
+    // Note: For PostgreSQL, we send minimal payload (timestamp) to avoid 8000 byte limit
+    // Clients should fetch full activity feed from API when they receive this notification
     try {
-      if (redisService) {
-        // Get the latest activities for the activity feed
-        const latestActivities = await dbAll(
-          database.prepare(`
-            SELECT 
-              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-              datetime(a.created_at) || 'Z' as created_at,
-              a.updated_at,
-              m.name as member_name,
-              r.name as role_name,
-              b.title as board_title,
-              c.title as column_title
-            FROM activity a
-            LEFT JOIN members m ON a.userId = m.user_id
-            LEFT JOIN roles r ON a.roleId = r.id
-            LEFT JOIN boards b ON a.boardId = b.id
-            LEFT JOIN columns c ON a.columnId = c.id
-            ORDER BY a.created_at DESC
-            LIMIT 20
-          `)
-        );
-
-        // Get tenantId from additionalData if provided (for multi-tenant isolation)
-        const tenantId = additionalData.tenantId || null;
-        await redisService.publish('activity-updated', {
-          activities: latestActivities,
-          timestamp: new Date().toISOString()
-        }, tenantId);
-      }
-    } catch (redisError) {
-      console.warn('Failed to publish activity update to Redis:', redisError.message);
+      // Get tenantId from additionalData if provided (for multi-tenant isolation)
+      const tenantId = additionalData.tenantId || null;
+      
+      // Send minimal notification - clients will fetch full feed from API
+      // This avoids PostgreSQL's 8000 byte payload limit
+      await notificationService.publish('activity-updated', {
+        timestamp: new Date().toISOString(),
+        message: 'Activity feed updated'
+      }, tenantId);
+    } catch (error) {
+      console.warn('Failed to publish activity update:', error.message);
     }
     
     // Send notification email in the background (fire-and-forget)
     // This improves UX by not blocking the API response while emails are being sent
-    const notificationService = getNotificationService();
-    if (notificationService) {
-      notificationService.sendTaskNotification({
-        userId,
-        action,
-        taskId,
-        details: enhancedDetails,
-        oldValue: additionalData.oldValue,
-        newValue: additionalData.newValue
-      }).catch(notificationError => {
-        console.error('❌ Error sending notification:', notificationError);
-        // Errors are logged but don't affect the main flow
-      });
-    }
+    // Note: Email notification service (getNotificationService) is not yet implemented
+    // TODO: Implement email notification service when needed
+    // try {
+    //   const emailNotificationService = getNotificationService();
+    //   if (emailNotificationService) {
+    //     emailNotificationService.sendTaskNotification({
+    //       userId,
+    //       action,
+    //       taskId,
+    //       details: enhancedDetails,
+    //       oldValue: additionalData.oldValue,
+    //       newValue: additionalData.newValue
+    //     }).catch(notificationError => {
+    //       console.error('❌ Error sending notification:', notificationError);
+    //     });
+    //   }
+    // } catch (error) {
+    //   // Email notification service not available - silently continue
+    // }
     
   } catch (error) {
     console.error('❌ Error logging activity:', error);
@@ -341,39 +327,21 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
       translatedDetails
     );
 
-    // Publish activity update to Redis for real-time updates
+    // Publish activity update for real-time updates
+    // Note: For PostgreSQL, we send minimal payload (timestamp) to avoid 8000 byte limit
+    // Clients should fetch full activity feed from API when they receive this notification
     try {
-      if (redisService) {
-        // Get the latest activities for the activity feed
-        const latestActivities = await dbAll(
-          database.prepare(`
-            SELECT 
-              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-              datetime(a.created_at) || 'Z' as created_at,
-              a.updated_at,
-              m.name as member_name,
-              r.name as role_name,
-              b.title as board_title,
-              c.title as column_title
-            FROM activity a
-            LEFT JOIN members m ON a.userId = m.user_id
-            LEFT JOIN roles r ON a.roleId = r.id
-            LEFT JOIN boards b ON a.boardId = b.id
-            LEFT JOIN columns c ON a.columnId = c.id
-            ORDER BY a.created_at DESC
-            LIMIT 20
-          `)
-        );
-
-        // Get tenantId from additionalData if provided (for multi-tenant isolation)
-        const tenantId = additionalData.tenantId || null;
-        await redisService.publish('activity-updated', {
-          activities: latestActivities,
-          timestamp: new Date().toISOString()
-        }, tenantId);
-      }
-    } catch (redisError) {
-      console.warn('Failed to publish activity update to Redis:', redisError.message);
+      // Get tenantId from additionalData if provided (for multi-tenant isolation)
+      const tenantId = additionalData.tenantId || null;
+      
+      // Send minimal notification - clients will fetch full feed from API
+      // This avoids PostgreSQL's 8000 byte payload limit
+      await notificationService.publish('activity-updated', {
+        timestamp: new Date().toISOString(),
+        message: 'Activity feed updated'
+      }, tenantId);
+    } catch (error) {
+      console.warn('Failed to publish activity update:', error.message);
     }
     
   } catch (error) {
@@ -718,56 +686,42 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
 
     console.log('Comment activity logged successfully');
     
-    // Publish activity update to Redis for real-time updates
+    // Publish activity update for real-time updates
+    // Note: For PostgreSQL, we send minimal payload (timestamp) to avoid 8000 byte limit
+    // Clients should fetch full activity feed from API when they receive this notification
     try {
-      if (redisService) {
-        // Get the latest activities for the activity feed
-        const latestActivities = await dbAll(
-          database.prepare(`
-            SELECT 
-              a.id, a.userId, a.roleId, a.action, a.taskId, a.columnId, a.boardId, a.tagId, a.details,
-              datetime(a.created_at) || 'Z' as created_at,
-              a.updated_at,
-              m.name as member_name,
-              r.name as role_name,
-              b.title as board_title,
-              c.title as column_title
-            FROM activity a
-            LEFT JOIN members m ON a.userId = m.user_id
-            LEFT JOIN roles r ON a.roleId = r.id
-            LEFT JOIN boards b ON a.boardId = b.id
-            LEFT JOIN columns c ON a.columnId = c.id
-            ORDER BY a.created_at DESC
-            LIMIT 20
-          `)
-        );
-
-        // Get tenantId from additionalData if provided (for multi-tenant isolation)
-        const tenantId = additionalData.tenantId || null;
-        await redisService.publish('activity-updated', {
-          activities: latestActivities,
-          timestamp: new Date().toISOString()
-        }, tenantId);
-      }
-    } catch (redisError) {
-      console.warn('Failed to publish comment activity update to Redis:', redisError.message);
+      // Get tenantId from additionalData if provided (for multi-tenant isolation)
+      const tenantId = additionalData.tenantId || null;
+      
+      // Send minimal notification - clients will fetch full feed from API
+      // This avoids PostgreSQL's 8000 byte payload limit
+      await notificationService.publish('activity-updated', {
+        timestamp: new Date().toISOString(),
+        message: 'Activity feed updated'
+      }, tenantId);
+    } catch (error) {
+      console.warn('Failed to publish comment activity update:', error.message);
     }
     
     // Send notification email for comment activities in the background (fire-and-forget)
     // This improves UX by not blocking the API response while emails are being sent
-    const notificationService = getNotificationService();
-    if (notificationService) {
-      // Use setImmediate or Promise without await to run in background
-      notificationService.sendCommentNotification({
-        userId,
-        action,
-        taskId,
-        commentContent: additionalData.commentContent
-      }).catch(notificationError => {
-        console.error('❌ Error sending comment notification:', notificationError);
-        // Errors are logged but don't affect the main flow
-      });
-    }
+    // Note: Email notification service (getNotificationService) is not yet implemented
+    // TODO: Implement email notification service when needed
+    // try {
+    //   const emailNotificationService = getNotificationService();
+    //   if (emailNotificationService) {
+    //     emailNotificationService.sendCommentNotification({
+    //       userId,
+    //       action,
+    //       taskId,
+    //       commentContent: additionalData.commentContent
+    //     }).catch(notificationError => {
+    //       console.error('❌ Error sending comment notification:', notificationError);
+    //     });
+    //   }
+    // } catch (error) {
+    //   // Email notification service not available - silently continue
+    // }
     
   } catch (error) {
     console.error('Failed to log comment activity:', error);

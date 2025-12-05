@@ -9,7 +9,7 @@ import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
-import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
@@ -113,7 +113,7 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     if (task?.boardId) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing task-tag-added to Redis for board:', task.boardId);
-      await redisService.publish('task-tag-added', {
+      await notificationService.publish('task-tag-added', {
         boardId: task.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
@@ -170,7 +170,7 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     if (task?.boardId) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing task-tag-removed to Redis for board:', task.boardId);
-      await redisService.publish('task-tag-removed', {
+      await notificationService.publish('task-tag-removed', {
         boardId: task.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
@@ -567,7 +567,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
           
           // Publish task-updated event with complete task data (includes updated attachmentCount)
           const tenantId = getTenantId(req);
-          await redisService.publish('task-updated', {
+          await notificationService.publish('task-updated', {
             boardId: task.boardId,
             task: {
               ...taskResponse,
@@ -580,7 +580,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
         // Also publish task-attachments-added for any handlers that might need it
         const tenantId = getTenantId(req);
         console.log('📤 Publishing task-attachments-added to Redis for board:', task.boardId);
-        await redisService.publish('task-attachments-added', {
+        await notificationService.publish('task-attachments-added', {
           boardId: task.boardId,
           taskId: taskId,
           attachments: insertedAttachments,

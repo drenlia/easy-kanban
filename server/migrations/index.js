@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { dbTransaction, dbExec, dbAll, dbRun, isProxyDatabase } from '../utils/dbAsync.js';
+import { dbTransaction, dbExec, dbAll, dbRun, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
 
 // Migration definitions
 // Note: Migrations 1-10 have been integrated into CREATE_TABLES_SQL in database.js
@@ -15,14 +15,24 @@ const migrations = [
  * @param {Database} db - SQLite database instance (can be proxy or direct)
  * Now async to support proxy mode
  */
+// Convert SQLite SQL to PostgreSQL SQL for migrations
+function convertMigrationSql(sql, isPostgres) {
+  if (!isPostgres) return sql;
+  
+  return sql
+    .replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY')
+    .replace(/\bDATETIME\b/gi, 'TIMESTAMPTZ');
+}
+
 export const runMigrations = async (db) => {
   try {
     console.log('\n🔄 Checking for pending database migrations...');
     
     const isProxy = isProxyDatabase(db);
+    const isPostgres = isPostgresDatabase(db);
     
     // Ensure migrations tracking table exists (async for both proxy and direct DB)
-    await dbExec(db, `
+    const createTableSql = convertMigrationSql(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         version INTEGER UNIQUE NOT NULL,
@@ -30,7 +40,9 @@ export const runMigrations = async (db) => {
         description TEXT,
         applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
-    `);
+    `, isPostgres);
+    
+    await dbExec(db, createTableSql);
     
     // Get list of already applied migrations (async for both proxy and direct DB)
     // Proxy service handles expected SQLite errors at the service level
@@ -61,7 +73,12 @@ export const runMigrations = async (db) => {
     if (missingIntegratedMigrations.length > 0) {
       console.log(`📦 Marking ${missingIntegratedMigrations.length} integrated migration(s) as applied (already in CREATE_TABLES_SQL)...`);
       
-      const insertStmt = db.prepare('INSERT OR IGNORE INTO schema_migrations (version, name, description) VALUES (?, ?, ?)');
+      // Use PostgreSQL-compatible INSERT syntax
+      const insertSql = isPostgres
+        ? 'INSERT INTO schema_migrations (version, name, description) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING'
+        : 'INSERT OR IGNORE INTO schema_migrations (version, name, description) VALUES (?, ?, ?)';
+      
+      const insertStmt = db.prepare(insertSql);
       
       for (const migration of missingIntegratedMigrations) {
         await dbRun(insertStmt, migration.version, migration.name, migration.description || '');
@@ -105,9 +122,12 @@ export const runMigrations = async (db) => {
         }
         
         // Record migration as applied (async for both proxy and direct DB)
-        const insertStmt = db.prepare(
-          'INSERT OR IGNORE INTO schema_migrations (version, name, description) VALUES (?, ?, ?)'
-        );
+        // Use PostgreSQL-compatible INSERT syntax
+        const insertSql = isPostgres
+          ? 'INSERT INTO schema_migrations (version, name, description) VALUES ($1, $2, $3) ON CONFLICT (version) DO NOTHING'
+          : 'INSERT OR IGNORE INTO schema_migrations (version, name, description) VALUES (?, ?, ?)';
+        
+        const insertStmt = db.prepare(insertSql);
         await dbRun(insertStmt, migration.version, migration.name, migration.description || '');
         
         appliedCount++;
@@ -136,8 +156,10 @@ export const runMigrations = async (db) => {
  */
 export const getMigrationStatus = async (db) => {
   try {
+    const isPostgres = isPostgresDatabase(db);
+    
     // Ensure migrations table exists (async for both proxy and direct DB)
-    await dbExec(db, `
+    const createTableSql = convertMigrationSql(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         version INTEGER UNIQUE NOT NULL,
@@ -145,7 +167,9 @@ export const getMigrationStatus = async (db) => {
         description TEXT,
         applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
-    `);
+    `, isPostgres);
+    
+    await dbExec(db, createTableSql);
     
     // Get applied migrations (async for both proxy and direct DB)
     const stmt = db.prepare(`

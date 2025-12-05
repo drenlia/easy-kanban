@@ -573,12 +573,11 @@ export const useTaskDetails = ({ task, members, currentUser, onUpdate, siteSetti
     };
 
     const handlePriorityDeleted = async (data: any) => {
-      try {
-        const priorities = await getAllPriorities();
-        setAvailablePriorities(priorities);
-      } catch (error) {
-        console.error('Failed to refresh priorities after deletion:', error);
-      }
+      // Just remove the deleted priority from the list - no need to refresh all priorities
+      // The task-updated events will handle updating affected tasks with the new priority
+      setAvailablePriorities(prevPriorities => 
+        prevPriorities.filter(p => p.id !== data.priorityId && p.id !== Number(data.priorityId))
+      );
     };
 
     const handlePriorityReordered = async (data: any) => {

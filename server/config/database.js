@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import DatabaseProxy from '../utils/databaseProxy.js';
+import PostgresDatabase from './postgresDatabase.js';
 import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -199,6 +200,40 @@ const initializeDefaultPriorities = async (db) => {
     }
   }
 };
+// Convert SQLite SQL to PostgreSQL SQL
+function convertSqliteToPostgres(sql) {
+  let pgSql = sql;
+  
+  // Replace SQLite-specific syntax with PostgreSQL
+  pgSql = pgSql.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/gi, 'SERIAL PRIMARY KEY');
+  pgSql = pgSql.replace(/AUTOINCREMENT/gi, '');
+  pgSql = pgSql.replace(/INTEGER PRIMARY KEY/gi, 'SERIAL PRIMARY KEY');
+  
+  // CRITICAL: Replace DATETIME with TIMESTAMPTZ (timestamp with timezone)
+  pgSql = pgSql.replace(/\bDATETIME\b/gi, 'TIMESTAMPTZ');
+  
+  // Replace SQLite boolean (INTEGER) with PostgreSQL boolean
+  pgSql = pgSql.replace(/is_finished BOOLEAN DEFAULT 0/gi, 'is_finished BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/is_archived BOOLEAN DEFAULT 0/gi, 'is_archived BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/is_active INTEGER DEFAULT 1/gi, 'is_active BOOLEAN DEFAULT true');
+  pgSql = pgSql.replace(/is_active INTEGER DEFAULT 0/gi, 'is_active BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/is_deleted INTEGER DEFAULT 0/gi, 'is_deleted BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/is_deleted INTEGER DEFAULT 1/gi, 'is_deleted BOOLEAN DEFAULT true');
+  pgSql = pgSql.replace(/is_completed INTEGER DEFAULT 0/gi, 'is_completed BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/is_completed INTEGER DEFAULT 1/gi, 'is_completed BOOLEAN DEFAULT true');
+  pgSql = pgSql.replace(/used BOOLEAN DEFAULT 0/gi, 'used BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/force_logout INTEGER DEFAULT 0/gi, 'force_logout BOOLEAN DEFAULT false');
+  
+  // Also handle INTEGER columns that should be BOOLEAN (without DEFAULT)
+  pgSql = pgSql.replace(/\bis_deleted\s+INTEGER\b/gi, 'is_deleted BOOLEAN');
+  pgSql = pgSql.replace(/\bis_completed\s+INTEGER\b/gi, 'is_completed BOOLEAN');
+  
+  // Replace SQLite datetime functions
+  pgSql = pgSql.replace(/datetime\(/gi, 'to_timestamp(');
+  
+  return pgSql;
+}
+
 const CREATE_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS roles (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -718,13 +753,18 @@ const CREATE_TABLES_SQL = `
     );
 `;
 
-// Create database tables (async for proxy support)
+// Create database tables (async for proxy support and PostgreSQL)
 const createTables = async (db) => {
   const isProxy = db && db.constructor.name === 'DatabaseProxy';
+  const isPostgres = db && db.constructor.name === 'PostgresDatabase';
+  
+  // Convert SQL for PostgreSQL
+  const sql = isPostgres ? convertSqliteToPostgres(CREATE_TABLES_SQL) : CREATE_TABLES_SQL;
   
   // Proxy service handles expected SQLite errors (duplicate column, already exists, etc.)
   // at the service level, so we can just execute the SQL directly
-  await dbExec(db, CREATE_TABLES_SQL);
+  // PostgreSQL also handles IF NOT EXISTS gracefully
+  await dbExec(db, sql);
 };
 
 // Initialize default data
@@ -1145,8 +1185,46 @@ const initializeDefaultData = async (db, tenantId = null) => {
 // Initialize database connection
 // Supports both single-tenant and multi-tenant modes
 // tenantId: optional tenant identifier (for multi-tenant mode)
-// Now async to support proxy mode
+// Now async to support proxy mode and PostgreSQL
 export const initializeDatabase = async (tenantId = null) => {
+  // Check if we should use PostgreSQL
+  const usePostgres = process.env.DB_TYPE === 'postgresql';
+  
+  if (usePostgres) {
+    // PostgreSQL mode
+    console.log(`🐘 Using PostgreSQL for tenant: ${tenantId || 'default'}`);
+    const db = new PostgresDatabase(tenantId);
+    
+    // Ensure schema exists (for multi-tenant mode)
+    await db.ensureSchema();
+    
+    // Create tables (async wrapper for consistency)
+    await createTables(db);
+    
+    // Initialize default priorities BEFORE migrations (migration 10 needs priorities to exist)
+    await initializeDefaultPriorities(db);
+    
+    // Run database migrations (migrations may create tables needed by demo data)
+    try {
+      await runMigrations(db);
+    } catch (error) {
+      console.error('❌ Failed to run migrations:', error);
+      throw error;
+    }
+    
+    // Initialize default data and capture version info (must run AFTER migrations)
+    const versionInfo = await initializeDefaultData(db, tenantId);
+    
+    // Return both db and version info for broadcasting
+    return { 
+      db, 
+      appVersion: versionInfo?.appVersion || null,
+      versionChanged: versionInfo?.versionChanged || false,
+      tenantId: tenantId || null
+    };
+  }
+
+  // SQLite mode (original implementation)
   const dbPath = getDbPath(tenantId);
   
   // Ensure the directory exists

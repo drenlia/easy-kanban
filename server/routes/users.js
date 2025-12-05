@@ -5,8 +5,8 @@ import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
 import { createDefaultAvatar } from '../utils/avatarGenerator.js';
-import { dbTransaction, dbExec } from '../utils/dbAsync.js';
-import redisService from '../services/redisService.js';
+import { dbTransaction, dbExec, isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
+import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 
@@ -82,7 +82,7 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
     if (member) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
-      await redisService.publish('user-profile-updated', {
+      await notificationService.publish('user-profile-updated', {
         userId: req.user.id,
         memberId: member.id,
         avatarPath: avatarPath,
@@ -118,7 +118,7 @@ router.delete('/avatar', authenticateToken, async (req, res) => {
     if (member) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', req.user.id);
-      await redisService.publish('user-profile-updated', {
+      await notificationService.publish('user-profile-updated', {
         userId: req.user.id,
         memberId: member.id,
         avatarPath: null,
@@ -173,7 +173,7 @@ router.put('/profile', authenticateToken, async (req, res) => {
     if (member) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing user-profile-updated to Redis for user:', userId);
-      await redisService.publish('user-profile-updated', {
+      await notificationService.publish('user-profile-updated', {
         userId: userId,
         memberId: member.id,
         displayName: trimmedDisplayName,
@@ -352,7 +352,7 @@ router.delete("/account", authenticateToken, async (req, res) => {
             updatedTask.priorityName = updatedTask.priorityName || updatedTask.priority || null;
             updatedTask.priorityColor = updatedTask.priorityColor || null;
             
-            redisService.publish('task-updated', {
+            notificationService.publish('task-updated', {
               boardId: task.boardId,
               task: updatedTask,
               timestamp: new Date().toISOString()
@@ -371,7 +371,7 @@ router.delete("/account", authenticateToken, async (req, res) => {
     console.log('📤 Publishing member-deleted and user-deleted to Redis for user:', userId);
     
     // Publish member-deleted for task/member updates
-    redisService.publish('member-deleted', {
+    notificationService.publish('member-deleted', {
       userId: userId,
       memberId: null, // User deleted themselves, member record is already gone
       userName: `${user.first_name} ${user.last_name}`,
@@ -383,7 +383,7 @@ router.delete("/account", authenticateToken, async (req, res) => {
     });
     
     // Publish user-deleted for admin UI updates
-    redisService.publish('user-deleted', {
+    notificationService.publish('user-deleted', {
       userId: userId,
       user: {
         id: userId,
@@ -419,8 +419,9 @@ router.get('/settings', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
+    const isPostgres = isPostgresDatabase(db);
     // Create user_settings table if it doesn't exist
-    await dbExec(db, `
+    const createTableSql = convertSqlToPostgres(`
       CREATE TABLE IF NOT EXISTS user_settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId TEXT NOT NULL,
@@ -430,7 +431,8 @@ router.get('/settings', authenticateToken, async (req, res) => {
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(userId, setting_key)
       )
-    `);
+    `, isPostgres);
+    await dbExec(db, createTableSql);
     
     const settings = await wrapQuery(db.prepare(`
       SELECT setting_key, setting_value 
@@ -487,10 +489,12 @@ router.put('/settings', authenticateToken, async (req, res) => {
     
     // Special handling for selectedSprintId null value - delete the row to represent "All Sprints"
     if (setting_value === null && setting_key === 'selectedSprintId') {
-      await wrapQuery(db.prepare(`
-        DELETE FROM user_settings 
-        WHERE userId = ? AND setting_key = ?
-      `), 'DELETE').run(userId, setting_key);
+      const isPostgres = isPostgresDatabase(db);
+      const deleteSql = isPostgres
+        ? `DELETE FROM user_settings WHERE userId = $1 AND setting_key = $2`
+        : `DELETE FROM user_settings WHERE userId = ? AND setting_key = ?`;
+      
+      await wrapQuery(db.prepare(deleteSql), 'DELETE').run(userId, setting_key);
       
       return res.json({ message: 'Setting cleared successfully (null value stored as deletion)' });
     }
@@ -498,10 +502,16 @@ router.put('/settings', authenticateToken, async (req, res) => {
     // Convert value to string safely
     const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
     
-    await wrapQuery(db.prepare(`
-      INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
-      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    `), 'INSERT').run(userId, setting_key, valueString);
+    const isPostgres = isPostgresDatabase(db);
+    const insertSql = isPostgres
+      ? `INSERT INTO user_settings (userId, setting_key, setting_value, updated_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+         ON CONFLICT (userId, setting_key) 
+         DO UPDATE SET setting_value = $3, updated_at = CURRENT_TIMESTAMP`
+      : `INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
+         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`;
+    
+    await wrapQuery(db.prepare(insertSql), 'INSERT').run(userId, setting_key, valueString);
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {
