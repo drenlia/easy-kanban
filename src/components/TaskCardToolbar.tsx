@@ -524,9 +524,17 @@ export default function TaskCardToolbar({
         <div className="relative">
           <button
             ref={memberButtonRef}
-            onClick={handleMemberToggle}
+            onClick={(e) => {
+              handleMemberToggle(e);
+              // Prevent card selection by setting a flag (if available via props or context)
+              // The card's onClick will check for clicks on this button
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+            }}
             className="p-1 hover:bg-gray-100 rounded-full transition-colors shadow-sm cursor-pointer"
             title={t('toolbar.changeAssignee')}
+            data-member-button="true"
           >
             {member.googleAvatarUrl || member.avatarUrl ? (
               <img
@@ -618,14 +626,20 @@ export default function TaskCardToolbar({
         const position = getMemberDropdownPosition();
         return createPortal(
           <div 
-            data-member-dropdown
+            data-member-dropdown="true"
             className="fixed bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-[99999] min-w-[200px] overflow-y-auto"
             style={{
               left: `${position.left}px`,
               top: `${position.top}px`,
               maxHeight: `${position.height}px`
             }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+            }}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+            }}
           >
           <div className="p-2">
             <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">{t('toolbar.assignTo')}</div>

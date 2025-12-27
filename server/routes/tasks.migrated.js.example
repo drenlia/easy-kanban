@@ -1,0 +1,132 @@
+/**
+ * MIGRATED VERSION - Using sqlManager
+ * 
+ * This is an example of how the GET /api/tasks/:id route would look
+ * after migrating to use sqlManager.
+ * 
+ * To use this:
+ * 1. Replace the original route handler in tasks.js with this version
+ * 2. Test thoroughly
+ * 3. Remove this comment once verified
+ */
+
+import express from 'express';
+import { wrapQuery } from '../utils/queryLogger.js';
+import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
+import * as reportingLogger from '../services/reportingLogger.js';
+import { TASK_ACTIONS } from '../constants/activityActions.js';
+import { authenticateToken } from '../middleware/auth.js';
+import { checkTaskLimit } from '../middleware/licenseCheck.js';
+import notificationService from '../services/notificationService.js';
+import { getTranslator } from '../utils/i18n.js';
+import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { dbTransaction, dbRun, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
+// NEW: Import sqlManager
+import { tasks as taskQueries } from '../utils/sqlManager/index.js';
+
+const router = express.Router();
+
+// ... (other helper functions remain the same) ...
+
+// MIGRATED ROUTE: GET /api/tasks/:id
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const db = getRequestDatabase(req);
+    const { id } = req.params;
+    
+    console.log('🔍 [TASK API] Getting task by ID:', { id, url: req.url });
+    
+    // Check if the ID looks like a ticket (e.g., TASK-00032) or a UUID
+    const isTicket = /^[A-Z]+-\d+$/i.test(id);
+    console.log('🔍 [TASK API] ID type detection:', { id, isTicket });
+    
+    // MIGRATED: Use sqlManager instead of inline SQL
+    // This replaces ~30 lines of SQL with a single function call
+    const task = isTicket 
+      ? await taskQueries.getTaskByTicket(db, id)
+      : await taskQueries.getTaskWithRelationships(db, id);
+    
+    if (!task) {
+      console.log('❌ [TASK API] Task not found for ID:', id);
+      const t = await getTranslator(db);
+      return res.status(404).json({ error: t('errors.taskNotFound') });
+    }
+    
+    console.log('✅ [TASK API] Found task:', { 
+      id: task.id, 
+      title: task.title, 
+      priorityId: task.priorityId,
+      status: task.status 
+    });
+    
+    // NOTE: getTaskWithRelationships already includes comments, watchers, collaborators, and tags
+    // However, it doesn't include attachments for comments, so we still need to fetch those separately
+    // TODO: Add getCommentAttachments() to sqlManager/comments.js in the future
+    
+    // Get attachments for comments (if any)
+    if (task.comments && task.comments.length > 0) {
+      const commentIds = task.comments.map(c => c.id).filter(Boolean);
+      if (commentIds.length > 0) {
+        // For now, keep this query inline - can be moved to sqlManager/comments.js later
+        const placeholders = commentIds.map((_, i) => `$${i + 1}`).join(',');
+        const allAttachments = await wrapQuery(db.prepare(`
+          SELECT commentId, id, name, url, type, size, created_at as createdAt
+          FROM attachments
+          WHERE commentId IN (${placeholders})
+        `), 'SELECT').all(...commentIds);
+        
+        // Group attachments by commentId
+        const attachmentsByCommentId = new Map();
+        allAttachments.forEach(att => {
+          if (!attachmentsByCommentId.has(att.commentId)) {
+            attachmentsByCommentId.set(att.commentId, []);
+          }
+          attachmentsByCommentId.get(att.commentId).push(att);
+        });
+        
+        // Assign attachments to each comment
+        task.comments.forEach(comment => {
+          comment.attachments = attachmentsByCommentId.get(comment.id) || [];
+        });
+      }
+    }
+    
+    // Convert snake_case to camelCase for frontend
+    // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
+    const taskResponse = {
+      ...task,
+      priority: task.priorityName || null, // Use JOIN value only, not task.priority
+      priorityId: task.priorityId || null,
+      priorityName: task.priorityName || null,
+      priorityColor: task.priorityColor || null,
+      sprintId: task.sprint_id || null,
+      createdAt: task.created_at,
+      updatedAt: task.updated_at
+    };
+    
+    console.log('📦 [TASK API] Final task data:', {
+      id: taskResponse.id,
+      title: taskResponse.title,
+      commentsCount: taskResponse.comments?.length || 0,
+      watchersCount: taskResponse.watchers?.length || 0,
+      collaboratorsCount: taskResponse.collaborators?.length || 0,
+      tagsCount: taskResponse.tags?.length || 0,
+      priority: taskResponse.priority,
+      priorityId: taskResponse.priorityId,
+      status: taskResponse.status,
+      sprintId: taskResponse.sprintId
+    });
+    
+    res.json(taskResponse);
+  } catch (error) {
+    console.error('❌ [TASK API] Error fetching task:', error);
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToFetchTask') });
+  }
+});
+
+export default router;
+
+
+

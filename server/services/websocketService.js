@@ -252,10 +252,13 @@ class WebSocketService {
     // Subscribe to notification channels (Redis or PostgreSQL)
     // Use PostgreSQL if DB_TYPE is postgresql, otherwise use Redis
     const usePostgres = process.env.DB_TYPE === 'postgresql';
+    console.log(`🔧 Setting up notification subscriptions (usePostgres: ${usePostgres}, DB_TYPE: ${process.env.DB_TYPE})`);
     if (usePostgres) {
       this.setupPostgresSubscriptions();
     } else {
-      this.setupRedisSubscriptions();
+      console.error('❌ setupRedisSubscriptions() is not implemented! Task tag events will not work with Redis.');
+      // TODO: Implement setupRedisSubscriptions() method
+      // For now, this will cause tag events to not work if using Redis
     }
   }
 
@@ -272,6 +275,7 @@ class WebSocketService {
    * Uses the same callback pattern as Redis subscriptions for easy replacement
    */
   setupPostgresSubscriptions() {
+    console.log('🔧 Setting up PostgreSQL subscriptions...');
     // In multi-tenant mode, subscribe to all tenant channels
     // In single-tenant mode, subscribe to base channels
     
@@ -391,11 +395,17 @@ class WebSocketService {
     });
 
     // Column reordered - broadcast to tenant-specific board room
+    // Column reordered - broadcast to ALL tenant clients (not just board room)
+    // CRITICAL: Column order affects boards state even when board is not currently viewed
+    // Users need to receive this update in the background to keep boards state in sync
     postgresNotificationService.subscribeToAllTenants('column-reordered', (data, tenantId) => {
-      const room = tenantId 
-        ? `tenant-${tenantId}-board-${data.boardId}`
-        : `board-${data.boardId}`;
-      this.io?.to(room).emit('column-reordered', data);
+      if (tenantId) {
+        // Multi-tenant: broadcast to all clients of this tenant
+        this.io?.to(`tenant-${tenantId}`).emit('column-reordered', data);
+      } else {
+        // Single-tenant: broadcast to all clients
+        this.io?.emit('column-reordered', data);
+      }
     });
 
     // Member updates - broadcast to tenant-specific clients
@@ -660,11 +670,27 @@ class WebSocketService {
     });
 
     // Task tag events - broadcast to tenant-specific board room
+    console.log('🔧 Registering subscription for task-tag-added');
     postgresNotificationService.subscribeToAllTenants('task-tag-added', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket received task-tag-added (tenant: ${tenantId || 'single'})`, {
+        taskId: data.taskId,
+        tagId: data.tagId,
+        boardId: data.boardId,
+        tag: data.tag
+      });
+      
       const room = tenantId 
         ? `tenant-${tenantId}-board-${data.boardId}`
         : `board-${data.boardId}`;
+      
+      // Get client count in room for debugging
+      const roomClients = this.io?.sockets.adapter.rooms.get(room);
+      const clientCount = roomClients ? roomClients.size : 0;
+      
+      console.log(`📤 [${timestamp}] Broadcasting task-tag-added to room: ${room} (${clientCount} clients)`);
       this.io?.to(room).emit('task-tag-added', data);
+      console.log(`✅ [${timestamp}] task-tag-added broadcast complete to ${clientCount} clients`);
     });
 
     postgresNotificationService.subscribeToAllTenants('task-tag-removed', (data, tenantId) => {

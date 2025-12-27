@@ -129,8 +129,11 @@ class WebSocketClient {
       
       // Add a general event listener to debug all events
       if (this.socket) {
-        this.socket.onAny(() => {
-          // Event listener for debugging (currently no-op)
+        this.socket.onAny((eventName, ...args) => {
+          // Log all events for debugging
+          if (eventName.includes('tag')) {
+            console.log('🔍 [WebSocket] Received event:', eventName, 'with data:', args);
+          }
         });
       }
       
@@ -298,16 +301,27 @@ class WebSocketClient {
       callbacks.push(callback);
       
       if (this.socket) {
-        this.socket.on(eventName, callback as any);
+        console.log(`🔧 [WebSocket] Registering Socket.IO listener for event: ${eventName}`, { socketConnected: this.socket.connected });
+        this.socket.on(eventName, (...args) => {
+          console.log(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
+          callback(...args);
+        });
+      } else {
+        console.log(`⚠️ [WebSocket] Socket not available, callback stored for event: ${eventName}`);
       }
+    } else {
+      console.log(`⚠️ [WebSocket] Duplicate callback prevented for event: ${eventName}`);
     }
   }
 
   // Re-register all stored event listeners
   private reregisterEventListeners() {
     if (!this.socket) {
+      console.warn('⚠️ [WebSocket] Cannot re-register listeners: socket is null');
       return;
     }
+    
+    console.log(`🔄 [WebSocket] Re-registering ${this.eventCallbacks.size} event types`);
     
     // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
     // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
@@ -319,9 +333,19 @@ class WebSocketClient {
     // Now register all callbacks from our stored map
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach(callback => {
-        this.socket?.on(eventName, callback as any);
+        if (eventName.includes('tag')) {
+          console.log(`🔧 [WebSocket] Re-registering listener for: ${eventName}`);
+        }
+        this.socket?.on(eventName, (...args) => {
+          if (eventName.includes('tag')) {
+            console.log(`📨 [WebSocket] Re-registered listener received: ${eventName}`, args);
+          }
+          callback(...args);
+        });
       });
     });
+    
+    console.log(`✅ [WebSocket] Re-registration complete`);
   }
 
   // Helper method to store and register event listeners
@@ -804,7 +828,9 @@ class WebSocketClient {
 
   // Task tag events
   onTaskTagAdded(callback: (data: any) => void) {
+    console.log('🔧 [WebSocket] Registering task-tag-added event listener');
     this.addEventListener('task-tag-added', callback);
+    console.log('✅ [WebSocket] task-tag-added event listener registered');
   }
 
   offTaskTagAdded(callback?: (data: any) => void) {

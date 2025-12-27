@@ -5,7 +5,9 @@ import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase, isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
+import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
+// MIGRATED: Import sqlManager
+import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -13,141 +15,17 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const boards = await wrapQuery(db.prepare('SELECT * FROM boards ORDER BY CAST(position AS INTEGER) ASC'), 'SELECT').all();
-    const columnsStmt = await wrapQuery(db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 'SELECT');
-    
-        // Updated query to include tags, watchers, and collaborators
-    const isPostgres = isPostgresDatabase(db);
-    const tasksQuery = isPostgres ? `
-        SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberid as "memberId", t.requesterid as "requesterId", 
-               t.startdate as "startDate", t.duedate as "dueDate", t.effort, t.priority, t.priority_id as "priority_id", t.columnid as "columnId", t.boardid as "boardId", t.sprint_id as "sprint_id",
-               t.created_at, t.updated_at,
-               p.id as "priorityId",
-               p.priority as "priorityName",
-               p.color as "priorityColor",
-               CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                    THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                    ELSE NULL END as attachmentCount,
-          COALESCE(json_agg(json_build_object(
-              'id', c.id,
-              'text', c.text,
-              'authorId', c.authorid,
-              'createdAt', c.createdat
-          )) FILTER (WHERE c.id IS NOT NULL), '[]'::json) as comments,
-          COALESCE(json_agg(json_build_object(
-              'id', tag.id,
-              'tag', tag.tag,
-              'description', tag.description,
-              'color', tag.color
-          )) FILTER (WHERE tag.id IS NOT NULL), '[]'::json) as tags,
-          COALESCE(json_agg(json_build_object(
-              'id', watcher.id,
-              'name', watcher.name,
-              'color', watcher.color,
-              'user_id', watcher.user_id,
-              'email', watcher_user.email,
-              'avatarUrl', watcher_user.avatar_path,
-              'googleAvatarUrl', watcher_user.google_avatar_url
-          )) FILTER (WHERE watcher.id IS NOT NULL), '[]'::json) as watchers,
-          COALESCE(json_agg(json_build_object(
-              'id', collaborator.id,
-              'name', collaborator.name,
-              'color', collaborator.color,
-              'user_id', collaborator.user_id,
-              'email', collaborator_user.email,
-              'avatarUrl', collaborator_user.avatar_path,
-              'googleAvatarUrl', collaborator_user.google_avatar_url
-          )) FILTER (WHERE collaborator.id IS NOT NULL), '[]'::json) as collaborators
-        FROM tasks t
-        LEFT JOIN comments c ON c.taskid = t.id
-        LEFT JOIN task_tags tt ON tt.taskid = t.id
-        LEFT JOIN tags tag ON tag.id = tt.tagid
-        LEFT JOIN watchers w ON w.taskid = t.id
-        LEFT JOIN members watcher ON watcher.id = w.memberid
-        LEFT JOIN users watcher_user ON watcher_user.id = watcher.user_id
-        LEFT JOIN collaborators col ON col.taskid = t.id
-        LEFT JOIN members collaborator ON collaborator.id = col.memberid
-        LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
-        LEFT JOIN attachments a ON a.taskid = t.id
-        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-        WHERE t.columnid = $1
-        GROUP BY t.id, p.id
-        ORDER BY t.position ASC
-` : `
-        SELECT t.id, t.position, t.title, t.description, t.ticket, t.memberId, t.requesterId, 
-               t.startDate, t.dueDate, t.effort, t.priority, t.priority_id, t.columnId, t.boardId, t.sprint_id,
-               t.created_at, t.updated_at,
-               p.id as priorityId,
-               p.priority as priorityName,
-               p.color as priorityColor,
-               CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                    THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                    ELSE NULL END as attachmentCount,
-          json_group_array(
-            DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
-              'id', c.id,
-              'text', c.text,
-              'authorId', c.authorId,
-              'createdAt', c.createdAt
-            ) ELSE NULL END
-          ) as comments,
-          json_group_array(
-            DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-              'id', tag.id,
-              'tag', tag.tag,
-              'description', tag.description,
-              'color', tag.color
-            ) ELSE NULL END
-          ) as tags,
-          json_group_array(
-            DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-              'id', watcher.id,
-              'name', watcher.name,
-              'color', watcher.color,
-              'user_id', watcher.user_id,
-              'email', watcher_user.email,
-              'avatarUrl', watcher_user.avatar_path,
-              'googleAvatarUrl', watcher_user.google_avatar_url
-            ) ELSE NULL END
-          ) as watchers,
-          json_group_array(
-            DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-              'id', collaborator.id,
-              'name', collaborator.name,
-              'color', collaborator.color,
-              'user_id', collaborator.user_id,
-              'email', collaborator_user.email,
-              'avatarUrl', collaborator_user.avatar_path,
-              'googleAvatarUrl', collaborator_user.google_avatar_url
-            ) ELSE NULL END
-          ) as collaborators
-        FROM tasks t
-        LEFT JOIN comments c ON c.taskId = t.id
-        LEFT JOIN task_tags tt ON tt.taskId = t.id
-        LEFT JOIN tags tag ON tag.id = tt.tagId
-        LEFT JOIN watchers w ON w.taskId = t.id
-        LEFT JOIN members watcher ON watcher.id = w.memberId
-        LEFT JOIN users watcher_user ON watcher_user.id = watcher.user_id
-        LEFT JOIN collaborators col ON col.taskId = t.id
-        LEFT JOIN members collaborator ON collaborator.id = col.memberId
-        LEFT JOIN users collaborator_user ON collaborator_user.id = collaborator.user_id
-        LEFT JOIN attachments a ON a.taskId = t.id
-        LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-        WHERE t.columnId = ?
-        GROUP BY t.id, p.id
-        ORDER BY t.position ASC
-`;
-    const tasksStmt = await wrapQuery(
-      db.prepare(tasksQuery),
-      'SELECT'
-    );
+    // MIGRATED: Use sqlManager
+    const boards = await boardQueries.getAllBoards(db);
 
     const boardsWithData = await Promise.all(boards.map(async board => {
-      const columns = await columnsStmt.all(board.id);
+      // MIGRATED: Use sqlManager
+      const columns = await helpers.getColumnsForBoard(db, board.id);
       const columnsObj = {};
       
       await Promise.all(columns.map(async column => {
-        const tasksRaw = await tasksStmt.all(column.id);
+        // MIGRATED: Use sqlManager to get tasks for column
+        const tasksRaw = await taskQueries.getTasksForColumn(db, column.id);
         // Helper to parse JSON (handles both string and object from PostgreSQL)
         const parseJsonField = (field) => {
           // Handle null, undefined, or empty values
@@ -215,20 +93,17 @@ router.get('/', authenticateToken, async (req, res) => {
         
         // Fetch all attachments for all comments in one query (more efficient)
         if (allCommentIds.length > 0) {
-          const placeholders = allCommentIds.map(() => '?').join(',');
-          const allAttachments = await wrapQuery(db.prepare(`
-            SELECT commentId, id, name, url, type, size, created_at as createdAt
-            FROM attachments
-            WHERE commentId IN (${placeholders})
-          `), 'SELECT').all(...allCommentIds);
+          // MIGRATED: Use sqlManager
+          const allAttachments = await helpers.getAttachmentsForComments(db, allCommentIds);
           
-          // Group attachments by commentId
+          // Group attachments by commentId (normalize field name)
           const attachmentsByCommentId = {};
           allAttachments.forEach(att => {
-            if (!attachmentsByCommentId[att.commentId]) {
-              attachmentsByCommentId[att.commentId] = [];
+            const commentId = att.commentId || att.commentid;
+            if (!attachmentsByCommentId[commentId]) {
+              attachmentsByCommentId[commentId] = [];
             }
-            attachmentsByCommentId[att.commentId].push(att);
+            attachmentsByCommentId[commentId].push(att);
           });
           
           // Add attachments to each comment
@@ -269,17 +144,14 @@ router.get('/:boardId/columns', authenticateToken, async (req, res) => {
     
     const t = getTranslator(db);
     
-    // Verify board exists
-    const board = await wrapQuery(db.prepare('SELECT id FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    // MIGRATED: Verify board exists using sqlManager
+    const board = await boardQueries.getBoardById(db, boardId);
     if (!board) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
     
-    // Get columns for this board
-    const columns = await wrapQuery(
-      db.prepare('SELECT id, title, boardId, position, is_finished, is_archived FROM columns WHERE boardId = ? ORDER BY position ASC'), 
-      'SELECT'
-    ).all(boardId);
+    // MIGRATED: Get columns using sqlManager
+    const columns = await helpers.getColumnsForBoard(db, boardId);
     
     res.json(columns);
   } catch (error) {
@@ -309,37 +181,32 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
-    // Check for duplicate board name
-    const existingBoard = await wrapQuery(
-      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?)'), 
-      'SELECT'
-    ).get(title);
+    // MIGRATED: Check for duplicate board name using sqlManager
+    const existingBoard = await boardQueries.getBoardByTitle(db, title);
     
     if (existingBoard) {
       return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
-    // Generate project identifier
-    const projectPrefix = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEFAULT_PROJ_PREFIX')?.value || 'PROJ-';
-    const projectIdentifier = await generateProjectIdentifier(db, projectPrefix);
+    // MIGRATED: Generate project identifier using sqlManager
+    const projectPrefix = await boardQueries.getProjectPrefix(db);
+    const projectIdentifier = await boardQueries.generateProjectIdentifier(db, projectPrefix);
     
-    const position = await wrapQuery(db.prepare('SELECT MAX(position) as maxPos FROM boards'), 'SELECT').get()?.maxPos || -1;
-    await wrapQuery(db.prepare('INSERT INTO boards (id, title, project, position) VALUES (?, ?, ?, ?)'), 'INSERT').run(id, title, projectIdentifier, position + 1);
+    // MIGRATED: Get max position and create board using sqlManager
+    const position = await boardQueries.getMaxBoardPosition(db);
+    await boardQueries.createBoard(db, id, title, projectIdentifier, position + 1);
     
     // Automatically create default columns based on APP_LANGUAGE
     const defaultColumns = getDefaultBoardColumns(db);
-    const columnStmt = db.prepare('INSERT INTO columns (id, title, boardId, position, is_finished, is_archived) VALUES (?, ?, ?, ?, ?, ?)');
-    
     const tenantId = getTenantId(req);
-    
-    const wrappedColumnStmt = wrapQuery(columnStmt, 'INSERT');
     
     for (const [index, col] of defaultColumns.entries()) {
       const columnId = `${col.id}-${id}`;
       const isFinished = col.id === 'completed';
       const isArchived = col.id === 'archive';
       
-      await wrappedColumnStmt.run(columnId, col.title, id, index, isFinished ? 1 : 0, isArchived ? 1 : 0);
+      // MIGRATED: Create column using sqlManager
+      await helpers.createColumn(db, columnId, col.title, id, index, isFinished, isArchived);
       
       // Publish column creation to Redis for real-time updates
       notificationService.publish('column-created', {
@@ -349,8 +216,8 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
           title: col.title, 
           boardId: id, 
           position: index, 
-          is_finished: isFinished, 
-          is_archived: isArchived 
+          isFinished: isFinished,  // camelCase for WebSocket
+          isArchived: isArchived   // camelCase for WebSocket
         },
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()
@@ -375,24 +242,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   }
 });
 
-// Utility function to generate project identifiers
-const generateProjectIdentifier = async (db, prefix = 'PROJ-') => {
-  // Get the highest existing project number
-  const result = await wrapQuery(db.prepare(`
-    SELECT project FROM boards 
-    WHERE project IS NOT NULL AND project LIKE ?
-    ORDER BY CAST(SUBSTR(project, ?) AS INTEGER) DESC 
-    LIMIT 1
-  `), 'SELECT').get(`${prefix}%`, prefix.length + 1);
-  
-  let nextNumber = 1;
-  if (result && result.project) {
-    const currentNumber = parseInt(result.project.substring(prefix.length));
-    nextNumber = currentNumber + 1;
-  }
-  
-  return `${prefix}${nextNumber.toString().padStart(5, '0')}`;
-};
+// MIGRATED: generateProjectIdentifier is now in sqlManager/boards.js
 
 // Update board
 router.put('/:id', authenticateToken, async (req, res) => {
@@ -402,17 +252,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
     
-    // Check for duplicate board name (excluding current board)
-    const existingBoard = await wrapQuery(
-      db.prepare('SELECT id FROM boards WHERE LOWER(title) = LOWER(?) AND id != ?'), 
-      'SELECT'
-    ).get(title, id);
+    // MIGRATED: Check for duplicate board name using sqlManager
+    const existingBoard = await boardQueries.getBoardByTitle(db, title, id);
     
     if (existingBoard) {
       return res.status(400).json({ error: t('errors.boardNameExists') });
     }
     
-    await wrapQuery(db.prepare('UPDATE boards SET title = ? WHERE id = ?'), 'UPDATE').run(title, id);
+    // MIGRATED: Update board using sqlManager
+    await boardQueries.updateBoard(db, id, title);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -436,7 +284,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('DELETE FROM boards WHERE id = ?'), 'DELETE').run(id);
+    // MIGRATED: Delete board using sqlManager
+    await boardQueries.deleteBoard(db, id);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -460,13 +309,14 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = getTranslator(db);
-    const currentBoard = await wrapQuery(db.prepare('SELECT position FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+    // MIGRATED: Get board using sqlManager
+    const currentBoard = await boardQueries.getBoardById(db, boardId);
     if (!currentBoard) {
       return res.status(404).json({ error: t('errors.boardNotFound') });
     }
 
-    // Get all boards ordered by current position
-    const allBoards = await wrapQuery(db.prepare('SELECT id, position FROM boards ORDER BY position ASC'), 'SELECT').all();
+    // MIGRATED: Get all boards with positions using sqlManager
+    const allBoards = await boardQueries.getAllBoardsWithPositions(db);
 
     // Reset all positions to simple integers (0, 1, 2, 3, etc.)
     // Now get the normalized positions and find the target and dragged boards
@@ -507,15 +357,17 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
         for (let index = 0; index < allBoards.length; index++) {
-          await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(index, allBoards[index].id);
+          // MIGRATED: Update board position using sqlManager
+          await boardQueries.updateBoardPosition(db, allBoards[index].id, index);
         }
 
         if (currentIndex !== -1 && currentIndex !== newPosition) {
           // Simple swap: just swap the two positions
           const targetBoard = normalizedBoards[newPosition];
           if (targetBoard) {
-            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(newPosition, boardId);
-            await wrapQuery(db.prepare('UPDATE boards SET position = ? WHERE id = ?'), 'UPDATE').run(currentIndex, targetBoard.id);
+            // MIGRATED: Update board positions using sqlManager
+            await boardQueries.updateBoardPosition(db, boardId, newPosition);
+            await boardQueries.updateBoardPosition(db, targetBoard.id, currentIndex);
           }
         }
       });
@@ -544,20 +396,8 @@ router.get('/:boardId/relationships', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Get all relationships for tasks in this board
-    const relationships = await wrapQuery(db.prepare(`
-      SELECT 
-        tr.id,
-        tr.task_id,
-        tr.relationship,
-        tr.to_task_id,
-        tr.created_at
-      FROM task_rels tr
-      JOIN tasks t1 ON tr.task_id = t1.id
-      JOIN tasks t2 ON tr.to_task_id = t2.id
-      WHERE t1.boardId = ? AND t2.boardId = ?
-      ORDER BY tr.created_at DESC
-    `), 'SELECT').all(boardId, boardId);
+    // MIGRATED: Get all relationships for tasks in this board using sqlManager
+    const relationships = await boardQueries.getBoardTaskRelationships(db, boardId);
     
     res.json(relationships);
   } catch (error) {

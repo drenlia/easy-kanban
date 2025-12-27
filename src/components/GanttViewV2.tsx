@@ -108,18 +108,50 @@ const GanttViewV2 = ({
   
   // Sync relationships from props, but preserve optimistic updates
   useEffect(() => {
-    if (relationships) {
-      // If we have relationships from props and no local relationships yet, use them
-      if (localRelationships.length === 0) {
-        setLocalRelationships(relationships);
-      } else {
-        // Merge: keep optimistic updates (temp IDs) and add new server relationships
-        const tempRelationships = localRelationships.filter(rel => 
-          typeof rel.id === 'string' && rel.id.startsWith('temp-')
-        );
-        const mergedRelationships = [...relationships, ...tempRelationships];
-        setLocalRelationships(mergedRelationships);
-      }
+    if (relationships && relationships.length >= 0) {
+      console.log('🔗 [GanttViewV2] Syncing relationships:', {
+        incomingCount: relationships.length,
+        currentLocalCount: localRelationships.length,
+        relationships: relationships.map(r => `${r.taskId || r.task_id}->${r.toTaskId || r.to_task_id}`)
+      });
+      
+      // Always merge: keep optimistic updates (temp or confirmed IDs) and add new server relationships
+      // Match relationships by task_id and to_task_id to avoid duplicates
+      const optimisticRelationships = localRelationships.filter(rel => 
+        typeof rel.id === 'string' && (rel.id.startsWith('temp-') || rel.id.startsWith('confirmed-'))
+      );
+      
+      // Create a set of existing relationships from server (by taskId + toTaskId)
+      // Support both camelCase (from API) and snake_case (from optimistic updates)
+      const serverRelationshipKeys = new Set(
+        relationships.map(rel => {
+          const taskId = rel.taskId || rel.task_id;
+          const toTaskId = rel.toTaskId || rel.to_task_id;
+          return `${taskId}-${toTaskId}`;
+        })
+      );
+      
+      // Keep optimistic relationships that don't have a server match yet
+      const unmatchedOptimistic = optimisticRelationships.filter(rel => {
+        const taskId = rel.taskId || rel.task_id;
+        const toTaskId = rel.toTaskId || rel.to_task_id;
+        const key = `${taskId}-${toTaskId}`;
+        return !serverRelationshipKeys.has(key);
+      });
+      
+      // Merge server relationships with unmatched optimistic ones
+      // Server relationships take precedence (they're the source of truth)
+      const mergedRelationships = [...relationships, ...unmatchedOptimistic];
+      console.log('🔗 [GanttViewV2] Merged relationships:', {
+        mergedCount: mergedRelationships.length,
+        serverCount: relationships.length,
+        optimisticCount: unmatchedOptimistic.length,
+        merged: mergedRelationships.map(r => `${r.taskId || r.task_id}->${r.toTaskId || r.to_task_id}`)
+      });
+      setLocalRelationships(mergedRelationships);
+    } else if (relationships && relationships.length === 0 && localRelationships.length === 0) {
+      // If both are empty, ensure localRelationships is also empty
+      setLocalRelationships([]);
     }
   }, [relationships]);
 
@@ -1316,9 +1348,12 @@ const GanttViewV2 = ({
     lastRelationshipClickRef.current = now;
     
     // Check if relationship already exists to prevent duplicates
-    const existingRelationship = localRelationships.find(rel => 
-      rel.task_id === parentTaskId && rel.to_task_id === childTaskId
-    );
+    // Support both camelCase (from API) and snake_case (from optimistic updates)
+    const existingRelationship = localRelationships.find(rel => {
+      const taskId = rel.taskId || rel.task_id;
+      const toTaskId = rel.toTaskId || rel.to_task_id;
+      return taskId === parentTaskId && toTaskId === childTaskId;
+    });
     
     if (existingRelationship) {
       return;
@@ -1343,6 +1378,7 @@ const GanttViewV2 = ({
       const createdRelationship = await addTaskRelationship(parentTaskId, 'parent', childTaskId);
       
       // Mark optimistic relationship as confirmed (keep it, just change the ID)
+      // The WebSocket event will eventually replace it with the real relationship from server
       setLocalRelationships(prev => 
         prev.map(rel => 
           rel.id === optimisticRelationship.id 
@@ -1351,7 +1387,8 @@ const GanttViewV2 = ({
         )
       );
       
-      // Note: No need to refresh data since arrows already show from optimistic update
+      // Note: WebSocket event will update boardRelationships, which will sync via props
+      // The merge logic will handle replacing the confirmed relationship with the real one
       
     } catch (error: any) {
       console.error('Failed to create relationship:', error);
@@ -2141,7 +2178,7 @@ const GanttViewV2 = ({
             localDragState={localDragState}
             ganttTasks={ganttTasks}
             taskPositions={taskPositions}
-            relationships={[...relationships, ...localRelationships]}
+            relationships={localRelationships}
             highlightedTaskId={highlightedTaskId}
             selectedParentTask={selectedParentTask}
             onDeleteRelationship={handleDeleteRelationship}

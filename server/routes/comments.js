@@ -12,6 +12,8 @@ import * as reportingLogger from '../services/reportingLogger.js';
 import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager
+import { comments as commentQueries, helpers, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,12 +70,10 @@ router.post('/', authenticateToken, async (req, res) => {
       await db.executeBatchTransaction(batchQueries);
     } else {
       // Direct DB mode: Use standard transaction
+      // MIGRATED: Use sqlManager to create comment
       await dbTransaction(db, async () => {
-        // Insert comment
-        await wrapQuery(db.prepare(`
-          INSERT INTO comments (id, taskId, text, authorId, createdAt)
-          VALUES (?, ?, ?, ?, ?)
-        `), 'INSERT').run(
+        await commentQueries.createComment(
+          db,
           comment.id,
           comment.taskId,
           comment.text,
@@ -81,12 +81,12 @@ router.post('/', authenticateToken, async (req, res) => {
           comment.createdAt
         );
         
-        // Insert attachments if any
+        // Insert attachments if any (attachments are handled separately, not in sqlManager yet)
         if (comment.attachments?.length > 0) {
           for (const attachment of comment.attachments) {
             await wrapQuery(db.prepare(`
-              INSERT INTO attachments (id, commentId, name, url, type, size)
-              VALUES (?, ?, ?, ?, ?, ?)
+              INSERT INTO attachments (id, commentid, name, url, type, size)
+              VALUES ($1, $2, $3, $4, $5, $6)
             `), 'INSERT').run(
               attachment.id,
               comment.id,
@@ -118,12 +118,14 @@ router.post('/', authenticateToken, async (req, res) => {
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
+      // MIGRATED: Use sqlManager to get task info (simplified - reporting logger may need full task with relationships)
+      // Note: This query is for reporting, so we keep it inline for now as it's specific to reporting needs
       const taskInfo = await wrapQuery(db.prepare(`
         SELECT t.*, b.title as board_title, c.title as column_title
         FROM tasks t
-        LEFT JOIN boards b ON t.boardId = b.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        WHERE t.id = ?
+        LEFT JOIN boards b ON t.boardid = b.id
+        LEFT JOIN columns c ON t.columnid = c.id
+        WHERE t.id = $1
       `), 'SELECT').get(comment.taskId);
       
       if (userInfo && taskInfo) {
@@ -147,31 +149,18 @@ router.post('/', authenticateToken, async (req, res) => {
       console.error('Failed to log comment to reporting system:', reportError);
     }
     
-    // Get the task's board ID for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(comment.taskId);
+    // MIGRATED: Get the task's board ID using sqlManager
+    const task = await taskQueries.getTaskBoardId(db, comment.taskId);
     
-    // Fetch the complete comment with attachments from database
-    // Include author info (name and color) like in tasks.js
-    const createdComment = await wrapQuery(db.prepare(`
-      SELECT 
-        c.id,
-        c.taskId,
-        c.text,
-        c.authorId,
-        c.createdAt,
-        c.updated_at as updatedAt,
-        m.name as authorName,
-        m.color as authorColor
-      FROM comments c
-      LEFT JOIN members m ON c.authorId = m.id
-      WHERE c.id = ?
-    `), 'SELECT').get(comment.id);
+    // MIGRATED: Fetch the complete comment with attachments using sqlManager
+    const createdComment = await commentQueries.getCommentById(db, comment.id);
     
     if (!createdComment) {
       return res.status(500).json({ error: 'Failed to retrieve created comment' });
     }
     
-    const attachments = await wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(comment.id);
+    // MIGRATED: Get attachments using sqlManager
+    const attachments = await helpers.getAttachmentsForComment(db, comment.id);
     createdComment.attachments = attachments || [];
     
     // Ensure taskId is included in the comment object
@@ -180,11 +169,12 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     
     // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    // Note: getTaskBoardId returns boardId string or null
+    if (task) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing comment-created to Redis for board:', task.boardId);
+      console.log('📤 Publishing comment-created to Redis for board:', task);
       await notificationService.publish('comment-created', {
-        boardId: task.boardId,
+        boardId: task,  // task is already the boardId string
         taskId: comment.taskId,
         comment: createdComment,
         timestamp: new Date().toISOString()
@@ -209,15 +199,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Get original comment first
-    const originalComment = await wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(id);
+    // MIGRATED: Get original comment using sqlManager
+    const originalComment = await commentQueries.getCommentSimple(db, id);
     
     if (!originalComment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
-    // Update comment text in database
-    const result = await wrapQuery(db.prepare('UPDATE comments SET text = ? WHERE id = ?'), 'UPDATE').run(text, id);
+    // MIGRATED: Update comment text using sqlManager
+    const result = await commentQueries.updateComment(db, id, text);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Comment not found' });
@@ -233,40 +223,29 @@ router.put('/:id', authenticateToken, async (req, res) => {
       { db: db, tenantId: getTenantId(req) }
     );
     
-    // Get the task's board ID for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(originalComment.taskId);
+    // MIGRATED: Get the task's board ID using sqlManager
+    const task = await taskQueries.getTaskBoardId(db, originalComment.taskid || originalComment.taskId);
     
-    // Return updated comment with attachments
-    // Include author info (name and color) like in tasks.js
-    const updatedComment = await wrapQuery(db.prepare(`
-      SELECT 
-        c.id,
-        c.taskId,
-        c.text,
-        c.authorId,
-        c.createdAt,
-        c.updated_at as updatedAt,
-        m.name as authorName,
-        m.color as authorColor
-      FROM comments c
-      LEFT JOIN members m ON c.authorId = m.id
-      WHERE c.id = ?
-    `), 'SELECT').get(id);
+    // MIGRATED: Return updated comment with attachments using sqlManager
+    const updatedComment = await commentQueries.getCommentById(db, id);
     
     if (!updatedComment) {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
-    const attachments = await wrapQuery(db.prepare('SELECT id, name, url, type, size, created_at as createdAt FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
+    // MIGRATED: Get attachments using sqlManager
+    const attachments = await helpers.getAttachmentsForComment(db, id);
     updatedComment.attachments = attachments || [];
     
     // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    // Note: getTaskBoardId returns boardId string or null
+    const taskId = originalComment.taskid || originalComment.taskId;
+    if (task) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing comment-updated to Redis for board:', task.boardId);
+      console.log('📤 Publishing comment-updated to Redis for board:', task);
       await notificationService.publish('comment-updated', {
-        boardId: task.boardId,
-        taskId: originalComment.taskId,
+        boardId: task,
+        taskId: taskId,
         comment: updatedComment,
         timestamp: new Date().toISOString()
       }, tenantId);
@@ -287,15 +266,15 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Get comment details before deleting
-    const commentToDelete = await wrapQuery(db.prepare('SELECT * FROM comments WHERE id = ?'), 'SELECT').get(id);
+    // MIGRATED: Get comment details before deleting using sqlManager
+    const commentToDelete = await commentQueries.getCommentSimple(db, id);
     
     if (!commentToDelete) {
       return res.status(404).json({ error: 'Comment not found' });
     }
     
-    // Get attachments before deleting the comment
-    const attachments = await wrapQuery(db.prepare('SELECT url FROM attachments WHERE commentId = ?'), 'SELECT').all(id);
+    // MIGRATED: Get attachments before deleting the comment using sqlManager
+    const attachments = await helpers.getAttachmentsForComment(db, id);
 
     // Get tenant-specific storage paths (set by tenant routing middleware)
     const getStoragePaths = (req) => {
@@ -331,8 +310,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       }
     }
 
-    // Delete the comment (cascades to attachments)
-    await wrapQuery(db.prepare('DELETE FROM comments WHERE id = ?'), 'DELETE').run(id);
+    // MIGRATED: Delete the comment using sqlManager (cascades to attachments)
+    await commentQueries.deleteComment(db, id);
     
     // Update storage usage after deleting comment (which cascades to attachments)
     await updateStorageUsage(db);
@@ -347,16 +326,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       { db: db, tenantId: getTenantId(req) }
     );
 
-    // Get the task's board ID for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(commentToDelete.taskId);
+    // MIGRATED: Get the task's board ID using sqlManager
+    const taskId = commentToDelete.taskid || commentToDelete.taskId;
+    const task = await taskQueries.getTaskBoardId(db, taskId);
     
     // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    // Note: getTaskBoardId returns boardId string or null
+    if (task) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing comment-deleted to Redis for board:', task.boardId);
+      console.log('📤 Publishing comment-deleted to Redis for board:', task);
       await notificationService.publish('comment-deleted', {
-        boardId: task.boardId,
-        taskId: commentToDelete.taskId,
+        boardId: task,
+        taskId: taskId,
         commentId: id,
         timestamp: new Date().toISOString()
       }, tenantId);
@@ -374,16 +355,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 router.get('/:commentId/attachments', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const attachments = await wrapQuery(db.prepare(`
-      SELECT 
-        id,
-        name,
-        url,
-        type,
-        size
-      FROM attachments
-      WHERE commentId = ?
-    `), 'SELECT').all(req.params.commentId);
+    // MIGRATED: Get attachments using sqlManager
+    const attachments = await helpers.getAttachmentsForComment(db, req.params.commentId);
 
     res.json(attachments);
   } catch (error) {

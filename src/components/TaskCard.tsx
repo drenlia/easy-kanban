@@ -265,9 +265,19 @@ const TaskCard = React.memo(function TaskCard({
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
+  const isInteractingWithTagRef = useRef<boolean>(false); // Track if user is interacting with tags
+  const isInteractingWithDropdownRef = useRef<boolean>(false); // Track if user is interacting with dropdowns (member, sprint, etc.)
+  const isSelectingRef = useRef<boolean>(false); // Track if we're in the process of selecting this task
 
   // Check if any editing is active to disable drag
   const isAnyEditingActive = isEditingTitle || isEditingEffort || isEditingDescription || showMemberSelect || showPrioritySelect || showCommentTooltip || showTagRemovalMenu || showAttachmentsDropdown || showSprintSelector || showDateRangePicker;
+
+  // Sync editedEffort with task.effort when task updates (but not while editing)
+  useEffect(() => {
+    if (!isEditingEffort) {
+      setEditedEffort(task.effort);
+    }
+  }, [task.effort, isEditingEffort]);
 
   // Prevent component updates while editing description to maintain focus
   useEffect(() => {
@@ -450,6 +460,15 @@ const TaskCard = React.memo(function TaskCard({
 
   // Check if this task is currently selected (TaskDetails panel is open for this task)
   const isSelected = selectedTask?.id === task.id;
+  
+  // Clear hover state when card becomes unselected to prevent light gray appearance
+  useEffect(() => {
+    if (!isSelected) {
+      setIsHoveringCard(false);
+      setIsHoveringTitle(false);
+      setIsHoveringDescription(false);
+    }
+  }, [isSelected]);
 
   // Track drag state for parent notifications
   useEffect(() => {
@@ -474,6 +493,10 @@ const TaskCard = React.memo(function TaskCard({
       if (clickTimerRef.current) {
         clearTimeout(clickTimerRef.current);
       }
+      // Reset all interaction flags on cleanup
+      isInteractingWithTagRef.current = false;
+      isInteractingWithDropdownRef.current = false;
+      isSelectingRef.current = false;
     };
   }, []);
 
@@ -644,11 +667,13 @@ const TaskCard = React.memo(function TaskCard({
   };
 
   const handleDateRangeChange = (startDate: string, endDate: string) => {
-    onEdit({ 
+    // Optimistically update - the WebSocket event will eventually sync, but show changes immediately
+    const updatedTask = { 
       ...task, 
       startDate,
       dueDate: endDate || undefined
-    });
+    };
+    onEdit(updatedTask);
   };
 
   const handleDateRangePickerClose = () => {
@@ -1092,7 +1117,11 @@ const TaskCard = React.memo(function TaskCard({
   }, [isEditingTitle, isEditingDescription, editedDescription, task, cardElement, handleTitleSave, onEdit]);
 
   // Tag removal handlers
-  const handleConfirmTagRemoval = () => {
+  const handleConfirmTagRemoval = (e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation(); // Prevent event from bubbling to card onClick
+      e.preventDefault();
+    }
     if (selectedTagForRemoval && onTagRemove) {
       onTagRemove(selectedTagForRemoval.id.toString());
       setShowTagRemovalMenu(false);
@@ -1130,7 +1159,9 @@ const TaskCard = React.memo(function TaskCard({
             ? undefined 
             : member.id === SYSTEM_MEMBER_ID 
               ? undefined 
-              : 'var(--task-card-bg)'
+              : 'var(--task-card-bg)',
+          // Prevent clicks on tag areas from reaching card
+          position: 'relative'
         }}
         className={`task-card sortable-item cursor-pointer ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
@@ -1162,11 +1193,123 @@ const TaskCard = React.memo(function TaskCard({
         }`}
         {...attributes}
         {...listeners}
+        onClickCapture={(e) => {
+          // Use capture phase to detect tag clicks BEFORE onClick fires
+          // This allows us to set a flag that onClick can check
+          const target = e.target as HTMLElement;
+          
+          // If clicking on a tag or tag container, mark it
+          if (
+            target.closest('[data-tag-container]') ||
+            target.classList.contains('rounded-full') ||
+            target.closest('span.rounded-full') ||
+            target.closest('.flex.flex-wrap.gap-1')
+          ) {
+            // Clear any pending click timer immediately
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            // Set flag - don't stop propagation so tag's onClick can still fire
+            isInteractingWithTagRef.current = true;
+            // Reset flag after a delay (longer than the 250ms click timer)
+            setTimeout(() => {
+              isInteractingWithTagRef.current = false;
+            }, 500);
+          }
+        }}
         onClick={(e) => {
           // Only open task details if we're not in linking mode and not clicking interactive elements
           if (isLinkingMode) return;
           
           const target = e.target as HTMLElement;
+          
+          // CRITICAL: Check if clicking on a tag FIRST - before any other logic
+          // Use multiple detection methods to catch all tag clicks
+          const isTagClick = 
+            target.closest('[data-tag-container]') !== null ||
+            target.classList.contains('rounded-full') ||
+            target.closest('span.rounded-full') !== null ||
+            target.closest('.flex.flex-wrap.gap-1') !== null ||
+            (target.tagName === 'SPAN' && target.style.backgroundColor && target.style.borderRadius === '9999px') ||
+            (target.tagName === 'SPAN' && target.closest('.flex.justify-end.mb-2') !== null);
+          
+          if (isTagClick) {
+            // Immediately clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            // Set flag to prevent any delayed selection
+            isInteractingWithTagRef.current = true;
+            // Reset flag after delay (longer than the 250ms click timer)
+            setTimeout(() => {
+              isInteractingWithTagRef.current = false;
+            }, 500);
+            // Stop propagation to prevent card selection
+            e.stopPropagation();
+            return;
+          }
+          
+          // CRITICAL: Check if clicking on dropdowns (member selector, sprint selector, etc.)
+          const isDropdownClick = 
+            target.closest('[data-member-dropdown]') !== null ||
+            target.closest('[data-member-button]') !== null ||
+            target.closest('[data-sprint-selector]') !== null ||
+            target.closest('[data-sprint-badge]') !== null || // Sprint badge (informational only)
+            target.closest('[data-tag-removal-menu]') !== null ||
+            target.closest('[data-tour-id="sprint-association"]') !== null ||
+            target.closest('button[data-tour-id="sprint-association"]') !== null ||
+            (target.closest('svg') && target.closest('svg')?.parentElement?.getAttribute('data-tour-id') === 'sprint-association') ||
+            target.closest('.fixed.bg-white.dark\\:bg-gray-800') !== null; // Portal-rendered dropdowns
+          
+          if (isDropdownClick) {
+            // Immediately clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            // Set flag to prevent any delayed selection
+            isInteractingWithDropdownRef.current = true;
+            // Reset flag after delay
+            setTimeout(() => {
+              isInteractingWithDropdownRef.current = false;
+            }, 500);
+            // Stop propagation to prevent card selection
+            e.stopPropagation();
+            return;
+          }
+          
+          // Check flags - if we're interacting with tags or dropdowns, don't do anything
+          if (isInteractingWithTagRef.current || isInteractingWithDropdownRef.current) {
+            // Clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            return;
+          }
+          
+          // Don't open if tag removal menu is open
+          if (showTagRemovalMenu) {
+            // Clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            return;
+          }
+          
+          // Don't open if any dropdown is open
+          if (showMemberSelect || showSprintSelector || showPrioritySelect || showAttachmentsDropdown) {
+            // Clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            return;
+          }
+          
           // Don't open if clicking on interactive elements or their children
           // Check both direct tag and closest() to catch clicks on elements inside buttons
           if (
@@ -1182,34 +1325,169 @@ const TaskCard = React.memo(function TaskCard({
             target.closest('input') ||
             target.closest('select') ||
             target.closest('svg') || // SVG elements and their children
-            target.closest('[data-stop-propagation]') // Allow marking elements to stop propagation
+            target.closest('[data-stop-propagation]') || // Allow marking elements to stop propagation
+            target.closest('[data-tag-removal-menu]') || // Tag removal menu (rendered in portal)
+            isEditingEffort || // Don't open if editing effort
+            isEditingTitle || // Don't open if editing title
+            isEditingDescription // Don't open if editing description
           ) {
+            // Clear any pending click timer
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
             return;
           }
           
           // Delay opening/closing TaskDetails to allow double-click to cancel it
-          if (clickTimerRef.current) {
-            clearTimeout(clickTimerRef.current);
-          }
-          clickTimerRef.current = setTimeout(() => {
-            // Toggle: if clicking the same task that's already selected, close TaskDetails
-            if (selectedTask && selectedTask.id === task.id) {
-              onSelect(null);
-            } else {
-              onSelect(task);
+          // CRITICAL: Only set timer if we're NOT interacting with tags or dropdowns, and not already selecting, and not editing
+          const canStartSelection = !isInteractingWithTagRef.current && 
+                                    !isInteractingWithDropdownRef.current && 
+                                    !isSelectingRef.current && 
+                                    !showTagRemovalMenu && 
+                                    !showMemberSelect && 
+                                    !showSprintSelector && 
+                                    !showPrioritySelect && 
+                                    !showAttachmentsDropdown && 
+                                    !isEditingEffort && 
+                                    !isEditingTitle && 
+                                    !isEditingDescription;
+          
+          if (canStartSelection) {
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
             }
-            clickTimerRef.current = null;
-          }, 250); // Wait 250ms to distinguish from double-click
+            isSelectingRef.current = true; // Mark that we're in the process of selecting
+            // Don't clear hover state here - it causes light gray appearance during task switching
+            // The selected state styling will handle the visual appearance
+            
+            // Store the current task ID and selected task ID to avoid stale closures
+            // CRITICAL: Use the task prop directly in the callback to ensure we have the latest task data
+            const currentTaskId = task.id;
+            const currentSelectedTaskId = selectedTask?.id;
+            
+            console.log('[TaskCard] Starting selection timer for task:', currentTaskId, 'currently selected:', currentSelectedTaskId);
+            
+            clickTimerRef.current = setTimeout(() => {
+              // CRITICAL: Re-read task and selectedTask from props to avoid stale closures
+              // This ensures we have the latest data when switching tasks
+              const latestTaskId = task.id;
+              const latestSelectedTaskId = selectedTask?.id;
+              
+              // Final check before selecting - make sure we're still not interacting with tags or dropdowns, and not editing
+              // Use refs for state checks to avoid stale closures
+              const shouldSelect = !isInteractingWithTagRef.current && 
+                                   !isInteractingWithDropdownRef.current && 
+                                   !showTagRemovalMenu && 
+                                   !showMemberSelect && 
+                                   !showSprintSelector && 
+                                   !showPrioritySelect && 
+                                   !showAttachmentsDropdown && 
+                                   !isEditingEffort && 
+                                   !isEditingTitle && 
+                                   !isEditingDescription;
+              
+              // Only proceed if timer wasn't cleared (e.g., by double-click)
+              if (shouldSelect && clickTimerRef.current !== null) {
+                console.log('[TaskCard] Executing selection for task:', latestTaskId, 'currently selected:', latestSelectedTaskId);
+                // Toggle: if clicking the same task that's already selected, close TaskDetails
+                // Use the latest IDs to avoid stale closure issues
+                if (latestSelectedTaskId === latestTaskId) {
+                  // Clear hover state before unselecting to prevent light gray appearance
+                  setIsHoveringCard(false);
+                  setIsHoveringTitle(false);
+                  setIsHoveringDescription(false);
+                  console.log('[TaskCard] Closing TaskDetails (same task clicked)');
+                  onSelect(null);
+                } else {
+                  // Switching to a different task - use the latest task object from props
+                  console.log('[TaskCard] Switching to task:', latestTaskId);
+                  // Use task prop directly to ensure we have the latest data
+                  // Don't clear hover state here - let it be managed by mouse events
+                  onSelect(task);
+                }
+                // Reset selection flag immediately after onSelect to allow hover state to be restored
+                // This is critical when performance violations delay React state updates
+                isSelectingRef.current = false;
+              } else {
+                // Selection was blocked - ensure hover state is cleared to prevent light gray appearance
+                setIsHoveringCard(false);
+                setIsHoveringTitle(false);
+                setIsHoveringDescription(false);
+                // Reset selection flag since we're not selecting
+                isSelectingRef.current = false;
+                // Debug: Log why selection was blocked
+                if (clickTimerRef.current === null) {
+                  console.log('[TaskCard] Selection blocked: timer was cleared');
+                } else {
+                  console.log('[TaskCard] Selection blocked:', {
+                    isInteractingWithTag: isInteractingWithTagRef.current,
+                    isInteractingWithDropdown: isInteractingWithDropdownRef.current,
+                    showTagRemovalMenu,
+                    showMemberSelect,
+                    showSprintSelector,
+                    showPrioritySelect,
+                    showAttachmentsDropdown,
+                    isEditingEffort,
+                    isEditingTitle,
+                    isEditingDescription
+                  });
+                }
+              }
+              clickTimerRef.current = null;
+            }, 250); // Wait 250ms to distinguish from double-click
+          } else {
+            // If we're interacting with tags or already selecting, make sure timer is cleared
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+            isSelectingRef.current = false; // Reset selection flag
+            console.log('[TaskCard] Selection prevented:', {
+              isInteractingWithTag: isInteractingWithTagRef.current,
+              isInteractingWithDropdown: isInteractingWithDropdownRef.current,
+              isSelecting: isSelectingRef.current,
+              showTagRemovalMenu,
+              showMemberSelect,
+              showSprintSelector,
+              showPrioritySelect,
+              showAttachmentsDropdown,
+              isEditingEffort,
+              isEditingTitle,
+              isEditingDescription
+            });
+          }
         }}
         onMouseEnter={() => {
-          setIsHoveringCard(true);
-          setIsHoveringTitle(true);
-          setIsHoveringDescription(true);
+          // Don't set hover state if we're in the process of selecting
+          // Also don't set hover if the card is currently selected (it has its own styling)
+          if (!isSelectingRef.current && !isSelected) {
+            setIsHoveringCard(true);
+            setIsHoveringTitle(true);
+            setIsHoveringDescription(true);
+          }
         }}
         onMouseLeave={() => {
-          setIsHoveringCard(false);
-          setIsHoveringTitle(false);
-          setIsHoveringDescription(false);
+          // Only clear hover if card is not selected (selected cards have their own styling)
+          if (!isSelected) {
+            setIsHoveringCard(false);
+            setIsHoveringTitle(false);
+            setIsHoveringDescription(false);
+          }
+        }}
+        onDoubleClick={(e) => {
+          // Cancel pending single-click timer to prevent TaskDetails from opening/closing
+          if (clickTimerRef.current) {
+            clearTimeout(clickTimerRef.current);
+            clickTimerRef.current = null;
+          }
+          // Reset selection flag
+          isSelectingRef.current = false;
+          // Clear interaction flags
+          isInteractingWithTagRef.current = false;
+          isInteractingWithDropdownRef.current = false;
+          // Double-click doesn't do anything special for now, but prevents single-click action
+          e.stopPropagation();
         }}
         onMouseUp={isLinkingMode ? (e) => {
           console.log('🔗 TaskCard onMouseUp in linking mode:', {
@@ -1485,10 +1763,33 @@ const TaskCard = React.memo(function TaskCard({
           const displayName = sprintName.length > 20 ? sprintName.substring(0, 17) + '...' : sprintName;
           
           return (
-            <div className="flex justify-end mb-2">
+            <div className="flex justify-end mb-2" data-sprint-badge="true">
               <span
                 className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate"
                 title={t('taskCard.sprint', { name: sprintName })}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  // Set flag to prevent card selection
+                  isInteractingWithDropdownRef.current = true;
+                  // Clear any pending click timer
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                  }
+                  // Reset flag after delay
+                  setTimeout(() => {
+                    isInteractingWithDropdownRef.current = false;
+                  }, 500);
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isInteractingWithDropdownRef.current = true;
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                  }
+                }}
               >
                 {displayName}
               </span>
@@ -1503,9 +1804,54 @@ const TaskCard = React.memo(function TaskCard({
           
           return (
             <div 
+              data-tag-container="true"
               className="flex justify-end mb-2 relative"
-              onMouseEnter={() => setShowAllTags(true)}
-              onMouseLeave={() => setShowAllTags(false)}
+              style={{ 
+                pointerEvents: 'auto', // Ensure this div can receive pointer events
+                zIndex: 10 // Ensure tag container is above card for event handling
+              }}
+              onMouseEnter={() => {
+                setShowAllTags(true);
+                isInteractingWithTagRef.current = true; // Mark that user is interacting with tags
+              }}
+              onMouseLeave={() => {
+                setShowAllTags(false);
+                // Reset flag after a short delay to allow click to complete
+                setTimeout(() => {
+                  isInteractingWithTagRef.current = false;
+                }, 300);
+              }}
+              onClick={(e) => {
+                // CRITICAL: Stop propagation to prevent card onClick from firing
+                e.stopPropagation();
+                e.preventDefault();
+                // Set flag synchronously (before any async operations)
+                isInteractingWithTagRef.current = true;
+                // Clear any pending click timer on the card to prevent selection
+                if (clickTimerRef.current) {
+                  clearTimeout(clickTimerRef.current);
+                  clickTimerRef.current = null;
+                }
+                // Reset flag after click completes (longer than card's 250ms timer)
+                setTimeout(() => {
+                  isInteractingWithTagRef.current = false;
+                }, 500);
+              }}
+              onMouseDown={(e) => {
+                // Set flag immediately on mousedown (before click)
+                isInteractingWithTagRef.current = true;
+                e.stopPropagation();
+                // Clear any pending click timer
+                if (clickTimerRef.current) {
+                  clearTimeout(clickTimerRef.current);
+                  clickTimerRef.current = null;
+                }
+              }}
+              onMouseUp={(e) => {
+                // Keep flag set on mouseup
+                isInteractingWithTagRef.current = true;
+                e.stopPropagation();
+              }}
             >
               <div className={`flex flex-wrap gap-1 justify-end transition-all duration-200 ${
                 showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
@@ -1516,9 +1862,16 @@ const TaskCard = React.memo(function TaskCard({
                     className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
                     style={getTagDisplayStyle(tag)}
                     title={t('taskCard.clickToRemoveTag')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const rect = (e.target as HTMLElement).getBoundingClientRect();
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      isInteractingWithTagRef.current = true; // Mark interaction
+                      // Clear any pending click timer on the card to prevent selection
+                      if (clickTimerRef.current) {
+                        clearTimeout(clickTimerRef.current);
+                        clickTimerRef.current = null;
+                      }
+                      const rect = (e.target as HTMLElement).getBoundingClientRect();
                     const menuWidth = 220;
                     const menuHeight = 80; // Approximate height of the menu
                     
@@ -1575,7 +1928,27 @@ const TaskCard = React.memo(function TaskCard({
                 title={t('taskCard.clickToSelectSprint')}
                 onClick={(e) => {
                   e.stopPropagation();
+                  e.preventDefault();
+                  // Set flag to prevent card selection
+                  isInteractingWithDropdownRef.current = true;
+                  // Clear any pending click timer
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                  }
                   handleSprintSelectorOpen();
+                  // Reset flag after delay
+                  setTimeout(() => {
+                    isInteractingWithDropdownRef.current = false;
+                  }, 500);
+                }}
+                onMouseDown={(e) => {
+                  e.stopPropagation();
+                  isInteractingWithDropdownRef.current = true;
+                  if (clickTimerRef.current) {
+                    clearTimeout(clickTimerRef.current);
+                    clickTimerRef.current = null;
+                  }
                 }}
                 data-tour-id="sprint-association"
               >
@@ -1644,13 +2017,49 @@ const TaskCard = React.memo(function TaskCard({
                   onKeyDown={handleEffortKeyDown}
                   className="text-xs bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-10"
                   autoFocus
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                  }}
                 />
               ) : (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    e.preventDefault();
+                    // Set flag to prevent card selection
+                    isInteractingWithDropdownRef.current = true;
+                    // Clear any pending click timer
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
                     setIsEditingEffort(true);
+                    // Reset flag after delay
+                    setTimeout(() => {
+                      isInteractingWithDropdownRef.current = false;
+                    }, 500);
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
                   }}
                   className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer text-xs"
                   title={t('taskCard.clickToChangeEffort')}
@@ -2020,12 +2429,22 @@ const TaskCard = React.memo(function TaskCard({
       {showTagRemovalMenu && selectedTagForRemoval && createPortal(
         <div 
           ref={tagRemovalMenuRef}
+          data-tag-removal-menu="true"
           className="fixed w-[220px] bg-white border border-gray-200 rounded-lg shadow-lg z-[9999] p-3"
           style={{ 
             left: `${tagRemovalPosition.left}px`, 
             top: `${tagRemovalPosition.top}px`
           }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent clicks inside menu from bubbling to card
+            e.preventDefault();
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation(); // Also prevent mousedown from triggering card selection
+          }}
+          onMouseUp={(e) => {
+            e.stopPropagation(); // Prevent mouseup from triggering card selection
+          }}
         >
           <div className="text-sm font-medium text-gray-800 mb-2">
             {t('taskCard.removeTag')}
@@ -2035,13 +2454,21 @@ const TaskCard = React.memo(function TaskCard({
               </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handleConfirmTagRemoval}
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent event from bubbling to card onClick
+                e.preventDefault();
+                handleConfirmTagRemoval(e);
+              }}
               className="flex-1 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
             >
               {t('taskCard.remove')}
             </button>
                     <button
-              onClick={handleCancelTagRemoval}
+              onClick={(e) => {
+                e.stopPropagation(); // Prevent event from bubbling to card onClick
+                e.preventDefault();
+                handleCancelTagRemoval();
+              }}
               className="flex-1 px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition-colors"
             >
               {t('taskCard.cancel')}
@@ -2055,13 +2482,30 @@ const TaskCard = React.memo(function TaskCard({
       {showSprintSelector && sprintSelectorCoords && createPortal(
         <div
           ref={sprintSelectorRef}
+          data-sprint-selector="true"
           className="fixed bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg z-[9999]"
           style={{
             left: `${sprintSelectorCoords.left}px`,
             top: `${sprintSelectorCoords.top}px`,
             width: '256px',
           }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            isInteractingWithDropdownRef.current = true;
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+          }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            isInteractingWithDropdownRef.current = true;
+            if (clickTimerRef.current) {
+              clearTimeout(clickTimerRef.current);
+              clickTimerRef.current = null;
+            }
+          }}
         >
           <div className="p-2">
             <input
@@ -2205,8 +2649,37 @@ const TaskCard = React.memo(function TaskCard({
       prevProps.task.columnId !== nextProps.task.columnId ||
       prevProps.task.memberId !== nextProps.task.memberId ||
       prevProps.task.priority !== nextProps.task.priority ||
-      prevProps.task.sprintId !== nextProps.task.sprintId) {
+      prevProps.task.sprintId !== nextProps.task.sprintId ||
+      prevProps.task.effort !== nextProps.task.effort ||
+      prevProps.task.startDate !== nextProps.task.startDate ||
+      prevProps.task.dueDate !== nextProps.task.dueDate) {
     return false; // Re-render
+  }
+  
+  // CRITICAL: Check if tags changed - tags array reference or content
+  const prevTags = prevProps.task.tags || [];
+  const nextTags = nextProps.task.tags || [];
+  if (prevTags.length !== nextTags.length) {
+    return false; // Re-render - tag count changed
+  }
+  // Check if tag IDs changed (more efficient than deep comparison)
+  const prevTagIds = prevTags.map(t => t.id).sort().join(',');
+  const nextTagIds = nextTags.map(t => t.id).sort().join(',');
+  if (prevTagIds !== nextTagIds) {
+    return false; // Re-render - tags changed
+  }
+  
+  // CRITICAL: Check if comments changed - comments array length or IDs
+  const prevComments = prevProps.task.comments || [];
+  const nextComments = nextProps.task.comments || [];
+  if (prevComments.length !== nextComments.length) {
+    return false; // Re-render - comment count changed
+  }
+  // Check if comment IDs changed (more efficient than deep comparison)
+  const prevCommentIds = prevComments.map(c => c?.id).filter(Boolean).sort().join(',');
+  const nextCommentIds = nextComments.map(c => c?.id).filter(Boolean).sort().join(',');
+  if (prevCommentIds !== nextCommentIds) {
+    return false; // Re-render - comments changed
   }
   
   // Re-render if selected task changes

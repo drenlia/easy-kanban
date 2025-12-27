@@ -50,9 +50,17 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
       return res.status(409).json({ error: 'Tag already associated with this task' });
     }
     
-    // Get tag and task details for logging
-    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // Get tag and task details for logging and WebSocket event
+    // Fetch full tag data (id, tag, description, color) for WebSocket event
+    const tag = await wrapQuery(db.prepare('SELECT id, tag, description, color FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    // PostgreSQL returns snake_case, so use columnid and boardid, then normalize to camelCase
+    const task = await wrapQuery(db.prepare('SELECT title, columnid, boardid FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
+    // Normalize snake_case to camelCase for consistency
+    if (task) {
+      task.columnId = task.columnid || task.columnId;
+      task.boardId = task.boardid || task.boardId;
+    }
     
     await wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
     
@@ -109,18 +117,21 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
       }
     }
     
-    // Publish to Redis for real-time updates
+    // Publish to notification service for real-time updates
     if (task?.boardId) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing task-tag-added to Redis for board:', task.boardId);
-      await notificationService.publish('task-tag-added', {
+      const publishData = {
         boardId: task.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
-      }, tenantId);
-      console.log('✅ Task-tag-added published to Redis');
+      };
+      console.log('📤 Publishing task-tag-added for board:', task.boardId, 'tenant:', tenantId, 'data:', publishData);
+      await notificationService.publish('task-tag-added', publishData, tenantId);
+      console.log('✅ Task-tag-added published successfully');
+    } else {
+      console.warn('⚠️ Cannot publish task-tag-added: task.boardId is missing', { task, taskId });
     }
     
     res.json({ message: 'Tag added to task successfully' });
@@ -137,8 +148,16 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   
   try {
     // Get tag and task details for logging before deletion
-    const tag = await wrapQuery(db.prepare('SELECT tag FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    const task = await wrapQuery(db.prepare('SELECT title, columnId, boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // Fetch full tag data (id, tag, description, color) for WebSocket event
+    const tag = await wrapQuery(db.prepare('SELECT id, tag, description, color FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    // PostgreSQL returns snake_case, so use columnid and boardid, then normalize to camelCase
+    const task = await wrapQuery(db.prepare('SELECT title, columnid, boardid FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
+    // Normalize snake_case to camelCase for consistency
+    if (task) {
+      task.columnId = task.columnid || task.columnId;
+      task.boardId = task.boardid || task.boardId;
+    }
     
     const result = await wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
     
@@ -453,7 +472,13 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
     }
     
     // Get the task's board ID and fetch complete task data for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // PostgreSQL returns snake_case, so use boardid, then normalize to camelCase
+    const task = await wrapQuery(db.prepare('SELECT boardid FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    
+    // Normalize snake_case to camelCase for consistency
+    if (task) {
+      task.boardId = task.boardid || task.boardId;
+    }
     
     // Publish to Redis for real-time updates
     if (task?.boardId && insertedAttachments.length > 0) {

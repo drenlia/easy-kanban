@@ -132,6 +132,19 @@ function AppContent() {
   const modalState = useModalState();
   const taskLinking = useTaskLinking();
   
+  // Log when boardRelationships changes
+  useEffect(() => {
+    console.log('🔗 [App] taskLinking.boardRelationships changed:', {
+      count: taskLinking.boardRelationships.length,
+      relationships: taskLinking.boardRelationships.map(r => ({
+        id: r.id,
+        taskId: r.taskId || r.task_id,
+        toTaskId: r.toTaskId || r.to_task_id,
+        relationship: r.relationship
+      }))
+    });
+  }, [taskLinking.boardRelationships]);
+  
   // Activity Feed hook - initialized after currentUser is available (will be done after useAuth)
   
   // Utility function to check instance status on API failures
@@ -262,22 +275,9 @@ function AppContent() {
         return updatedFilteredColumns;
       });
       
-      // Send position updates to server for tasks that changed positions
-      if (tasksToUpdate.length > 0) {
-        try {
-          await Promise.all(tasksToUpdate.map(({ taskId, position, columnId }) => {
-            // Find the complete task data from the updated columns
-            const task = updatedColumns[columnId]?.tasks.find(t => t.id === taskId);
-            if (task) {
-              return updateTask({ ...task, position, columnId });
-            }
-            return Promise.resolve();
-          }));
-          // Positions updated successfully
-        } catch (error) {
-          console.error('❌ Failed to update task positions after deletion:', error);
-        }
-      }
+      // NOTE: Backend already renumbers tasks after deletion and sends a WebSocket event
+      // We don't need to send batch position updates - the backend handles it
+      // The local state update above is sufficient for immediate UI feedback
       
       // Refresh board data to ensure consistent state
       await refreshBoardData();
@@ -344,6 +344,17 @@ function AppContent() {
   // Modal state extracted to useModalState hook (modalState)
   const [isSavingPreferences, setIsSavingPreferences] = useState(false);
   const [currentPage, setCurrentPage] = useState<'kanban' | 'admin' | 'reports' | 'test' | 'forgot-password' | 'reset-password' | 'reset-success' | 'activate-account'>(getInitialPage);
+  
+  // Also log the current value whenever KanbanPage would receive it
+  useEffect(() => {
+    if (currentPage === 'kanban' && selectedBoard) {
+      console.log('🔗 [App] Current boardRelationships value (what KanbanPage would receive):', {
+        count: taskLinking.boardRelationships.length,
+        selectedBoard,
+        currentPage
+      });
+    }
+  }, [currentPage, selectedBoard, taskLinking.boardRelationships]);
 
   // Sync local state with global preference saving state
   useEffect(() => {
@@ -842,6 +853,7 @@ function AppContent() {
   });
 
   const commentWebSocket = useCommentWebSocket({
+    setBoards,
     setColumns,
     setSelectedTask,
     selectedBoardRef,
@@ -1778,6 +1790,8 @@ function AppContent() {
   // Update columns when selected board changes
   // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
+    console.log('🔗 [App] useEffect triggered:', { selectedBoard, currentPage, hasBoards: boards.length > 0 });
+    
     if (selectedBoard) {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
@@ -1819,19 +1833,24 @@ function AppContent() {
         });
       }
       
-      // Load relationships once for the selected board (only if on kanban page)
+      // Load relationships once for the selected board (for kanban page, which includes gantt view)
+      console.log('🔗 [App] Checking if should load relationships:', { currentPage, selectedBoard });
       if (currentPage === 'kanban') {
+        console.log('🔗 [App] Loading relationships for board:', selectedBoard, 'on page:', currentPage);
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
             taskLinking.setBoardRelationships(relationships);
           })
           .catch(error => {
-            console.warn('Failed to load relationships:', error);
+            console.error('⚠️ [App] Failed to load relationships:', error);
             taskLinking.setBoardRelationships([]);
           });
+      } else {
+        console.log('🔗 [App] Skipping relationship load - not on kanban page:', currentPage);
       }
     } else {
       // Clear columns when no board is selected
+      console.log('🔗 [App] No selected board, clearing relationships');
       setColumns({});
       taskLinking.setBoardRelationships([]);
       setIsSwitchingBoard(false);
@@ -2380,12 +2399,28 @@ function AppContent() {
         }
       });
       
-      // Then, add the task to its new column
+      // Then, add or update the task in its column
       if (updatedColumns[task.columnId]) {
-        updatedColumns[task.columnId] = {
-          ...updatedColumns[task.columnId],
-          tasks: [...updatedColumns[task.columnId].tasks, task]
-        };
+        const column = updatedColumns[task.columnId];
+        const existingTaskIndex = column.tasks.findIndex(t => t.id === task.id);
+        
+        if (existingTaskIndex !== -1) {
+          // Task already exists in this column - update it in place
+          updatedColumns[task.columnId] = {
+            ...column,
+            tasks: [
+              ...column.tasks.slice(0, existingTaskIndex),
+              task, // Use the updated task
+              ...column.tasks.slice(existingTaskIndex + 1)
+            ]
+          };
+        } else {
+          // Task doesn't exist in this column - add it
+          updatedColumns[task.columnId] = {
+            ...column,
+            tasks: [...column.tasks, task]
+          };
+        }
       }
       
       return updatedColumns;
@@ -2492,8 +2527,8 @@ function AppContent() {
     try {
       const numericTagId = parseInt(tagId);
       await addTagToTask(taskId, numericTagId);
-      // Refresh the task data to show the new tag
-      await refreshBoardData();
+      // Don't refresh - WebSocket event will handle the update in real-time
+      // This ensures other users also see the tag immediately
     } catch (error) {
       // console.error('Failed to add tag to task:', error);
     }

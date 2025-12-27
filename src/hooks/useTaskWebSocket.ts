@@ -355,6 +355,96 @@ export const useTaskWebSocket = ({
       return updatedColumns;
     });
     
+    // CRITICAL: Also update boards state for all boards (not just selected board)
+    // This ensures task position/column changes are reflected even when board is not currently viewed
+    // Similar to how handleTaskDeleted updates boards state
+    const boardUpdatesMap = new Map<string, any>(); // Track updates by boardId
+    updates.forEach(data => {
+      if (!data.task || !data.boardId) return;
+      const boardId = data.boardId;
+      if (!boardUpdatesMap.has(boardId)) {
+        boardUpdatesMap.set(boardId, []);
+      }
+      boardUpdatesMap.get(boardId)!.push(data);
+    });
+    
+    // Update boards state for each affected board
+    boardUpdatesMap.forEach((boardUpdates, boardId) => {
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns: Columns = { ...updatedBoard.columns };
+            
+            // Process each update for this board
+            boardUpdates.forEach((data: any) => {
+              const taskId = data.task?.id;
+              if (!taskId) return;
+              
+              const targetColumnId = data.task.columnId;
+              if (!targetColumnId) return;
+              
+              // Find and remove task from source column (if it exists)
+              Object.keys(updatedColumns).forEach(columnId => {
+                const column = updatedColumns[columnId];
+                if (!column || !column.tasks) return;
+                
+                const taskIndex = column.tasks.findIndex((t: any) => t && t.id === taskId);
+                if (taskIndex !== -1 && columnId !== targetColumnId) {
+                  // Remove from source column
+                  updatedColumns[columnId] = {
+                    ...column,
+                    tasks: [
+                      ...column.tasks.slice(0, taskIndex),
+                      ...column.tasks.slice(taskIndex + 1)
+                    ]
+                  };
+                }
+              });
+              
+              // Add/update task in target column
+              const targetColumn = updatedColumns[targetColumnId];
+              if (targetColumn) {
+                const existingIndex = targetColumn.tasks.findIndex((t: any) => t && t.id === taskId);
+                const mergedTask = {
+                  ...(targetColumn.tasks[existingIndex] || {}),
+                  ...data.task,
+                  id: taskId,
+                  boardId: boardId,
+                  columnId: targetColumnId
+                };
+                
+                let updatedTasks: any[];
+                if (existingIndex !== -1) {
+                  // Update existing task
+                  updatedTasks = [
+                    ...targetColumn.tasks.slice(0, existingIndex),
+                    mergedTask,
+                    ...targetColumn.tasks.slice(existingIndex + 1)
+                  ];
+                } else {
+                  // Add new task
+                  updatedTasks = [...targetColumn.tasks, mergedTask];
+                }
+                
+                // Sort by position
+                updatedTasks.sort((a, b) => (a.position || 0) - (b.position || 0));
+                
+                updatedColumns[targetColumnId] = {
+                  ...targetColumn,
+                  tasks: updatedTasks
+                };
+              }
+            });
+            
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+    });
+    
     // Update selectedTask after columns update completes
     // This ensures the task detail view shows the latest data
     // CRITICAL: Always update selectedTask if it was updated, even if only field values changed
@@ -384,7 +474,7 @@ export const useTaskWebSocket = ({
     // - It avoids race conditions between manual updates and effect updates
     }, 0); // Defer to next tick to break up heavy work
     });
-  }, [setColumns, setSelectedTask]);
+  }, [setColumns, setSelectedTask, setBoards]);
   
   // Helper function to schedule batch processing (defined early so it can be used by getMessageChannel)
   const scheduleBatchProcessing = useCallback((data: any) => {
@@ -455,6 +545,15 @@ export const useTaskWebSocket = ({
   
   const handleTaskCreated = useCallback((data: any) => {
     if (!data.task || !data.boardId) return;
+    
+    // Ensure columnId is in camelCase (handle both snake_case and camelCase)
+    if (!data.task.columnId && (data.task.columnid || data.task.column_id)) {
+      data.task.columnId = data.task.columnid || data.task.column_id;
+    }
+    // Ensure boardId is in camelCase
+    if (!data.task.boardId && (data.task.boardid || data.task.board_id)) {
+      data.task.boardId = data.task.boardid || data.task.board_id;
+    }
     
     // Cancel fallback refresh if WebSocket event arrived (for the user who created it)
     if (pendingTaskRefreshesRef.current?.has(data.task.id)) {
@@ -533,6 +632,19 @@ export const useTaskWebSocket = ({
       setColumns(prevColumns => {
         const updatedColumns = { ...prevColumns };
         const targetColumnId = data.task.columnId;
+        
+        if (!updatedColumns[targetColumnId] && targetColumnId) {
+          // Column doesn't exist yet - create it (similar to boards handler)
+          updatedColumns[targetColumnId] = {
+            id: targetColumnId,
+            boardId: data.boardId,
+            title: 'Unknown Column', // Will be updated when column-created event arrives
+            tasks: [],
+            position: 0,
+            is_finished: false,
+            is_archived: false
+          };
+        }
         
         if (updatedColumns[targetColumnId]) {
           // Check if task already exists (from optimistic update)
@@ -696,33 +808,45 @@ export const useTaskWebSocket = ({
   }, [setBoards, setColumns, selectedBoardRef, setSelectedTask]);
   
   const handleTaskRelationshipCreated = useCallback((data: any) => {
-    // Only refresh if the relationship is for the current board
-    if (data.boardId === selectedBoardRef.current) {
-      // Clear the taskRelationships cache for both tasks involved
-      // This ensures hover highlighting will reload fresh data
-      if (data.taskId && data.toTaskId) {
-        taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => {
-          const updated = { ...prev };
-          delete updated[data.taskId];
-          delete updated[data.toTaskId];
-          return updated;
-        });
-      }
+    console.log('🔗 [WebSocket] task-relationship-created received:', data);
+    
+    // Always clear the taskRelationships cache for both tasks involved
+    // This ensures hover highlighting will reload fresh data
+    if (data.taskId && data.toTaskId) {
+      taskLinking.setTaskRelationships((prev: { [taskId: string]: any[] }) => {
+        const updated = { ...prev };
+        delete updated[data.taskId];
+        delete updated[data.toTaskId];
+        return updated;
+      });
+    }
+    
+    // Always refresh relationships if boardId is provided
+    // This ensures all users viewing the board get the update, even if selectedBoardRef is stale
+    const currentBoardId = selectedBoardRef.current;
+    if (data.boardId) {
+      console.log('🔗 [WebSocket] Refreshing relationships for board:', data.boardId, {
+        matchesCurrentBoard: data.boardId === currentBoardId,
+        currentBoardId: currentBoardId
+      });
       
-      // Load just the relationships instead of full refresh
-      getBoardTaskRelationships(selectedBoardRef.current!)
+      // Load relationships for the board where the relationship was created
+      getBoardTaskRelationships(data.boardId)
         .then(relationships => {
+          console.log('🔗 [WebSocket] Loaded relationships:', relationships.length, 'for board:', data.boardId);
           taskLinking.setBoardRelationships(relationships);
         })
         .catch(error => {
-          console.warn('Failed to load relationships:', error);
+          console.warn('⚠️ [WebSocket] Failed to load relationships:', error);
           // Fallback to full refresh on error
           if (refreshBoardDataRef.current) {
             refreshBoardDataRef.current();
           }
         });
+    } else {
+      console.warn('⚠️ [WebSocket] task-relationship-created event missing boardId:', data);
     }
-  }, [selectedBoardRef]);
+  }, [selectedBoardRef, taskLinking]);
   
   const handleTaskRelationshipDeleted = useCallback((data: any) => {
     // Only refresh if the relationship is for the current board
@@ -797,26 +921,295 @@ export const useTaskWebSocket = ({
   }, [selectedBoardRef, pendingTaskRefreshesRef]);
   
   const handleTaskTagAdded = useCallback((data: any) => {
-    // Only refresh if the task is for the current board
-    if (data.boardId === selectedBoardRef.current) {
-      // For tags, we need to refresh the specific task
-      // This is more efficient than refreshing the entire board
-      if (data.taskId && pendingTaskRefreshesRef.current) {
-        pendingTaskRefreshesRef.current.add(data.taskId);
-      }
+    // CRITICAL: Make message handler lightweight - defer heavy work to prevent blocking
+    // Validate quickly first
+    if (!data.taskId || !data.tagId || !data.boardId) {
+      return;
     }
-  }, [selectedBoardRef, pendingTaskRefreshesRef]);
+    
+    // Normalize boardId comparison (handle both snake_case and camelCase)
+    const eventBoardId = data.boardId || data.boardid || data.board_id;
+    const currentBoardId = selectedBoardRef.current;
+    
+    // Only update if the task is for the current board
+    if (eventBoardId !== currentBoardId) {
+      return;
+    }
+    
+    // Handle case where tag might be a string or incomplete object
+    const tagData = typeof data.tag === 'string' 
+      ? { id: data.tagId, tag: data.tag, description: null, color: null }
+      : { id: data.tagId, tag: data.tag?.tag || data.tag, description: data.tag?.description || null, color: data.tag?.color || null };
+    
+    // Defer state updates to prevent blocking the main thread
+    setTimeout(() => {
+      const updatedTaskRef = { current: null as Task | null };
+      
+      // Update columns state directly
+      setColumns(prevColumns => {
+        const updatedColumns = { ...prevColumns };
+        let taskFound = false;
+        
+        // Find the task across all columns and add the tag
+        Object.keys(updatedColumns).forEach(columnId => {
+          const column = updatedColumns[columnId];
+          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+          
+          if (taskIndex !== -1) {
+            taskFound = true;
+            console.log('✅ [WebSocket] handleTaskTagAdded: Task found in column', {
+              columnId,
+              taskIndex,
+              currentTags: column.tasks[taskIndex].tags?.length || 0
+            });
+            
+            const updatedTasks = [...column.tasks];
+            const task = { ...updatedTasks[taskIndex] };
+            
+            // Ensure tags array exists
+            const existingTags = Array.isArray(task.tags) ? task.tags : [];
+            
+            console.log('🏷️ [WebSocket] handleTaskTagAdded: Current tags', {
+              existingTagsCount: existingTags.length,
+              existingTagIds: existingTags.map(t => t.id),
+              newTagId: data.tagId,
+              tagAlreadyExists: existingTags.some(t => t.id === data.tagId || t.id === parseInt(data.tagId))
+            });
+            
+            // Check if tag already exists (avoid duplicates)
+            if (!existingTags.some(t => t.id === data.tagId || t.id === parseInt(data.tagId))) {
+              // Add the new tag (use tagData which handles both string and object formats)
+              const newTag = {
+                id: data.tagId,
+                tag: tagData.tag,
+                description: tagData.description,
+                color: tagData.color
+              };
+              const newTags = [...existingTags, newTag];
+              
+              console.log('➕ [WebSocket] handleTaskTagAdded: Adding tag', {
+                newTag,
+                newTagsCount: newTags.length
+              });
+              
+              // Create updated task with new tags
+              const updatedTask = {
+                ...task,
+                tags: newTags
+              };
+              
+              updatedTasks[taskIndex] = updatedTask;
+              updatedColumns[columnId] = {
+                ...column,
+                tasks: updatedTasks
+              };
+              
+              console.log('✅ [WebSocket] handleTaskTagAdded: Task updated in column', {
+                columnId,
+                taskId: updatedTask.id,
+                tagsCount: updatedTask.tags.length,
+                tagIds: updatedTask.tags.map(t => t.id)
+              });
+              
+              // Track updated task if it's the selected one
+              if (selectedTaskRef.current && selectedTaskRef.current.id === data.taskId) {
+                updatedTaskRef.current = updatedTask;
+                console.log('✅ [WebSocket] handleTaskTagAdded: Selected task updated');
+              }
+            } else {
+              console.log('⚠️ [WebSocket] handleTaskTagAdded: Tag already exists, skipping');
+            }
+          }
+        });
+        
+        if (!taskFound) {
+          console.warn('⚠️ [WebSocket] handleTaskTagAdded: Task not found in columns, queueing refresh', {
+            taskId: data.taskId,
+            availableColumnIds: Object.keys(updatedColumns)
+          });
+          // Task not found in columns, queue refresh
+          if (pendingTaskRefreshesRef.current) {
+            pendingTaskRefreshesRef.current.add(data.taskId);
+          }
+        }
+        
+        // Log final state to verify update
+        const finalColumn = updatedColumns[Object.keys(updatedColumns).find(colId => {
+          const col = updatedColumns[colId];
+          return col.tasks.some(t => t.id === data.taskId);
+        }) || ''];
+        const finalTask = finalColumn?.tasks.find(t => t.id === data.taskId);
+        
+      console.log('✅ [WebSocket] handleTaskTagAdded: Updated columns state', {
+        taskFound: !!finalTask,
+        finalTagsCount: finalTask?.tags?.length || 0,
+        finalTagIds: finalTask?.tags?.map(t => t.id) || [],
+        columnId: Object.keys(updatedColumns).find(colId => {
+          const col = updatedColumns[colId];
+          return col.tasks.some(t => t.id === data.taskId);
+        })
+      });
+      
+      return updatedColumns;
+      });
+      
+      // Update selectedTask if it's the one that got the tag
+      if (updatedTaskRef.current) {
+        console.log('✅ [WebSocket] handleTaskTagAdded: Updating selectedTask');
+        setSelectedTask(updatedTaskRef.current);
+      }
+      
+      // Manually update filteredColumns immediately for tag updates
+      // The useTaskFilters useEffect has a delay for batch updates, but for single tag updates
+      // we want immediate UI updates. We'll update filteredColumns directly.
+      // We always update filteredColumns to match columns for tag updates, regardless of filtering state
+      taskFilters.setFilteredColumns(prevFilteredColumns => {
+          // No filtering active - filteredColumns should match columns
+          // We need to find the updated task and apply the same change
+          const updatedFilteredColumns = { ...prevFilteredColumns };
+          Object.keys(updatedFilteredColumns).forEach(columnId => {
+            const column = updatedFilteredColumns[columnId];
+            if (column) {
+              const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+              if (taskIndex !== -1) {
+                const updatedTasks = [...column.tasks];
+                const task = { ...updatedTasks[taskIndex] };
+                const existingTags = Array.isArray(task.tags) ? task.tags : [];
+                if (!existingTags.some(t => t.id === data.tagId || t.id === parseInt(data.tagId))) {
+                  const newTag = {
+                    id: data.tagId,
+                    tag: tagData.tag,
+                    description: tagData.description,
+                    color: tagData.color
+                  };
+                  updatedTasks[taskIndex] = {
+                    ...task,
+                    tags: [...existingTags, newTag]
+                  };
+                  updatedFilteredColumns[columnId] = {
+                    ...column,
+                    tasks: updatedTasks
+                  };
+                }
+              }
+            }
+          });
+          return updatedFilteredColumns;
+      });
+      
+      console.log('✅ [WebSocket] handleTaskTagAdded: Updated both columns and filteredColumns');
+    }, 0);
+  }, [setColumns, setSelectedTask, selectedBoardRef, pendingTaskRefreshesRef, taskFilters, selectedTaskRef]);
   
   const handleTaskTagRemoved = useCallback((data: any) => {
-    // Only refresh if the task is for the current board
-    if (data.boardId === selectedBoardRef.current) {
-      // For tags, we need to refresh the specific task
-      // This is more efficient than refreshing the entire board
-      if (data.taskId && pendingTaskRefreshesRef.current) {
-        pendingTaskRefreshesRef.current.add(data.taskId);
-      }
+    console.log('📥 [WebSocket] handleTaskTagRemoved received:', data);
+    
+    if (!data.taskId || !data.tagId || !data.boardId) {
+      console.warn('⚠️ [WebSocket] handleTaskTagRemoved: Missing required fields', { taskId: data.taskId, tagId: data.tagId, boardId: data.boardId });
+      return;
     }
-  }, [selectedBoardRef, pendingTaskRefreshesRef]);
+    
+    // Normalize boardId comparison (handle both snake_case and camelCase)
+    const eventBoardId = data.boardId || data.boardid || data.board_id;
+    const currentBoardId = selectedBoardRef.current;
+    
+    console.log('📋 [WebSocket] handleTaskTagRemoved: boardId:', eventBoardId, 'selectedBoard:', currentBoardId);
+    
+    // Only update if the task is for the current board
+    if (eventBoardId === currentBoardId) {
+      console.log('✅ [WebSocket] handleTaskTagRemoved: Board matches, updating state');
+      const updatedTaskRef = { current: null as Task | null };
+      
+      // Update columns state directly
+      setColumns(prevColumns => {
+        const updatedColumns = { ...prevColumns };
+        let taskFound = false;
+        
+        // Find the task across all columns and remove the tag
+        Object.keys(updatedColumns).forEach(columnId => {
+          const column = updatedColumns[columnId];
+          const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+          
+          if (taskIndex !== -1) {
+            taskFound = true;
+            const updatedTasks = [...column.tasks];
+            const task = { ...updatedTasks[taskIndex] };
+            
+            // Ensure tags array exists and filter out the removed tag
+            const existingTags = Array.isArray(task.tags) ? task.tags : [];
+            const newTags = existingTags.filter(t => 
+              t.id !== data.tagId && t.id !== parseInt(data.tagId)
+            );
+            
+            // Create updated task with filtered tags
+            const updatedTask = {
+              ...task,
+              tags: newTags
+            };
+            
+            updatedTasks[taskIndex] = updatedTask;
+            updatedColumns[columnId] = {
+              ...column,
+              tasks: updatedTasks
+            };
+            
+            // Track updated task if it's the selected one
+            if (selectedTaskRef.current && selectedTaskRef.current.id === data.taskId) {
+              updatedTaskRef.current = updatedTask;
+            }
+          }
+        });
+        
+        if (!taskFound) {
+          // Task not found in columns, queue refresh
+          if (pendingTaskRefreshesRef.current) {
+            pendingTaskRefreshesRef.current.add(data.taskId);
+          }
+        }
+        
+        return updatedColumns;
+      });
+      
+      // Update selectedTask if it's the one that got the tag removed
+      if (updatedTaskRef.current) {
+        setSelectedTask(updatedTaskRef.current);
+      }
+      
+      // Also update filteredColumns
+      taskFilters.setFilteredColumns(prevFilteredColumns => {
+        const updatedFilteredColumns = { ...prevFilteredColumns };
+        
+        Object.keys(updatedFilteredColumns).forEach(columnId => {
+          const column = updatedFilteredColumns[columnId];
+          if (column) {
+            const taskIndex = column.tasks.findIndex(t => t.id === data.taskId);
+            
+            if (taskIndex !== -1) {
+              const updatedTasks = [...column.tasks];
+              const task = { ...updatedTasks[taskIndex] };
+              
+              const existingTags = Array.isArray(task.tags) ? task.tags : [];
+              const newTags = existingTags.filter(t => 
+                t.id !== data.tagId && t.id !== parseInt(data.tagId)
+              );
+              
+              updatedTasks[taskIndex] = {
+                ...task,
+                tags: newTags
+              };
+              
+              updatedFilteredColumns[columnId] = {
+                ...column,
+                tasks: updatedTasks
+              };
+            }
+          }
+        });
+        
+        return updatedFilteredColumns;
+      });
+    }
+  }, [setColumns, setSelectedTask, selectedBoardRef, selectedTask, taskFilters, pendingTaskRefreshesRef]);
   
   return {
     handleTaskCreated,
