@@ -11,6 +11,7 @@ import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isPostgresDatabase } from '../utils/dbAsync.js';
+import { users as userQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -117,8 +118,8 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Validate that the user exists
-    const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Validate that the user exists using sqlManager
+    const user = await userQueries.getUserByEmail(db, email);
     if (!user) {
       return res.status(400).json({ 
         success: false,
@@ -268,19 +269,19 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
 router.get('/users', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    // Use PostgreSQL string_agg() or SQLite GROUP_CONCAT()
-    const isPostgres = isPostgresDatabase(db);
-    const rolesAgg = isPostgres ? 'string_agg(r.name, \',\')' : 'GROUP_CONCAT(r.name)';
-    const users = await wrapQuery(db.prepare(`
-      SELECT 
-        u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at,
-        ${rolesAgg} as roles
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      GROUP BY u.id
-      ORDER BY u.created_at DESC
-    `), 'SELECT').all();
+    // MIGRATED: Get all users with roles using sqlManager
+    const usersRaw = await userQueries.getAllUsersWithRolesAndMembers(db);
+    
+    // Transform to match expected format (without member info for admin portal)
+    const users = usersRaw.map(user => ({
+      id: user.id,
+      email: user.email,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      is_active: user.is_active,
+      created_at: user.created_at,
+      roles: user.roles || ''
+    }));
     
     // Format users data
     const formattedUsers = users.map(user => ({
@@ -333,8 +334,8 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Check if email already exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Check if email already exists using sqlManager
+    const existingUser = await userQueries.checkEmailExists(db, email);
     if (existingUser) {
       return res.status(400).json({ 
         success: false,
@@ -345,17 +346,14 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user
+    // MIGRATED: Create user using sqlManager
     const userId = crypto.randomUUID();
-    await wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name, is_active) 
-      VALUES (?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName, isActive ? 1 : 0);
+    await userQueries.createUser(db, userId, email, passwordHash, firstName, lastName, isActive, 'local');
     
-    // Assign role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    // MIGRATED: Assign role using sqlManager
+    const roleObj = await userQueries.getRoleByName(db, role);
+    if (roleObj) {
+      await userQueries.addUserRole(db, userId, roleObj.id);
     }
     
     // Create member for the user
@@ -444,8 +442,8 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
     
-    // Check if user exists
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Check if user exists using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -453,52 +451,30 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Update user fields
-    if (email !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET email = ? WHERE id = ?'), 'UPDATE').run(email, userId);
-    }
-    if (firstName !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET first_name = ? WHERE id = ?'), 'UPDATE').run(firstName, userId);
-    }
-    if (lastName !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET last_name = ? WHERE id = ?'), 'UPDATE').run(lastName, userId);
-    }
-    if (isActive !== undefined) {
-      await wrapQuery(db.prepare('UPDATE users SET is_active = ? WHERE id = ?'), 'UPDATE').run(isActive ? 1 : 0, userId);
-    }
+    // MIGRATED: Update user fields using sqlManager
+    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
     
-    // Update role if provided
+    // MIGRATED: Update role if provided using sqlManager
     let roleChanged = false;
     if (role !== undefined) {
       // Get current role to check if it changed
-      const currentRole = await wrapQuery(db.prepare(`
-        SELECT r.name FROM roles r
-        JOIN user_roles ur ON r.id = ur.role_id
-        WHERE ur.user_id = ?
-      `), 'SELECT').get(userId)?.name;
+      const currentRole = await userQueries.getUserRole(db, userId);
       
       if (currentRole !== role) {
         roleChanged = true;
         // Remove existing roles
-        await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+        await userQueries.deleteUserRoles(db, userId);
         
         // Add new role
-        const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-        if (roleId) {
-          await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+        const roleObj = await userQueries.getRoleByName(db, role);
+        if (roleObj) {
+          await userQueries.addUserRole(db, userId, roleObj.id);
         }
       }
     }
     
-    // Get updated user data for WebSocket event
-    const updatedUser = await wrapQuery(db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url,
-             r.name as role
-      FROM users u
-      LEFT JOIN user_roles ur ON u.id = ur.user_id
-      LEFT JOIN roles r ON ur.role_id = r.id
-      WHERE u.id = ?
-    `), 'SELECT').get(userId);
+    // MIGRATED: Get updated user data using sqlManager
+    const updatedUser = await userQueries.getUserWithRoles(db, userId);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -565,8 +541,8 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
     
     const t = await getTranslator(db);
     
-    // Check if user exists
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Check if user exists using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     if (!user) {
       return res.status(404).json({ 
         success: false,
@@ -574,8 +550,8 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Delete user (cascade will handle related records)
-    await wrapQuery(db.prepare('DELETE FROM users WHERE id = ?'), 'DELETE').run(userId);
+    // MIGRATED: Delete user (cascade will handle related records)
+    await wrapQuery(db.prepare('DELETE FROM users WHERE id = $1'), 'DELETE').run(userId);
     
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
     
@@ -1153,8 +1129,8 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Check if user exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Check if user exists using sqlManager
+    const existingUser = await userQueries.getUserByIdForAdmin(db, userId);
     if (!existingUser) {
       return res.status(404).json({ 
         success: false,
@@ -1162,8 +1138,8 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Check if email is already taken by another user
-    const emailTaken = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ? AND id != ?'), 'SELECT').get(email, userId);
+    // MIGRATED: Check if email is already taken using sqlManager
+    const emailTaken = await userQueries.checkEmailExists(db, email, userId);
     if (emailTaken) {
       return res.status(400).json({ 
         success: false,
@@ -1171,32 +1147,23 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Update user
-    await wrapQuery(db.prepare(`
-      UPDATE users 
-      SET email = ?, first_name = ?, last_name = ?, is_active = ?
-      WHERE id = ?
-    `), 'UPDATE').run(email, firstName, lastName, isActive ? 1 : 0, userId);
+    // MIGRATED: Update user using sqlManager
+    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
     
-    // Update role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
+    // MIGRATED: Update role using sqlManager
+    const roleObj = await userQueries.getRoleByName(db, role);
+    if (roleObj) {
       // Remove existing roles
-      await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
+      await userQueries.deleteUserRoles(db, userId);
       // Add new role
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+      await userQueries.addUserRole(db, userId, roleObj.id);
     }
     
-    // Update member name
-    await wrapQuery(db.prepare('UPDATE members SET name = ? WHERE user_id = ?'), 'UPDATE')
-      .run(`${firstName} ${lastName}`, userId);
+    // MIGRATED: Update member name using sqlManager
+    await userQueries.updateMemberName(db, userId, `${firstName} ${lastName}`);
     
-    // Get updated user data for WebSocket event
-    const updatedUser = await wrapQuery(db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
-      FROM users u
-      WHERE u.id = ?
-    `), 'SELECT').get(userId);
+    // MIGRATED: Get updated user data using sqlManager
+    const updatedUser = await userQueries.getUserByIdForAdmin(db, userId);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -1275,7 +1242,8 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     }
     
     // Find user by email
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Get user by email using sqlManager
+    const user = await userQueries.getUserByEmail(db, email);
     if (!user) {
       return res.status(404).json({ 
         success: false,

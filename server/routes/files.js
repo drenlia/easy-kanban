@@ -9,6 +9,7 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import notificationService from '../services/notificationService.js';
 import { isMultiTenant, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { files as fileQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -71,7 +72,8 @@ router.get('/attachments/:filename', async (req, res) => {
     const db = getRequestDatabase(req);
     if (isMultiTenant() && db) {
       try {
-        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
+        // MIGRATED: Check user using sqlManager
+        const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
         
         if (!userInDb) {
           console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
@@ -119,7 +121,8 @@ router.get('/avatars/:filename', async (req, res) => {
     const db = getRequestDatabase(req);
     if (isMultiTenant() && db) {
       try {
-        const userInDb = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(decoded.id);
+        // MIGRATED: Check user using sqlManager
+        const userInDb = await fileQueries.getUserByIdForFileAccess(db, decoded.id);
         
         if (!userInDb) {
           console.log(`❌ File access denied: User ${decoded.email} (${decoded.id}) does not exist in current tenant's database`);
@@ -157,8 +160,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // First, get the attachment info to find the file path
-    const attachment = await wrapQuery(db.prepare('SELECT * FROM attachments WHERE id = ?'), 'SELECT').get(id);
+    // MIGRATED: Get attachment info using sqlManager
+    const attachment = await fileQueries.getAttachmentById(db, id);
     
     if (!attachment) {
       return res.status(404).json({ error: 'Attachment not found' });
@@ -183,8 +186,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       console.log(`⚠️ File not found: ${filename}`);
     }
     
-    // Delete the database record
-    const result = await wrapQuery(db.prepare('DELETE FROM attachments WHERE id = ?'), 'DELETE').run(id);
+    // MIGRATED: Delete attachment using sqlManager
+    const result = await fileQueries.deleteAttachment(db, id);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Attachment record not found' });
@@ -193,118 +196,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Update storage usage after deleting attachment
     await updateStorageUsage(db);
     
-    // Get the task's board ID for Redis publishing
-    const task = await wrapQuery(db.prepare('SELECT boardId FROM tasks WHERE id = ?'), 'SELECT').get(attachment.taskId);
+    // MIGRATED: Get the task's board ID using sqlManager
+    const task = await fileQueries.getTaskByIdForFiles(db, attachment.taskId);
     
     // Publish to Redis for real-time updates
     if (task?.boardId) {
-      // Fetch complete task with all relationships including updated attachmentCount
-      const taskWithRelationships = await wrapQuery(
-        db.prepare(`
-          SELECT t.*, 
-                 CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
-                      THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                      ELSE NULL END as attachmentCount,
-                 json_group_array(
-                   DISTINCT CASE WHEN c.id IS NOT NULL THEN json_object(
-                     'id', c.id,
-                     'text', c.text,
-                     'authorId', c.authorId,
-                     'createdAt', c.createdAt,
-                     'updated_at', c.updated_at,
-                     'taskId', c.taskId,
-                     'authorName', comment_author.name,
-                     'authorColor', comment_author.color
-                   ) ELSE NULL END
-                 ) as comments,
-                 json_group_array(
-                   DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-                     'id', tag.id,
-                     'tag', tag.tag,
-                     'description', tag.description,
-                     'color', tag.color
-                   ) ELSE NULL END
-                 ) as tags,
-                 json_group_array(
-                   DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-                     'id', watcher.id,
-                     'name', watcher.name,
-                     'color', watcher.color
-                   ) ELSE NULL END
-                 ) as watchers,
-                 json_group_array(
-                   DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-                     'id', collaborator.id,
-                     'name', collaborator.name,
-                     'color', collaborator.color
-                   ) ELSE NULL END
-                 ) as collaborators
-          FROM tasks t
-          LEFT JOIN attachments a ON a.taskId = t.id AND a.commentId IS NULL
-          LEFT JOIN comments c ON c.taskId = t.id
-          LEFT JOIN members comment_author ON comment_author.id = c.authorId
-          LEFT JOIN task_tags tt ON tt.taskId = t.id
-          LEFT JOIN tags tag ON tag.id = tt.tagId
-          LEFT JOIN watchers w ON w.taskId = t.id
-          LEFT JOIN members watcher ON watcher.id = w.memberId
-          LEFT JOIN collaborators col ON col.taskId = t.id
-          LEFT JOIN members collaborator ON collaborator.id = col.memberId
-          WHERE t.id = ?
-          GROUP BY t.id
-        `),
-        'SELECT'
-      ).get(attachment.taskId);
+      // MIGRATED: Fetch complete task with all relationships using sqlManager
+      const taskWithRelationships = await taskQueries.getTaskWithRelationships(db, attachment.taskId);
       
       if (taskWithRelationships) {
-        // Parse JSON arrays and handle null values
-        taskWithRelationships.comments = taskWithRelationships.comments === '[null]' || !taskWithRelationships.comments 
-          ? [] 
-          : JSON.parse(taskWithRelationships.comments).filter(Boolean);
-        
-        // Get attachments for all comments in one batch query (fixes N+1 problem)
-        if (taskWithRelationships.comments.length > 0) {
-          const commentIds = taskWithRelationships.comments.map(c => c.id).filter(Boolean);
-          if (commentIds.length > 0) {
-            const placeholders = commentIds.map(() => '?').join(',');
-            const allAttachments = await wrapQuery(db.prepare(`
-              SELECT commentId, id, name, url, type, size, created_at as createdAt
-              FROM attachments
-              WHERE commentId IN (${placeholders})
-            `), 'SELECT').all(...commentIds);
-            
-            // Group attachments by commentId
-            const attachmentsByCommentId = new Map();
-            allAttachments.forEach(att => {
-              if (!attachmentsByCommentId.has(att.commentId)) {
-                attachmentsByCommentId.set(att.commentId, []);
-              }
-              attachmentsByCommentId.get(att.commentId).push(att);
-            });
-            
-            // Assign attachments to each comment
-            taskWithRelationships.comments.forEach(comment => {
-              comment.attachments = attachmentsByCommentId.get(comment.id) || [];
-            });
-          }
-        }
-        
-        taskWithRelationships.tags = taskWithRelationships.tags === '[null]' || !taskWithRelationships.tags 
-          ? [] 
-          : JSON.parse(taskWithRelationships.tags).filter(Boolean);
-        taskWithRelationships.watchers = taskWithRelationships.watchers === '[null]' || !taskWithRelationships.watchers 
-          ? [] 
-          : JSON.parse(taskWithRelationships.watchers).filter(Boolean);
-        taskWithRelationships.collaborators = taskWithRelationships.collaborators === '[null]' || !taskWithRelationships.collaborators 
-          ? [] 
-          : JSON.parse(taskWithRelationships.collaborators).filter(Boolean);
-        
-        // Convert snake_case to camelCase
-        const taskResponse = {
-          ...taskWithRelationships,
-          sprintId: taskWithRelationships.sprint_id || null,
-          createdAt: taskWithRelationships.created_at,
-          updatedAt: taskWithRelationships.updated_at
-        };
+        // Task already has proper structure from getTaskWithRelationships
+        // Comments, tags, watchers, collaborators are already arrays (not JSON strings)
+        const taskResponse = taskWithRelationships;
         
         // Publish task-updated event with complete task data (includes updated attachmentCount)
         const tenantId = req.tenantId || null;

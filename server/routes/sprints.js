@@ -5,6 +5,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
+import { sprints as sprintQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -13,14 +14,8 @@ router.get('/', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const sprints = await wrapQuery(
-      db.prepare(`
-        SELECT id, name, start_date, end_date, is_active, description, created_at, updated_at
-        FROM planning_periods
-        ORDER BY start_date DESC
-      `),
-      'SELECT'
-    ).all();
+    // MIGRATED: Use sqlManager to get all sprints
+    const sprints = await sprintQueries.getAllSprints(db);
     
     res.json({ sprints });
   } catch (error) {
@@ -34,16 +29,8 @@ router.get('/active', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const activeSprint = await wrapQuery(
-      db.prepare(`
-        SELECT id, name, start_date, end_date, is_active, description, created_at
-        FROM planning_periods
-        WHERE is_active = 1
-        ORDER BY start_date DESC
-        LIMIT 1
-      `),
-      'SELECT'
-    ).get();
+    // MIGRATED: Use sqlManager to get active sprint
+    const activeSprint = await sprintQueries.getActiveSprint(db);
     
     if (!activeSprint) {
       return res.status(404).json({ error: 'No active sprint found' });
@@ -63,19 +50,16 @@ router.get("/:id/usage", authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const { id } = req.params;
     
-    // Check if sprint exists first
-    const sprint = await wrapQuery(
-      db.prepare('SELECT id FROM planning_periods WHERE id = ?'),
-      'SELECT'
-    ).get(id);
+    // MIGRATED: Check if sprint exists using sqlManager
+    const sprint = await sprintQueries.getSprintById(db, id);
     
     if (!sprint) {
       return res.status(404).json({ error: 'Sprint not found' });
     }
     
-    // Count tasks that use this sprint (by sprint_id)
-    const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM tasks WHERE sprint_id = ?'), 'SELECT').get(id);
-    res.json({ count: usageCount.count });
+    // MIGRATED: Get usage count using sqlManager
+    const count = await sprintQueries.getSprintUsageCount(db, id);
+    res.json({ count });
   } catch (error) {
     console.error('Error fetching sprint usage:', error);
     res.status(500).json({ error: 'Failed to fetch sprint usage' });
@@ -103,38 +87,22 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }
     
     const sprintId = crypto.randomUUID();
-    const now = new Date().toISOString();
     
-    // If this sprint is being set as active, deactivate all others
+    // MIGRATED: If this sprint is being set as active, deactivate all others using sqlManager
     if (is_active) {
-      await wrapQuery(
-        db.prepare('UPDATE planning_periods SET is_active = 0 WHERE is_active = 1'),
-        'UPDATE'
-      ).run();
+      await sprintQueries.deactivateAllSprints(db);
     }
     
-    await wrapQuery(
-      db.prepare(`
-        INSERT INTO planning_periods (
-          id, name, start_date, end_date, is_active, description, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `),
-      'INSERT'
-    ).run(
-      sprintId,
-      name.trim(),
-      start_date,
-      end_date,
-      is_active ? 1 : 0,
-      description?.trim() || null,
-      now,
-      now
+    // MIGRATED: Create sprint using sqlManager
+    const newSprint = await sprintQueries.createSprint(
+      db, 
+      sprintId, 
+      name, 
+      start_date, 
+      end_date, 
+      is_active, 
+      description
     );
-    
-    const newSprint = await wrapQuery(
-      db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
-      'SELECT'
-    ).get(sprintId);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-created to Redis');
@@ -158,11 +126,8 @@ router.put("/:id", authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { name, start_date, end_date, is_active, description } = req.body;
     
-    // Check if sprint exists
-    const existing = await wrapQuery(
-      db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
-      'SELECT'
-    ).get(id);
+    // MIGRATED: Check if sprint exists using sqlManager
+    const existing = await sprintQueries.getSprintById(db, id);
     
     if (!existing) {
       return res.status(404).json({ error: 'Sprint not found' });
@@ -182,35 +147,21 @@ router.put("/:id", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'End date must be after start date' });
     }
     
-    // If this sprint is being set as active, deactivate all others
+    // MIGRATED: If this sprint is being set as active, deactivate all others using sqlManager
     if (is_active) {
-      await wrapQuery(
-        db.prepare('UPDATE planning_periods SET is_active = 0 WHERE is_active = 1 AND id != ?'),
-        'UPDATE'
-      ).run(id);
+      await sprintQueries.deactivateAllSprintsExcept(db, id);
     }
     
-    await wrapQuery(
-      db.prepare(`
-        UPDATE planning_periods
-        SET name = ?, start_date = ?, end_date = ?, is_active = ?, description = ?, updated_at = ?
-        WHERE id = ?
-      `),
-      'UPDATE'
-    ).run(
-      name.trim(),
-      start_date,
-      end_date,
-      is_active ? 1 : 0,
-      description?.trim() || null,
-      new Date().toISOString(),
-      id
+    // MIGRATED: Update sprint using sqlManager
+    const updated = await sprintQueries.updateSprint(
+      db, 
+      id, 
+      name, 
+      start_date, 
+      end_date, 
+      is_active, 
+      description
     );
-    
-    const updated = await wrapQuery(
-      db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
-      'SELECT'
-    ).get(id);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing sprint-updated to Redis');
@@ -233,44 +184,29 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
     const db = getRequestDatabase(req);
     const { id } = req.params;
     
-    // Check if sprint exists
-    const existing = await wrapQuery(
-      db.prepare('SELECT * FROM planning_periods WHERE id = ?'),
-      'SELECT'
-    ).get(id);
+    // MIGRATED: Check if sprint exists using sqlManager
+    const existing = await sprintQueries.getSprintById(db, id);
     
     if (!existing) {
       return res.status(404).json({ error: 'Sprint not found' });
     }
     
-    // Get tasks using this sprint
-    const tasksUsingSprint = await wrapQuery(db.prepare(`
-      SELECT id, ticket, title, boardId
-      FROM tasks 
-      WHERE sprint_id = ?
-      ORDER BY ticket
-    `), 'SELECT').all(id);
+    // MIGRATED: Get tasks using this sprint using sqlManager
+    const tasksUsingSprint = await sprintQueries.getTasksUsingSprint(db, id);
     
     // Use transaction to ensure atomicity
     await dbTransaction(db, async () => {
-      // If sprint is in use, set sprint_id to null for all tasks
+      // MIGRATED: If sprint is in use, unassign tasks using sqlManager
       if (tasksUsingSprint.length > 0) {
         console.log(`📋 Removing sprint assignment from ${tasksUsingSprint.length} tasks`);
         
-        await wrapQuery(db.prepare(`
-          UPDATE tasks 
-          SET sprint_id = NULL
-          WHERE sprint_id = ?
-        `), 'UPDATE').run(id);
+        await sprintQueries.unassignTasksFromSprint(db, id);
         
         console.log(`✅ Removed sprint assignment from ${tasksUsingSprint.length} tasks`);
       }
       
-      // Now delete the sprint
-      await wrapQuery(
-        db.prepare('DELETE FROM planning_periods WHERE id = ?'),
-        'DELETE'
-      ).run(id);
+      // MIGRATED: Delete the sprint using sqlManager
+      await sprintQueries.deleteSprint(db, id);
     });
     
     // Publish to Redis for real-time updates
@@ -296,8 +232,8 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
         console.log(`📤 Publishing ${tasks.length} task updates for board ${boardId}`);
         
         for (const task of tasks) {
-          // Fetch updated task data
-          const updatedTask = await wrapQuery(db.prepare('SELECT * FROM tasks WHERE id = ?'), 'SELECT').get(task.id);
+          // MIGRATED: Fetch updated task data using sqlManager
+          const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
           
           if (updatedTask) {
             await notificationService.publish('task-updated', {

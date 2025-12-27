@@ -9,6 +9,7 @@ import { dbTransaction, dbExec, isPostgresDatabase, convertSqlToPostgres } from 
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { users as userQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -73,10 +74,11 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
   try {
     const db = getRequestDatabase(req);
     const avatarPath = `/avatars/${req.file.filename}`;
-    await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, req.user.id);
+    // MIGRATED: Update user avatar using sqlManager
+    await userQueries.updateUserAvatar(db, req.user.id, avatarPath);
     
-    // Get the member ID for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    // MIGRATED: Get the member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, req.user.id);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -109,10 +111,11 @@ router.post('/avatar', authenticateToken, avatarUpload.single('avatar'), async (
 router.delete('/avatar', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('UPDATE users SET avatar_path = NULL WHERE id = ?'), 'UPDATE').run(req.user.id);
+    // MIGRATED: Update user avatar using sqlManager
+    await userQueries.updateUserAvatar(db, req.user.id, null);
     
-    // Get the member ID for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(req.user.id);
+    // MIGRATED: Get the member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, req.user.id);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -152,22 +155,18 @@ router.put('/profile', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: t('errors.displayNameTooLong') });
     }
     
-    // Check for duplicate display name (excluding current user)
-    const existingMember = await wrapQuery(
-      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?) AND user_id != ?'), 
-      'SELECT'
-    ).get(trimmedDisplayName, userId);
+    // MIGRATED: Check for duplicate display name using sqlManager
+    const existingMember = await userQueries.checkMemberNameExists(db, trimmedDisplayName, userId);
     
     if (existingMember) {
       return res.status(400).json({ error: t('errors.displayNameTaken') });
     }
     
-    // Update the member's name in the members table
-    const updateMemberStmt = db.prepare('UPDATE members SET name = ? WHERE user_id = ?');
-    await wrapQuery(updateMemberStmt, 'UPDATE').run(trimmedDisplayName, userId);
+    // MIGRATED: Update the member's name using sqlManager
+    await userQueries.updateMemberName(db, userId, trimmedDisplayName);
     
-    // Get the member ID for Redis publishing
-    const member = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get the member ID using sqlManager
+    const member = await userQueries.getMemberByUserId(db, userId);
     
     // Publish to Redis for real-time updates
     if (member) {
@@ -202,8 +201,8 @@ router.delete("/account", authenticateToken, async (req, res) => {
     // The authenticateToken middleware already validates the JWT and sets req.user
     // No additional user ID parameter needed - use the authenticated user's ID
     
-    // Check if user exists and is active
-    const user = await wrapQuery(db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ? AND is_active = 1'), 'SELECT').get(userId);
+    // MIGRATED: Check if user exists and is active using sqlManager
+    const user = await userQueries.getUserBasicInfo(db, userId);
     if (!user) {
       return res.status(404).json({ error: 'User not found or already inactive' });
     }
@@ -213,16 +212,13 @@ router.delete("/account", authenticateToken, async (req, res) => {
     const systemMemberId = '00000000-0000-0000-0000-000000000001';
     const tenantId = getTenantId(req);
     
-    // Get the member ID for the user being deleted (before deletion)
-    const userMember = await wrapQuery(db.prepare('SELECT id FROM members WHERE user_id = ?'), 'SELECT').get(userId);
+    // MIGRATED: Get the member ID using sqlManager
+    const userMember = await userQueries.getMemberByUserId(db, userId);
     
-    // Get all tasks that will be reassigned (for WebSocket notifications)
+    // MIGRATED: Get all tasks that will be reassigned using sqlManager
     let tasksToReassign = [];
     if (userMember) {
-      tasksToReassign = await wrapQuery(
-        db.prepare('SELECT id, boardId FROM tasks WHERE memberId = ? OR requesterId = ?'), 
-        'SELECT'
-      ).all(userMember.id, userMember.id);
+      tasksToReassign = await userQueries.getTasksForMember(db, userMember.id);
       console.log(`📋 Found ${tasksToReassign.length} tasks to reassign from user ${userId} to SYSTEM`);
     }
     
@@ -298,48 +294,8 @@ router.delete("/account", authenticateToken, async (req, res) => {
       if (systemMember) {
         console.log(`📤 Publishing ${tasksToReassign.length} task-updated events to Redis`);
         for (const task of tasksToReassign) {
-          // Get the full updated task details with priority info
-          const updatedTask = await wrapQuery(
-            db.prepare(`
-              SELECT t.*, 
-                     p.id as priorityId,
-                     p.priority as priorityName,
-                     p.color as priorityColor,
-                     json_group_array(
-                       DISTINCT CASE WHEN tag.id IS NOT NULL THEN json_object(
-                         'id', tag.id,
-                         'tag', tag.tag,
-                         'description', tag.description,
-                         'color', tag.color
-                       ) ELSE NULL END
-                     ) as tags,
-                     json_group_array(
-                       DISTINCT CASE WHEN watcher.id IS NOT NULL THEN json_object(
-                         'id', watcher.id,
-                         'name', watcher.name,
-                         'color', watcher.color
-                       ) ELSE NULL END
-                     ) as watchers,
-                     json_group_array(
-                       DISTINCT CASE WHEN collaborator.id IS NOT NULL THEN json_object(
-                         'id', collaborator.id,
-                         'name', collaborator.name,
-                         'color', collaborator.color
-                       ) ELSE NULL END
-                     ) as collaborators
-              FROM tasks t
-              LEFT JOIN task_tags tt ON tt.taskId = t.id
-              LEFT JOIN tags tag ON tag.id = tt.tagId
-              LEFT JOIN watchers w ON w.taskId = t.id
-              LEFT JOIN members watcher ON watcher.id = w.memberId
-              LEFT JOIN collaborators col ON col.taskId = t.id
-              LEFT JOIN members collaborator ON collaborator.id = col.memberId
-              LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-              WHERE t.id = ?
-              GROUP BY t.id, p.id
-            `),
-            'SELECT'
-          ).get(task.id);
+          // MIGRATED: Get the full updated task details using sqlManager
+          const updatedTask = await taskQueries.getTaskWithRelationships(db, task.id);
           
           if (updatedTask) {
             updatedTask.tags = updatedTask.tags === '[null]' ? [] : JSON.parse(updatedTask.tags).filter(Boolean);
@@ -434,11 +390,8 @@ router.get('/settings', authenticateToken, async (req, res) => {
     `, isPostgres);
     await dbExec(db, createTableSql);
     
-    const settings = await wrapQuery(db.prepare(`
-      SELECT setting_key, setting_value 
-      FROM user_settings 
-      WHERE userId = ?
-    `), 'SELECT').all(userId);
+    // MIGRATED: Get user settings using sqlManager
+    const settings = await userQueries.getUserSettings(db, userId);
     
     // Convert to object format
     const settingsObj = settings.reduce((acc, setting) => {
@@ -487,14 +440,9 @@ router.put('/settings', authenticateToken, async (req, res) => {
       return res.json({ message: 'Setting skipped (null value)' });
     }
     
-    // Special handling for selectedSprintId null value - delete the row to represent "All Sprints"
+    // MIGRATED: Special handling for selectedSprintId null value - delete the row using sqlManager
     if (setting_value === null && setting_key === 'selectedSprintId') {
-      const isPostgres = isPostgresDatabase(db);
-      const deleteSql = isPostgres
-        ? `DELETE FROM user_settings WHERE userId = $1 AND setting_key = $2`
-        : `DELETE FROM user_settings WHERE userId = ? AND setting_key = ?`;
-      
-      await wrapQuery(db.prepare(deleteSql), 'DELETE').run(userId, setting_key);
+      await userQueries.deleteUserSetting(db, userId, setting_key);
       
       return res.json({ message: 'Setting cleared successfully (null value stored as deletion)' });
     }
@@ -502,16 +450,8 @@ router.put('/settings', authenticateToken, async (req, res) => {
     // Convert value to string safely
     const valueString = typeof setting_value === 'string' ? setting_value : String(setting_value);
     
-    const isPostgres = isPostgresDatabase(db);
-    const insertSql = isPostgres
-      ? `INSERT INTO user_settings (userId, setting_key, setting_value, updated_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (userId, setting_key) 
-         DO UPDATE SET setting_value = $3, updated_at = CURRENT_TIMESTAMP`
-      : `INSERT OR REPLACE INTO user_settings (userId, setting_key, setting_value, updated_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)`;
-    
-    await wrapQuery(db.prepare(insertSql), 'INSERT').run(userId, setting_key, valueString);
+    // MIGRATED: Upsert user setting using sqlManager
+    await userQueries.upsertUserSetting(db, userId, setting_key, valueString);
     
     res.json({ message: 'Setting updated successfully' });
   } catch (error) {

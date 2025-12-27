@@ -13,6 +13,14 @@ import * as tasks from './tasks.js';
 import * as helpers from './helpers.js';
 import * as boards from './boards.js';
 import * as comments from './comments.js';
+import * as priorities from './priorities.js';
+import * as sprints from './sprints.js';
+import * as users from './users.js';
+import * as reports from './reports.js';
+import * as settings from './settings.js';
+import * as files from './files.js';
+import * as activity from './activity.js';
+import * as health from './health.js';
 
 // Export all domain managers
 export const sqlManager = {
@@ -20,14 +28,18 @@ export const sqlManager = {
   helpers,
   boards,
   comments,
-  // Add more domains as they're created:
-  // users,
-  // priorities,
-  // etc.
+  priorities,
+  sprints,
+  users,
+  reports,
+  settings,
+  files,
+  activity,
+  health
 };
 
 // Also export individual domains for convenience
-export { tasks, helpers, boards, comments };
+export { tasks, helpers, boards, comments, priorities, sprints, users, reports, settings, files, activity, health };
 // export { users };
 // etc.
 

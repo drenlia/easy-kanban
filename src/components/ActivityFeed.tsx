@@ -9,11 +9,11 @@ interface ActivityItem {
   id: number;
   action: string;
   details: string;
-  created_at: string;
-  member_name: string;
-  role_name: string;
-  board_title: string;
-  column_title: string;
+  createdAt: string;
+  memberName: string;
+  roleName: string;
+  boardTitle: string;
+  columnTitle: string;
   taskId: string;
 }
 
@@ -432,7 +432,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showMinimizeDropdown]);
 
-  const formatTimeAgo = (timestamp: string, short: boolean = false) => {
+  const formatTimeAgo = (timestamp: string | undefined, short: boolean = false) => {
+    if (!timestamp) {
+      return t('activityFeed.unknownTime');
+    }
+    
     const now = new Date();
     const activityTime = new Date(timestamp);
     
@@ -457,15 +461,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
   };
 
   const formatActivityDescription = (activity: ActivityItem) => {
-    const { member_name, details, board_title } = activity;
-    const name = member_name || t('activityFeed.unknownUser');
+    const { memberName, details, boardTitle } = activity;
+    const name = memberName || t('activityFeed.unknownUser');
     
     // Extract the main action from details
     let description = details;
     
     // Add board context if available
-    if (board_title && !description.includes('board')) {
-      description += ` ${t('activityFeed.in')} ${board_title}`;
+    if (boardTitle && !description.includes('board')) {
+      description += ` ${t('activityFeed.in')} ${boardTitle}`;
     }
 
     // Simple identifier formatting without clickable links
@@ -493,11 +497,11 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     return activities.filter(activity => {
       // Search in multiple fields
       const searchableText = [
-        activity.member_name || '',
+        activity.memberName || '',
         activity.details || '',
         activity.action || '',
-        activity.board_title || '',
-        activity.column_title || ''
+        activity.boardTitle || '',
+        activity.columnTitle || ''
       ].join(' ').toLowerCase();
       
       return searchableText.includes(searchTerm);
@@ -715,7 +719,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             {latestActivity ? (
               <div className="text-xs text-gray-700 truncate">
                 <span className="font-medium text-blue-600">
-                  {highlightText(latestActivity.member_name || t('activityFeed.unknownUser'), filterText)}
+                  {highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}
                 </span>
                 {' '}
                 <span>{highlightText(latestActivity.details, filterText)}</span>
@@ -739,15 +743,15 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
             <div className="space-y-1">
               <div className="flex items-center space-x-1">
                 {getActionIcon(latestActivity.action)}
-                <span className="font-medium">{highlightText(latestActivity.member_name || t('activityFeed.unknownUser'), filterText)}</span>
+                <span className="font-medium">{highlightText(latestActivity.memberName || t('activityFeed.unknownUser'), filterText)}</span>
               </div>
               <div className="text-gray-300">{highlightText(latestActivity.details, filterText)}</div>
-              {latestActivity.board_title && (
-                <div className="text-gray-400">{t('activityFeed.in')} {highlightText(latestActivity.board_title, filterText)}</div>
+              {latestActivity.boardTitle && (
+                <div className="text-gray-400">{t('activityFeed.in')} {highlightText(latestActivity.boardTitle, filterText)}</div>
               )}
               <div className="flex items-center space-x-1 text-gray-400">
                 <Clock className="w-2 h-2" />
-                <span>{formatTimeAgo(latestActivity.created_at)}</span>
+                <span>{formatTimeAgo(latestActivity.createdAt)}</span>
               </div>
             </div>
           </div>,
@@ -940,7 +944,7 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
                   <div className={`flex items-center mt-0.5 ${isNarrowMode ? 'space-x-0.5' : 'space-x-1'}`}>
                     <Clock className="w-2 h-2 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                     <span className="text-xs text-gray-500 dark:text-gray-400 leading-none truncate">
-                      {isNarrowMode ? formatTimeAgo(activity.created_at, true) : formatTimeAgo(activity.created_at)}
+                      {isNarrowMode ? formatTimeAgo(activity.createdAt, true) : formatTimeAgo(activity.createdAt)}
                     </span>
                     {isUnread && (
                       <div className="w-1.5 h-1.5 bg-blue-500 rounded-full flex-shrink-0"></div>

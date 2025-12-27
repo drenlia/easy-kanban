@@ -100,8 +100,8 @@ export const checkAllUserAchievements = async (db) => {
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, period_year, period_month) 
       DO UPDATE SET 
-        total_points = total_points + ?,
-        last_updated = ?
+        total_points = user_points.total_points + EXCLUDED.total_points,
+        last_updated = EXCLUDED.last_updated
     `);
     
     const currentYear = new Date().getFullYear();
@@ -125,8 +125,8 @@ export const checkAllUserAchievements = async (db) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id, period_year, period_month) 
         DO UPDATE SET 
-          total_points = total_points + ?,
-          last_updated = ?
+          total_points = user_points.total_points + EXCLUDED.total_points,
+          last_updated = EXCLUDED.last_updated
       `;
       
       for (const user of users) {
@@ -215,8 +215,6 @@ export const checkAllUserAchievements = async (db) => {
                   user.user_name,
                   currentYear,
                   currentMonth,
-                  badge.points_reward,
-                  now,
                   badge.points_reward,
                   now
                 ]
@@ -331,8 +329,6 @@ export const checkAllUserAchievements = async (db) => {
                   user.user_name,
                   currentYear,
                   currentMonth,
-                  badge.points_reward,
-                  now,
                   badge.points_reward,
                   now
                 );

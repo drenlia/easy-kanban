@@ -4,6 +4,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { getLeaderboard } from '../jobs/achievements.js';
 import { getTranslator, t as translate } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { reports as reportQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -15,11 +16,8 @@ router.get('/settings', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Fetch only report-related settings (no sensitive admin settings)
-    const reportSettings = await wrapQuery(db.prepare(`
-      SELECT key, value FROM settings 
-      WHERE key LIKE 'REPORTS_%'
-    `), 'SELECT').all();
+    // MIGRATED: Fetch report-related settings using sqlManager
+    const reportSettings = await reportQueries.getReportSettings(db);
     
     const settingsObj = {};
     reportSettings.forEach(row => {
@@ -60,65 +58,21 @@ router.get('/user-points', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
     
-    // ALWAYS fetch current user info from members table (source of truth)
-    const currentUserInfo = await wrapQuery(db.prepare(`
-      SELECT m.user_id, m.name as user_name
-      FROM members m
-      WHERE m.user_id = ?
-    `), 'SELECT').get(targetUserId);
+    // MIGRATED: Fetch current user info using sqlManager
+    const currentUserInfo = await reportQueries.getMemberInfoByUserId(db, targetUserId);
     
     if (!currentUserInfo) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Get user's total points (sum across all periods)
-    const userPoints = await wrapQuery(db.prepare(`
-      SELECT 
-        SUM(total_points) as total_points,
-        SUM(tasks_created) as tasks_created,
-        SUM(tasks_completed) as tasks_completed,
-        SUM(total_effort_completed) as total_effort_completed,
-        SUM(comments_added) as comments_added,
-        SUM(collaborations) as collaborations
-      FROM user_points
-      WHERE user_id = ?
-    `), 'SELECT').get(targetUserId);
+    // MIGRATED: Get user's total points using sqlManager
+    const userPoints = await reportQueries.getUserTotalPoints(db, targetUserId);
     
-    // Get monthly breakdown (last 12 months)
-    const monthlyPoints = await wrapQuery(db.prepare(`
-      SELECT 
-        period_year,
-        period_month,
-        total_points,
-        tasks_created,
-        tasks_completed,
-        total_effort_completed,
-        comments_added,
-        collaborations,
-        last_updated
-      FROM user_points
-      WHERE user_id = ?
-      ORDER BY period_year DESC, period_month DESC
-      LIMIT 12
-    `), 'SELECT').all(targetUserId);
+    // MIGRATED: Get monthly breakdown using sqlManager
+    const monthlyPoints = await reportQueries.getUserMonthlyPoints(db, targetUserId);
     
-    // Get achievements/badges with badge_id for translation
-    const achievementsRaw = await wrapQuery(db.prepare(`
-      SELECT 
-        ua.id,
-        ua.achievement_type,
-        ua.badge_id,
-        ua.badge_name,
-        ua.badge_icon,
-        ua.badge_color,
-        ua.points_earned,
-        ua.earned_at,
-        b.description as badge_description
-      FROM user_achievements ua
-      LEFT JOIN badges b ON ua.badge_id = b.id
-      WHERE ua.user_id = ?
-      ORDER BY ua.earned_at DESC
-    `), 'SELECT').all(targetUserId);
+    // MIGRATED: Get achievements using sqlManager
+    const achievementsRaw = await reportQueries.getUserAchievements(db, targetUserId);
     
     // Translate achievement names and descriptions
     // Use user's language preference if provided, otherwise use APP_LANGUAGE
@@ -126,7 +80,8 @@ router.get('/user-points', authenticateToken, async (req, res) => {
     if (userLanguage) {
       translationLang = userLanguage;
     } else {
-      const appLang = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_LANGUAGE');
+      // MIGRATED: Get APP_LANGUAGE setting using sqlManager
+      const appLang = await reportQueries.getSettingByKey(db, 'APP_LANGUAGE');
       translationLang = (appLang?.value || 'EN').toUpperCase() === 'FR' ? 'fr' : 'en';
     }
     
@@ -134,9 +89,9 @@ router.get('/user-points', authenticateToken, async (req, res) => {
     const t = (key, params = {}) => translate(key, params, translationLang);
     
     const achievements = achievementsRaw.map(achievement => {
-      const badgeId = achievement.badge_id;
-      let translatedName = achievement.badge_name;
-      let translatedDescription = achievement.badge_description || '';
+      const badgeId = achievement.badgeId;
+      let translatedName = achievement.badgeName;
+      let translatedDescription = achievement.badgeDescription || '';
       
       // Map badge IDs to translation keys (new system badges)
       const badgeIdToTranslationKey = {
@@ -184,26 +139,27 @@ router.get('/user-points', authenticateToken, async (req, res) => {
         translatedDescription = t(translationKeys.desc);
       } 
       // Fallback: translate by badge_name (old system badges without badge_id)
-      else if (badgeNameToTranslationKey[achievement.badge_name]) {
-        const translationKeys = badgeNameToTranslationKey[achievement.badge_name];
+      else if (badgeNameToTranslationKey[achievement.badgeName]) {
+        const translationKeys = badgeNameToTranslationKey[achievement.badgeName];
         translatedName = t(translationKeys.name);
         translatedDescription = t(translationKeys.desc);
       }
       
       return {
-        ...achievement,
+        id: achievement.id,
+        achievement_type: achievement.achievementType,
+        badge_id: achievement.badgeId,
         badge_name: translatedName,
+        badge_icon: achievement.badgeIcon,
+        badge_color: achievement.badgeColor,
+        points_earned: achievement.pointsEarned,
+        earned_at: achievement.earnedAt || null, // Ensure earned_at is present, handle null
         badge_description: translatedDescription
       };
     });
     
-    // Get ALL active members count (source of truth)
-    const totalActiveMembers = await wrapQuery(db.prepare(`
-      SELECT COUNT(DISTINCT m.user_id) as count
-      FROM members m
-      JOIN users u ON m.user_id = u.id
-      WHERE u.is_active = 1
-    `), 'SELECT').get();
+    // MIGRATED: Get active members count using sqlManager
+    const totalActiveMembers = await reportQueries.getActiveMembersCount(db);
     
     // Get user's rank among all active members
     const allUsers = await getLeaderboard(db);
@@ -214,15 +170,15 @@ router.get('/user-points', authenticateToken, async (req, res) => {
       userRank = totalActiveMembers.count;
     }
     
-    // Merge current user info with points data
+    // Merge current user info with points data (normalize field names)
     const userStats = {
-      user_id: currentUserInfo.user_id,
-      user_name: currentUserInfo.user_name,
-      total_points: userPoints?.total_points || 0,
-      tasks_created: userPoints?.tasks_created || 0,
-      tasks_completed: userPoints?.tasks_completed || 0,
-      total_effort_completed: userPoints?.total_effort_completed || 0,
-      comments_added: userPoints?.comments_added || 0,
+      user_id: currentUserInfo.userId,
+      user_name: currentUserInfo.userName,
+      total_points: userPoints?.totalPoints || 0,
+      tasks_created: userPoints?.tasksCreated || 0,
+      tasks_completed: userPoints?.tasksCompleted || 0,
+      total_effort_completed: userPoints?.totalEffortCompleted || 0,
+      comments_added: userPoints?.commentsAdded || 0,
       collaborations: userPoints?.collaborations || 0
     };
     
@@ -256,13 +212,8 @@ router.get('/leaderboard', authenticateToken, async (req, res) => {
       month ? parseInt(month) : null
     );
     
-    // Get total active members (source of truth)
-    const totalActiveMembers = await wrapQuery(db.prepare(`
-      SELECT COUNT(DISTINCT m.user_id) as count
-      FROM members m
-      JOIN users u ON m.user_id = u.id
-      WHERE u.is_active = 1
-    `), 'SELECT').get();
+    // MIGRATED: Get total active members using sqlManager
+    const totalActiveMembers = await reportQueries.getActiveMembersCount(db);
     
     res.json({
       success: true,
@@ -296,139 +247,98 @@ router.get('/burndown', authenticateToken, async (req, res) => {
       });
     }
     
-    // Build query based on filters (exclude archived columns via JOIN)
-    let snapshotQuery = `
-      SELECT 
-        ts.snapshot_date,
-        COUNT(DISTINCT ts.task_id) as total_tasks,
-        COUNT(DISTINCT CASE WHEN ts.is_completed = 1 THEN ts.task_id END) as completed_tasks,
-        SUM(ts.effort_points) as total_effort,
-        SUM(CASE WHEN ts.is_completed = 1 THEN ts.effort_points ELSE 0 END) as completed_effort
-      FROM task_snapshots ts
-      LEFT JOIN columns c ON ts.column_id = c.id
-      WHERE ts.snapshot_date BETWEEN ? AND ?
-      AND (c.is_archived IS NULL OR c.is_archived = 0)
-    `;
+    // MIGRATED: Get burndown snapshots using sqlManager
+    const snapshots = await reportQueries.getBurndownSnapshots(db, startDate, endDate, boardId);
     
-    const params = [startDate, endDate];
+    // MIGRATED: Get burndown baseline using sqlManager
+    const baseline = await reportQueries.getBurndownBaseline(db, startDate, endDate, boardId);
     
-    if (boardId) {
-      snapshotQuery += ' AND ts.board_id = ?';
-      params.push(boardId);
-    }
+    // Calculate calendar days in the selected period (inclusive of start and end dates)
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const calendarDays = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end dates
     
-    snapshotQuery += ' GROUP BY ts.snapshot_date ORDER BY ts.snapshot_date ASC';
-    
-    const snapshots = await wrapQuery(db.prepare(snapshotQuery), 'SELECT').all(...params);
-    
-    // Get planning baseline (tasks at first available snapshot in range, excluding archived)
-    let baselineQuery = `
-      SELECT 
-        COUNT(DISTINCT ts.task_id) as planned_tasks,
-        SUM(ts.effort_points) as planned_effort
-      FROM task_snapshots ts
-      LEFT JOIN columns c ON ts.column_id = c.id
-      WHERE ts.snapshot_date = (
-        SELECT MIN(ts2.snapshot_date) 
-        FROM task_snapshots ts2
-        LEFT JOIN columns c2 ON ts2.column_id = c2.id
-        WHERE ts2.snapshot_date BETWEEN ? AND ?
-        AND (c2.is_archived IS NULL OR c2.is_archived = 0)
-        ${boardId ? 'AND ts2.board_id = ?' : ''}
-      )
-      AND (c.is_archived IS NULL OR c.is_archived = 0)
-    `;
-    
-    const baselineParams = [startDate, endDate];
-    if (boardId) {
-      baselineParams.push(boardId); // For the subquery
-      baselineQuery += ' AND ts.board_id = ?';
-      baselineParams.push(boardId); // For the outer query
-    }
-    
-    const baseline = await wrapQuery(db.prepare(baselineQuery), 'SELECT').get(...baselineParams);
-    
-    // Calculate ideal burndown line
-    const dayCount = snapshots.length;
+    // Calculate ideal burndown line based on calendar days
     const idealBurndown = [];
     
-    if (baseline && dayCount > 0) {
-      const plannedTasks = baseline.planned_tasks || 0;
-      const plannedEffort = baseline.planned_effort || 0;
-      const tasksPerDay = plannedTasks / dayCount;
-      const effortPerDay = plannedEffort / dayCount;
+    if (baseline && calendarDays > 0) {
+      const plannedTasks = baseline.plannedTasks || 0;
+      const plannedEffort = baseline.plannedEffort || 0;
+      const tasksPerDay = plannedTasks / calendarDays;
+      const effortPerDay = plannedEffort / calendarDays;
       
-      snapshots.forEach((snapshot, index) => {
+      // Create ideal burndown for each snapshot date, calculating progress based on days elapsed
+      snapshots.forEach((snapshot) => {
+        // Calculate days elapsed from start date to this snapshot date
+        const snapshotDate = new Date(snapshot.snapshotDate);
+        const daysElapsed = Math.floor((snapshotDate - start) / (1000 * 60 * 60 * 24)) + 1; // +1 to include start date
+        
         idealBurndown.push({
-          date: snapshot.snapshot_date,
-          idealRemainingTasks: Math.max(0, plannedTasks - (tasksPerDay * (index + 1))),
-          idealRemainingEffort: Math.max(0, plannedEffort - (effortPerDay * (index + 1)))
+          date: snapshot.snapshotDate,
+          idealRemainingTasks: Math.max(0, plannedTasks - (tasksPerDay * daysElapsed)),
+          idealRemainingEffort: Math.max(0, plannedEffort - (effortPerDay * daysElapsed))
         });
       });
     }
     
-    // Calculate actual remaining tasks
-    const actualBurndown = snapshots.map(snapshot => ({
-      date: snapshot.snapshot_date,
-      total_tasks: snapshot.total_tasks,
-      completed_tasks: snapshot.completed_tasks,
-      remaining_tasks: snapshot.total_tasks - snapshot.completed_tasks,
-      total_effort: snapshot.total_effort,
-      completed_effort: snapshot.completed_effort,
-      remaining_effort: snapshot.total_effort - snapshot.completed_effort
-    }));
+    // Calculate actual remaining tasks (normalize field names and convert to numbers)
+    const actualBurndown = snapshots.map(snapshot => {
+      // Ensure snapshotDate is in YYYY-MM-DD format (PostgreSQL DATE returns as string)
+      const dateStr = snapshot.snapshotDate instanceof Date 
+        ? snapshot.snapshotDate.toISOString().split('T')[0]
+        : String(snapshot.snapshotDate).split('T')[0]; // Handle both Date objects and strings
+      
+      const totalTasks = Number(snapshot.totalTasks) || 0;
+      const completedTasks = Number(snapshot.completedTasks) || 0;
+      const totalEffort = Number(snapshot.totalEffort) || 0;
+      const completedEffort = Number(snapshot.completedEffort) || 0;
+      
+      return {
+        date: dateStr,
+        total_tasks: totalTasks,
+        completed_tasks: completedTasks,
+        remaining_tasks: totalTasks - completedTasks,
+        total_effort: totalEffort,
+        completed_effort: completedEffort,
+        remaining_effort: totalEffort - completedEffort
+      };
+    });
     
     // If no boardId filter, get per-board breakdown
     let boardsData = [];
     if (!boardId) {
-      // Get all unique boards in the date range (excluding archived columns)
-      const boardsQuery = `
-        SELECT DISTINCT ts.board_id, ts.board_name
-        FROM task_snapshots ts
-        LEFT JOIN columns c ON ts.column_id = c.id
-        WHERE ts.snapshot_date BETWEEN ? AND ?
-        AND ts.board_id IS NOT NULL
-        AND (c.is_archived IS NULL OR c.is_archived = 0)
-        ORDER BY ts.board_name
-      `;
-      const boards = await wrapQuery(db.prepare(boardsQuery), 'SELECT').all(startDate, endDate);
+      // MIGRATED: Get boards in date range using sqlManager
+      const boards = await reportQueries.getBoardsInDateRange(db, startDate, endDate);
       
-      // Get data for each board
+      // MIGRATED: Get data for each board using sqlManager
       boardsData = await Promise.all(boards.map(async board => {
-        const boardSnapshotsQuery = `
-          SELECT 
-            ts.snapshot_date,
-            COUNT(DISTINCT ts.task_id) as total_tasks,
-            COUNT(DISTINCT CASE WHEN ts.is_completed = 1 THEN ts.task_id END) as completed_tasks,
-            SUM(ts.effort_points) as total_effort,
-            SUM(CASE WHEN ts.is_completed = 1 THEN ts.effort_points ELSE 0 END) as completed_effort
-          FROM task_snapshots ts
-          LEFT JOIN columns c ON ts.column_id = c.id
-          WHERE ts.snapshot_date BETWEEN ? AND ?
-          AND ts.board_id = ?
-          AND (c.is_archived IS NULL OR c.is_archived = 0)
-          GROUP BY ts.snapshot_date
-          ORDER BY ts.snapshot_date ASC
-        `;
+        const boardSnapshots = await reportQueries.getBoardBurndownSnapshots(db, startDate, endDate, board.boardId);
         
-        const boardSnapshots = await wrapQuery(
-          db.prepare(boardSnapshotsQuery),
-          'SELECT'
-        ).all(startDate, endDate, board.board_id);
-        
-        const boardData = boardSnapshots.map(snapshot => ({
-          date: snapshot.snapshot_date,
-          total_tasks: snapshot.total_tasks,
-          completed_tasks: snapshot.completed_tasks,
-          remaining_tasks: snapshot.total_tasks - snapshot.completed_tasks,
-          total_effort: snapshot.total_effort,
-          completed_effort: snapshot.completed_effort,
-          remaining_effort: snapshot.total_effort - snapshot.completed_effort
-        }));
+        const boardData = boardSnapshots.map(snapshot => {
+          // Ensure snapshotDate is in YYYY-MM-DD format
+          const dateStr = snapshot.snapshotDate instanceof Date 
+            ? snapshot.snapshotDate.toISOString().split('T')[0]
+            : String(snapshot.snapshotDate).split('T')[0];
+          
+          const totalTasks = Number(snapshot.totalTasks) || 0;
+          const completedTasks = Number(snapshot.completedTasks) || 0;
+          const totalEffort = Number(snapshot.totalEffort) || 0;
+          const completedEffort = Number(snapshot.completedEffort) || 0;
+          
+          return {
+            date: dateStr,
+            total_tasks: totalTasks,
+            completed_tasks: completedTasks,
+            remaining_tasks: totalTasks - completedTasks,
+            total_effort: totalEffort,
+            completed_effort: completedEffort,
+            remaining_effort: totalEffort - completedEffort
+          };
+        });
         
         return {
-          boardId: board.board_id,
-          boardName: board.board_name,
+          boardId: board.boardId,
+          boardName: board.boardName,
           data: boardData
         };
       }));
@@ -441,22 +351,22 @@ router.get('/burndown', authenticateToken, async (req, res) => {
         endDate,
         boardId: boardId || 'all'
       },
-      baseline: baseline || { planned_tasks: 0, planned_effort: 0 },
+      baseline: baseline || { planned_tasks: 0, planned_effort: 0, plannedTasks: 0, plannedEffort: 0 },
       idealBurndown,
       actualBurndown,
       boards: boardsData, // NEW: Per-board breakdown
       metrics: {
-        totalTasks: baseline?.planned_tasks || 0,
-        totalEffort: baseline?.planned_effort || 0,
-        totalDays: dayCount
+        totalTasks: Number(baseline?.plannedTasks || baseline?.planned_tasks || 0),
+        totalEffort: Number(baseline?.plannedEffort || baseline?.planned_effort || 0),
+        totalDays: calendarDays
       },
       data: actualBurndown,
       summary: {
-        totalDays: dayCount,
-        tasksPlanned: baseline?.planned_tasks || 0,
-        tasksCompleted: snapshots[snapshots.length - 1]?.completed_tasks || 0,
-        effortPlanned: baseline?.planned_effort || 0,
-        effortCompleted: snapshots[snapshots.length - 1]?.completed_effort || 0
+        totalDays: calendarDays,
+        tasksPlanned: Number(baseline?.plannedTasks || baseline?.planned_tasks || 0),
+        tasksCompleted: Number(snapshots[snapshots.length - 1]?.completedTasks || snapshots[snapshots.length - 1]?.completed_tasks || 0),
+        effortPlanned: Number(baseline?.plannedEffort || baseline?.planned_effort || 0),
+        effortCompleted: Number(snapshots[snapshots.length - 1]?.completedEffort || snapshots[snapshots.length - 1]?.completed_effort || 0)
       }
     });
   } catch (error) {
@@ -482,40 +392,25 @@ router.get('/team-performance', authenticateToken, async (req, res) => {
       });
     }
     
-    // Get activity events for the period
-    let activityQuery = `
-      SELECT 
-        user_id,
-        user_name,
-        event_type,
-        COUNT(*) as event_count,
-        SUM(CASE WHEN event_type = 'task_completed' THEN effort_points ELSE 0 END) as total_effort_completed
-      FROM activity_events
-      WHERE DATE(created_at) BETWEEN ? AND ?
-    `;
-    
-    const params = [startDate, endDate];
-    
-    if (boardId) {
-      activityQuery += ' AND board_id = ?';
-      params.push(boardId);
-    }
-    
-    activityQuery += `
-      GROUP BY user_id, user_name, event_type
-      ORDER BY user_id, event_type
-    `;
-    
-    const activities = await wrapQuery(db.prepare(activityQuery), 'SELECT').all(...params);
+    // MIGRATED: Get activity events using sqlManager
+    const activities = await reportQueries.getActivityEvents(db, startDate, endDate, boardId);
     
     // Aggregate by user
     const userPerformance = {};
     
     activities.forEach(activity => {
-      if (!userPerformance[activity.user_id]) {
-        userPerformance[activity.user_id] = {
-          user_id: activity.user_id,
-          user_name: activity.user_name,
+      // Normalize field names from camelCase to snake_case for compatibility
+      const userId = activity.userId;
+      const userName = activity.userName;
+      const eventType = activity.eventType;
+      // Convert to numbers to prevent string concatenation
+      const eventCount = Number(activity.eventCount) || 0;
+      const totalEffortCompleted = Number(activity.totalEffortCompleted) || 0;
+      
+      if (!userPerformance[userId]) {
+        userPerformance[userId] = {
+          user_id: userId,
+          user_name: userName,
           tasks_created: 0,
           tasks_completed: 0,
           tasks_updated: 0,
@@ -527,28 +422,28 @@ router.get('/team-performance', authenticateToken, async (req, res) => {
         };
       }
       
-      const user = userPerformance[activity.user_id];
+      const user = userPerformance[userId];
       
-      switch (activity.event_type) {
+      switch (eventType) {
         case 'task_created':
-          user.tasks_created += activity.event_count;
+          user.tasks_created += eventCount;
           break;
         case 'task_completed':
-          user.tasks_completed += activity.event_count;
-          user.total_effort_completed += activity.total_effort_completed || 0;
+          user.tasks_completed += eventCount;
+          user.total_effort_completed += totalEffortCompleted;
           break;
         case 'task_updated':
-          user.tasks_updated += activity.event_count;
+          user.tasks_updated += eventCount;
           break;
         case 'task_moved':
-          user.tasks_moved += activity.event_count;
+          user.tasks_moved += eventCount;
           break;
         case 'comment_added':
-          user.comments_added += activity.event_count;
+          user.comments_added += eventCount;
           break;
         case 'collaborator_added':
         case 'watcher_added':
-          user.collaborations += activity.event_count;
+          user.collaborations += eventCount;
           break;
       }
     });
@@ -558,18 +453,14 @@ router.get('/team-performance', authenticateToken, async (req, res) => {
       b.tasks_completed - a.tasks_completed
     );
     
-    // Get total points for each user from user_points table
+    // MIGRATED: Get total points for each user using sqlManager
     for (const user of performanceArray) {
       const currentYear = new Date(startDate).getFullYear();
       const currentMonth = new Date(startDate).getMonth() + 1;
       
-      const pointsData = await wrapQuery(db.prepare(`
-        SELECT total_points
-        FROM user_points
-        WHERE user_id = ? AND period_year = ? AND period_month = ?
-      `), 'SELECT').get(user.user_id, currentYear, currentMonth);
+      const pointsData = await reportQueries.getUserPointsForPeriod(db, user.user_id, currentYear, currentMonth);
       
-      user.total_points = pointsData?.total_points || 0;
+      user.total_points = pointsData?.totalPoints || 0;
     }
     
     res.json({
@@ -604,111 +495,45 @@ router.get('/task-list', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     const { startDate, endDate, boardId, status, assigneeId, priorityName } = req.query;
     
-    let query = `
-      SELECT 
-        t.id,
-        t.ticket,
-        t.title,
-        t.description,
-        t.effort,
-        t.priority,
-        t.priority_id,
-        p.priority as priority_name,
-        t.startDate,
-        t.dueDate,
-        t.created_at,
-        t.updated_at,
-        b.title as board_name,
-        c.title as column_name,
-        c.is_finished as is_done,
-        m.name as assignee_name,
-        r.name as requester_name,
-        (SELECT COUNT(*) FROM comments WHERE taskId = t.id) as comment_count,
-        (SELECT COUNT(*) FROM watchers WHERE taskId = t.id) as watcher_count,
-        (SELECT COUNT(*) FROM collaborators WHERE taskId = t.id) as collaborator_count
-      FROM tasks t
-      LEFT JOIN boards b ON t.boardId = b.id
-      LEFT JOIN columns c ON t.columnId = c.id
-      LEFT JOIN members m ON t.memberId = m.id
-      LEFT JOIN members r ON t.requesterId = r.id
-      LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-      WHERE 1=1
-      AND (c.is_archived IS NULL OR c.is_archived = 0)
-    `;
-    
-    const params = [];
-    
-    if (startDate) {
-      query += ' AND DATE(t.created_at) >= ?';
-      params.push(startDate);
-    }
-    
-    if (endDate) {
-      query += ' AND DATE(t.created_at) <= ?';
-      params.push(endDate);
-    }
-    
-    if (boardId) {
-      query += ' AND t.boardId = ?';
-      params.push(boardId);
-    }
-    
-    if (status === 'completed') {
-      query += ' AND c.is_finished = 1';
-    } else if (status === 'active') {
-      query += ' AND c.is_finished = 0';
-    }
-    
-    if (assigneeId) {
-      query += ' AND t.memberId = ?';
-      params.push(assigneeId);
-    }
-    
+    // MIGRATED: Get priority ID if priorityName is provided
+    let priorityId = null;
     if (priorityName) {
-      // Support both priority name and priority_id lookup
-      // First try to find priority by name to get its ID
-      const priority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get(priorityName);
-      if (priority) {
-        query += ' AND t.priority_id = ?';
-        params.push(priority.id);
-      } else {
-        // Fallback to old priority name matching for backward compatibility
-        query += ' AND t.priority = ?';
-        params.push(priorityName);
-      }
+      const priority = await reportQueries.getPriorityByName(db, priorityName);
+      priorityId = priority?.id || null;
     }
     
-    query += ' ORDER BY t.created_at DESC LIMIT 1000';
+    // MIGRATED: Get task list using sqlManager
+    const tasks = await reportQueries.getTaskList(db, {
+      startDate,
+      endDate,
+      boardId,
+      status,
+      assigneeId,
+      priorityId
+    });
     
-    const tasks = await wrapQuery(db.prepare(query), 'SELECT').all(...params);
-    
-    // Get tags for each task
+    // MIGRATED: Get tags for each task using sqlManager
     const tasksWithTags = await Promise.all(tasks.map(async task => {
-      const tagsResult = await wrapQuery(db.prepare(`
-        SELECT t.tag
-        FROM task_tags tt
-        JOIN tags t ON tt.tagId = t.id
-        WHERE tt.taskId = ?
-      `), 'SELECT').all(task.id);
-      const tags = tagsResult.map(t => t.tag);
+      const tags = await reportQueries.getTagsForTask(db, task.id);
       
+      // Normalize field names from camelCase to snake_case for API response
       return {
         task_id: task.id,
         task_ticket: task.ticket,
         task_title: task.title,
-        board_name: task.board_name,
-        column_name: task.column_name,
-        assignee_name: task.assignee_name,
-        requester_name: task.requester_name,
-        priority_name: task.priority_name || task.priority, // Use current name from JOIN or fallback to stored name
+        board_name: task.boardName,
+        column_name: task.columnName,
+        assignee_name: task.assigneeName,
+        requester_name: task.requesterName,
+        priority_name: task.priorityName || task.priority, // Use current name from JOIN or fallback to stored name
         effort: task.effort,
         start_date: task.startDate,
         due_date: task.dueDate,
-        is_completed: task.is_done === 1,
+        is_completed: task.isFinished === true || task.isFinished === 1,
         tags,
-        comment_count: task.comment_count,
-        created_at: task.created_at,
-        completed_at: task.is_done === 1 ? task.updated_at : null
+        comment_count: task.commentCount,
+        created_at: task.createdAt,
+        completed_at: (task.isFinished === true || task.isFinished === 1) ? task.updatedAt : null
       };
     }));
     

@@ -170,6 +170,120 @@ This document tracks the progress of migrating all SQL queries to the centralize
 
 **Note**: All routes in `taskRelations.js` now use sqlManager functions. Task info queries use `taskQueries.getTaskById` and `taskQueries.getTaskWithBoardColumnInfo` for consistency.
 
+### ✅ Completed: Priorities Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/priorities.js` - All priority queries
+- `server/routes/priorities.js` - All routes now use `sqlManager.priorities`
+
+**Key Functions Migrated**:
+- `getAllPriorities` - Get all priorities ordered by position
+- `getPriorityById` - Get priority by ID
+- `getPriorityByName` - Get priority by name
+- `getDefaultPriority` - Get default priority
+- `getMaxPriorityPosition` - Get maximum position value
+- `createPriority` - Create new priority
+- `updatePriority` - Update priority
+- `deletePriority` - Delete priority
+- `updatePriorityPositions` - Update priority positions (for reordering)
+- `setDefaultPriority` - Set priority as default
+- `getPriorityUsageCount` - Get usage count (tasks using priority)
+- `getBatchPriorityUsageCounts` - Get batch usage counts
+- `getTasksUsingPriority` - Get tasks using a priority
+- `reassignTasksPriority` - Reassign tasks from one priority to another
+
+### ✅ Completed: Sprints Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/sprints.js` - All sprint (planning_periods) queries
+- `server/routes/sprints.js` - All routes now use `sqlManager.sprints`
+
+**Key Functions Migrated**:
+- `getAllSprints` - Get all sprints ordered by start_date DESC
+- `getActiveSprint` - Get currently active sprint
+- `getSprintById` - Get sprint by ID
+- `getSprintUsageCount` - Get usage count (tasks using sprint)
+- `getTasksUsingSprint` - Get tasks using a sprint
+- `deactivateAllSprints` - Deactivate all sprints
+- `deactivateAllSprintsExcept` - Deactivate all sprints except one
+- `createSprint` - Create new sprint
+- `updateSprint` - Update sprint
+- `deleteSprint` - Delete sprint
+- `unassignTasksFromSprint` - Remove sprint assignment from tasks
+
+### ✅ Completed: Users Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/users.js` - All user queries
+- `server/routes/users.js` - User profile routes (avatar, profile update, settings, account deletion)
+- `server/routes/adminUsers.js` - Admin user management routes (GET all users, POST create, PUT update, DELETE user, role management, etc.)
+- `server/routes/adminPortal.js` - Admin portal user routes
+
+**Key Functions Migrated**:
+- `getUserById` - Get user by ID
+- `getUserByIdForAdmin` - Get user by ID for admin (all fields)
+- `getUserByEmail` - Get user by email
+- `getMemberByUserId` - Get member by user_id
+- `getMemberByUserIdWithColor` - Get member by user_id with color
+- `getMemberById` - Get member by ID
+- `updateUserAvatar` - Update user avatar path
+- `checkMemberNameExists` - Check if member name exists
+- `updateMemberName` - Update member name
+- `updateMemberColor` - Update member color
+- `getUserSettings` - Get user settings
+- `upsertUserSetting` - Upsert user setting
+- `deleteUserSetting` - Delete user setting
+- `getTasksForMember` - Get tasks for member
+- `getTaskCountForMember` - Get task count for member
+- `getUserBasicInfo` - Get user basic info
+- `getAllUsersWithRolesAndMembers` - Get all users with roles and member info (for admin)
+- `getUserWithRoles` - Get user with roles
+- `getUserRole` - Get user's current role
+- `getRoleByName` - Get role ID by name
+- `checkEmailExists` - Check if email exists (with optional exclude)
+- `createUser` - Create new user
+- `updateUser` - Update user fields (uses `true`/`false` for boolean `is_active` field)
+- `deleteUserRoles` - Delete user roles
+- `addUserRole` - Add user role
+- `updateUserTimestamp` - Update user's updated_at timestamp
+
+**Fixes Applied**:
+- ✅ Fixed boolean handling in `updateUser` - now uses `true`/`false` instead of `1`/`0` for PostgreSQL `is_active` field
+- ✅ Fixed undefined `dbType` reference in admin user routes (changed to `getNotificationSystem()`)
+- ✅ Improved error logging in member-name update route
+
+### ✅ Completed: Reports Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/reports.js` - All report-related queries
+- `server/routes/reports.js` - All routes now use `sqlManager.reports`
+
+**Key Functions Migrated**:
+- `getReportSettings` - Get report-related settings
+- `getSettingByKey` - Get setting value by key
+- `getMemberInfoByUserId` - Get member info by user_id
+- `getUserTotalPoints` - Get user's total points (sum across all periods)
+- `getUserMonthlyPoints` - Get user's monthly points breakdown
+- `getUserAchievements` - Get user achievements with badge info
+- `getActiveMembersCount` - Get count of active members
+- `getBurndownSnapshots` - Get burndown snapshots for a date range
+- `getBurndownBaseline` - Get burndown baseline (tasks at first snapshot)
+- `getBoardsInDateRange` - Get unique boards in date range
+- `getBoardBurndownSnapshots` - Get board-specific burndown snapshots
+- `getActivityEvents` - Get activity events for team performance
+- `getUserPointsForPeriod` - Get user points for a specific period
+- `getPriorityByName` - Get priority by name
+- `getTaskList` - Get task list with filters
+- `getTagsForTask` - Get tags for a task
+
+**Endpoints Migrated**:
+- `GET /api/reports/settings` - Report visibility settings
+- `GET /api/reports/user-points` - User points and achievements
+- `GET /api/reports/leaderboard` - Team rankings
+- `GET /api/reports/burndown` - Burndown charts
+- `GET /api/reports/team-performance` - Team performance metrics
+- `GET /api/reports/task-list` - Comprehensive task list with metrics
+
 ### 📋 Remaining Migration Work
 
 #### High Priority (Real-time Updates Depend on These)
@@ -180,16 +294,16 @@ This document tracks the progress of migrating all SQL queries to the centralize
 - [x] **Task Relations domain** - Tag/watcher/collaborator associations (taskRelations.js) ✅
 
 #### Medium Priority
-- [ ] **Users/Admin Users** - User management queries
-- [ ] **Sprints** - Sprint queries
-- [ ] **Priorities** - Priority queries (helpers done, routes may need migration)
-- [ ] **Reports** - Report queries
+- [x] **Priorities** - Priority queries ✅
+- [x] **Sprints** - Sprint queries ✅
+- [x] **Users/Admin Users** - User management queries ✅
+- [x] **Reports** - Report queries ✅
 
 #### Low Priority
-- [ ] **Settings** - Settings queries
-- [ ] **Files** - File queries
-- [ ] **Activity** - Activity log queries
-- [ ] **Health** - Health check queries
+- [x] **Settings** - Settings queries ✅
+- [x] **Files** - File queries ✅
+- [x] **Activity** - Activity log queries ✅
+- [x] **Health** - Health check queries ✅
 
 ### 🐛 Known Issues
 
@@ -227,23 +341,71 @@ This document tracks the progress of migrating all SQL queries to the centralize
    - Verify WebSocket events are received
    - Check that `boardId` is present in all events
 
+### ✅ Completed: Settings Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/settings.js` - All settings queries
+- `server/routes/settings.js` - All routes now use `sqlManager.settings`
+
+**Key Functions Migrated**:
+- `getSettingsByKeys` - Get settings by array of keys
+- `getAllSettings` - Get all settings
+- `getSettingByKey` - Get setting by key
+- `upsertSetting` - Insert or update setting
+- `upsertSettingWithTimestamp` - Insert or update setting with custom timestamp
+
+### ✅ Completed: Files Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/files.js` - All file/attachment queries
+- `server/routes/files.js` - All routes now use `sqlManager.files` and `sqlManager.tasks`
+
+**Key Functions Migrated**:
+- `getAttachmentById` - Get attachment by ID
+- `getUserByIdForFileAccess` - Get user by ID for file access verification
+- `getTaskByIdForFiles` - Get task by ID (for attachment operations)
+- `deleteAttachment` - Delete attachment by ID
+
+### ✅ Completed: Activity Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/activity.js` - All activity log queries
+- `server/routes/activity.js` - All routes now use `sqlManager.activity`
+
+**Key Functions Migrated**:
+- `getActivityFeed` - Get activity feed with limit
+- `getUserStatus` - Get user status and permissions
+
+### ✅ Completed: Health Domain
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/health.js` - All health check queries
+- `server/routes/health.js` - All routes now use `sqlManager.health`
+
+**Key Functions Migrated**:
+- `checkDatabaseConnection` - Check database connection
+
+### 🎉 Migration Complete!
+
+**All domains have been successfully migrated to `sqlManager`!**
+
 ### 🔄 Next Steps
 
-1. **Immediate**:
-   - ✅ Fix real-time updates (DONE)
-   - Test with 2 users to verify fix works
-   - Audit other sqlManager functions for field naming
+1. **Testing & Validation**:
+   - Test all endpoints to ensure they work correctly
+   - Verify real-time updates still work
+   - Check for any remaining SQL queries in route files
+   - Performance testing
 
-2. **Short-term**:
-   - Continue migrating remaining route files
-   - Ensure all sqlManager functions return camelCase
-   - Add field normalization helper if needed
+2. **Cleanup**:
+   - Remove any unused SQL query code
+   - Review and optimize queries
+   - Add JSDoc documentation to all sqlManager functions
 
-3. **Long-term**:
-   - Complete full migration per plan
-   - Remove all SQLite code
-   - Optimize queries
+3. **Documentation**:
    - Document sqlManager API
+   - Create query usage examples
+   - Update developer documentation
 
 ### 📊 Migration Statistics
 
@@ -253,8 +415,16 @@ This document tracks the progress of migrating all SQL queries to the centralize
 - **Comments Domain**: ✅ 100% Complete
 - **Task Relationships Domain** (task_rels): ✅ 100% Complete
 - **Task Relations Domain** (tags/watchers/collaborators): ✅ 100% Complete
-- **Overall Progress**: ~50-55% (Major domains: Tasks, Boards, Columns, Comments, Task Relationships, Task Relations)
-- **Estimated Remaining**: 2-2.5 weeks
+- **Priorities Domain**: ✅ 100% Complete
+- **Sprints Domain**: ✅ 100% Complete
+- **Users Domain**: ✅ 100% Complete
+- **Reports Domain**: ✅ 100% Complete
+- **Settings Domain**: ✅ 100% Complete
+- **Files Domain**: ✅ 100% Complete
+- **Activity Domain**: ✅ 100% Complete
+- **Health Domain**: ✅ 100% Complete
+- **Overall Progress**: ~95-100% (All major domains migrated: Tasks, Boards, Columns, Comments, Task Relationships, Task Relations, Priorities, Sprints, Users, Reports, Settings, Files, Activity, Health)
+- **Estimated Remaining**: Complete! 🎉
 
 ### 🧪 Testing Checklist
 

@@ -5,6 +5,7 @@ import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageU
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isProxyDatabase, dbTransaction } from '../utils/dbAsync.js';
+import { settings as settingsQueries, users as userQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -17,7 +18,8 @@ router.get('/', async (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?, ?, ?)'), 'SELECT').all('SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES');
+    // MIGRATED: Get settings using sqlManager
+    const settings = await settingsQueries.getSettingsByKeys(db, ['SITE_NAME', 'SITE_URL', 'MAIL_ENABLED', 'GOOGLE_CLIENT_ID', 'HIGHLIGHT_OVERDUE_TASKS', 'DEFAULT_FINISHED_COLUMN_NAMES']);
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -39,7 +41,8 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res, next
   
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    // MIGRATED: Get all settings using sqlManager
+    const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     
     // Check if email is managed
@@ -99,15 +102,8 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
       safeValue = JSON.stringify(value);
     }
     
-    // Use ? placeholders - PostgresDatabase adapter will convert to $1, $2 automatically
-    // The adapter will also convert INSERT OR REPLACE to ON CONFLICT DO UPDATE
-    const result = await wrapQuery(
-      db.prepare(`
-        INSERT OR REPLACE INTO settings (key, value, updated_at) 
-        VALUES (?, ?, CURRENT_TIMESTAMP)
-      `),
-      'INSERT'
-    ).run(key, safeValue);
+    // MIGRATED: Upsert setting using sqlManager
+    const result = await settingsQueries.upsertSetting(db, key, safeValue);
     
     // If this is a Google OAuth setting, reload the OAuth configuration
     if (key === 'GOOGLE_CLIENT_ID' || key === 'GOOGLE_CLIENT_SECRET' || key === 'GOOGLE_CALLBACK_URL') {
@@ -148,11 +144,8 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     console.log('📞 Request data:', { userId, appUrl });
     
-    // Get user email
-    const user = await wrapQuery(
-      db.prepare('SELECT email FROM users WHERE id = ?'),
-      'SELECT'
-    ).get(userId);
+    // MIGRATED: Get user email using sqlManager
+    const user = await userQueries.getUserByIdForAdmin(db, userId);
     
     if (!user) {
       console.log('❌ User not found:', userId);
@@ -161,12 +154,8 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     
     console.log('📞 User email:', user.email);
     
-    // Check if user is the owner OR the default admin user (admin@kanban.local)
-    // This allows the first user to set APP_URL even if OWNER hasn't been set yet
-    const ownerSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
+    // MIGRATED: Check if user is the owner using sqlManager
+    const ownerSetting = await settingsQueries.getSettingByKey(db, 'OWNER');
     
     const isOwner = ownerSetting && ownerSetting.value === user.email;
     const isDefaultAdmin = user.email === 'admin@kanban.local';
@@ -196,23 +185,16 @@ router.put('/app-url', authenticateToken, async (req, res) => {
     // Remove trailing slash if present
     const normalizedUrl = trimmedUrl.replace(/\/$/, '');
     
-    // Get current APP_URL
-    const currentAppUrl = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get current APP_URL using sqlManager
+    const currentAppUrl = await settingsQueries.getSettingByKey(db, 'APP_URL');
     
     console.log('📞 Current APP_URL:', currentAppUrl?.value);
     console.log('📞 New APP_URL:', normalizedUrl);
     console.log('📞 Are they different?', !currentAppUrl || currentAppUrl.value !== normalizedUrl);
     
-    // Update APP_URL only if it's different
+    // MIGRATED: Update APP_URL only if it's different using sqlManager
     if (!currentAppUrl || currentAppUrl.value !== normalizedUrl) {
-      // Use ? placeholders - PostgresDatabase adapter will convert automatically
-      await wrapQuery(
-        db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'),
-        'INSERT'
-      ).run('APP_URL', normalizedUrl, new Date().toISOString());
+      await settingsQueries.upsertSettingWithTimestamp(db, 'APP_URL', normalizedUrl, new Date().toISOString());
       console.log(`✅ APP_URL updated from "${currentAppUrl?.value || 'null'}" to "${normalizedUrl}"`);
       
       res.json({ 
@@ -254,11 +236,7 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
       'SMTP_SECURE' // Clear SMTP_SECURE so admin can set their own preference
     ];
     
-    // Clear all mail-related settings in a single transaction
-    // Use ? placeholders - PostgresDatabase adapter will convert automatically
-    const insertQuery = `INSERT OR REPLACE INTO settings (key, value, updated_at) 
-                         VALUES (?, ?, CURRENT_TIMESTAMP)`;
-    
+    // MIGRATED: Clear all mail-related settings using sqlManager
     if (isProxyDatabase(db)) {
       // Proxy mode: Collect all queries and send as batch
       const batchQueries = [];
@@ -266,18 +244,18 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
       // Clear SMTP fields (set to empty strings)
       for (const key of mailSettingsToClear) {
         batchQueries.push({
-          query: insertQuery,
+          query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
           params: [key, '']
         });
       }
       
       // Set MAIL_MANAGED to false and MAIL_ENABLED to false
       batchQueries.push({
-        query: insertQuery,
+        query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
         params: ['MAIL_MANAGED', 'false']
       });
       batchQueries.push({
-        query: insertQuery,
+        query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
         params: ['MAIL_ENABLED', 'false']
       });
       
@@ -286,16 +264,14 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
-        const stmt = db.prepare(insertQuery);
-        
         // Clear SMTP fields (set to empty strings)
         for (const key of mailSettingsToClear) {
-          await wrapQuery(stmt, 'INSERT').run(key, '');
+          await settingsQueries.upsertSetting(db, key, '');
         }
         
         // Set MAIL_MANAGED to false and MAIL_ENABLED to false
-        await wrapQuery(stmt, 'INSERT').run('MAIL_MANAGED', 'false');
-        await wrapQuery(stmt, 'INSERT').run('MAIL_ENABLED', 'false');
+        await settingsQueries.upsertSetting(db, 'MAIL_MANAGED', 'false');
+        await settingsQueries.upsertSetting(db, 'MAIL_ENABLED', 'false');
       });
     }
     

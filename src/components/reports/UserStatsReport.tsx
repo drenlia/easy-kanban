@@ -180,7 +180,7 @@ const UserStatsReport: React.FC<UserStatsReportProps> = ({ gamificationEnabled, 
                   {achievement.badge_name}
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  {new Date(achievement.earned_at).toISOString().split('T')[0]}
+                  {achievement.earned_at ? new Date(achievement.earned_at).toISOString().split('T')[0] : '-'}
                 </div>
               </div>
             ))}

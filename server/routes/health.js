@@ -4,6 +4,7 @@ import redisService from '../services/redisService.js';
 import postgresNotificationService from '../services/postgresNotificationService.js';
 import websocketService from '../services/websocketService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { health as healthQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -39,7 +40,8 @@ export const readyHandler = async (req, res) => {
     
     if (db) {
       try {
-        const dbCheck = await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+        // MIGRATED: Check database connection using sqlManager
+        const dbCheck = await healthQueries.checkDatabaseConnection(db);
         if (!dbCheck) {
           console.warn('⚠️ Readiness check: database query returned no result');
           // Still consider ready if services are initialized - database might be in transition
@@ -95,7 +97,8 @@ router.get("/ready", readyHandler);
 router.get('/', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('SELECT 1'), 'SELECT').get();
+    // MIGRATED: Check database connection using sqlManager
+    await healthQueries.checkDatabaseConnection(db);
     const usePostgres = process.env.DB_TYPE === 'postgresql';
     // Check email service status
     const emailServiceImplemented = false; // Email notification service not yet implemented
