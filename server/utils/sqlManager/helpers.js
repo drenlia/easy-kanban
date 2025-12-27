@@ -424,5 +424,99 @@ export async function removeCollaborator(db, taskId, memberId) {
   return await stmt.run(taskId, memberId);
 }
 
+/**
+ * Get tags for task
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} taskId - Task ID
+ * @returns {Promise<Array>} Array of tag objects with id, tag, description, color
+ */
+export async function getTagsForTask(db, taskId) {
+  const query = `
+    SELECT t.* 
+    FROM tags t
+    JOIN task_tags tt ON t.id = tt.tagid
+    WHERE tt.taskid = $1
+    ORDER BY t.tag ASC
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(taskId);
+}
+
+/**
+ * Check if tag is already associated with task
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} taskId - Task ID
+ * @param {number} tagId - Tag ID
+ * @returns {Promise<Object|null>} Association record or null
+ */
+export async function checkTagAssociation(db, taskId, tagId) {
+  const query = `
+    SELECT id FROM task_tags 
+    WHERE taskid = $1 AND tagid = $2
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.get(taskId, tagId);
+}
+
+/**
+ * Add tag to task
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} taskId - Task ID
+ * @param {number} tagId - Tag ID
+ * @returns {Promise<Object>} Result object
+ */
+export async function addTagToTask(db, taskId, tagId) {
+  const query = `
+    INSERT INTO task_tags (taskid, tagid, created_at)
+    VALUES ($1, $2, $3)
+    ON CONFLICT (taskid, tagid) DO NOTHING
+    RETURNING *
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'INSERT');
+  return await stmt.run(taskId, tagId, new Date().toISOString());
+}
+
+/**
+ * Remove tag from task
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} taskId - Task ID
+ * @param {number} tagId - Tag ID
+ * @returns {Promise<Object>} Result object with changes count
+ */
+export async function removeTagFromTask(db, taskId, tagId) {
+  const query = `
+    DELETE FROM task_tags 
+    WHERE taskid = $1 AND tagid = $2
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'DELETE');
+  return await stmt.run(taskId, tagId);
+}
+
+/**
+ * Get tag by ID
+ * 
+ * @param {Database} db - Database connection
+ * @param {number} tagId - Tag ID
+ * @returns {Promise<Object|null>} Tag object or null
+ */
+export async function getTagById(db, tagId) {
+  const query = `
+    SELECT id, tag, description, color 
+    FROM tags 
+    WHERE id = $1
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.get(tagId);
+}
+
 
 

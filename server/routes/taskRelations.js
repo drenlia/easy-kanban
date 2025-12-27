@@ -12,6 +12,7 @@ import * as reportingLogger from '../services/reportingLogger.js';
 import notificationService from '../services/notificationService.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+import { helpers, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -23,12 +24,8 @@ router.get('/:taskId/tags', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const taskTags = await wrapQuery(db.prepare(`
-      SELECT t.* FROM tags t
-      JOIN task_tags tt ON t.id = tt.tagId
-      WHERE tt.taskId = ?
-      ORDER BY t.tag ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get tags for task
+    const taskTags = await helpers.getTagsForTask(db, taskId);
     
     res.json(taskTags);
   } catch (error) {
@@ -43,39 +40,44 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM task_tags WHERE taskId = ? AND tagId = ?'), 'SELECT').get(taskId, tagId);
+    // MIGRATED: Check if association already exists using sqlManager
+    const existing = await helpers.checkTagAssociation(db, taskId, parseInt(tagId));
     
     if (existing) {
       return res.status(409).json({ error: 'Tag already associated with this task' });
     }
     
-    // Get tag and task details for logging and WebSocket event
-    // Fetch full tag data (id, tag, description, color) for WebSocket event
-    const tag = await wrapQuery(db.prepare('SELECT id, tag, description, color FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    // PostgreSQL returns snake_case, so use columnid and boardid, then normalize to camelCase
-    const task = await wrapQuery(db.prepare('SELECT title, columnid, boardid FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get tag and task details for logging and WebSocket event
+    const tag = await helpers.getTagById(db, parseInt(tagId));
+    // MIGRATED: Get task info using sqlManager (returns camelCase)
+    const task = await taskQueries.getTaskById(db, taskId);
     
-    // Normalize snake_case to camelCase for consistency
-    if (task) {
-      task.columnId = task.columnid || task.columnId;
-      task.boardId = task.boardid || task.boardId;
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)'), 'INSERT').run(taskId, tagId);
+    // Normalize snake_case to camelCase for consistency
+    const normalizedTask = {
+      ...task,
+      columnId: task.columnid || task.columnId,
+      boardId: task.boardid || task.boardId
+    };
+    
+    // MIGRATED: Add tag to task using sqlManager
+    await helpers.addTagToTask(db, taskId, parseInt(tagId));
     
     // Log tag association activity
-    if (tag && task) {
+    if (tag && normalizedTask) {
       // Fire-and-forget: Don't await activity logging to avoid blocking API response
       logActivity(
         userId,
         TAG_ACTIONS.ASSOCIATE,
-        `associated tag "${tag.tag}" with task "${task.title}"`,
+        `associated tag "${tag.tag}" with task "${normalizedTask.title}"`,
         {
           taskId: taskId,
           tagId: parseInt(tagId),
-          columnId: task.columnId,
-          boardId: task.boardId,
+          columnId: normalizedTask.columnId,
+          boardId: normalizedTask.boardId,
           tenantId: getTenantId(req),
           db: db
         }
@@ -86,29 +88,31 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
       // Log to reporting system
       try {
         const userInfo = await reportingLogger.getUserInfo(db, userId);
-        const taskInfo = await wrapQuery(db.prepare(`
-          SELECT t.*, b.title as board_title, c.title as column_title
-          FROM tasks t
-          LEFT JOIN boards b ON t.boardId = b.id
-          LEFT JOIN columns c ON t.columnId = c.id
-          WHERE t.id = ?
-        `), 'SELECT').get(taskId);
+        // MIGRATED: Get task info with board/column titles for reporting
+        const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
         
         if (userInfo && taskInfo) {
+          // Normalize snake_case to camelCase
+          const normalizedTaskInfo = {
+            ...taskInfo,
+            boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+            columnId: taskInfo.columnid || taskInfo.columnId
+          };
+          
           await reportingLogger.logActivity(db, {
             eventType: 'tag_added',
             userId: userInfo.id,
             userName: userInfo.name,
             userEmail: userInfo.email,
-            taskId: taskInfo.id,
-            taskTitle: taskInfo.title,
-            taskTicket: taskInfo.ticket,
-            boardId: taskInfo.boardId,
-            boardName: taskInfo.board_title,
-            columnId: taskInfo.columnId,
-            columnName: taskInfo.column_title,
-            effortPoints: taskInfo.effort,
-            priorityName: taskInfo.priority,
+            taskId: normalizedTaskInfo.id,
+            taskTitle: normalizedTaskInfo.title,
+            taskTicket: normalizedTaskInfo.ticket,
+            boardId: normalizedTaskInfo.boardId,
+            boardName: normalizedTaskInfo.board_title,
+            columnId: normalizedTaskInfo.columnId,
+            columnName: normalizedTaskInfo.column_title,
+            effortPoints: normalizedTaskInfo.effort,
+            priorityName: normalizedTaskInfo.priority,
             metadata: { tagName: tag.tag }
           });
         }
@@ -118,20 +122,20 @@ router.post('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     }
     
     // Publish to notification service for real-time updates
-    if (task?.boardId) {
+    if (normalizedTask?.boardId) {
       const tenantId = getTenantId(req);
       const publishData = {
-        boardId: task.boardId,
+        boardId: normalizedTask.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
         tag: tag,
         timestamp: new Date().toISOString()
       };
-      console.log('📤 Publishing task-tag-added for board:', task.boardId, 'tenant:', tenantId, 'data:', publishData);
+      console.log('📤 Publishing task-tag-added for board:', normalizedTask.boardId, 'tenant:', tenantId, 'data:', publishData);
       await notificationService.publish('task-tag-added', publishData, tenantId);
       console.log('✅ Task-tag-added published successfully');
     } else {
-      console.warn('⚠️ Cannot publish task-tag-added: task.boardId is missing', { task, taskId });
+      console.warn('⚠️ Cannot publish task-tag-added: task.boardId is missing', { task: normalizedTask, taskId });
     }
     
     res.json({ message: 'Tag added to task successfully' });
@@ -147,36 +151,41 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    // Get tag and task details for logging before deletion
-    // Fetch full tag data (id, tag, description, color) for WebSocket event
-    const tag = await wrapQuery(db.prepare('SELECT id, tag, description, color FROM tags WHERE id = ?'), 'SELECT').get(tagId);
-    // PostgreSQL returns snake_case, so use columnid and boardid, then normalize to camelCase
-    const task = await wrapQuery(db.prepare('SELECT title, columnid, boardid FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get tag and task details for logging before deletion
+    const tag = await helpers.getTagById(db, parseInt(tagId));
+    // MIGRATED: Get task info using sqlManager (returns camelCase)
+    const task = await taskQueries.getTaskById(db, taskId);
     
-    // Normalize snake_case to camelCase for consistency
-    if (task) {
-      task.columnId = task.columnid || task.columnId;
-      task.boardId = task.boardid || task.boardId;
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
     }
     
-    const result = await wrapQuery(db.prepare('DELETE FROM task_tags WHERE taskId = ? AND tagId = ?'), 'DELETE').run(taskId, tagId);
+    // Normalize snake_case to camelCase for consistency
+    const normalizedTask = {
+      ...task,
+      columnId: task.columnid || task.columnId,
+      boardId: task.boardid || task.boardId
+    };
+    
+    // MIGRATED: Remove tag from task using sqlManager
+    const result = await helpers.removeTagFromTask(db, taskId, parseInt(tagId));
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Tag association not found' });
     }
     
     // Log tag disassociation activity
-    if (tag && task) {
+    if (tag && normalizedTask) {
       // Fire-and-forget: Don't await activity logging to avoid blocking API response
       logActivity(
         userId,
         TAG_ACTIONS.DISASSOCIATE,
-        `removed tag "${tag.tag}" from task "${task.title}"`,
+        `removed tag "${tag.tag}" from task "${normalizedTask.title}"`,
         {
           taskId: taskId,
           tagId: parseInt(tagId),
-          columnId: task.columnId,
-          boardId: task.boardId,
+          columnId: normalizedTask.columnId,
+          boardId: normalizedTask.boardId,
           tenantId: getTenantId(req),
           db: db
         }
@@ -186,11 +195,11 @@ router.delete('/:taskId/tags/:tagId', authenticateToken, async (req, res) => {
     }
     
     // Publish to Redis for real-time updates
-    if (task?.boardId) {
+    if (normalizedTask?.boardId) {
       const tenantId = getTenantId(req);
-      console.log('📤 Publishing task-tag-removed to Redis for board:', task.boardId);
+      console.log('📤 Publishing task-tag-removed to Redis for board:', normalizedTask.boardId);
       await notificationService.publish('task-tag-removed', {
-        boardId: task.boardId,
+        boardId: normalizedTask.boardId,
         taskId: taskId,
         tagId: parseInt(tagId),
         tag: tag,
@@ -212,12 +221,8 @@ router.get('/:taskId/watchers', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const watchers = await wrapQuery(db.prepare(`
-      SELECT m.* FROM members m
-      JOIN watchers w ON m.id = w.memberId
-      WHERE w.taskId = ?
-      ORDER BY m.name ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get watchers for task
+    const watchers = await helpers.getWatchersForTask(db, taskId);
     
     res.json(watchers);
   } catch (error) {
@@ -232,41 +237,46 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM watchers WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    // MIGRATED: Check if association already exists using sqlManager
+    // Note: addWatcher uses ON CONFLICT DO NOTHING, so we check first
+    const existingWatchers = await helpers.getWatchersForTask(db, taskId);
+    const existing = existingWatchers.find(w => w.id === memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already watching this task' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO watchers (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    // MIGRATED: Add watcher using sqlManager
+    await helpers.addWatcher(db, taskId, memberId);
     
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
-      const taskInfo = await wrapQuery(db.prepare(`
-        SELECT t.*, b.title as board_title, c.title as column_title
-        FROM tasks t
-        LEFT JOIN boards b ON t.boardId = b.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        WHERE t.id = ?
-      `), 'SELECT').get(taskId);
+      // MIGRATED: Get task info with board/column titles for reporting
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
       
       if (userInfo && taskInfo) {
+        // Normalize snake_case to camelCase
+        const normalizedTaskInfo = {
+          ...taskInfo,
+          boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+          columnId: taskInfo.columnid || taskInfo.columnId
+        };
+        
         await reportingLogger.logActivity(db, {
           eventType: 'watcher_added',
           userId: userInfo.id,
           userName: userInfo.name,
           userEmail: userInfo.email,
-          taskId: taskInfo.id,
-          taskTitle: taskInfo.title,
-          taskTicket: taskInfo.ticket,
-          boardId: taskInfo.boardId,
-          boardName: taskInfo.board_title,
-          columnId: taskInfo.columnId,
-          columnName: taskInfo.column_title,
-          effortPoints: taskInfo.effort,
-          priorityName: taskInfo.priority
+          taskId: normalizedTaskInfo.id,
+          taskTitle: normalizedTaskInfo.title,
+          taskTicket: normalizedTaskInfo.ticket,
+          boardId: normalizedTaskInfo.boardId,
+          boardName: normalizedTaskInfo.board_title,
+          columnId: normalizedTaskInfo.columnId,
+          columnName: normalizedTaskInfo.column_title,
+          effortPoints: normalizedTaskInfo.effort,
+          priorityName: normalizedTaskInfo.priority
         });
       }
     } catch (reportError) {
@@ -285,7 +295,8 @@ router.delete('/:taskId/watchers/:memberId', authenticateToken, async (req, res)
   const db = getRequestDatabase(req);
   
   try {
-    const result = await wrapQuery(db.prepare('DELETE FROM watchers WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    // MIGRATED: Remove watcher using sqlManager
+    const result = await helpers.removeWatcher(db, taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Watcher association not found' });
@@ -304,12 +315,8 @@ router.get('/:taskId/collaborators', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const collaborators = await wrapQuery(db.prepare(`
-      SELECT m.* FROM members m
-      JOIN collaborators c ON m.id = c.memberId
-      WHERE c.taskId = ?
-      ORDER BY m.name ASC
-    `), 'SELECT').all(taskId);
+    // MIGRATED: Use sqlManager to get collaborators for task
+    const collaborators = await helpers.getCollaboratorsForTask(db, taskId);
     
     res.json(collaborators);
   } catch (error) {
@@ -324,41 +331,46 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
   const db = getRequestDatabase(req);
   
   try {
-    // Check if association already exists
-    const existing = await wrapQuery(db.prepare('SELECT id FROM collaborators WHERE taskId = ? AND memberId = ?'), 'SELECT').get(taskId, memberId);
+    // MIGRATED: Check if association already exists using sqlManager
+    // Note: addCollaborator uses ON CONFLICT DO NOTHING, so we check first
+    const existingCollaborators = await helpers.getCollaboratorsForTask(db, taskId);
+    const existing = existingCollaborators.find(c => c.id === memberId);
     
     if (existing) {
       return res.status(409).json({ error: 'Member is already collaborating on this task' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO collaborators (taskId, memberId) VALUES (?, ?)'), 'INSERT').run(taskId, memberId);
+    // MIGRATED: Add collaborator using sqlManager
+    await helpers.addCollaborator(db, taskId, memberId);
     
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
-      const taskInfo = await wrapQuery(db.prepare(`
-        SELECT t.*, b.title as board_title, c.title as column_title
-        FROM tasks t
-        LEFT JOIN boards b ON t.boardId = b.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        WHERE t.id = ?
-      `), 'SELECT').get(taskId);
+      // MIGRATED: Get task info with board/column titles for reporting
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, taskId);
       
       if (userInfo && taskInfo) {
+        // Normalize snake_case to camelCase
+        const normalizedTaskInfo = {
+          ...taskInfo,
+          boardId: taskInfo.board_id || taskInfo.boardid || taskInfo.boardId,
+          columnId: taskInfo.columnid || taskInfo.columnId
+        };
+        
         await reportingLogger.logActivity(db, {
           eventType: 'collaborator_added',
           userId: userInfo.id,
           userName: userInfo.name,
           userEmail: userInfo.email,
-          taskId: taskInfo.id,
-          taskTitle: taskInfo.title,
-          taskTicket: taskInfo.ticket,
-          boardId: taskInfo.boardId,
-          boardName: taskInfo.board_title,
-          columnId: taskInfo.columnId,
-          columnName: taskInfo.column_title,
-          effortPoints: taskInfo.effort,
-          priorityName: taskInfo.priority
+          taskId: normalizedTaskInfo.id,
+          taskTitle: normalizedTaskInfo.title,
+          taskTicket: normalizedTaskInfo.ticket,
+          boardId: normalizedTaskInfo.boardId,
+          boardName: normalizedTaskInfo.board_title,
+          columnId: normalizedTaskInfo.columnId,
+          columnName: normalizedTaskInfo.column_title,
+          effortPoints: normalizedTaskInfo.effort,
+          priorityName: normalizedTaskInfo.priority
         });
       }
     } catch (reportError) {
@@ -377,7 +389,8 @@ router.delete('/:taskId/collaborators/:memberId', authenticateToken, async (req,
   const db = getRequestDatabase(req);
   
   try {
-    const result = await wrapQuery(db.prepare('DELETE FROM collaborators WHERE taskId = ? AND memberId = ?'), 'DELETE').run(taskId, memberId);
+    // MIGRATED: Remove collaborator using sqlManager
+    const result = await helpers.removeCollaborator(db, taskId, memberId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Collaborator association not found' });

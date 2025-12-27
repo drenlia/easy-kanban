@@ -130,13 +130,54 @@ This document tracks the progress of migrating all SQL queries to the centralize
 - Use SQL aliases (`columnid as "columnId"`) in SELECT statements
 - Document this as a standard in the migration plan
 
+### ✅ Completed: Task Relationships Domain (task_rels table)
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/tasks.js` - All task relationship queries (task_rels table)
+- `server/utils/sqlManager/boards.js` - `getBoardTaskRelationships` function
+- `server/routes/tasks.js` - All relationship routes use `sqlManager.tasks`
+
+**Key Functions Migrated**:
+- `getTaskRelationships` - Get all relationships for a task
+- `getTaskRelationship` - Check if specific relationship exists
+- `getOppositeRelationship` - Check for opposite relationship (for cycle detection)
+- `createTaskRelationship` - Create new relationship (parent/child/related)
+- `deleteTaskRelationship` - Delete relationship
+- `getAvailableTasksForRelationship` - Get tasks available for creating relationships
+- `getRelationshipsForFlowChart` - Get relationships for flowchart visualization
+- `getBoardTaskRelationships` - Get all relationships for a board (in boards.js)
+
+**Note**: This covers the `task_rels` table for parent/child/related relationships. Task-Tag, Watcher, and Collaborator associations are handled separately (see below).
+
+### ✅ Completed: Task Relations Domain (tags/watchers/collaborators)
+**Status**: Fully migrated to `sqlManager`
+**Files**:
+- `server/utils/sqlManager/helpers.js` - All tag/watcher/collaborator association queries
+- `server/routes/taskRelations.js` - All routes now use `sqlManager.helpers` and `sqlManager.tasks`
+
+**Key Functions Migrated**:
+- `getTagsForTask` - Get all tags for a task
+- `getTagById` - Get tag by ID
+- `checkTagAssociation` - Check if tag is already associated with task
+- `addTagToTask` - Add tag to task
+- `removeTagFromTask` - Remove tag from task
+- `getWatchersForTask` - Get all watchers for a task
+- `addWatcher` - Add watcher to task
+- `removeWatcher` - Remove watcher from task
+- `getCollaboratorsForTask` - Get all collaborators for a task
+- `addCollaborator` - Add collaborator to task
+- `removeCollaborator` - Remove collaborator from task
+
+**Note**: All routes in `taskRelations.js` now use sqlManager functions. Task info queries use `taskQueries.getTaskById` and `taskQueries.getTaskWithBoardColumnInfo` for consistency.
+
 ### 📋 Remaining Migration Work
 
 #### High Priority (Real-time Updates Depend on These)
 - [x] **Boards domain** - Board queries and WebSocket events ✅
 - [x] **Columns domain** - Column queries ✅
 - [x] **Comments domain** - Comment queries ✅
-- [ ] **Task Relations domain** - Tag/attachment relationships (partially done)
+- [x] **Task Relationships domain** - Parent/child/related relationships (task_rels table) ✅
+- [x] **Task Relations domain** - Tag/watcher/collaborator associations (taskRelations.js) ✅
 
 #### Medium Priority
 - [ ] **Users/Admin Users** - User management queries
@@ -210,7 +251,9 @@ This document tracks the progress of migrating all SQL queries to the centralize
 - **Boards Domain**: ✅ 100% Complete
 - **Columns Domain**: ✅ 100% Complete
 - **Comments Domain**: ✅ 100% Complete
-- **Overall Progress**: ~40-45% (Tasks, Boards, Columns, and Comments are major domains)
+- **Task Relationships Domain** (task_rels): ✅ 100% Complete
+- **Task Relations Domain** (tags/watchers/collaborators): ✅ 100% Complete
+- **Overall Progress**: ~50-55% (Major domains: Tasks, Boards, Columns, Comments, Task Relationships, Task Relations)
 - **Estimated Remaining**: 2-2.5 weeks
 
 ### 🧪 Testing Checklist

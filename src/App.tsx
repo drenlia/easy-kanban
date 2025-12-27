@@ -1834,9 +1834,7 @@ function AppContent() {
       }
       
       // Load relationships once for the selected board (for kanban page, which includes gantt view)
-      console.log('🔗 [App] Checking if should load relationships:', { currentPage, selectedBoard });
       if (currentPage === 'kanban') {
-        console.log('🔗 [App] Loading relationships for board:', selectedBoard, 'on page:', currentPage);
         getBoardTaskRelationships(selectedBoard)
           .then(relationships => {
             taskLinking.setBoardRelationships(relationships);
@@ -1845,12 +1843,9 @@ function AppContent() {
             console.error('⚠️ [App] Failed to load relationships:', error);
             taskLinking.setBoardRelationships([]);
           });
-      } else {
-        console.log('🔗 [App] Skipping relationship load - not on kanban page:', currentPage);
       }
     } else {
       // Clear columns when no board is selected
-      console.log('🔗 [App] No selected board, clearing relationships');
       setColumns({});
       taskLinking.setBoardRelationships([]);
       setIsSwitchingBoard(false);
