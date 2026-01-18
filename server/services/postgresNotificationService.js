@@ -191,6 +191,7 @@ class PostgresNotificationService {
         }
 
         await client.query('SELECT pg_notify($1, $2)', [escapedChannel, payload]);
+        console.log(`📤 Published to PostgreSQL channel: ${escapedChannel} (original: ${channel}, tenant: ${tenantId || 'none'})`);
       } finally {
         client.release();
       }

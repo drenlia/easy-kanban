@@ -103,7 +103,7 @@ class PostgresDatabase {
       // Connection pool settings
       max: options.max || 20, // Maximum number of clients in the pool
       idleTimeoutMillis: options.idleTimeoutMillis || 30000,
-      connectionTimeoutMillis: options.connectionTimeoutMillis || 2000,
+      connectionTimeoutMillis: options.connectionTimeoutMillis || 10000, // Increased to 10 seconds
     };
 
     // Use Pool for better connection management

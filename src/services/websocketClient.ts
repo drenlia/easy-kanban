@@ -51,7 +51,8 @@ class WebSocketClient {
   private async validateTokenAndConnect(token: string) {
     try {
       // Make a simple API call to validate the token
-      const response = await fetch('/api/user/status', {
+      // Use /api/auth/me which exists and requires authentication
+      const response = await fetch('/api/auth/me', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -59,11 +60,18 @@ class WebSocketClient {
       });
 
       if (!response.ok) {
+        console.warn(`⚠️ [WebSocket] Token validation failed (status: ${response.status}), attempting connection anyway`);
+        // Still try to connect - the WebSocket server will validate the token
+        this.establishConnection(token);
         return;
       }
 
+      console.log('✅ [WebSocket] Token validated, establishing connection');
       this.establishConnection(token);
     } catch (error) {
+      console.warn(`⚠️ [WebSocket] Token validation error, attempting connection anyway:`, error);
+      // Still try to connect - the WebSocket server will validate the token
+      this.establishConnection(token);
     }
   }
 

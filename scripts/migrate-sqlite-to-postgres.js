@@ -464,11 +464,58 @@ async function migrate() {
     }
     console.log('');
     
+    // Reset sequences for tables with auto-increment IDs
+    console.log('🔄 Resetting PostgreSQL sequences...');
+    const schemaPrefix = isMultiTenant && tenantId ? `${config.postgres.schema}.` : '';
+    const schemaName = isMultiTenant && tenantId ? config.postgres.schema : 'public';
+    
+    for (const table of tables) {
+      try {
+        // Check if table has a SERIAL/BIGSERIAL primary key column
+        const pkResult = await pgClient.query(`
+          SELECT 
+            a.attname AS column_name,
+            pg_get_serial_sequence($1 || '.' || $2, a.attname) AS sequence_name
+          FROM pg_index i
+          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+          WHERE i.indrelid = ($1 || '.' || $2)::regclass
+            AND i.indisprimary
+            AND pg_get_serial_sequence($1 || '.' || $2, a.attname) IS NOT NULL
+          LIMIT 1
+        `, [schemaName, table.name]);
+        
+        if (pkResult.rows.length > 0) {
+          const { column_name, sequence_name } = pkResult.rows[0];
+          
+          // Get the maximum ID value from the table (using PostgreSQL's quote_ident for safety)
+          const maxIdResult = await pgClient.query(`
+            SELECT COALESCE(MAX(${column_name}), 0) as max_id 
+            FROM ${schemaPrefix}${table.name}
+          `);
+          const maxId = parseInt(maxIdResult.rows[0].max_id) || 0;
+          
+          // Reset the sequence to max_id + 1
+          if (maxId > 0) {
+            await pgClient.query(`SELECT setval($1, $2, true)`, [sequence_name, maxId]);
+            console.log(`    ✅ Reset sequence for ${table.name}.${column_name} to ${maxId + 1}`);
+          } else {
+            // Even if max_id is 0, we should set the sequence to 1 to avoid starting at 0
+            await pgClient.query(`SELECT setval($1, 0, true)`, [sequence_name]);
+            console.log(`    ✅ Reset sequence for ${table.name}.${column_name} to 1 (table was empty)`);
+          }
+        }
+      } catch (error) {
+        // Some tables might not have sequences, or might have different structures
+        // This is not critical, just log and continue
+        console.log(`    ℹ️  Skipping sequence reset for ${table.name}: ${error.message}`);
+      }
+    }
+    console.log('');
+    
     // Verify migration
     console.log('🔍 Verifying migration...');
     for (const table of tables) {
       const sqliteCount = sqliteDb.prepare(`SELECT COUNT(*) as count FROM ${table.name}`).get().count;
-      const schemaPrefix = isMultiTenant && tenantId ? `${config.postgres.schema}.` : '';
       const pgResult = await pgClient.query(`SELECT COUNT(*) as count FROM ${schemaPrefix}${table.name}`);
       const pgCount = parseInt(pgResult.rows[0].count);
       

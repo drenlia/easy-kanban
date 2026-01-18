@@ -282,13 +282,17 @@ class WebSocketService {
     // Task updates - broadcast to tenant-specific clients
     postgresNotificationService.subscribeToAllTenants('task-updated', (data, tenantId) => {
       const timestamp = new Date().toISOString();
+      const connectedCount = this.io?.sockets?.sockets?.size || 0;
+      console.log(`📡 [${timestamp}] WebSocket received task-updated (tenant: ${tenantId || 'single'}, connected clients: ${connectedCount})`);
       
       if (tenantId) {
         // Multi-tenant: broadcast only to clients of this tenant
         this.io?.to(`tenant-${tenantId}`).emit('task-updated', data);
+        console.log(`   ✅ Broadcasted to tenant-${tenantId} room`);
       } else {
         // Single-tenant: broadcast to all clients
         this.io?.emit('task-updated', data);
+        console.log(`   ✅ Broadcasted to all ${connectedCount} connected clients`);
       }
     });
 
