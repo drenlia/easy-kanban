@@ -1,12 +1,13 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager
+import { tags as tagQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -20,7 +21,8 @@ router.get('/', authenticateToken, async (req, res, next) => {
   
   try {
     const db = getRequestDatabase(req);
-    const tags = await wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    // MIGRATED: Get all tags using sqlManager
+    const tags = await tagQueries.getAllTags(db);
     res.json(tags);
   } catch (error) {
     console.error('Error fetching tags:', error);
@@ -44,12 +46,22 @@ router.post('/', authenticateToken, async (req, res, next) => {
   }
 
   try {
-    const result = await wrapQuery(db.prepare(`
-      INSERT INTO tags (tag, description, color) 
-      VALUES (?, ?, ?)
-    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    // MIGRATED: Create tag using sqlManager
+    const result = await tagQueries.createTag(db, tag, description, color);
     
-    const newTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    // Get the created tag - PostgreSQL returns it in result, SQLite needs separate query
+    let newTag;
+    if (result.lastInsertRowid) {
+      // SQLite: use lastInsertRowid
+      newTag = await tagQueries.getTagById(db, result.lastInsertRowid);
+    } else if (result.id) {
+      // PostgreSQL: tag is in result
+      newTag = result;
+    } else {
+      // Fallback: query by tag name
+      const allTags = await tagQueries.getAllTags(db);
+      newTag = allTags.find(t => t.tag === tag);
+    }
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis (user-created)');
@@ -61,7 +73,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
     
     res.json(newTag);
   } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint') || error.code === '23505') {
       return res.status(400).json({ error: 'Tag already exists' });
     }
     console.error('Error creating tag:', error);
@@ -73,7 +85,8 @@ router.post('/', authenticateToken, async (req, res, next) => {
 router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const tags = await wrapQuery(db.prepare('SELECT * FROM tags ORDER BY tag ASC'), 'SELECT').all();
+    // MIGRATED: Get all tags using sqlManager
+    const tags = await tagQueries.getAllTags(db);
     res.json(tags);
   } catch (error) {
     console.error('Error fetching admin tags:', error);
@@ -90,12 +103,22 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   }
 
   try {
-    const result = await wrapQuery(db.prepare(`
-      INSERT INTO tags (tag, description, color) 
-      VALUES (?, ?, ?)
-    `), 'INSERT').run(tag, description || '', color || '#4F46E5');
+    // MIGRATED: Create tag using sqlManager
+    const result = await tagQueries.createTag(db, tag, description, color);
     
-    const newTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    // Get the created tag - PostgreSQL returns it in result, SQLite needs separate query
+    let newTag;
+    if (result.lastInsertRowid) {
+      // SQLite: use lastInsertRowid
+      newTag = await tagQueries.getTagById(db, result.lastInsertRowid);
+    } else if (result.id) {
+      // PostgreSQL: tag is in result
+      newTag = result;
+    } else {
+      // Fallback: query by tag name
+      const allTags = await tagQueries.getAllTags(db);
+      newTag = allTags.find(t => t.tag === tag);
+    }
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-created to Redis');
@@ -107,7 +130,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     
     res.json(newTag);
   } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint') || error.code === '23505') {
       return res.status(400).json({ error: 'Tag already exists' });
     }
     console.error('Error creating tag:', error);
@@ -125,11 +148,11 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
   }
 
   try {
-    await wrapQuery(db.prepare(`
-      UPDATE tags SET tag = ?, description = ?, color = ? WHERE id = ?
-    `), 'UPDATE').run(tag, description || '', color || '#4F46E5', tagId);
+    // MIGRATED: Update tag using sqlManager
+    await tagQueries.updateTag(db, tagId, tag, description, color);
     
-    const updatedTag = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    // MIGRATED: Get updated tag using sqlManager
+    const updatedTag = await tagQueries.getTagById(db, tagId);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing tag-updated to Redis');
@@ -141,7 +164,7 @@ router.put('/:tagId', authenticateToken, requireRole(['admin']), async (req, res
     
     res.json(updatedTag);
   } catch (error) {
-    if (error.message.includes('UNIQUE constraint failed')) {
+    if (error.message?.includes('UNIQUE constraint') || error.code === '23505') {
       return res.status(400).json({ error: 'Tag already exists' });
     }
     console.error('Error updating tag:', error);
@@ -155,7 +178,8 @@ router.get('/:tagId/usage', authenticateToken, requireRole(['admin']), async (re
   const db = getRequestDatabase(req);
   
   try {
-    const usageCount = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM task_tags WHERE tagId = ?'), 'SELECT').get(tagId);
+    // MIGRATED: Get tag usage count using sqlManager
+    const usageCount = await tagQueries.getTagUsageCount(db, tagId);
     res.json({ count: usageCount.count });
   } catch (error) {
     console.error('Error fetching tag usage:', error);
@@ -184,14 +208,8 @@ router.get('/usage/batch', authenticateToken, requireRole(['admin']), async (req
       return res.json({});
     }
     
-    // Batch fetch all usage counts in one query
-    const placeholders = tagIds.map(() => '?').join(',');
-    const usageCounts = await wrapQuery(db.prepare(`
-      SELECT tagId, COUNT(*) as count 
-      FROM task_tags 
-      WHERE tagId IN (${placeholders})
-      GROUP BY tagId
-    `), 'SELECT').all(...tagIds);
+    // MIGRATED: Batch fetch all usage counts using sqlManager
+    const usageCounts = await tagQueries.getBatchTagUsageCounts(db, tagIds);
     
     // Create map of usage counts by tagId
     const usageMap = {};
@@ -218,16 +236,16 @@ router.delete('/:tagId', authenticateToken, requireRole(['admin']), async (req, 
   const db = getRequestDatabase(req);
   
   try {
-    // Get tag info before deletion for Redis publishing
-    const tagToDelete = await wrapQuery(db.prepare('SELECT * FROM tags WHERE id = ?'), 'SELECT').get(tagId);
+    // MIGRATED: Get tag info before deletion using sqlManager
+    const tagToDelete = await tagQueries.getTagById(db, tagId);
     
     // Use transaction to ensure both operations succeed or fail together
     await dbTransaction(db, async () => {
-      // First remove all task associations
-      await wrapQuery(db.prepare('DELETE FROM task_tags WHERE tagId = ?'), 'DELETE').run(tagId);
+      // MIGRATED: First remove all task associations using sqlManager
+      await tagQueries.deleteTagAssociations(db, tagId);
       
-      // Then delete the tag
-      await wrapQuery(db.prepare('DELETE FROM tags WHERE id = ?'), 'DELETE').run(tagId);
+      // MIGRATED: Then delete the tag using sqlManager
+      await tagQueries.deleteTag(db, tagId);
     });
     
     // Publish to Redis for real-time updates

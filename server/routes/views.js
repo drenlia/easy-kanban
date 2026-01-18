@@ -1,8 +1,9 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager
+import { views as viewQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -36,7 +37,33 @@ const formatViewForResponse = (view) => {
   
   const formatted = { ...view };
   
-  // Convert boolean fields from SQLite (0/1) to JavaScript booleans
+  // Normalize field names (handle both camelCase and lowercase from database)
+  // PostgreSQL returns camelCase when quoted, SQLite might return lowercase
+  const fieldMappings = {
+    filtername: 'filterName',
+    userid: 'userId',
+    textfilter: 'textFilter',
+    datefromfilter: 'dateFromFilter',
+    datetofilter: 'dateToFilter',
+    duedatefromfilter: 'dueDateFromFilter',
+    duedatetofilter: 'dueDateToFilter',
+    memberfilters: 'memberFilters',
+    priorityfilters: 'priorityFilters',
+    tagfilters: 'tagFilters',
+    projectfilter: 'projectFilter',
+    taskfilter: 'taskFilter',
+    boardcolumnfilter: 'boardColumnFilter'
+  };
+  
+  // Map lowercase fields to camelCase
+  Object.entries(fieldMappings).forEach(([lower, camel]) => {
+    if (formatted[lower] !== undefined && formatted[camel] === undefined) {
+      formatted[camel] = formatted[lower];
+      delete formatted[lower];
+    }
+  });
+  
+  // Convert boolean fields from SQLite (0/1) or PostgreSQL (true/false) to JavaScript booleans
   formatted.shared = Boolean(formatted.shared);
   
   // Parse JSON fields back to arrays
@@ -65,11 +92,8 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const userId = req.user.id;
     
-    const views = await wrapQuery(db.prepare(`
-      SELECT * FROM views 
-      WHERE userId = ? 
-      ORDER BY filterName ASC
-    `), 'SELECT').all(userId);
+    // MIGRATED: Get all views for user using sqlManager
+    const views = await viewQueries.getAllViewsForUser(db, userId);
     const formattedViews = views.map(formatViewForResponse);
     
     res.json(formattedViews);
@@ -88,24 +112,15 @@ router.get('/shared', authenticateToken, async (req, res) => {
     }
     const userId = req.user.id;
     
-    const views = await wrapQuery(db.prepare(`
-      SELECT v.*, 
-             CASE 
-               WHEN u.first_name IS NOT NULL AND u.last_name IS NOT NULL 
-               THEN u.first_name || ' ' || u.last_name
-               WHEN u.first_name IS NOT NULL 
-               THEN u.first_name
-               ELSE u.email
-             END as creatorName
-      FROM views v
-      LEFT JOIN users u ON v.userId = u.id
-      WHERE v.shared = 1 AND v.userId != ?
-      ORDER BY v.filterName ASC
-    `), 'SELECT').all(userId);
+    // MIGRATED: Get shared views using sqlManager
+    const views = await viewQueries.getSharedViews(db, userId);
     
     const formattedViews = views.map(view => {
       const formatted = formatViewForResponse(view);
-      formatted.creatorName = view.creatorName;
+      // creatorName is already in the view from the query
+      if (view.creatorName) {
+        formatted.creatorName = view.creatorName;
+      }
       return formatted;
     });
     
@@ -126,10 +141,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const viewId = req.params.id;
     
-    const view = await wrapQuery(db.prepare(`
-      SELECT * FROM views 
-      WHERE id = ? AND userId = ?
-    `), 'SELECT').get(viewId, userId);
+    // MIGRATED: Get view by ID using sqlManager
+    const view = await viewQueries.getViewById(db, viewId, userId);
     
     if (!view) {
       return res.status(404).json({ error: 'Filter view not found' });
@@ -161,11 +174,8 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Filter data is required' });
     }
     
-    // Check if a view with this name already exists for this user
-    const existingView = await wrapQuery(db.prepare(`
-      SELECT id FROM views 
-      WHERE filterName = ? AND userId = ?
-    `), 'SELECT').get(filterName.trim(), userId);
+    // MIGRATED: Check if view name exists using sqlManager
+    const existingView = await viewQueries.checkViewNameExists(db, filterName.trim(), userId);
     
     if (existingView) {
       return res.status(409).json({ error: 'A filter with this name already exists' });
@@ -173,30 +183,29 @@ router.post('/', authenticateToken, async (req, res) => {
     
     const validatedFilters = validateFilterData(filters);
     
-    const result = await wrapQuery(db.prepare(`
-      INSERT INTO views (
-        filterName, userId, shared, textFilter, dateFromFilter, dateToFilter,
-        dueDateFromFilter, dueDateToFilter, memberFilters, priorityFilters,
-        tagFilters, projectFilter, taskFilter
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `), 'INSERT').run(
+    // MIGRATED: Create view using sqlManager
+    const result = await viewQueries.createView(
+      db,
       filterName.trim(),
       userId,
-      shared ? 1 : 0,
-      validatedFilters.textFilter,
-      validatedFilters.dateFromFilter,
-      validatedFilters.dateToFilter,
-      validatedFilters.dueDateFromFilter,
-      validatedFilters.dueDateToFilter,
-      validatedFilters.memberFilters,
-      validatedFilters.priorityFilters,
-      validatedFilters.tagFilters,
-      validatedFilters.projectFilter,
-      validatedFilters.taskFilter
+      shared,
+      validatedFilters
     );
     
-    // Fetch the created view to return
-    const createdView = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ?'), 'SELECT').get(result.lastInsertRowid);
+    // Get the created view - PostgreSQL returns it in result, SQLite needs separate query
+    let createdView;
+    if (result.lastInsertRowid) {
+      // SQLite: use lastInsertRowid
+      createdView = await viewQueries.getViewById(db, result.lastInsertRowid, userId);
+    } else if (result.id) {
+      // PostgreSQL: view is in result
+      createdView = result;
+    } else {
+      // Fallback: query by filter name
+      const allViews = await viewQueries.getAllViewsForUser(db, userId);
+      createdView = allViews.find(v => v.filterName === filterName.trim() || v.filtername === filterName.trim());
+    }
+    
     const formattedView = formatViewForResponse(createdView);
     
     // Publish to Redis for real-time updates if the filter is shared
@@ -227,11 +236,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const viewId = req.params.id;
     const { filterName, filters, shared } = req.body;
     
-    // Check if view exists and belongs to user
-    const existingView = await wrapQuery(db.prepare(`
-      SELECT * FROM views 
-      WHERE id = ? AND userId = ?
-    `), 'SELECT').get(viewId, userId);
+    // MIGRATED: Check if view exists using sqlManager
+    const existingView = await viewQueries.getViewById(db, viewId, userId);
     
     if (!existingView) {
       return res.status(404).json({ error: 'Filter view not found' });
@@ -243,58 +249,40 @@ router.put('/:id', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: 'Filter name cannot be empty' });
       }
       
-      // Check if another view with this name exists (excluding current view)
-      const nameConflict = await wrapQuery(db.prepare(`
-        SELECT id FROM views 
-        WHERE filterName = ? AND userId = ? AND id != ?
-      `), 'SELECT').get(filterName.trim(), userId, viewId);
+      // MIGRATED: Check if name conflict exists using sqlManager
+      const nameConflict = await viewQueries.checkViewNameExists(db, filterName.trim(), userId, viewId);
       
       if (nameConflict) {
         return res.status(409).json({ error: 'A filter with this name already exists' });
       }
     }
     
+    // Build updates object
     const updates = {};
-    const params = [];
     
     if (filterName !== undefined) {
-      updates.filterName = '?';
-      params.push(filterName.trim());
+      updates.filterName = filterName.trim();
     }
     
     if (filters !== undefined) {
       const validatedFilters = validateFilterData(filters);
-      Object.entries(validatedFilters).forEach(([key, value]) => {
-        updates[key] = '?';
-        params.push(value);
-      });
+      Object.assign(updates, validatedFilters);
     }
     
     if (shared !== undefined) {
-      updates.shared = '?';
-      params.push(shared ? 1 : 0);
+      updates.shared = shared;
     }
     
-    updates.updated_at = 'CURRENT_TIMESTAMP';
-    
-    if (Object.keys(updates).length === 1) { // Only updated_at
+    // Check if there are any updates (excluding updated_at which is always set)
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No updates provided' });
     }
     
-    const setClause = Object.entries(updates)
-      .map(([key, value]) => `${key} = ${value}`)
-      .join(', ');
+    // MIGRATED: Update view using sqlManager
+    await viewQueries.updateView(db, viewId, userId, updates);
     
-    params.push(viewId, userId);
-    
-    await wrapQuery(db.prepare(`
-      UPDATE views 
-      SET ${setClause}
-      WHERE id = ? AND userId = ?
-    `), 'UPDATE').run(...params);
-    
-    // Fetch updated view
-    const updatedView = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ?'), 'SELECT').get(viewId);
+    // MIGRATED: Fetch updated view using sqlManager
+    const updatedView = await viewQueries.getViewById(db, viewId, userId);
     const formattedView = formatViewForResponse(updatedView);
     
     // Publish to Redis for real-time updates if shared status changed or filter is shared
@@ -331,17 +319,15 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const viewId = req.params.id;
     
-    // Get the view before deleting to check if it was shared
-    const viewToDelete = await wrapQuery(db.prepare('SELECT * FROM views WHERE id = ? AND userId = ?'), 'SELECT').get(viewId, userId);
+    // MIGRATED: Get the view before deleting using sqlManager
+    const viewToDelete = await viewQueries.getViewById(db, viewId, userId);
     
     if (!viewToDelete) {
       return res.status(404).json({ error: 'Filter view not found' });
     }
     
-    const result = await wrapQuery(db.prepare(`
-      DELETE FROM views 
-      WHERE id = ? AND userId = ?
-    `), 'DELETE').run(viewId, userId);
+    // MIGRATED: Delete view using sqlManager
+    const result = await viewQueries.deleteView(db, viewId, userId);
     
     if (result.changes === 0) {
       return res.status(404).json({ error: 'Filter view not found' });

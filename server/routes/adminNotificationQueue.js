@@ -1,9 +1,10 @@
 import express from 'express';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import EmailService from '../services/emailService.js';
 import { EmailTemplates } from '../services/emailTemplates.js';
+// MIGRATED: Import sqlManager modules
+import { notificationQueue as notificationQueueQueries, users as userQueries, boards as boardQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -15,51 +16,8 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Get all notification queue items with human-readable data
-    const notificationsResult = await wrapQuery(
-      db.prepare(`
-        SELECT 
-          nq.id,
-          nq.user_id,
-          nq.task_id,
-          nq.notification_type,
-          nq.action,
-          nq.details,
-          nq.old_value,
-          nq.new_value,
-          nq.status,
-          nq.scheduled_send_time,
-          nq.first_change_time,
-          nq.last_change_time,
-          nq.change_count,
-          nq.error_message,
-          nq.retry_count,
-          nq.created_at,
-          nq.updated_at,
-          nq.sent_at,
-          -- User info
-          u.email as recipient_email,
-          m.name as recipient_name,
-          -- Task info
-          t.title as task_title,
-          t.ticket as task_ticket,
-          -- Column info
-          c.title as column_title,
-          -- Board info
-          b.title as board_title,
-          -- Actor info (from JSON)
-          nq.actor_data
-        FROM notification_queue nq
-        LEFT JOIN users u ON nq.user_id = u.id
-        LEFT JOIN members m ON u.id = m.user_id
-        LEFT JOIN tasks t ON nq.task_id = t.id
-        LEFT JOIN columns c ON t.columnid = c.id
-        LEFT JOIN boards b ON t.boardid = b.id
-        ORDER BY nq.updated_at DESC
-        LIMIT 500
-      `),
-      'SELECT'
-    ).all();
+    // MIGRATED: Get all notification queue items using sqlManager
+    const notificationsResult = await notificationQueueQueries.getAllNotificationQueueItems(db, 500);
 
     // Ensure we have an array (PostgreSQL returns array, but handle edge cases)
     const notifications = Array.isArray(notificationsResult) ? notificationsResult : [];
@@ -77,27 +35,27 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
 
       return {
         id: notif.id,
-        recipientEmail: notif.recipient_email,
-        recipientName: notif.recipient_name,
-        taskTitle: notif.task_title,
-        taskTicket: notif.task_ticket,
-        columnTitle: notif.column_title,
-        boardTitle: notif.board_title,
-        notificationType: notif.notification_type,
+        recipientEmail: notif.recipientEmail,
+        recipientName: notif.recipientName,
+        taskTitle: notif.taskTitle,
+        taskTicket: notif.taskTicket,
+        columnTitle: notif.columnTitle,
+        boardTitle: notif.boardTitle,
+        notificationType: notif.notificationType,
         action: notif.action,
         details: notif.details,
-        oldValue: notif.old_value,
-        newValue: notif.new_value,
+        oldValue: notif.oldValue,
+        newValue: notif.newValue,
         status: notif.status,
-        scheduledSendTime: notif.scheduled_send_time,
-        firstChangeTime: notif.first_change_time,
-        lastChangeTime: notif.last_change_time,
-        changeCount: notif.change_count,
-        errorMessage: notif.error_message,
-        retryCount: notif.retry_count,
-        createdAt: notif.created_at,
-        updatedAt: notif.updated_at,
-        sentAt: notif.sent_at,
+        scheduledSendTime: notif.scheduledSendTime,
+        firstChangeTime: notif.firstChangeTime,
+        lastChangeTime: notif.lastChangeTime,
+        changeCount: notif.changeCount,
+        errorMessage: notif.errorMessage,
+        retryCount: notif.retryCount,
+        createdAt: notif.createdAt,
+        updatedAt: notif.updatedAt,
+        sentAt: notif.sentAt,
         actor: actor
       };
     });
@@ -130,15 +88,8 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
     
     for (const notificationId of notificationIds) {
       try {
-        // Get notification from queue
-        const notification = await wrapQuery(
-          db.prepare(`
-            SELECT *
-            FROM notification_queue
-            WHERE id = ? AND status = 'pending'
-          `),
-          'SELECT'
-        ).get(notificationId);
+        // MIGRATED: Get notification from queue using sqlManager
+        const notification = await notificationQueueQueries.getNotificationQueueItemById(db, notificationId, 'pending');
 
         if (!notification) {
           errors.push(`Notification ${notificationId} not found or already sent`);
@@ -151,11 +102,8 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
         const participants = JSON.parse(notification.participants_data);
         const actor = JSON.parse(notification.actor_data);
 
-        // Get recipient user info
-        const recipientUser = await wrapQuery(
-          db.prepare('SELECT id, email, first_name, last_name FROM users WHERE id = ?'),
-          'SELECT'
-        ).get(notification.user_id);
+        // MIGRATED: Get recipient user info using sqlManager
+        const recipientUser = await userQueries.getUserById(db, notification.user_id);
 
         if (!recipientUser) {
           errors.push(`Recipient user ${notification.user_id} not found for notification ${notificationId}`);
@@ -163,31 +111,22 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
           continue;
         }
 
-        // Get board info for task URL
-        const boardInfo = await wrapQuery(
-          db.prepare('SELECT id, title FROM boards WHERE id = ?'),
-          'SELECT'
-        ).get(task.boardId || task.boardid);
+        // MIGRATED: Get board info for task URL using sqlManager
+        const boardInfo = await boardQueries.getBoardById(db, task.boardId || task.boardid);
 
-        // Get APP_URL for building task URL
-        const appUrlSetting = await wrapQuery(
-          db.prepare('SELECT value FROM settings WHERE key = ?'),
-          'SELECT'
-        ).get('APP_URL');
+        // MIGRATED: Get APP_URL for building task URL using sqlManager
+        const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
         
-        let baseUrl = appUrlSetting?.value || process.env.BASE_URL || 'http://localhost:3000';
+        let baseUrl = appUrlSetting || process.env.BASE_URL || 'http://localhost:3000';
         baseUrl = baseUrl.replace(/\/$/, '');
         
         // Build task URL - use ticket if available, otherwise use task ID
         const taskTicket = task.ticket || task.id;
         const taskUrl = `${baseUrl}/#task#${taskTicket}`;
 
-        // Get site name
-        const siteNameSetting = await wrapQuery(
-          db.prepare('SELECT value FROM settings WHERE key = ?'),
-          'SELECT'
-        ).get('SITE_NAME');
-        const siteName = siteNameSetting?.value || 'Easy Kanban';
+        // MIGRATED: Get site name using sqlManager
+        const siteNameSetting = await helpers.getSetting(db, 'SITE_NAME');
+        const siteName = siteNameSetting || 'Easy Kanban';
 
         // Determine action type and details
         const actionType = notification.change_count > 1 ? 'consolidated_update' : notification.action;
@@ -220,15 +159,8 @@ router.post('/send', authenticateToken, requireRole(['admin']), async (req, res)
           html: emailContent.html
         });
 
-        // Mark as sent
-        await wrapQuery(
-          db.prepare(`
-            UPDATE notification_queue
-            SET status = 'sent', sent_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `),
-          'UPDATE'
-        ).run(notificationId);
+        // MIGRATED: Mark as sent using sqlManager
+        await notificationQueueQueries.updateNotificationQueueStatus(db, notificationId, 'sent');
 
         sentCount++;
       } catch (error) {
@@ -263,15 +195,9 @@ router.delete('/', authenticateToken, requireRole(['admin']), async (req, res) =
     }
 
     const db = getRequestDatabase(req);
-    const placeholders = notificationIds.map(() => '?').join(',');
-
-    const result = wrapQuery(
-      db.prepare(`
-        DELETE FROM notification_queue
-        WHERE id IN (${placeholders})
-      `),
-      'DELETE'
-    ).run(...notificationIds);
+    
+    // MIGRATED: Delete notifications using sqlManager
+    const result = await notificationQueueQueries.deleteNotificationQueueItems(db, notificationIds);
 
     res.json({
       success: true,

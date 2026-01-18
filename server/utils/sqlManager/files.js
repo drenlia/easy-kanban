@@ -78,3 +78,101 @@ export async function deleteAttachment(db, attachmentId) {
   return await stmt.run(attachmentId);
 }
 
+/**
+ * Get all attachments for a task (full details)
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} taskId - Task ID
+ * @returns {Promise<Array>} Array of attachment objects
+ */
+export async function getAttachmentsForTask(db, taskId) {
+  const query = `
+    SELECT 
+      id, 
+      name, 
+      url, 
+      type, 
+      size, 
+      created_at as "createdAt"
+    FROM attachments 
+    WHERE taskid = $1 AND commentid IS NULL
+    ORDER BY created_at DESC
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(taskId);
+}
+
+/**
+ * Create attachment for a task
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} id - Attachment ID
+ * @param {string} taskId - Task ID
+ * @param {string} name - Attachment name
+ * @param {string} url - Attachment URL
+ * @param {string} type - Attachment type
+ * @param {number} size - Attachment size in bytes
+ * @returns {Promise<Object>} Result object
+ */
+export async function createAttachmentForTask(db, id, taskId, name, url, type, size) {
+  const query = `
+    INSERT INTO attachments (id, taskid, name, url, type, size)
+    VALUES ($1, $2, $3, $4, $5, $6)
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'INSERT');
+  return await stmt.run(id, taskId, name, url, type, size);
+}
+
+/**
+ * Create attachment for a comment
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} id - Attachment ID
+ * @param {string} commentId - Comment ID
+ * @param {string} name - Attachment name
+ * @param {string} url - Attachment URL
+ * @param {string} type - Attachment type
+ * @param {number} size - Attachment size in bytes
+ * @returns {Promise<Object>} Result object
+ */
+export async function createAttachmentForComment(db, id, commentId, name, url, type, size) {
+  const query = `
+    INSERT INTO attachments (id, commentid, name, url, type, size)
+    VALUES ($1, $2, $3, $4, $5, $6)
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'INSERT');
+  return await stmt.run(id, commentId, name, url, type, size);
+}
+
+/**
+ * Get attachments for multiple comments
+ * 
+ * @param {Database} db - Database connection
+ * @param {Array<string>} commentIds - Array of comment IDs
+ * @returns {Promise<Array>} Array of attachment objects with commentId
+ */
+export async function getAttachmentsForComments(db, commentIds) {
+  if (!commentIds || commentIds.length === 0) {
+    return [];
+  }
+  
+  const placeholders = commentIds.map((_, i) => `$${i + 1}`).join(', ');
+  const query = `
+    SELECT 
+      commentid as "commentId", 
+      id, 
+      name, 
+      url, 
+      type, 
+      size, 
+      created_at as "createdAt"
+    FROM attachments
+    WHERE commentid IN (${placeholders})
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(...commentIds);
+}

@@ -328,7 +328,7 @@
     "userInterfaceSettings": "Paramètres de l'interface utilisateur",
     "userInterfaceSettingsDescription": "Configurez les paramètres de comportement à l'échelle de l'application. Ces paramètres s'appliquent par défaut à tous les utilisateurs, mais les utilisateurs peuvent les remplacer dans leurs préférences personnelles.",
     "defaultApplicationLanguage": "Langue par défaut de l'application",
-    "defaultApplicationLanguageDescription": "Définissez la langue par défaut de l'application. Ceci sera utilisé pour le contenu généré par le système.",
+    "defaultApplicationLanguageDescription": "Définissez la langue par défaut pour le contenu généré par le système. Ceci affecte :\n• Les notifications par courriel (invitations, mises à jour de tâches, réinitialisations de mot de passe)\n• Les noms de colonnes par défaut pour les nouveaux tableaux (p. ex. \"À faire\", \"En cours\")\n• Les rapports (lorsque la préférence linguistique de l'utilisateur n'est pas définie)\n\nNote : La langue de l'interface utilisateur et les messages du fil d'activité sont contrôlés par les préférences individuelles des utilisateurs, pas par ce paramètre.",
     "taskDeleteConfirmation": "Confirmation de suppression de tâche",
     "taskDeleteConfirmationDescription": "Exiger une confirmation avant de supprimer des tâches. Les utilisateurs peuvent remplacer ce paramètre dans leurs préférences personnelles.",
     "enabled": "Activé",

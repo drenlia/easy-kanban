@@ -1,9 +1,9 @@
 import express from 'express';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { checkUserLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { members as memberQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -19,38 +19,13 @@ router.get('/', authenticateToken, async (req, res) => {
     
     const db = getRequestDatabase(req);
     
-    // Check if user is admin and if includeSystem parameter is true
-    const isAdmin = req.user && req.user.roles && req.user.roles.includes('admin');
+    // Check if includeSystem parameter is true
     const includeSystem = req.query.includeSystem === 'true';
     
-    // Allow any authenticated user to include System User when explicitly requested
-    // This fixes member filtering for regular users who need to see System User tasks
-    const whereClause = includeSystem 
-      ? '' // Include all members (including System User) when requested
-      : "WHERE m.id != '00000000-0000-0000-0000-000000000001'"; // Exclude System User otherwise
+    // MIGRATED: Use sqlManager to get all members
+    const members = await memberQueries.getAllMembers(db, includeSystem);
     
-    const members = await wrapQuery(db.prepare(`
-      SELECT 
-        m.id, m.name, m.color, m.user_id, m.created_at,
-        u.avatar_path, u.auth_provider, u.google_avatar_url
-      FROM members m
-      LEFT JOIN users u ON m.user_id = u.id
-      ${whereClause}
-      ORDER BY m.created_at ASC
-    `), 'SELECT').all();
-    
-    const transformedMembers = members.map(member => ({
-      id: member.id,
-      name: member.name,
-      color: member.color,
-      user_id: member.user_id,
-      avatarUrl: member.avatar_path,
-      authProvider: member.auth_provider,
-      googleAvatarUrl: member.google_avatar_url
-    }));
-    
-
-    res.json(transformedMembers);
+    res.json(members);
   } catch (error) {
     console.error('Error fetching members:', error);
     res.status(500).json({ error: 'Failed to fetch members' });
@@ -63,17 +38,15 @@ router.post('/', checkUserLimit, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Check for duplicate member name
-    const existingMember = await wrapQuery(
-      db.prepare('SELECT id FROM members WHERE LOWER(name) = LOWER(?)'), 
-      'SELECT'
-    ).get(name);
+    // MIGRATED: Check for duplicate member name using sqlManager
+    const existingMember = await memberQueries.checkMemberNameExists(db, name);
     
     if (existingMember) {
       return res.status(400).json({ error: 'This display name is already taken by another user' });
     }
     
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color) VALUES (?, ?, ?)'), 'INSERT').run(id, name, color);
+    // MIGRATED: Create member using sqlManager
+    await memberQueries.createMember(db, id, name, color);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-created to Redis');
@@ -95,7 +68,9 @@ router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
     const db = getRequestDatabase(req);
-    await wrapQuery(db.prepare('DELETE FROM members WHERE id = ?'), 'DELETE').run(id);
+    
+    // MIGRATED: Delete member using sqlManager
+    await memberQueries.deleteMember(db, id);
     
     // Publish to Redis for real-time updates
     console.log('📤 Publishing member-deleted to Redis');

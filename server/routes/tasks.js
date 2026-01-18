@@ -10,7 +10,7 @@ import { getTranslator } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction, dbRun, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
-import { tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
+import { tasks as taskQueries, boards as boardQueries, helpers, sprints as sprintQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -956,6 +956,59 @@ router.put('/:id', authenticateToken, async (req, res) => {
       priorityName = currentTask.priority || currentPriorityName;
     }
     
+    // Normalize currentTask field names (database returns snake_case, frontend uses camelCase)
+    const normalizedCurrentTask = {
+      title: currentTask.title || null,
+      description: currentTask.description || null,
+      memberId: currentTask.memberid || currentTask.memberId || null,
+      requesterId: currentTask.requesterid || currentTask.requesterId || null,
+      startDate: currentTask.startdate || currentTask.startDate || null,
+      dueDate: currentTask.duedate || currentTask.dueDate || null,
+      effort: currentTask.effort !== null && currentTask.effort !== undefined ? currentTask.effort : null,
+      columnId: currentTask.columnid || currentTask.columnId || null,
+      boardId: currentTask.boardid || currentTask.boardId || null
+    };
+    
+    // Helper function to normalize values for comparison (treat null, undefined, empty string as equivalent)
+    const normalizeValue = (value) => {
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+      // For dates, normalize to ISO string format for comparison (handle both Date objects and date strings)
+      if (value instanceof Date) {
+        return value.toISOString().split('T')[0]; // YYYY-MM-DD format
+      }
+      // For date strings, normalize format (YYYY-MM-DD)
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+        return value.split('T')[0]; // Extract date part if it's a datetime string
+      }
+      // For strings, trim whitespace
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed === '' ? null : trimmed;
+      }
+      return value;
+    };
+    
+    // Helper function to check if two values are actually different
+    const hasChanged = (oldValue, newValue) => {
+      const normalizedOld = normalizeValue(oldValue);
+      const normalizedNew = normalizeValue(newValue);
+      
+      // Both null/empty - no change
+      if (normalizedOld === null && normalizedNew === null) {
+        return false;
+      }
+      
+      // One is null, other is not - change
+      if (normalizedOld === null || normalizedNew === null) {
+        return normalizedOld !== normalizedNew;
+      }
+      
+      // Both have values - compare
+      return normalizedOld !== normalizedNew;
+    };
+    
     // Generate change details
     const changes = [];
     const fieldsToTrack = ['title', 'description', 'memberId', 'requesterId', 'startDate', 'dueDate', 'effort', 'columnId'];
@@ -971,19 +1024,141 @@ router.put('/:id', authenticateToken, async (req, res) => {
       changes.push(await generateTaskUpdateDetails('priorityId', oldPriority, newPriority, '', db));
     }
     
+    // Check if sprint changed - handle separately like priority
+    const currentSprintId = currentTask.sprint_id || currentTask.sprintId || null;
+    const newSprintId = task.sprintId || null;
+    if (hasChanged(currentSprintId, newSprintId)) {
+      // Get sprint names for bilingual activity message
+      let oldSprintName = null;
+      let newSprintName = null;
+      
+      if (currentSprintId) {
+        try {
+          const oldSprint = await sprintQueries.getSprintById(db, currentSprintId);
+          oldSprintName = oldSprint?.name || null;
+        } catch (error) {
+          console.warn('Failed to get old sprint name:', error.message);
+        }
+      }
+      
+      if (newSprintId) {
+        try {
+          const newSprint = await sprintQueries.getSprintById(db, newSprintId);
+          newSprintName = newSprint?.name || null;
+        } catch (error) {
+          console.warn('Failed to get new sprint name:', error.message);
+        }
+      }
+      
+      // Get task and board info for context
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, id);
+      const taskDetails = await taskQueries.getTaskById(db, id);
+      const taskTicket = taskDetails?.ticket || null;
+      const taskRef = taskTicket ? ` (${taskTicket})` : '';
+      const taskTitle = taskInfo?.title || task.title;
+      const boardTitle = taskInfo?.board_title || 'Unknown Board';
+      
+      // Get bilingual translations
+      const unknownBoardEn = t('activity.unknownBoard', {}, 'en');
+      const unknownBoardFr = t('activity.unknownBoard', {}, 'fr');
+      
+      const translatedBoardTitle = {
+        en: boardTitle === 'Unknown Board' ? unknownBoardEn : boardTitle,
+        fr: boardTitle === 'Unknown Board' ? unknownBoardFr : boardTitle
+      };
+      
+      // Generate bilingual message
+      let sprintChangeText;
+      if (oldSprintName && newSprintName) {
+        // Changed from one sprint to another
+        sprintChangeText = JSON.stringify({
+          en: t('activity.removedSprint', {
+            sprintName: oldSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en') + ', ' + t('activity.associatedSprint', {
+            sprintName: newSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en'),
+          fr: t('activity.removedSprint', {
+            sprintName: oldSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr') + ', ' + t('activity.associatedSprint', {
+            sprintName: newSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr')
+        });
+      } else if (oldSprintName && !newSprintName) {
+        // Removed from sprint
+        sprintChangeText = JSON.stringify({
+          en: t('activity.removedSprint', {
+            sprintName: oldSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en'),
+          fr: t('activity.removedSprint', {
+            sprintName: oldSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr')
+        });
+      } else if (!oldSprintName && newSprintName) {
+        // Associated with sprint
+        sprintChangeText = JSON.stringify({
+          en: t('activity.associatedSprint', {
+            sprintName: newSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en'),
+          fr: t('activity.associatedSprint', {
+            sprintName: newSprintName,
+            taskTitle: taskTitle,
+            taskRef: taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr')
+        });
+      }
+      
+      if (sprintChangeText) {
+        changes.push(sprintChangeText);
+      }
+    }
+    
     // Process fields sequentially to handle async operations
     for (const field of fieldsToTrack) {
-      if (currentTask[field] !== task[field]) {
+      const oldValue = normalizedCurrentTask[field];
+      const newValue = task[field];
+      
+      if (hasChanged(oldValue, newValue)) {
         if (field === 'columnId') {
           // MIGRATED: Special handling for column moves - get column titles for better readability
-          const oldColumn = await helpers.getColumnById(db, currentTask[field]);
-          const newColumn = await helpers.getColumnById(db, task[field]);
+          const oldColumn = await helpers.getColumnById(db, oldValue);
+          const newColumn = await helpers.getColumnById(db, newValue);
           const taskRef = task.ticket ? ` (${task.ticket})` : '';
-          const movedTaskText = t('activity.movedTaskFromTo', {
-            taskTitle: task.title,
-            taskRef,
-            fromColumn: oldColumn?.title || 'Unknown',
-            toColumn: newColumn?.title || 'Unknown'
+          // Create bilingual message for column move
+          const movedTaskText = JSON.stringify({
+            en: t('activity.movedTaskFromTo', {
+              taskTitle: task.title,
+              taskRef,
+              fromColumn: oldColumn?.title || 'Unknown',
+              toColumn: newColumn?.title || 'Unknown'
+            }, 'en'),
+            fr: t('activity.movedTaskFromTo', {
+              taskTitle: task.title,
+              taskRef,
+              fromColumn: oldColumn?.title || 'Unknown',
+              toColumn: newColumn?.title || 'Unknown'
+            }, 'fr')
           });
           changes.push(movedTaskText);
         } else {
@@ -1020,15 +1195,51 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // Log activity if there were changes
     if (changes.length > 0) {
       const activityStartTime = Date.now();
-      const details = changes.length === 1 ? changes[0] : `${t('activity.updatedTaskPrefix')} ${changes.join(', ')}`;
+      
+      // Parse bilingual JSON from changes and combine them properly
+      // Note: We pass partial details (just the changes) and let logTaskActivity add task/board context
+      let details;
+      if (changes.length === 1) {
+        // Single change - use as-is (already bilingual JSON)
+        details = changes[0];
+      } else {
+        // Multiple changes - parse each JSON and combine
+        const messagesEn = [];
+        const messagesFr = [];
+        
+        for (const change of changes) {
+          try {
+            const parsed = JSON.parse(change);
+            if (parsed.en && parsed.fr) {
+              // Bilingual JSON
+              messagesEn.push(parsed.en);
+              messagesFr.push(parsed.fr);
+            } else {
+              // Not valid bilingual JSON, use as-is for both languages
+              messagesEn.push(change);
+              messagesFr.push(change);
+            }
+          } catch {
+            // Not JSON, use as-is for both languages (backward compatibility)
+            messagesEn.push(change);
+            messagesFr.push(change);
+          }
+        }
+        
+        // Create combined bilingual message (without prefix - logTaskActivity will add context)
+        details = JSON.stringify({
+          en: messagesEn.join(', '),
+          fr: messagesFr.join(', ')
+        });
+      }
       
       // For single field changes, pass old and new values for better email templates
       let oldValue, newValue;
       if (changes.length === 1) {
-        // Find which field changed
-        const changedField = fieldsToTrack.find(field => currentTask[field] !== task[field]);
+        // Find which field changed (use normalized values)
+        const changedField = fieldsToTrack.find(field => hasChanged(normalizedCurrentTask[field], task[field]));
         if (changedField) {
-          oldValue = currentTask[changedField];
+          oldValue = normalizedCurrentTask[changedField];
           newValue = task[changedField];
         }
       }
@@ -1056,8 +1267,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       console.log(`⏱️  [PUT /tasks/:id] Activity logging took ${activityTime}ms`);
       
       // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
-      // Check if this is a column move
-      if (currentTask.columnId !== task.columnId) {
+      // Check if this is a column move (use normalized values)
+      if (hasChanged(normalizedCurrentTask.columnId, task.columnId)) {
         // MIGRATED: Get column info to check if task is completed
         const newColumn = await helpers.getColumnWithStatus(db, task.columnId);
         const oldColumn = await helpers.getColumnById(db, currentTask.columnId);
@@ -1100,15 +1311,21 @@ router.put('/:id', authenticateToken, async (req, res) => {
     // Determine which fields changed (already tracked in changes array, but build explicit list)
     const changedFields = [];
     for (const field of fieldsToTrack) {
-      if (currentTask[field] !== task[field]) {
+      const oldValue = normalizedCurrentTask[field];
+      const newValue = task[field];
+      if (hasChanged(oldValue, newValue)) {
         changedFields.push(field);
       }
     }
-    if (currentTask.boardId !== task.boardId) changedFields.push('boardId');
-    if (currentTask.position !== (task.position ?? 0)) changedFields.push('position');
-    const currentSprintId = currentTask.sprint_id || currentTask.sprintId || null;
-    const newSprintId = task.sprintId || null;
-    if (currentSprintId !== newSprintId) changedFields.push('sprintId');
+    const currentBoardId = normalizedCurrentTask.boardId;
+    if (hasChanged(currentBoardId, task.boardId)) changedFields.push('boardId');
+    const currentPosition = currentTask.position || 0;
+    const newPosition = task.position ?? 0;
+    if (currentPosition !== newPosition) changedFields.push('position');
+    // Sprint change detection is handled earlier in the function (around line 1028)
+    // where we also generate the bilingual activity log message
+    // Reuse the same variables declared earlier for WebSocket tracking
+    if (hasChanged(currentSprintId, newSprintId)) changedFields.push('sprintId');
     
     // Build minimal payload (only changed fields + required fields)
     const { minimalTask, targetBoardId } = buildMinimalTaskUpdatePayload(
@@ -1716,7 +1933,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const t = await getTranslator(db);
-    const currentTask = await wrapQuery(db.prepare('SELECT position, columnId, boardId, title FROM tasks WHERE id = ?'), 'SELECT').get(taskId);
+    // MIGRATED: Get current task using sqlManager
+    const currentTask = await taskQueries.getTaskById(db, taskId);
 
     if (!currentTask) {
       return res.status(404).json({ error: t('errors.taskNotFound') });
@@ -1998,9 +2216,9 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
       });
     }
     
-    // Log move activity
-    const originalBoard = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(originalBoardId);
-    const targetBoard = await wrapQuery(db.prepare('SELECT title FROM boards WHERE id = ?'), 'SELECT').get(targetBoardId);
+    // MIGRATED: Log move activity using sqlManager
+    const originalBoard = await boardQueries.getBoardById(db, originalBoardId);
+    const targetBoard = await boardQueries.getBoardById(db, targetBoardId);
     const moveDetails = t('activity.movedTaskBoard', {
       taskTitle: task.title,
       fromBoard: originalBoard?.title || 'Unknown',
@@ -2377,11 +2595,8 @@ router.delete('/:taskId/relationships/:relationshipId', authenticateToken, async
     const { taskId, relationshipId } = req.params;
     
     // MIGRATED: Get the relationship details before deleting
-    // Note: We need to get relationship by ID, but sqlManager doesn't have this yet
-    // For now, use a direct query or add getRelationshipById to sqlManager
-    const relationship = await wrapQuery(db.prepare(`
-      SELECT * FROM task_rels WHERE id = $1 AND task_id = $2
-    `), 'SELECT').get(relationshipId, taskId);
+    // MIGRATED: Get relationship by ID using sqlManager
+    const relationship = await taskQueries.getTaskRelationshipById(db, relationshipId, taskId);
     
     if (!relationship) {
       return res.status(404).json({ error: t('errors.relationshipNotFound') });

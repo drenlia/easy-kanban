@@ -467,8 +467,14 @@ const ActivityFeed: React.FC<ActivityFeedProps> = ({
     // Extract the main action from details
     let description = details;
     
-    // Add board context if available
-    if (boardTitle && !description.includes('board')) {
+    // Add board context if available and not already included in details
+    // Check for both English and French patterns to avoid duplicates
+    const hasBoardContext = description.includes('board') || 
+                           description.includes('tableau') || 
+                           description.includes('dans le tableau') ||
+                           description.includes('in board');
+    
+    if (boardTitle && !hasBoardContext) {
       description += ` ${t('activityFeed.in')} ${boardTitle}`;
     }
 

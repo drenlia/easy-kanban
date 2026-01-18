@@ -62,6 +62,17 @@ export const useColumnWebSocket = ({
   const handleColumnUpdated = useCallback((data: any) => {
     if (!data.column || !data.boardId) return;
     
+    // Convert camelCase to snake_case for Column type compatibility
+    // Backend sends isFinished/isArchived (camelCase), but Column type expects is_finished/is_archived (snake_case)
+    const columnUpdate = {
+      ...data.column,
+      is_finished: data.column.isFinished !== undefined ? data.column.isFinished : data.column.is_finished,
+      is_archived: data.column.isArchived !== undefined ? data.column.isArchived : data.column.is_archived
+    };
+    // Remove camelCase properties to avoid confusion
+    delete columnUpdate.isFinished;
+    delete columnUpdate.isArchived;
+    
     // Update boards state for all boards
     setBoards(prevBoards => {
       return prevBoards.map(board => {
@@ -73,7 +84,7 @@ export const useColumnWebSocket = ({
           if (updatedColumns[data.column.id]) {
             updatedColumns[data.column.id] = {
               ...updatedColumns[data.column.id],
-              ...data.column
+              ...columnUpdate
             };
           }
           
@@ -93,7 +104,7 @@ export const useColumnWebSocket = ({
         if (updatedColumns[data.column.id]) {
           updatedColumns[data.column.id] = {
             ...updatedColumns[data.column.id],
-            ...data.column
+            ...columnUpdate
           };
         }
         
@@ -144,11 +155,14 @@ export const useColumnWebSocket = ({
       return;
     }
     
-    // Skip if this update came from the current user's GanttViewV2 (it handles its own updates via onRefreshData)
-    // But allow updates from other users
-    if (data.updatedBy === currentUser?.id) {
-      return;
-    }
+    // Set flag to prevent refreshBoardData from overwriting this update
+    window.justUpdatedFromWebSocket = true;
+    
+    // Process updates from current user to ensure state sync after column reordering
+    // The backend returns updated columns with correct positions, so we should use them
+    // This ensures the frontend state matches the backend after reordering operations
+    // This is especially important for edge cases where the frontend's optimistic update
+    // might not match the backend's actual result (e.g., moving to first/last position)
     
     // Update boards state for all boards
     setBoards(prevBoards => {
@@ -158,7 +172,9 @@ export const useColumnWebSocket = ({
           const updatedColumns: Columns = {};
           
           // Rebuild columns object with updated positions, preserving tasks
-          data.columns.forEach((col: any) => {
+          // CRITICAL: Sort columns by position to ensure correct order
+          const sortedColumns = [...data.columns].sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
+          sortedColumns.forEach((col: any) => {
             updatedColumns[col.id] = {
               ...col,
               tasks: updatedBoard.columns[col.id]?.tasks || []
@@ -178,7 +194,10 @@ export const useColumnWebSocket = ({
         const updatedColumns: Columns = {};
         
         // Rebuild columns object with updated positions, preserving tasks
-        data.columns.forEach((col: any) => {
+        // CRITICAL: Sort columns by position to ensure correct order
+        // Use the positions from the backend to ensure accuracy
+        const sortedColumns = [...data.columns].sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
+        sortedColumns.forEach((col: any) => {
           updatedColumns[col.id] = {
             ...col,
             tasks: prevColumns[col.id]?.tasks || []
@@ -188,7 +207,13 @@ export const useColumnWebSocket = ({
         return updatedColumns;
       });
     }
-  }, [setBoards, setColumns, selectedBoardRef, currentUser?.id]);
+    
+    // Clear the flag after a delay to prevent refreshBoardData from overwriting
+    // Use a longer timeout since we're not calling refreshBoardData after reorder anymore
+    setTimeout(() => {
+      window.justUpdatedFromWebSocket = false;
+    }, 1000);
+  }, [setBoards, setColumns, selectedBoardRef]);
 
   return {
     handleColumnCreated,

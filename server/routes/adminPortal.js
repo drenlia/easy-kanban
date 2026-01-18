@@ -11,7 +11,8 @@ import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isPostgresDatabase } from '../utils/dbAsync.js';
-import { users as userQueries } from '../utils/sqlManager/index.js';
+// MIGRATED: Import sqlManager modules
+import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -38,11 +39,8 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    // Read APP_URL from database settings (not modifiable by users, set by frontend on first login)
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Read APP_URL from database settings using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
     // In multi-tenant mode, get tenant ID from hostname
     const hostname = req.get('host') || req.hostname;
@@ -51,7 +49,7 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
     const instanceInfo = {
       instanceName: process.env.INSTANCE_NAME || 'easy-kanban-app',
       instanceToken: process.env.INSTANCE_TOKEN ? 'configured' : 'not-configured',
-      domain: appUrlSetting?.value || 'not-configured',
+      domain: appUrlSetting || 'not-configured',
       hostname: hostname,
       tenantId: tenantId, // Include tenant ID in multi-tenant mode
       version: process.env.APP_VERSION || '1.0.0',
@@ -83,8 +81,9 @@ router.get('/info', authenticateAdminPortal, async (req, res) => {
 router.get('/owner-info', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('OWNER');
-    const ownerEmail = ownerSetting ? ownerSetting.value : null;
+    // MIGRATED: Get OWNER setting using sqlManager
+    const ownerSetting = await helpers.getSetting(db, 'OWNER');
+    const ownerEmail = ownerSetting || null;
     
     res.json({
       success: true,
@@ -127,9 +126,8 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // Set owner in settings
-    await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)'), 'INSERT')
-      .run('OWNER', email, new Date().toISOString());
+    // MIGRATED: Set owner in settings using sqlManager
+    await settingsQueries.upsertSettingWithTimestamp(db, 'OWNER', email, new Date().toISOString());
     
     console.log(`✅ Admin portal set instance owner to: ${email}`);
     
@@ -156,7 +154,8 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
 router.get('/settings', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings'), 'SELECT').all();
+    // MIGRATED: Get all settings using sqlManager
+    const settings = await settingsQueries.getAllSettings(db);
     const settingsObj = {};
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
@@ -193,10 +192,8 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    const result = db.prepare(`
-      INSERT OR REPLACE INTO settings (key, value, updated_at) 
-      VALUES (?, ?, CURRENT_TIMESTAMP)
-    `).run(key, value);
+    // MIGRATED: Upsert setting using sqlManager
+    const result = await settingsQueries.upsertSetting(db, key, value);
     
     console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
     
@@ -235,10 +232,8 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
     
     for (const [key, value] of Object.entries(settings)) {
       if (value !== undefined && value !== null) {
-        db.prepare(`
-          INSERT OR REPLACE INTO settings (key, value, updated_at) 
-          VALUES (?, ?, CURRENT_TIMESTAMP)
-        `).run(key, value);
+        // MIGRATED: Upsert setting using sqlManager
+        await settingsQueries.upsertSetting(db, key, value);
         
         results.push({ key, value });
         console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
@@ -364,8 +359,8 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
     if (memberName.length > 30) {
       memberName = memberName.substring(0, 30);
     }
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
-      .run(memberId, memberName, memberColor, userId);
+    // MIGRATED: Create member using auth.createMemberForUser
+    await authQueries.createMemberForUser(db, memberId, memberName, memberColor, userId);
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -550,8 +545,8 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
       });
     }
     
-    // MIGRATED: Delete user (cascade will handle related records)
-    await wrapQuery(db.prepare('DELETE FROM users WHERE id = $1'), 'DELETE').run(userId);
+    // MIGRATED: Delete user using adminUsers.deleteUser
+    await adminUserQueries.deleteUser(db, userId);
     
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
     
@@ -578,7 +573,9 @@ router.get('/health', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     // Check database connection
-    const dbCheck = await wrapQuery(db.prepare('SELECT 1 as test'), 'SELECT').get();
+    // MIGRATED: Simple health check - use a simple query
+    // For health check, we can just try to get a setting or use a simple query
+    const dbCheck = await helpers.getSetting(db, 'APP_URL');
     
     res.json({
       success: true,
@@ -645,14 +642,15 @@ router.get('/plan', authenticateAdminPortal, async (req, res) => {
     // Get database values from license_settings table
     const dbSettings = {};
     try {
-      const licenseSettings = await wrapQuery(db.prepare('SELECT setting_key, setting_value FROM license_settings'), 'SELECT').all();
+      // MIGRATED: Get all license settings using sqlManager
+      const licenseSettings = await licenseSettingsQueries.getAllLicenseSettings(db);
       licenseSettings.forEach(setting => {
-        if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.setting_key)) {
+        if (['USER_LIMIT', 'TASK_LIMIT', 'BOARD_LIMIT', 'STORAGE_LIMIT', 'SUPPORT_TYPE'].includes(setting.settingKey)) {
           // Parse numeric values, keep string values as-is
-          if (setting.setting_key === 'SUPPORT_TYPE') {
-            dbSettings[setting.setting_key] = setting.setting_value;
+          if (setting.settingKey === 'SUPPORT_TYPE') {
+            dbSettings[setting.settingKey] = setting.settingValue;
           } else {
-            dbSettings[setting.setting_key] = parseInt(setting.setting_value);
+            dbSettings[setting.settingKey] = parseInt(setting.settingValue);
           }
         }
       });
@@ -844,16 +842,8 @@ router.put('/plan/:key', authenticateAdminPortal, async (req, res) => {
       }
     }
 
-    // Update or insert license setting
-    const existingSetting = await wrapQuery(db.prepare('SELECT id FROM license_settings WHERE setting_key = ?'), 'SELECT').get(key);
-    
-    if (existingSetting) {
-      await wrapQuery(db.prepare('UPDATE license_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?'), 'UPDATE')
-        .run(value, key);
-    } else {
-      await wrapQuery(db.prepare('INSERT INTO license_settings (setting_key, setting_value) VALUES (?, ?)'), 'INSERT')
-        .run(key, value);
-    }
+    // MIGRATED: Update or insert license setting using sqlManager
+    await licenseSettingsQueries.upsertLicenseSetting(db, key, value);
 
     console.log(`✅ Admin portal updated plan setting: ${key} = ${value}`);
 
@@ -897,9 +887,8 @@ router.delete('/plan/:key', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Delete the license setting (this removes the database override)
-    const result = await wrapQuery(db.prepare('DELETE FROM license_settings WHERE setting_key = ?'), 'DELETE')
-      .run(key);
+    // MIGRATED: Delete the license setting using sqlManager
+    const result = await licenseSettingsQueries.deleteLicenseSetting(db, key);
 
     if (result.changes === 0) {
       return res.status(404).json({ 
@@ -936,7 +925,8 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
     const { key } = req.params;
 
     const t = await getTranslator(db);
-    const result = await wrapQuery(db.prepare('DELETE FROM settings WHERE key = ?'), 'DELETE').run(key);
+    // MIGRATED: Delete setting using sqlManager
+    const result = await settingsQueries.deleteSetting(db, key);
     
     if (result.changes === 0) {
       return res.status(404).json({ 
@@ -984,8 +974,8 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Check if setting already exists
-    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get(key);
+    // MIGRATED: Check if setting already exists using sqlManager
+    const existingSetting = await settingsQueries.checkSettingExists(db, key);
     if (existingSetting) {
       return res.status(400).json({ 
         success: false,
@@ -993,9 +983,8 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
       });
     }
 
-    // Insert new setting
-    await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
-      .run(key, value);
+    // MIGRATED: Insert new setting using sqlManager
+    await settingsQueries.createSetting(db, key, value);
 
     console.log(`✅ Admin portal created setting: ${key} = ${value}`);
 
@@ -1044,15 +1033,8 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     }
 
     // Update or insert INSTANCE_STATUS setting
-    const existingSetting = await wrapQuery(db.prepare('SELECT key FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
-    
-    if (existingSetting) {
-      await wrapQuery(db.prepare('UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?'), 'UPDATE')
-        .run(status, 'INSTANCE_STATUS');
-    } else {
-      await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)'), 'INSERT')
-        .run('INSTANCE_STATUS', status);
-    }
+    // MIGRATED: Upsert instance status using sqlManager
+    await settingsQueries.upsertSetting(db, 'INSTANCE_STATUS', status);
 
     console.log(`✅ Admin portal updated instance status to: ${status}`);
 
@@ -1082,8 +1064,9 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
 router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
-    const status = statusSetting ? statusSetting.value : 'active';
+    // MIGRATED: Get instance status using sqlManager
+    const statusSetting = await helpers.getSetting(db, 'INSTANCE_STATUS');
+    const status = statusSetting || 'active';
 
     res.json({
       success: true,
@@ -1264,24 +1247,23 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
     // Store invitation token
-    await wrapQuery(db.prepare(`
-      INSERT OR REPLACE INTO user_invitations (user_id, token, expires_at, created_at) 
-      VALUES (?, ?, ?, ?)
-    `), 'INSERT').run(user.id, inviteToken, expiresAt.toISOString(), new Date().toISOString());
+    // MIGRATED: Create user invitation using sqlManager
+    const invitationId = crypto.randomUUID();
+    await adminUserQueries.createUserInvitation(db, invitationId, user.id, inviteToken, expiresAt.toISOString());
     
-    // Get site name from settings
-    const siteNameSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('SITE_NAME');
-    const siteName = siteNameSetting?.value || 'Easy Kanban';
+    // MIGRATED: Get site name from settings using sqlManager
+    const siteNameSetting = await helpers.getSetting(db, 'SITE_NAME');
+    const siteName = siteNameSetting || 'Easy Kanban';
     
-    // Generate invitation URL using tenant-specific URL
+    // MIGRATED: Generate invitation URL using tenant-specific URL using sqlManager
     // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
-    const appUrlSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('APP_URL');
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     let baseUrl = process.env.BASE_URL;
     
     if (!baseUrl) {
-      if (appUrlSetting?.value) {
+      if (appUrlSetting) {
         // Use APP_URL from database (most reliable - tenant-specific)
-        baseUrl = appUrlSetting.value;
+        baseUrl = appUrlSetting;
       } else {
         // Construct from tenantId if available (multi-tenant mode)
         const tenantId = req.tenantId;

@@ -8,8 +8,8 @@ import { getSprintUsage, deleteSprint } from '../../api';
 interface PlanningPeriod {
   id: string;
   name: string;
-  start_date: string;
-  end_date: string;
+  start_date: string | null;
+  end_date: string | null;
   is_active: boolean;
   description: string | null;
   created_at: string;
@@ -301,7 +301,12 @@ const AdminSprintSettingsTab: React.FC = () => {
     }
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null | undefined) => {
+    // Handle null/undefined dates
+    if (!dateString) {
+      return '-';
+    }
+    
     // Parse as local date to avoid timezone offset issues
     const [year, month, day] = dateString.split('-').map(Number);
     const date = new Date(year, month - 1, day); // month is 0-indexed

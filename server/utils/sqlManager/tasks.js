@@ -881,6 +881,24 @@ export async function createTaskRelationship(db, taskId, relationship, toTaskId)
 }
 
 /**
+ * Get task relationship by ID
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} relationshipId - Relationship ID
+ * @param {string} taskId - Task ID (for validation)
+ * @returns {Promise<Object|null>} Relationship object or null
+ */
+export async function getTaskRelationshipById(db, relationshipId, taskId) {
+  const query = `
+    SELECT * FROM task_rels 
+    WHERE id = $1 AND task_id = $2
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.get(relationshipId, taskId);
+}
+
+/**
  * Delete task relationship
  * 
  * @param {Database} db - Database connection

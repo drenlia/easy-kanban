@@ -1,8 +1,7 @@
 import { isValidAction } from '../constants/activityActions.js';
 import notificationService from './notificationService.js';
-import { getTranslator } from '../utils/i18n.js';
-import { dbAll } from '../utils/dbAsync.js';
-import { wrapQuery } from '../utils/queryLogger.js';
+import { getBilingualTranslation, t } from '../utils/i18n.js';
+import { activity as activityQueries } from '../utils/sqlManager/index.js';
 
 /**
  * Activity Logger Service
@@ -53,12 +52,8 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let columnId = null;
 
     try {
-      const taskInfo = await wrapQuery(database.prepare(
-        `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
-         FROM tasks t 
-         LEFT JOIN boards b ON t.boardId = b.id 
-         WHERE t.id = ?`
-      ), 'SELECT').get(taskId);
+      // MIGRATED: Use SQL Manager
+      const taskInfo = await activityQueries.getTaskInfoForActivity(database, taskId);
       
       if (taskInfo) {
         taskTitle = taskInfo.title || 'Unknown Task';
@@ -70,22 +65,13 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       console.warn('Failed to get task/board info for task activity:', taskError.message);
     }
 
-    // Get user's current role
-    const userRole = await wrapQuery(database.prepare(`
-      SELECT r.id as roleId 
-      FROM user_roles ur 
-      JOIN roles r ON ur.role_id = r.id 
-      WHERE ur.user_id = ? 
-      ORDER BY r.name DESC 
-      LIMIT 1
-    `), 'SELECT').get(userId);
-
-    // Get the first available role as fallback
-    const fallbackRole = await wrapQuery(database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`), 'SELECT').get();
+    // MIGRATED: Use SQL Manager
+    const userRole = await activityQueries.getUserRoleForActivity(database, userId);
+    const fallbackRole = await activityQueries.getFallbackRole(database);
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
-    // Check if user exists
-    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
+    // MIGRATED: Use SQL Manager
+    const userExists = await activityQueries.checkUserExists(database, userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
@@ -97,12 +83,8 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     let taskTicket = null;
     
     try {
-      const taskDetails = await wrapQuery(database.prepare(
-        `SELECT t.ticket, b.project 
-         FROM tasks t 
-         LEFT JOIN boards b ON t.boardId = b.id 
-         WHERE t.id = ?`
-      ), 'SELECT').get(taskId);
+      // MIGRATED: Use SQL Manager
+      const taskDetails = await activityQueries.getTaskDetailsForActivity(database, taskId);
       
       if (taskDetails) {
         projectIdentifier = taskDetails.project;
@@ -112,96 +94,187 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
       console.warn('Failed to get project/task identifiers:', prefixError.message);
     }
 
-    // Get translator for activity messages
-    const t = await getTranslator(database);
+    // Get bilingual translations for task and board titles
+    const unknownTaskEn = t('activity.unknownTask', {}, 'en');
+    const unknownTaskFr = t('activity.unknownTask', {}, 'fr');
+    const unknownBoardEn = t('activity.unknownBoard', {}, 'en');
+    const unknownBoardFr = t('activity.unknownBoard', {}, 'fr');
     
-    // Translate task and board titles if they are default values
-    const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
-    const translatedBoardTitle = boardTitle === 'Unknown Board' ? t('activity.unknownBoard') : boardTitle;
+    const translatedTaskTitle = {
+      en: taskTitle === 'Unknown Task' ? unknownTaskEn : taskTitle,
+      fr: taskTitle === 'Unknown Task' ? unknownTaskFr : taskTitle
+    };
+    const translatedBoardTitle = {
+      en: boardTitle === 'Unknown Board' ? unknownBoardEn : boardTitle,
+      fr: boardTitle === 'Unknown Board' ? unknownBoardFr : boardTitle
+    };
     
-    // Create enhanced details with context for specific actions
-    let enhancedDetails = details;
+    // Create enhanced details with context for specific actions (bilingual)
+    let enhancedDetailsBilingual = { en: details, fr: details };
     const taskRef = taskTicket ? ` (${taskTicket})` : '';
     
     if (action === 'create_task') {
       // Check if this is a "create at top" action
       if (details && details.includes('at top')) {
-        enhancedDetails = t('activity.createdTaskAtTop', {
-          taskTitle: translatedTaskTitle
+        enhancedDetailsBilingual = getBilingualTranslation('activity.createdTaskAtTop', {
+          taskTitle: translatedTaskTitle.en // Use English title for both (task titles are not translated)
         });
+        // Override with actual task title (same for both languages)
+        enhancedDetailsBilingual.en = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.en }, 'en');
+        enhancedDetailsBilingual.fr = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.fr }, 'fr');
       } else {
-        enhancedDetails = t('activity.createdTask', {
-          taskTitle: translatedTaskTitle,
+        enhancedDetailsBilingual.en = t('activity.createdTask', {
+          taskTitle: translatedTaskTitle.en,
           taskRef,
-          boardTitle: translatedBoardTitle
-        });
+          boardTitle: translatedBoardTitle.en
+        }, 'en');
+        enhancedDetailsBilingual.fr = t('activity.createdTask', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr');
       }
     } else if (action === 'delete_task') {
       // For delete_task, if taskTitle is "Unknown Task", use the provided details
       if (taskTitle === 'Unknown Task' && details.includes('deleted task')) {
-        enhancedDetails = details; // Use the provided details as-is (already translated)
+        // If details is already a JSON string, parse it; otherwise use as-is for both languages
+        try {
+          const parsed = JSON.parse(details);
+          if (parsed.en && parsed.fr) {
+            enhancedDetailsBilingual = parsed;
+          } else {
+            enhancedDetailsBilingual = { en: details, fr: details };
+          }
+        } catch {
+          enhancedDetailsBilingual = { en: details, fr: details };
+        }
       } else {
-        enhancedDetails = t('activity.deletedTask', {
-          taskTitle: translatedTaskTitle,
+        enhancedDetailsBilingual.en = t('activity.deletedTask', {
+          taskTitle: translatedTaskTitle.en,
           taskRef,
-          boardTitle: translatedBoardTitle
-        });
+          boardTitle: translatedBoardTitle.en
+        }, 'en');
+        enhancedDetailsBilingual.fr = t('activity.deletedTask', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr');
       }
     } else if (action === 'move_task') {
       // Board move already includes task name, add task reference if available
-      enhancedDetails = t('activity.movedTask', {
-        details,
+      // Details might already be bilingual JSON, so we need to handle both cases
+      let detailsEn = details;
+      let detailsFr = details;
+      try {
+        const parsed = JSON.parse(details);
+        if (parsed.en && parsed.fr) {
+          detailsEn = parsed.en;
+          detailsFr = parsed.fr;
+        }
+      } catch {
+        // Not JSON, use as-is
+      }
+      
+      enhancedDetailsBilingual.en = t('activity.movedTask', {
+        details: detailsEn,
         taskRef,
-        boardTitle: translatedBoardTitle
-      });
+        boardTitle: translatedBoardTitle.en
+      }, 'en');
+      enhancedDetailsBilingual.fr = t('activity.movedTask', {
+        details: detailsFr,
+        taskRef,
+        boardTitle: translatedBoardTitle.fr
+      }, 'fr');
     } else if (action === 'update_task') {
-      // Check if this is a column move (already includes task name in details)
-      if (details.includes('moved task') && details.includes('from') && details.includes('to')) {
-        // Column move already includes task reference, just add board context
-        enhancedDetails = t('activity.movedTaskColumn', {
-          details,
-          boardTitle: translatedBoardTitle
-        });
-      } else {
-        enhancedDetails = t('activity.updatedTask', {
-          details,
-          taskTitle: translatedTaskTitle,
-          taskRef,
-          boardTitle: translatedBoardTitle
-        });
+      // Check if details is already a complete bilingual JSON message
+      let detailsEn = details;
+      let detailsFr = details;
+      let isCompleteMessage = false;
+      
+      try {
+        const parsed = JSON.parse(details);
+        if (parsed.en && parsed.fr) {
+          // Check if this is already a complete message (contains task title/board context)
+          // Complete messages typically contain "in task" or "dans la tâche" or "in board" or "dans le tableau"
+          const isCompleteEn = parsed.en.includes('in task') || parsed.en.includes('in board') || parsed.en.includes('updated task:');
+          const isCompleteFr = parsed.fr.includes('dans la tâche') || parsed.fr.includes('dans le tableau') || parsed.fr.includes('a modifié la tâche:');
+          
+          if (isCompleteEn || isCompleteFr) {
+            // Already a complete message, use as-is
+            enhancedDetailsBilingual = parsed;
+            isCompleteMessage = true;
+          } else {
+            // Partial message, needs wrapping
+            detailsEn = parsed.en;
+            detailsFr = parsed.fr;
+          }
+        }
+      } catch {
+        // Not JSON, check if it's a complete plain text message
+        if (details.includes('in task') || details.includes('in board') || details.includes('updated task:') || 
+            details.includes('dans la tâche') || details.includes('dans le tableau') || details.includes('a modifié la tâche:')) {
+          // Complete message in old format, convert to bilingual
+          enhancedDetailsBilingual = { en: details, fr: details };
+          isCompleteMessage = true;
+        }
+        // Otherwise use as-is for wrapping
+      }
+      
+      if (!isCompleteMessage) {
+        // Wrap partial details in activity template
+        if (detailsEn.includes('moved task') && detailsEn.includes('from') && detailsEn.includes('to')) {
+          // Column move already includes task reference, just add board context
+          enhancedDetailsBilingual.en = t('activity.movedTaskColumn', {
+            details: detailsEn,
+            boardTitle: translatedBoardTitle.en
+          }, 'en');
+          enhancedDetailsBilingual.fr = t('activity.movedTaskColumn', {
+            details: detailsFr,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr');
+        } else {
+          enhancedDetailsBilingual.en = t('activity.updatedTask', {
+            details: detailsEn,
+            taskTitle: translatedTaskTitle.en,
+            taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en');
+          enhancedDetailsBilingual.fr = t('activity.updatedTask', {
+            details: detailsFr,
+            taskTitle: translatedTaskTitle.fr,
+            taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr');
+        }
       }
     }
 
-    // Append project and task identifiers (always enabled)
+    // Append project and task identifiers (always enabled) - same for both languages
     if (projectIdentifier || taskTicket) {
       const identifiers = [];
       if (projectIdentifier) identifiers.push(projectIdentifier);
       if (taskTicket) identifiers.push(taskTicket);
       if (identifiers.length > 0) {
-        enhancedDetails += ` (${identifiers.join('/')})`;
+        const suffix = ` (${identifiers.join('/')})`;
+        enhancedDetailsBilingual.en += suffix;
+        enhancedDetailsBilingual.fr += suffix;
       }
     }
+    
+    // Convert to JSON string for storage
+    const enhancedDetails = JSON.stringify(enhancedDetailsBilingual);
 
-    // Debug logging
-
-    // Insert activity into database
-    const stmt = database.prepare(`
-      INSERT INTO activity (
-        userId, roleId, action, taskId, columnId, boardId, tagId, details, 
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `);
-
-    await wrapQuery(stmt, 'INSERT').run(
+    // MIGRATED: Use SQL Manager to insert activity
+    await activityQueries.insertActivity(database, {
       userId,
       roleId,
       action,
       taskId,
-      columnId || additionalData.columnId || null,
-      boardId || additionalData.boardId || null,
-      additionalData.tagId || null,
-      enhancedDetails
-    );
+      columnId: columnId || additionalData.columnId || null,
+      boardId: boardId || additionalData.boardId || null,
+      tagId: additionalData.tagId || null,
+      details: enhancedDetails
+    });
 
     // Publish activity update for real-time updates
     // Note: For PostgreSQL, we send minimal payload (timestamp) to avoid 8000 byte limit
@@ -274,58 +347,46 @@ export const logActivity = async (userId, action, details, additionalData = {}) 
   }
 
   try {
-    // Get translator for activity messages
-    const t = await getTranslator(database);
-    
-    // Get user's current role
-    const userRole = await wrapQuery(database.prepare(`
-      SELECT r.id as roleId 
-      FROM user_roles ur 
-      JOIN roles r ON ur.role_id = r.id 
-      WHERE ur.user_id = ? 
-      ORDER BY r.name DESC 
-      LIMIT 1
-    `), 'SELECT').get(userId);
-
-    // Get the first available role as fallback
-    const fallbackRole = await wrapQuery(database.prepare(`SELECT id FROM roles ORDER BY id ASC LIMIT 1`), 'SELECT').get();
+    // MIGRATED: Use SQL Manager
+    const userRole = await activityQueries.getUserRoleForActivity(database, userId);
+    const fallbackRole = await activityQueries.getFallbackRole(database);
     const roleId = userRole?.roleId || fallbackRole?.id || null;
 
-    // Check if user exists
-    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
+    // MIGRATED: Use SQL Manager
+    const userExists = await activityQueries.checkUserExists(database, userId);
 
     if (!userExists || !roleId) {
       console.warn(`Skipping activity log: User ${userId} or role ${roleId} not found in database`);
       return;
     }
 
-    // Try to translate common activity patterns
-    // For now, we'll use the details as-is if it doesn't match a known pattern
-    // This allows callers to pass pre-translated strings or custom messages
+    // Handle details - if it's already JSON, use it; otherwise create bilingual version
     let translatedDetails = details;
-    
-    // Simple pattern matching for common activities (can be expanded)
-    // For tag associations, relationships, etc., we'll keep the details as-is
-    // since they may contain dynamic content that's already formatted
+    try {
+      const parsed = JSON.parse(details);
+      if (parsed.en && parsed.fr) {
+        // Already bilingual JSON, use as-is
+        translatedDetails = details;
+      } else {
+        // Not valid bilingual JSON, create it
+        translatedDetails = JSON.stringify({ en: details, fr: details });
+      }
+    } catch {
+      // Not JSON, create bilingual version (same text for both languages)
+      translatedDetails = JSON.stringify({ en: details, fr: details });
+    }
 
-    // Insert activity into database
-    const stmt = database.prepare(`
-      INSERT INTO activity (
-        userId, roleId, action, taskId, columnId, boardId, tagId, details, 
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `);
-
-    await wrapQuery(stmt, 'INSERT').run(
+    // MIGRATED: Use SQL Manager to insert activity
+    await activityQueries.insertActivity(database, {
       userId,
       roleId,
       action,
-      additionalData.taskId || null,
-      additionalData.columnId || null,
-      additionalData.boardId || null,
-      additionalData.tagId || null,
-      translatedDetails
-    );
+      taskId: additionalData.taskId || null,
+      columnId: additionalData.columnId || null,
+      boardId: additionalData.boardId || null,
+      tagId: additionalData.tagId || null,
+      details: translatedDetails
+    });
 
     // Publish activity update for real-time updates
     // Note: For PostgreSQL, we send minimal payload (timestamp) to avoid 8000 byte limit
@@ -379,18 +440,9 @@ const analyzeHTMLContent = (html) => {
 };
 
 /**
- * Generate intelligent description change details
+ * Generate intelligent description change details (bilingual)
  */
-const generateDescriptionChangeDetails = (oldValue, newValue, t) => {
-  if (!t) {
-    // Fallback if translator not provided
-    t = (key, params = {}) => {
-      if (key === 'activity.updatedDescription') return 'updated description';
-      if (key === 'activity.addedAttachment') return `added ${params.count} attachment${params.count > 1 ? 's' : ''}`;
-      if (key === 'activity.removedAttachment') return `removed ${params.count} attachment${params.count > 1 ? 's' : ''}`;
-      return key;
-    };
-  }
+const generateDescriptionChangeDetails = (oldValue, newValue) => {
 
   const oldContent = analyzeHTMLContent(oldValue);
   const newContent = analyzeHTMLContent(newValue);
@@ -399,33 +451,42 @@ const generateDescriptionChangeDetails = (oldValue, newValue, t) => {
   const imagesAdded = newContent.images.filter(img => !oldContent.images.includes(img));
   const imagesRemoved = oldContent.images.filter(img => !newContent.images.includes(img));
   
-  const actions = [];
+  const actionsEn = [];
+  const actionsFr = [];
   
   // Check for text changes
   if (textChanged) {
-    actions.push(t('activity.updatedDescription'));
+    actionsEn.push(t('activity.updatedDescription', {}, 'en'));
+    actionsFr.push(t('activity.updatedDescription', {}, 'fr'));
   }
   
   // Check for image changes
   if (imagesAdded.length > 0) {
     const count = imagesAdded.length;
-    const key = count === 1 ? 'activity.addedAttachment' : 'activity.addedAttachments';
-    actions.push(t(key, { count }));
+    const keyEn = count === 1 ? 'activity.addedAttachment' : 'activity.addedAttachments';
+    const keyFr = count === 1 ? 'activity.addedAttachment' : 'activity.addedAttachments';
+    actionsEn.push(t(keyEn, { count }, 'en'));
+    actionsFr.push(t(keyFr, { count }, 'fr'));
   }
   
   if (imagesRemoved.length > 0) {
     const count = imagesRemoved.length;
-    const key = count === 1 ? 'activity.removedAttachment' : 'activity.removedAttachments';
-    actions.push(t(key, { count }));
+    const keyEn = count === 1 ? 'activity.removedAttachment' : 'activity.removedAttachments';
+    const keyFr = count === 1 ? 'activity.removedAttachment' : 'activity.removedAttachments';
+    actionsEn.push(t(keyEn, { count }, 'en'));
+    actionsFr.push(t(keyFr, { count }, 'fr'));
   }
   
   // If no meaningful changes detected, fall back to generic message
-  if (actions.length === 0) {
-    return t('activity.updatedDescription');
+  if (actionsEn.length === 0) {
+    return JSON.stringify(getBilingualTranslation('activity.updatedDescription'));
   }
   
-  // Join actions with " and " - this needs to be translated too, but for now we'll use English
-  return actions.join(' and ');
+  // Join actions with " and " - same for both languages
+  return JSON.stringify({
+    en: actionsEn.join(' and '),
+    fr: actionsFr.join(' et ')
+  });
 };
 
 export const generateTaskUpdateDetails = async (field, oldValue, newValue, additionalContext = '', db = null) => {
@@ -436,44 +497,60 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
   
   if (!finalDb) {
     console.warn('Database not available for generateTaskUpdateDetails');
-    return '';
+    return JSON.stringify({ en: '', fr: '' });
   }
 
-  const t = await getTranslator(finalDb);
   // Map field names to translation keys (handle legacy field names)
   const fieldKeyMap = {
     'priority': 'priorityId',
     'priorityId': 'priorityId'
   };
   const translationKey = fieldKeyMap[field] || field;
-  const fieldLabel = t(`activity.fieldLabels.${translationKey}`, {}, field);
-  // Use context from parameter (already extracted above)
+  
+  // Get bilingual field labels
+  const fieldLabelEn = t(`activity.fieldLabels.${translationKey}`, {}, 'en') || field;
+  const fieldLabelFr = t(`activity.fieldLabels.${translationKey}`, {}, 'fr') || field;
 
   // Special handling for description changes
   if (field === 'description') {
     if (oldValue === null || oldValue === undefined || oldValue === '') {
-      return newValue ? t('activity.addedDescription') : t('activity.updatedDescription');
+      const addedEn = t('activity.addedDescription', {}, 'en');
+      const addedFr = t('activity.addedDescription', {}, 'fr');
+      const updatedEn = t('activity.updatedDescription', {}, 'en');
+      const updatedFr = t('activity.updatedDescription', {}, 'fr');
+      return JSON.stringify({
+        en: newValue ? addedEn : updatedEn,
+        fr: newValue ? addedFr : updatedFr
+      });
     } else if (newValue === null || newValue === undefined || newValue === '') {
-      return t('activity.clearedDescription');
+      return JSON.stringify(getBilingualTranslation('activity.clearedDescription'));
     } else {
-      return generateDescriptionChangeDetails(oldValue, newValue, t);
+      return generateDescriptionChangeDetails(oldValue, newValue);
     }
   }
 
   // Special handling for memberId and requesterId changes - resolve member IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
     const getMemberName = async (memberId) => {
-      if (!memberId || !finalDb) return t('activity.unassigned');
+      if (!memberId || !finalDb) {
+        return {
+          en: t('activity.unassigned', {}, 'en'),
+          fr: t('activity.unassigned', {}, 'fr')
+        };
+      }
       try {
-        const member = await wrapQuery(finalDb.prepare(`
-          SELECT m.name 
-          FROM members m 
-          WHERE m.id = ?
-        `), 'SELECT').get(memberId);
-        return member?.name || t('activity.unknownUser');
+        // MIGRATED: Use SQL Manager
+        const member = await activityQueries.getMemberName(finalDb, memberId);
+        return {
+          en: member?.name || t('activity.unknownUser', {}, 'en'),
+          fr: member?.name || t('activity.unknownUser', {}, 'fr')
+        };
       } catch (error) {
         console.warn('Failed to resolve member name for member ID:', memberId, error.message);
-        return t('activity.unknownUser');
+        return {
+          en: t('activity.unknownUser', {}, 'en'),
+          fr: t('activity.unknownUser', {}, 'fr')
+        };
       }
     };
 
@@ -482,31 +559,58 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
 
     if (field === 'memberId') {
       if (oldValue === null || oldValue === undefined || oldValue === '') {
-        return t('activity.setAssignee', { newName }) + context;
+        return JSON.stringify({
+          en: t('activity.setAssignee', { newName: newName.en }, 'en') + context,
+          fr: t('activity.setAssignee', { newName: newName.fr }, 'fr') + context
+        });
       } else if (newValue === null || newValue === undefined || newValue === '') {
-        return t('activity.clearedAssignee', { oldName }) + context;
+        return JSON.stringify({
+          en: t('activity.clearedAssignee', { oldName: oldName.en }, 'en') + context,
+          fr: t('activity.clearedAssignee', { oldName: oldName.fr }, 'fr') + context
+        });
       } else {
-        return t('activity.changedAssignee', { oldName, newName }) + context;
+        return JSON.stringify({
+          en: t('activity.changedAssignee', { oldName: oldName.en, newName: newName.en }, 'en') + context,
+          fr: t('activity.changedAssignee', { oldName: oldName.fr, newName: newName.fr }, 'fr') + context
+        });
       }
     } else if (field === 'requesterId') {
       if (oldValue === null || oldValue === undefined || oldValue === '') {
-        return t('activity.setRequester', { newName }) + context;
+        return JSON.stringify({
+          en: t('activity.setRequester', { newName: newName.en }, 'en') + context,
+          fr: t('activity.setRequester', { newName: newName.fr }, 'fr') + context
+        });
       } else if (newValue === null || newValue === undefined || newValue === '') {
-        return t('activity.clearedRequester', { oldName }) + context;
+        return JSON.stringify({
+          en: t('activity.clearedRequester', { oldName: oldName.en }, 'en') + context,
+          fr: t('activity.clearedRequester', { oldName: oldName.fr }, 'fr') + context
+        });
       } else {
-        return t('activity.changedRequester', { oldName, newName }) + context;
+        return JSON.stringify({
+          en: t('activity.changedRequester', { oldName: oldName.en, newName: newName.en }, 'en') + context,
+          fr: t('activity.changedRequester', { oldName: oldName.fr, newName: newName.fr }, 'fr') + context
+        });
       }
     }
   }
 
   // Handle other fields as before
   if (oldValue === null || oldValue === undefined || oldValue === '') {
-      return t('activity.setField', { fieldLabel, newValue }) + context;
-    } else if (newValue === null || newValue === undefined || newValue === '') {
-      return t('activity.clearedField', { fieldLabel, oldValue }) + context;
-    } else {
-      return t('activity.changedField', { fieldLabel, oldValue, newValue }) + context;
-    }
+    return JSON.stringify({
+      en: t('activity.setField', { fieldLabel: fieldLabelEn, newValue }, 'en') + context,
+      fr: t('activity.setField', { fieldLabel: fieldLabelFr, newValue }, 'fr') + context
+    });
+  } else if (newValue === null || newValue === undefined || newValue === '') {
+    return JSON.stringify({
+      en: t('activity.clearedField', { fieldLabel: fieldLabelEn, oldValue }, 'en') + context,
+      fr: t('activity.clearedField', { fieldLabel: fieldLabelFr, oldValue }, 'fr') + context
+    });
+  } else {
+    return JSON.stringify({
+      en: t('activity.changedField', { fieldLabel: fieldLabelEn, oldValue, newValue }, 'en') + context,
+      fr: t('activity.changedField', { fieldLabel: fieldLabelFr, oldValue, newValue }, 'fr') + context
+    });
+  }
 };
 
 /**
@@ -539,12 +643,8 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
     let columnId = null;
 
     try {
-      const taskInfo = await wrapQuery(database.prepare(
-        `SELECT t.title, t.boardId, t.columnId, b.title as boardTitle 
-         FROM tasks t 
-         LEFT JOIN boards b ON t.boardId = b.id 
-         WHERE t.id = ?`
-      ), 'SELECT').get(taskId);
+      // MIGRATED: Use SQL Manager
+      const taskInfo = await activityQueries.getTaskInfoForActivity(database, taskId);
       
       if (taskInfo) {
         taskTitle = taskInfo.title || 'Unknown Task';
@@ -556,51 +656,37 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn('Failed to get task/board info for comment activity:', taskError.message);
     }
 
-    // Get user role with fallback
-    let userRole = null;
-    let fallbackRole = null;
+    // MIGRATED: Use SQL Manager
+    const userRole = await activityQueries.getUserRoleForActivity(database, userId);
+    const fallbackRole = await activityQueries.getFallbackRole(database);
+    const finalRoleId = userRole?.roleId || fallbackRole?.id || null;
 
-    try {
-      const roleResult = await wrapQuery(database.prepare(
-        `SELECT ur.role_id, r.name as role_name 
-         FROM user_roles ur 
-         JOIN roles r ON ur.role_id = r.id 
-         WHERE ur.user_id = ?`
-      ), 'SELECT').get(userId);
-      userRole = roleResult?.role_id || null;
-    } catch (roleError) {
-      console.warn('Failed to get user role for comment activity:', roleError.message);
-    }
-
-    // Fallback to Member role if no role found
-    if (!userRole) {
-      try {
-        const memberRoleResult = await wrapQuery(database.prepare(`SELECT id FROM roles WHERE name = 'Member'`), 'SELECT').get();
-        fallbackRole = memberRoleResult?.id || null;
-      } catch (fallbackError) {
-        console.warn('Failed to get fallback Member role:', fallbackError.message);
-      }
-    }
-
-    const finalRoleId = userRole || fallbackRole;
-
-    // Check if user exists
-    const userExists = await wrapQuery(database.prepare(`SELECT id FROM users WHERE id = ?`), 'SELECT').get(userId);
+    // MIGRATED: Use SQL Manager
+    const userExists = await activityQueries.checkUserExists(database, userId);
     if (!userExists) {
       console.warn(`User ${userId} not found for comment activity logging`);
     }
 
-    // Get translator for activity messages
-    const t = await getTranslator(database);
+    // Get bilingual translations for task and board titles
+    const unknownTaskEn = t('activity.unknownTask', {}, 'en');
+    const unknownTaskFr = t('activity.unknownTask', {}, 'fr');
+    const unknownBoardEn = t('activity.unknownBoard', {}, 'en');
+    const unknownBoardFr = t('activity.unknownBoard', {}, 'fr');
     
-    // Translate task and board titles if they are default values
-    const translatedTaskTitle = taskTitle === 'Unknown Task' ? t('activity.unknownTask') : taskTitle;
-    const translatedBoardTitle = boardTitle === 'Unknown Board' ? t('activity.unknownBoard') : boardTitle;
+    const translatedTaskTitle = {
+      en: taskTitle === 'Unknown Task' ? unknownTaskEn : taskTitle,
+      fr: taskTitle === 'Unknown Task' ? unknownTaskFr : taskTitle
+    };
+    const translatedBoardTitle = {
+      en: boardTitle === 'Unknown Board' ? unknownBoardEn : boardTitle,
+      fr: boardTitle === 'Unknown Board' ? unknownBoardFr : boardTitle
+    };
     
     // Get task reference for enhanced context
     let taskRef = '';
     try {
-      const taskDetails = await wrapQuery(database.prepare(`SELECT ticket FROM tasks WHERE id = ?`), 'SELECT').get(taskId);
+      // MIGRATED: Use SQL Manager
+      const taskDetails = await activityQueries.getTaskTicket(database, taskId);
       if (taskDetails?.ticket) {
         taskRef = ` (${taskDetails.ticket})`;
       }
@@ -608,81 +694,96 @@ export const logCommentActivity = async (userId, action, commentId, taskId, deta
       console.warn('Failed to get task reference for comment activity:', refError.message);
     }
     
-    // Create clean, user-friendly details without exposing raw comment content
-    let enhancedDetails;
+    // Create clean, user-friendly details without exposing raw comment content (bilingual)
+    let enhancedDetailsBilingual;
     if (action === 'create_comment') {
-      enhancedDetails = t('activity.addedComment', {
-        taskTitle: translatedTaskTitle,
-        taskRef,
-        boardTitle: translatedBoardTitle
-      });
+      enhancedDetailsBilingual = {
+        en: t('activity.addedComment', {
+          taskTitle: translatedTaskTitle.en,
+          taskRef,
+          boardTitle: translatedBoardTitle.en
+        }, 'en'),
+        fr: t('activity.addedComment', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr')
+      };
     } else if (action === 'update_comment') {
-      enhancedDetails = t('activity.updatedComment', {
-        taskTitle: translatedTaskTitle,
-        taskRef,
-        boardTitle: translatedBoardTitle
-      });
+      enhancedDetailsBilingual = {
+        en: t('activity.updatedComment', {
+          taskTitle: translatedTaskTitle.en,
+          taskRef,
+          boardTitle: translatedBoardTitle.en
+        }, 'en'),
+        fr: t('activity.updatedComment', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr')
+      };
     } else if (action === 'delete_comment') {
-      enhancedDetails = t('activity.deletedComment', {
-        taskTitle: translatedTaskTitle,
-        taskRef,
-        boardTitle: translatedBoardTitle
-      });
+      enhancedDetailsBilingual = {
+        en: t('activity.deletedComment', {
+          taskTitle: translatedTaskTitle.en,
+          taskRef,
+          boardTitle: translatedBoardTitle.en
+        }, 'en'),
+        fr: t('activity.deletedComment', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr')
+      };
     } else {
-      enhancedDetails = t('activity.updatedComment', {
-        taskTitle: translatedTaskTitle,
-        taskRef,
-        boardTitle: translatedBoardTitle
-      });
+      enhancedDetailsBilingual = {
+        en: t('activity.updatedComment', {
+          taskTitle: translatedTaskTitle.en,
+          taskRef,
+          boardTitle: translatedBoardTitle.en
+        }, 'en'),
+        fr: t('activity.updatedComment', {
+          taskTitle: translatedTaskTitle.fr,
+          taskRef,
+          boardTitle: translatedBoardTitle.fr
+        }, 'fr')
+      };
     }
 
     // Get project identifier and task ticket for enhanced context (always enabled)
     try {
-      const taskDetails = await wrapQuery(database.prepare(
-        `SELECT t.ticket, b.project 
-         FROM tasks t 
-         LEFT JOIN boards b ON t.boardId = b.id 
-         WHERE t.id = ?`
-      ), 'SELECT').get(taskId);
+      // MIGRATED: Use SQL Manager
+      const taskDetails = await activityQueries.getTaskDetailsForActivity(database, taskId);
       
       if (taskDetails && (taskDetails.project || taskDetails.ticket)) {
         const identifiers = [];
         if (taskDetails.project) identifiers.push(taskDetails.project);
         if (taskDetails.ticket) identifiers.push(taskDetails.ticket);
         if (identifiers.length > 0) {
-          enhancedDetails += ` (${identifiers.join('/')})`;
+          const suffix = ` (${identifiers.join('/')})`;
+          enhancedDetailsBilingual.en += suffix;
+          enhancedDetailsBilingual.fr += suffix;
         }
       }
     } catch (prefixError) {
       console.warn('Failed to get project/task identifiers for comment activity:', prefixError.message);
     }
 
-    console.log('Logging comment activity:', {
+    // Convert to JSON string for storage
+    const enhancedDetails = JSON.stringify(enhancedDetailsBilingual);
+
+    // MIGRATED: Use SQL Manager to insert activity
+    await activityQueries.insertActivity(database, {
       userId,
       roleId: finalRoleId,
       action,
       taskId,
       commentId,
-      boardId,
-      columnId,
-      details: enhancedDetails,
-      additionalData
+      columnId: columnId || additionalData.columnId || null,
+      boardId: boardId || additionalData.boardId || null,
+      tagId: additionalData.tagId || null,
+      details: enhancedDetails
     });
-
-    database.prepare(
-      `INSERT INTO activity (userId, roleId, action, taskId, commentId, columnId, boardId, tagId, details) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      userId,
-      finalRoleId,
-      action,
-      taskId,
-      commentId,
-      columnId || additionalData.columnId || null,
-      boardId || additionalData.boardId || null,
-      additionalData.tagId || null,
-      enhancedDetails
-    );
 
     console.log('Comment activity logged successfully');
     

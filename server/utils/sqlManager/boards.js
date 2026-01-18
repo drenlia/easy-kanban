@@ -66,13 +66,29 @@ export async function getBoardByTitle(db, title, excludeBoardId = null) {
  * @returns {Promise<number>} Maximum position or -1
  */
 export async function getMaxBoardPosition(db) {
+  // Cast to INTEGER to ensure proper numeric comparison in PostgreSQL
+  // Use quoted alias to preserve case in PostgreSQL
   const query = `
-    SELECT MAX(position) as maxPos FROM boards
+    SELECT MAX(CAST(position AS INTEGER)) as "maxPos" FROM boards
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const result = await stmt.get();
-  return result?.maxPos || -1;
+  console.log(`[getMaxBoardPosition] Query result:`, result);
+  // PostgreSQL returns lowercase unless quoted, so check both
+  const maxPos = result?.maxPos ?? result?.maxpos ?? null;
+  console.log(`[getMaxBoardPosition] maxPos value:`, maxPos, `type:`, typeof maxPos);
+  
+  // Also check how many boards exist to debug
+  const countQuery = `SELECT COUNT(*) as count FROM boards`;
+  const countStmt = wrapQuery(db.prepare(countQuery), 'SELECT');
+  const countResult = await countStmt.get();
+  console.log(`[getMaxBoardPosition] Total boards in database:`, countResult?.count);
+  
+  // Use nullish coalescing to handle PostgreSQL NULL values properly
+  const finalMaxPos = maxPos ?? -1;
+  console.log(`[getMaxBoardPosition] Returning:`, finalMaxPos);
+  return finalMaxPos;
 }
 
 /**
@@ -142,7 +158,7 @@ export async function deleteBoard(db, id) {
 export async function getAllBoardsWithPositions(db) {
   const query = `
     SELECT id, position FROM boards 
-    ORDER BY position ASC
+    ORDER BY CAST(position AS INTEGER) ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');

@@ -11,6 +11,13 @@ services:
       - PORT=3222
       - VITE_API_URL=http://localhost:3222
       - REDIS_URL=redis://redis:6379
+      # Database configuration - PostgreSQL
+      - DB_TYPE=postgresql
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=kanban
+      - POSTGRES_USER=kanban_user
+      - POSTGRES_PASSWORD=kanban_password
       # JWT Secret for authentication (will be replaced by build.sh with random value)
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Allowed origins for CORS
@@ -42,7 +49,28 @@ services:
       - kanban-attachments:/app/server/attachments
       - kanban-avatars:/app/server/avatars
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: easy-kanban-postgres
+    environment:
+      - POSTGRES_DB=kanban
+      - POSTGRES_USER=kanban_user
+      - POSTGRES_PASSWORD=kanban_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanban_user -d kanban"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   redis:
@@ -61,6 +89,8 @@ volumes:
   kanban-attachments:
     driver: local
   kanban-avatars:
+    driver: local
+  postgres_data:
     driver: local
   redis_data:
     driver: local

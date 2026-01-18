@@ -9,12 +9,29 @@ const router = express.Router();
 
 // Activity Feed endpoint
 router.get('/feed', authenticateToken, async (req, res) => {
-  const { limit = 20 } = req.query;
+  const { limit = 20, lang } = req.query;
   const db = getRequestDatabase(req);
   
   try {
-    // MIGRATED: Get activity feed using sqlManager
-    const activities = await activityQueries.getActivityFeed(db, parseInt(limit));
+    // Get user's language preference (from query param, user preferences, or default to 'en')
+    let userLanguage = lang || 'en';
+    
+    // If no language in query, try to get from user preferences
+    if (!lang && req.user?.id) {
+      try {
+        const { users } = await import('../utils/sqlManager/index.js');
+        const userPrefs = await users.getUserPreferences(db, req.user.id);
+        if (userPrefs?.language) {
+          userLanguage = userPrefs.language;
+        }
+      } catch (prefError) {
+        // Fall back to default
+        console.warn('Failed to get user language preference:', prefError.message);
+      }
+    }
+    
+    // MIGRATED: Get activity feed using sqlManager with user's language
+    const activities = await activityQueries.getActivityFeed(db, parseInt(limit), userLanguage);
     
     res.json(activities);
   } catch (error) {

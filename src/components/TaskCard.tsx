@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Clock, MessageCircle, Calendar, Paperclip, Pencil } from 'lucide-react';
+import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, CurrentUser, Tag } from '../types';
 import { TaskViewMode } from '../utils/userPreferences';
 import TaskCardToolbar from './TaskCardToolbar';
@@ -242,6 +242,7 @@ const TaskCard = React.memo(function TaskCard({
   const sprintSelectorRef = useRef<HTMLDivElement>(null);
   const sprintOptionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const calendarIconRef = useRef<HTMLDivElement>(null);
+  const sprintBadgeRef = useRef<HTMLSpanElement>(null);
   
   // Date validation tooltip states
   const [showStartDateTooltip, setShowStartDateTooltip] = useState(false);
@@ -682,10 +683,12 @@ const TaskCard = React.memo(function TaskCard({
   };
 
   // Sprint selector handlers
-  const handleSprintSelectorOpen = () => {
-    if (!calendarIconRef.current) return;
+  const handleSprintSelectorOpen = (triggerElement?: React.RefObject<HTMLElement>) => {
+    // Use provided ref or fall back to calendar icon ref
+    const elementRef = triggerElement || calendarIconRef;
+    if (!elementRef.current) return;
     
-    const rect = calendarIconRef.current.getBoundingClientRect();
+    const rect = elementRef.current.getBoundingClientRect();
     const dropdownWidth = 256; // w-64
     const dropdownHeight = 300; // Approximate max height
     
@@ -1765,8 +1768,9 @@ const TaskCard = React.memo(function TaskCard({
           return (
             <div className="flex justify-end mb-2" data-sprint-badge="true">
               <span
-                className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate"
-                title={t('taskCard.sprint', { name: sprintName })}
+                ref={sprintBadgeRef}
+                className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate cursor-pointer hover:bg-indigo-200 transition-colors"
+                title={t('taskCard.clickToSelectSprint')}
                 onClick={(e) => {
                   e.stopPropagation();
                   e.preventDefault();
@@ -1777,6 +1781,8 @@ const TaskCard = React.memo(function TaskCard({
                     clearTimeout(clickTimerRef.current);
                     clickTimerRef.current = null;
                   }
+                  // Open sprint selector using badge position
+                  handleSprintSelectorOpen(sprintBadgeRef);
                   // Reset flag after delay
                   setTimeout(() => {
                     isInteractingWithDropdownRef.current = false;
@@ -2535,14 +2541,21 @@ const TaskCard = React.memo(function TaskCard({
                     }}
                     onMouseEnter={() => setHighlightedSprintIndex(-1)}
                     className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors border-b border-gray-200 dark:border-gray-600 ${
-                      highlightedSprintIndex === -1
+                      task.sprintId === null
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500'
+                        : highlightedSprintIndex === -1
                         ? 'bg-blue-50 dark:bg-blue-900/20'
                         : ''
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {t('taskCard.noneBacklog')}
+                      <div className="flex items-center gap-2">
+                        {task.sprintId === null && (
+                          <Check className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                        )}
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {t('taskCard.noneBacklog')}
+                        </div>
                       </div>
                       <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-gray-400 dark:bg-gray-600 text-white">
                         {t('taskCard.unassigned')}
@@ -2572,17 +2585,24 @@ const TaskCard = React.memo(function TaskCard({
                           handleSprintSelect(sprint);
                         }}
                         onMouseEnter={() => setHighlightedSprintIndex(index)}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                          highlightedSprintIndex === index
-                            ? 'bg-blue-50 dark:bg-blue-900/20'
-                            : sprint.is_active === 1 || sprint.is_active === true
-                            ? 'bg-green-50 dark:bg-green-900/10'
-                            : ''
-                        }`}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                      task.sprintId === sprint.id
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border-l-2 border-blue-500'
+                        : highlightedSprintIndex === index
+                        ? 'bg-blue-50 dark:bg-blue-900/20'
+                        : sprint.is_active === 1 || sprint.is_active === true
+                        ? 'bg-green-50 dark:bg-green-900/10'
+                        : ''
+                    }`}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="font-medium text-gray-900 dark:text-white">
-                            {sprint.name}
+                          <div className="flex items-center gap-2">
+                            {task.sprintId === sprint.id && (
+                              <Check className="h-4 w-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+                            )}
+                            <div className="font-medium text-gray-900 dark:text-white">
+                              {sprint.name}
+                            </div>
                           </div>
                           {(sprint.is_active === 1 || sprint.is_active === true) && (
                             <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-500 text-white">

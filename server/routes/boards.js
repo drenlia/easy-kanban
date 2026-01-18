@@ -131,7 +131,7 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching boards:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetch', { resource: 'boards' }) });
   }
 });
@@ -142,7 +142,7 @@ router.get('/:boardId/columns', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // MIGRATED: Verify board exists using sqlManager
     const board = await boardQueries.getBoardById(db, boardId);
@@ -157,7 +157,7 @@ router.get('/:boardId/columns', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching board columns:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardColumns') });
   }
 });
@@ -179,7 +179,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   const { id, title } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // MIGRATED: Check for duplicate board name using sqlManager
     const existingBoard = await boardQueries.getBoardByTitle(db, title);
@@ -193,11 +193,20 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
     const projectIdentifier = await boardQueries.generateProjectIdentifier(db, projectPrefix);
     
     // MIGRATED: Get max position and create board using sqlManager
-    const position = await boardQueries.getMaxBoardPosition(db);
-    await boardQueries.createBoard(db, id, title, projectIdentifier, position + 1);
+    const maxPosition = await boardQueries.getMaxBoardPosition(db);
+    // Always add 1 to max position (getMaxBoardPosition returns -1 if no boards exist, so -1 + 1 = 0)
+    const position = maxPosition + 1;
+    console.log(`[Board Creation] Creating board "${title}" (${id})`);
+    console.log(`[Board Creation] maxPosition: ${maxPosition}, calculated position: ${position}`);
+    console.log(`[Board Creation] position type: ${typeof position}, value: ${position}`);
+    await boardQueries.createBoard(db, id, title, projectIdentifier, position);
+    
+    // Verify the board was created with the correct position
+    const createdBoard = await boardQueries.getBoardById(db, id);
+    console.log(`[Board Creation] Board created. Retrieved position from DB: ${createdBoard?.position} (type: ${typeof createdBoard?.position})`);
     
     // Automatically create default columns based on APP_LANGUAGE
-    const defaultColumns = getDefaultBoardColumns(db);
+    const defaultColumns = await getDefaultBoardColumns(db);
     const tenantId = getTenantId(req);
     
     for (const [index, col] of defaultColumns.entries()) {
@@ -205,8 +214,25 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
       const isFinished = col.id === 'completed';
       const isArchived = col.id === 'archive';
       
+      // Check if column already exists (in case of partial board creation from previous attempt)
+      const existingColumn = await helpers.getColumnById(db, columnId);
+      if (existingColumn) {
+        console.warn(`Column ${columnId} already exists, skipping creation`);
+        continue;
+      }
+      
       // MIGRATED: Create column using sqlManager
-      await helpers.createColumn(db, columnId, col.title, id, index, isFinished, isArchived);
+      try {
+        await helpers.createColumn(db, columnId, col.title, id, index, isFinished, isArchived);
+      } catch (error) {
+        // Handle duplicate key errors gracefully (race condition or retry)
+        if (error.code === '23505' || error.message?.includes('duplicate key')) {
+          console.warn(`Column ${columnId} already exists (duplicate key), skipping creation`);
+          continue;
+        }
+        // Re-throw other errors
+        throw error;
+      }
       
       // Publish column creation to Redis for real-time updates
       notificationService.publish('column-created', {
@@ -224,7 +250,9 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
       }, tenantId);
     }
     
-    const newBoard = { id, title, project: projectIdentifier, position: position + 1 };
+    const newBoard = { id, title, project: projectIdentifier, position };
+    console.log(`[Board Creation] Sending response with board:`, JSON.stringify(newBoard, null, 2));
+    console.log(`[Board Creation] Publishing board-created event with position: ${position}`);
     
     // Publish to Redis for real-time updates
     notificationService.publish('board-created', {
@@ -237,7 +265,7 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
   } catch (error) {
     console.error('Error creating board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToCreateBoard') });
   }
 });
@@ -250,7 +278,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   const { title } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     
     // MIGRATED: Check for duplicate board name using sqlManager
     const existingBoard = await boardQueries.getBoardByTitle(db, title, id);
@@ -274,7 +302,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error updating board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToUpdateBoard') });
   }
 });
@@ -298,7 +326,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error deleting board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToDeleteBoard') });
   }
 });
@@ -308,7 +336,8 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   const { boardId, newPosition } = req.body;
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
+    console.log(`[Board Reorder] boardId: ${boardId}, newPosition: ${newPosition}`);
     // MIGRATED: Get board using sqlManager
     const currentBoard = await boardQueries.getBoardById(db, boardId);
     if (!currentBoard) {
@@ -318,36 +347,70 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     // MIGRATED: Get all boards with positions using sqlManager
     const allBoards = await boardQueries.getAllBoardsWithPositions(db);
 
-    // Reset all positions to simple integers (0, 1, 2, 3, etc.)
-    // Now get the normalized positions and find the target and dragged boards
+    // Find the current index of the board being moved
+    const currentIndex = allBoards.findIndex(b => b.id === boardId);
+    
+    if (currentIndex === -1) {
+      return res.status(404).json({ error: t('errors.boardNotFound') });
+    }
+    
+    // Only proceed if the position is actually changing
+    if (currentIndex === newPosition) {
+      return res.json({ message: 'Board position unchanged' });
+    }
+    
+    // Normalize positions to ensure they're sequential (0, 1, 2, 3, etc.)
+    // This handles any gaps or inconsistencies in positions
     const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
-    const currentIndex = normalizedBoards.findIndex(b => b.id === boardId);
+    const normalizedCurrentIndex = normalizedBoards.findIndex(b => b.id === boardId);
     
     if (isProxyDatabase(db)) {
       // Proxy mode: Collect all queries and send as batch
       const batchQueries = [];
       const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
       
-      // Reset all positions
-      for (let index = 0; index < allBoards.length; index++) {
-        batchQueries.push({
-          query: updateQuery,
-          params: [index, allBoards[index].id]
-        });
+      // Only reset positions if there are gaps or inconsistencies
+      // Check if positions need normalization
+      const needsNormalization = allBoards.some((board, index) => {
+        const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
+        return pos !== index;
+      });
+      
+      if (needsNormalization) {
+        // Reset all positions to sequential integers
+        for (let index = 0; index < allBoards.length; index++) {
+          batchQueries.push({
+            query: updateQuery,
+            params: [index, allBoards[index].id]
+          });
+        }
       }
       
       // Swap positions if needed
-      if (currentIndex !== -1 && currentIndex !== newPosition) {
+      if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
         const targetBoard = normalizedBoards[newPosition];
         if (targetBoard) {
-          batchQueries.push({
-            query: updateQuery,
-            params: [newPosition, boardId]
-          });
-          batchQueries.push({
-            query: updateQuery,
-            params: [currentIndex, targetBoard.id]
-          });
+          // If we didn't normalize, we need to update the specific positions
+          if (!needsNormalization) {
+            batchQueries.push({
+              query: updateQuery,
+              params: [newPosition, boardId]
+            });
+            batchQueries.push({
+              query: updateQuery,
+              params: [normalizedCurrentIndex, targetBoard.id]
+            });
+          } else {
+            // Positions were already reset, just swap the two
+            batchQueries.push({
+              query: updateQuery,
+              params: [newPosition, boardId]
+            });
+            batchQueries.push({
+              query: updateQuery,
+              params: [normalizedCurrentIndex, targetBoard.id]
+            });
+          }
         }
       }
       
@@ -356,18 +419,32 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
-        for (let index = 0; index < allBoards.length; index++) {
-          // MIGRATED: Update board position using sqlManager
-          await boardQueries.updateBoardPosition(db, allBoards[index].id, index);
+        // Check if positions need normalization
+        const needsNormalization = allBoards.some((board, index) => {
+          const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
+          return pos !== index;
+        });
+        
+        if (needsNormalization) {
+          // Reset all positions to sequential integers
+          for (let index = 0; index < allBoards.length; index++) {
+            await boardQueries.updateBoardPosition(db, allBoards[index].id, index);
+          }
         }
 
-        if (currentIndex !== -1 && currentIndex !== newPosition) {
-          // Simple swap: just swap the two positions
+        // Swap positions if needed
+        if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
           const targetBoard = normalizedBoards[newPosition];
           if (targetBoard) {
-            // MIGRATED: Update board positions using sqlManager
-            await boardQueries.updateBoardPosition(db, boardId, newPosition);
-            await boardQueries.updateBoardPosition(db, targetBoard.id, currentIndex);
+            if (!needsNormalization) {
+              // Just swap the two positions
+              await boardQueries.updateBoardPosition(db, boardId, newPosition);
+              await boardQueries.updateBoardPosition(db, targetBoard.id, normalizedCurrentIndex);
+            } else {
+              // Positions were reset, swap the two
+              await boardQueries.updateBoardPosition(db, boardId, newPosition);
+              await boardQueries.updateBoardPosition(db, targetBoard.id, normalizedCurrentIndex);
+            }
           }
         }
       });
@@ -385,7 +462,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error reordering board:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToReorderBoard') });
   }
 });
@@ -403,7 +480,7 @@ router.get('/:boardId/relationships', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching board relationships:', error);
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
+    const t = await getTranslator(db);
     res.status(500).json({ error: t('errors.failedToFetchBoardRelationships') });
   }
 });

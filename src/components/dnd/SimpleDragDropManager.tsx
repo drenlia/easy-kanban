@@ -775,6 +775,46 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
         // Handle column reordering
         const column = activeData.column as Column;
         
+        // Get all columns sorted by position to determine drag direction and edge cases
+        const columnArray = Object.values(columns).sort((a, b) => (a.position || 0) - (b.position || 0));
+        const sourceIndex = columnArray.findIndex(col => col.id === column.id);
+        const sourcePosition = Math.floor(column.position || 0);
+        
+        // Helper function to calculate target position based on drag direction and edge cases
+        const calculateTargetPosition = (targetColumn: Column): number => {
+          // CRITICAL: Re-sort columns array to ensure we have the latest positions
+          // This is important because the columns prop might be stale after a recent reorder
+          const sortedColumns = [...columnArray].sort((a, b) => (a.position || 0) - (b.position || 0));
+          const targetPosition = Math.floor(targetColumn.position || 0);
+          const sourceIndex = sortedColumns.findIndex(col => col.id === column.id);
+          const targetIndex = sortedColumns.findIndex(col => col.id === targetColumn.id);
+          
+          // Recalculate source position from sorted array to ensure accuracy
+          const actualSourcePosition = Math.floor(sortedColumns[sourceIndex]?.position || 0);
+          
+          // Determine if we're moving left (to lower position) or right (to higher position)
+          const movingLeft = actualSourcePosition > targetPosition;
+          const movingRight = actualSourcePosition < targetPosition;
+          
+          // For edge cases: when dropping on first or last column
+          const isFirstColumn = targetIndex === 0;
+          const isLastColumn = targetIndex === sortedColumns.length - 1;
+          
+          if (movingLeft && isFirstColumn) {
+            // Moving left to first position (position 0): dropped column takes position 0
+            // The first column will be shifted to position 1 by the backend
+            return 0;
+          } else if (movingRight && isLastColumn) {
+            // Moving right to last position: dropped column takes the last position
+            // The last column will be shifted left by the backend
+            return targetPosition;
+          } else {
+            // Normal case: use target's position
+            // The backend will shift columns appropriately
+            return targetPosition;
+          }
+        };
+        
         // CRITICAL FIX: Check if over.id directly matches a column ID
         // This handles cases where collision detection returns tasks but we can find the column
         const overId = over?.id as string;
@@ -784,7 +824,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
         if (isOverColumnId && overId !== column.id) {
           const targetColumn = columns[overId];
           if (targetColumn) {
-            const targetPosition = Math.floor(targetColumn.position || 0);
+            const targetPosition = calculateTargetPosition(targetColumn);
             await onColumnReorder(column.id, targetPosition);
             return;
           }
@@ -795,7 +835,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           const targetColumnId = overData?.columnId || overId?.toString().replace('-top-drop', '');
           if (targetColumnId && targetColumnId !== column.id && columns[targetColumnId]) {
             const targetColumn = columns[targetColumnId];
-            const targetPosition = Math.floor(targetColumn.position || 0);
+            const targetPosition = calculateTargetPosition(targetColumn);
             await onColumnReorder(column.id, targetPosition);
             return;
           }
@@ -808,7 +848,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           if (taskColumnId && taskColumnId !== column.id) {
             const targetColumn = columns[taskColumnId];
             if (targetColumn) {
-              const targetPosition = Math.floor(targetColumn.position || 0);
+              const targetPosition = calculateTargetPosition(targetColumn);
               await onColumnReorder(column.id, targetPosition);
             }
           }
@@ -817,8 +857,8 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
         
         // Only process if we dropped on another column (fallback for direct column drops)
         if (overData?.type === 'column' && overData.column?.id !== column.id) {
-          // Ensure we use integer positions for reordering
-          const targetPosition = Math.floor(overData.column.position);
+          // Calculate target position based on drag direction and edge cases
+          const targetPosition = calculateTargetPosition(overData.column);
           // console.log('🔄 Column reorder:', column.id, '→ position', targetPosition);
           await onColumnReorder(column.id, targetPosition);
         }

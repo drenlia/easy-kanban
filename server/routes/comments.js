@@ -13,7 +13,7 @@ import { COMMENT_ACTIONS } from '../constants/activityActions.js';
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 // MIGRATED: Import sqlManager
-import { comments as commentQueries, helpers, tasks as taskQueries } from '../utils/sqlManager/index.js';
+import { comments as commentQueries, helpers, tasks as taskQueries, files as fileQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -81,13 +81,11 @@ router.post('/', authenticateToken, async (req, res) => {
           comment.createdAt
         );
         
-        // Insert attachments if any (attachments are handled separately, not in sqlManager yet)
+        // MIGRATED: Insert attachments using sqlManager
         if (comment.attachments?.length > 0) {
           for (const attachment of comment.attachments) {
-            await wrapQuery(db.prepare(`
-              INSERT INTO attachments (id, commentid, name, url, type, size)
-              VALUES ($1, $2, $3, $4, $5, $6)
-            `), 'INSERT').run(
+            await fileQueries.createAttachmentForComment(
+              db,
               attachment.id,
               comment.id,
               attachment.name,
@@ -118,15 +116,8 @@ router.post('/', authenticateToken, async (req, res) => {
     // Log to reporting system
     try {
       const userInfo = await reportingLogger.getUserInfo(db, userId);
-      // MIGRATED: Use sqlManager to get task info (simplified - reporting logger may need full task with relationships)
-      // Note: This query is for reporting, so we keep it inline for now as it's specific to reporting needs
-      const taskInfo = await wrapQuery(db.prepare(`
-        SELECT t.*, b.title as board_title, c.title as column_title
-        FROM tasks t
-        LEFT JOIN boards b ON t.boardid = b.id
-        LEFT JOIN columns c ON t.columnid = c.id
-        WHERE t.id = $1
-      `), 'SELECT').get(comment.taskId);
+      // MIGRATED: Use sqlManager to get task info with board/column titles
+      const taskInfo = await taskQueries.getTaskWithBoardColumnInfo(db, comment.taskId);
       
       if (userInfo && taskInfo) {
         await reportingLogger.logActivity(db, {

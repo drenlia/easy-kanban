@@ -225,17 +225,45 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const currentPosition = currentColumn.position;
 
     await dbTransaction(db, async () => {
+      // Get all columns to determine max position for edge case handling
+      const allColumns = await helpers.getAllColumnsForBoard(db, boardId);
+      const maxPosition = allColumns.length > 0 
+        ? Math.max(...allColumns.map(col => col.position || 0))
+        : 0;
+
       if (newPosition > currentPosition) {
-        // Moving down: shift columns between current and new position up by 1
-        // MIGRATED: Use sqlManager to shift positions
-        await helpers.shiftColumnPositions(db, boardId, currentPosition + 1, newPosition, -1);
-      } else {
-        // Moving up: shift columns between new and current position down by 1
-        // MIGRATED: Use sqlManager to shift positions
-        await helpers.shiftColumnPositions(db, boardId, newPosition, currentPosition - 1, 1);
+        // Moving right (to higher position): shift columns between current and new position left by 1
+        // This makes room for the moved column at the new position
+        // Special handling for edge case: moving to last position
+        if (newPosition === maxPosition) {
+          // When moving to the last position, shift all columns from currentPosition+1 to maxPosition left by 1
+          // This includes the column currently at the last position, which will move left
+          if (currentPosition < maxPosition) {
+            await helpers.shiftColumnPositions(db, boardId, currentPosition + 1, maxPosition, -1, columnId);
+          }
+        } else if (currentPosition + 1 <= newPosition) {
+          // Normal case: shift columns in the range
+          await helpers.shiftColumnPositions(db, boardId, currentPosition + 1, newPosition, -1, columnId);
+        }
+      } else if (newPosition < currentPosition) {
+        // Moving left (to lower position): shift columns between new and current position right by 1
+        // This makes room for the moved column at the new position
+        // Special handling for edge case: moving to position 0
+        if (newPosition === 0) {
+          // When moving to position 0: add +1 to all columns from 0 to currentPosition-1
+          // Then set the moved column to 0 (this is the only edge case)
+          if (currentPosition > 0) {
+            await helpers.shiftColumnPositions(db, boardId, 0, currentPosition - 1, 1, columnId);
+          }
+        } else if (newPosition <= currentPosition - 1) {
+          // Normal case: shift columns in the range
+          await helpers.shiftColumnPositions(db, boardId, newPosition, currentPosition - 1, 1, columnId);
+        }
       }
+      // If newPosition === currentPosition, no shift needed (column stays in place)
 
       // MIGRATED: Update the moved column to its new position using sqlManager
+      // This happens after the shift to ensure the moved column gets the correct position
       await helpers.updateColumnPosition(db, columnId, newPosition);
     });
 

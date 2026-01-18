@@ -3,7 +3,6 @@ import { dbTransaction } from '../utils/dbAsync.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload } from '../config/multer.js';
 import { getLicenseManager } from '../config/license.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
@@ -13,7 +12,8 @@ import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isPostgresDatabase } from '../utils/dbAsync.js';
-import { users as userQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
+// MIGRATED: Import sqlManager modules
+import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -325,10 +325,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get APP_URL setting using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
     if (appUrlSetting?.value) {
       baseUrl = appUrlSetting.value.replace(/\/$/, '');
@@ -428,9 +426,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     }
     
     const memberColor = getRandomColor(); // Random color from palette
-    // MIGRATED: Create member using helpers (need to add this function)
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES ($1, $2, $3, $4)'), 'INSERT')
-      .run(memberId, memberName, memberColor, userId);
+    // MIGRATED: Create member using auth.createMemberForUser (includes user_id)
+    await authQueries.createMemberForUser(db, memberId, memberName, memberColor, userId);
     
     // Generate default avatar SVG for new local users with matching background color
     // Use tenant-specific path if in multi-tenant mode
@@ -450,11 +447,9 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       const inviteToken = crypto.randomBytes(32).toString('hex');
       const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
       
-      // Store invitation token
-      await wrapQuery(db.prepare(`
-        INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
-        VALUES (?, ?, ?, ?, datetime('now'))
-      `), 'INSERT').run(
+      // MIGRATED: Store invitation token using sqlManager
+      await adminUserQueries.createUserInvitation(
+        db,
         crypto.randomUUID(),
         userId,
         inviteToken,
@@ -550,10 +545,8 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
   // Priority: 1) APP_URL from database, 2) baseUrl from request body, 3) Construct from tenantId, 4) Fallback
   let baseUrl = baseUrlFromBody;
   if (!baseUrl) {
-    const appUrlSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('APP_URL');
+    // MIGRATED: Get APP_URL setting using sqlManager
+    const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
     if (appUrlSetting?.value) {
       baseUrl = appUrlSetting.value.replace(/\/$/, '');
@@ -587,18 +580,16 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
       return res.status(400).json({ error: 'User account is already active' });
     }
 
-    // Delete any existing invitation tokens for this user
-    await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+    // MIGRATED: Delete any existing invitation tokens for this user using sqlManager
+    await adminUserQueries.deleteUserInvitations(db, userId);
 
     // Generate new invitation token
     const inviteToken = crypto.randomBytes(32).toString('hex');
     const tokenExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours from now
     
-    // Store new invitation token
-    await wrapQuery(db.prepare(`
-      INSERT INTO user_invitations (id, user_id, token, expires_at, created_at) 
-      VALUES (?, ?, ?, ?, datetime('now'))
-    `), 'INSERT').run(
+    // MIGRATED: Store new invitation token using sqlManager
+    await adminUserQueries.createUserInvitation(
+      db,
       crypto.randomUUID(),
       userId,
       inviteToken,
@@ -747,76 +738,63 @@ router.delete("/:userId", authenticateToken, requireRole(["admin"]), async (req,
           }
         }
         
-        // Create system member record
-        await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
-          systemMemberId, 
-          'SYSTEM', 
-          '#1E40AF', // Blue color
-          SYSTEM_USER_ID
-        );
+        // MIGRATED: Create system member record using sqlManager
+        await adminUserQueries.createSystemMember(db, systemMemberId, SYSTEM_USER_ID);
         
         console.log('✅ SYSTEM account created successfully');
       }
       
-      // 1. Delete activity records (no FK constraint, so won't cascade)
-      await wrapQuery(db.prepare('DELETE FROM activity WHERE userId = ?'), 'DELETE').run(userId);
+      // MIGRATED: Delete activity records using sqlManager
+      await adminUserQueries.deleteUserActivity(db, userId);
         
-        // 2. Delete comments made by the user (references members without CASCADE)
+        // MIGRATED: Delete comments made by the user using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteCommentsByMember(db, userMember.id);
         }
         
-        // 3. Delete watchers (should cascade but let's be explicit)
+        // MIGRATED: Delete watchers using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM watchers WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteWatchersByMember(db, userMember.id);
         }
         
-        // 4. Delete collaborators (should cascade but let's be explicit)
+        // MIGRATED: Delete collaborators using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM collaborators WHERE memberId = ?'), 'DELETE').run(userMember.id);
+          await adminUserQueries.deleteCollaboratorsByMember(db, userMember.id);
         }
         
-        // 5. Update planning_periods to set created_by to NULL (references users without CASCADE)
-        await wrapQuery(db.prepare('UPDATE planning_periods SET created_by = NULL WHERE created_by = ?'), 'UPDATE').run(userId);
+        // MIGRATED: Update planning_periods using sqlManager
+        await adminUserQueries.clearPlanningPeriodsCreatedBy(db, userId);
         
-        // 6. MIGRATED: Delete user roles using sqlManager
+        // MIGRATED: Delete user roles using sqlManager
         await userQueries.deleteUserRoles(db, userId);
         
-        // 7. MIGRATED: Delete user settings using sqlManager (need to delete all settings)
-        // Note: We need a function to delete all user settings, but for now we can use direct query
-        // or we can add a deleteAllUserSettings function
-        await wrapQuery(db.prepare('DELETE FROM user_settings WHERE userid = $1'), 'DELETE').run(userId);
+        // MIGRATED: Delete user settings using sqlManager
+        await adminUserQueries.deleteAllUserSettings(db, userId);
         
-        // 8. Delete views (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM views WHERE userId = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete views using sqlManager
+        await adminUserQueries.deleteViewsByUser(db, userId);
         
-        // 9. Delete password reset tokens (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete password reset tokens using sqlManager
+        await adminUserQueries.deletePasswordResetTokensByUser(db, userId);
         
-        // 10. Delete user invitations (should cascade but let's be explicit)
-        await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ?'), 'DELETE').run(userId);
+        // MIGRATED: Delete user invitations using sqlManager
+        await adminUserQueries.deleteUserInvitations(db, userId);
         
-        // 11. Reassign tasks assigned to the user to the system account (preserve task history)
+        // MIGRATED: Reassign tasks assigned to the user to the system account using sqlManager
         if (userMember) {
-          await wrapQuery(
-            db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = ?'), 
-            'UPDATE'
-          ).run(systemMemberId, userMember.id);
+          await adminUserQueries.reassignTasksToSystemMember(db, systemMemberId, userMember.id);
           
-          // 12. Reassign tasks requested by the user to the system account
-          await wrapQuery(
-            db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = ?'), 
-            'UPDATE'
-          ).run(systemMemberId, userMember.id);
+          // MIGRATED: Reassign tasks requested by the user to the system account using sqlManager
+          await adminUserQueries.reassignTaskRequestersToSystemMember(db, systemMemberId, userMember.id);
         }
         
-        // 13. Delete the member record (cascades from user deletion, but explicit for clarity)
+        // MIGRATED: Delete the member record using sqlManager
         if (userMember) {
-          await wrapQuery(db.prepare('DELETE FROM members WHERE user_id = $1'), 'DELETE').run(userId);
+          await adminUserQueries.deleteMemberByUserId(db, userId);
         }
         
-        // 14. Finally, delete the user account
-        await wrapQuery(db.prepare('DELETE FROM users WHERE id = $1'), 'DELETE').run(userId);
+        // MIGRATED: Finally, delete the user account using sqlManager
+        await adminUserQueries.deleteUser(db, userId);
         
         console.log(`🗑️ User deleted successfully: ${user.email}`);
     });

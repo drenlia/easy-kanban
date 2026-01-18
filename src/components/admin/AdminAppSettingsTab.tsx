@@ -372,7 +372,7 @@ const AdminAppSettingsTab: React.FC<AdminAppSettingsTabProps> = ({
                   <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
                     {t('appSettings.defaultApplicationLanguage')}
                   </label>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 whitespace-pre-line">
                     {t('appSettings.defaultApplicationLanguageDescription')}
                   </p>
                 </div>

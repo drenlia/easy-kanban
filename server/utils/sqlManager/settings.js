@@ -107,3 +107,74 @@ export async function upsertSettingWithTimestamp(db, key, value, timestamp) {
   return await stmt.run(key, value, timestamp);
 }
 
+/**
+ * Create a new setting (fails if key already exists)
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} key - Setting key
+ * @param {string} value - Setting value
+ * @returns {Promise<Object>} Result object
+ */
+export async function createSetting(db, key, value) {
+  const query = `
+    INSERT INTO settings (key, value, updated_at)
+    VALUES ($1, $2, CURRENT_TIMESTAMP)
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'INSERT');
+  return await stmt.run(key, value);
+}
+
+/**
+ * Update an existing setting
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} key - Setting key
+ * @param {string} value - Setting value
+ * @returns {Promise<Object>} Result object
+ */
+export async function updateSetting(db, key, value) {
+  const query = `
+    UPDATE settings 
+    SET value = $1, updated_at = CURRENT_TIMESTAMP 
+    WHERE key = $2
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+  return await stmt.run(value, key);
+}
+
+/**
+ * Delete a setting
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} key - Setting key
+ * @returns {Promise<Object>} Result object
+ */
+export async function deleteSetting(db, key) {
+  const query = `
+    DELETE FROM settings 
+    WHERE key = $1
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'DELETE');
+  return await stmt.run(key);
+}
+
+/**
+ * Check if setting exists
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} key - Setting key
+ * @returns {Promise<Object|null>} Setting object or null
+ */
+export async function checkSettingExists(db, key) {
+  const query = `
+    SELECT key 
+    FROM settings 
+    WHERE key = $1
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.get(key);
+}

@@ -4,12 +4,13 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { authenticateToken, requireRole, JWT_SECRET, JWT_EXPIRES_IN } from '../middleware/auth.js';
 import { getLicenseManager } from '../config/license.js';
-import { wrapQuery } from '../utils/queryLogger.js';
 import notificationService from '../services/notificationService.js';
 import { loginLimiter, activationLimiter, registrationLimiter } from '../middleware/rateLimiters.js';
 import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
+// MIGRATED: Import sqlManager
+import { auth as authQueries, users as userQueries, settings as settingsQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();
 
@@ -23,9 +24,8 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
   
   try {
-    // Find user by email
-    // Note: is_active is BOOLEAN in PostgreSQL, so use = true instead of = 1
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ? AND is_active = true'), 'SELECT').get(email);
+    // MIGRATED: Find user by email using sqlManager
+    const user = await authQueries.getUserByEmailForLogin(db, email);
     
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -39,19 +39,13 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     
-    // Get user roles
-    const roles = await wrapQuery(db.prepare(`
-      SELECT r.name 
-      FROM roles r 
-      JOIN user_roles ur ON r.id = ur.role_id 
-      WHERE ur.user_id = ?
-    `), 'SELECT').all(user.id);
+    // MIGRATED: Get user roles using sqlManager
+    const roles = await authQueries.getUserRoles(db, user.id);
     
     const userRoles = roles.map(r => r.name);
     
-    // Clear force_logout flag on successful login
-    // Note: force_logout is BOOLEAN in PostgreSQL, so use = false instead of = 0
-    await wrapQuery(db.prepare('UPDATE users SET force_logout = false WHERE id = ?'), 'UPDATE').run(user.id);
+    // MIGRATED: Clear force_logout flag using sqlManager
+    await authQueries.clearForceLogout(db, user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)
@@ -108,13 +102,8 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
   }
   
   try {
-    // Find the invitation token
-    const invitation = await wrapQuery(db.prepare(`
-      SELECT ui.*, u.id as user_id, u.email, u.first_name, u.last_name, u.is_active 
-      FROM user_invitations ui
-      JOIN users u ON ui.user_id = u.id
-      WHERE ui.token = ? AND u.email = ? AND ui.used_at IS NULL
-    `), 'SELECT').get(token, email);
+    // MIGRATED: Find the invitation token using sqlManager
+    const invitation = await authQueries.getInvitationByToken(db, token, email);
     
     if (!invitation) {
       return res.status(400).json({ error: 'Invalid or expired invitation token' });
@@ -127,43 +116,34 @@ router.post('/activate-account', activationLimiter, async (req, res) => {
     }
     
     // Check if user is already active
-    if (invitation.is_active) {
+    // Note: is_active might be boolean or integer depending on database
+    const isActive = typeof invitation.is_active === 'boolean' 
+      ? invitation.is_active 
+      : (invitation.is_active === 1 || invitation.is_active === true);
+    
+    if (isActive) {
       return res.status(400).json({ error: 'Account is already active' });
     }
     
     // Hash the new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
-    // Activate user and update password
-    await wrapQuery(db.prepare(`
-      UPDATE users 
-      SET is_active = true, password_hash = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `), 'UPDATE').run(passwordHash, invitation.user_id);
+    // MIGRATED: Activate user and update password using sqlManager
+    await authQueries.activateUser(db, invitation.user_id, passwordHash);
     
-    // Mark invitation as used
-    await wrapQuery(db.prepare(`
-      UPDATE user_invitations 
-      SET used_at = datetime('now')
-      WHERE id = ?
-    `), 'UPDATE').run(invitation.id);
+    // MIGRATED: Mark invitation as used using sqlManager
+    await authQueries.markInvitationAsUsed(db, invitation.id);
     
-    // Log activation activity
-    await wrapQuery(db.prepare(`
-      INSERT INTO activity (action, details, userId, created_at)
-      VALUES (?, ?, ?, datetime('now'))
-    `), 'INSERT').run(
+    // MIGRATED: Log activation activity using sqlManager
+    await authQueries.logActivity(
+      db,
       'account_activated',
       `User ${invitation.first_name} ${invitation.last_name} (${invitation.email}) activated their account`,
       invitation.user_id
     );
     
-    // Get the updated user data for WebSocket event
-    const updatedUser = await wrapQuery(db.prepare(`
-      SELECT u.id, u.email, u.first_name, u.last_name, u.is_active, u.created_at, u.auth_provider, u.google_avatar_url
-      FROM users u
-      WHERE u.id = ?
-    `), 'SELECT').get(invitation.user_id);
+    // MIGRATED: Get the updated user data using sqlManager
+    const updatedUser = await authQueries.getUserBasicInfoForActivation(db, invitation.user_id);
     
     // Publish to Redis for real-time updates to admin panel
     const tenantId = getTenantId(req);
@@ -226,8 +206,8 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
       });
     }
     
-    // Check if user already exists
-    const existingUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get(email);
+    // MIGRATED: Check if user already exists using sqlManager
+    const existingUser = await authQueries.checkUserExists(db, email);
     if (existingUser) {
       return res.status(400).json({ error: 'User already exists' });
     }
@@ -235,31 +215,26 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
     
-    // Create user
+    // MIGRATED: Create user using sqlManager
     const userId = crypto.randomUUID();
-    await wrapQuery(db.prepare(`
-      INSERT INTO users (id, email, password_hash, first_name, last_name) 
-      VALUES (?, ?, ?, ?, ?)
-    `), 'INSERT').run(userId, email, passwordHash, firstName, lastName);
+    await authQueries.createUser(db, userId, email, passwordHash, firstName, lastName);
     
-    // Assign role
-    const roleId = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get(role)?.id;
-    if (roleId) {
-      await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, roleId);
+    // MIGRATED: Assign role using sqlManager
+    const roleRecord = await userQueries.getRoleByName(db, role);
+    if (roleRecord?.id) {
+      await authQueries.assignRoleToUser(db, userId, roleRecord.id);
     }
     
-    // Create member for the user with random color
+    // MIGRATED: Create member for the user using sqlManager
     const memberId = crypto.randomUUID();
     const memberColor = getRandomColor(); // Random color from palette
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT')
-      .run(memberId, `${firstName} ${lastName}`, memberColor, userId);
+    await authQueries.createMemberForUser(db, memberId, `${firstName} ${lastName}`, memberColor, userId);
     
-    // Generate default avatar with matching background color
-    // Use tenant-specific path if in multi-tenant mode
+    // MIGRATED: Update user avatar path using sqlManager
     const tenantId = getTenantId(req);
     const avatarPath = createDefaultAvatar(`${firstName} ${lastName}`, userId, memberColor, tenantId);
     if (avatarPath) {
-      await wrapQuery(db.prepare('UPDATE users SET avatar_path = ? WHERE id = ?'), 'UPDATE').run(avatarPath, userId);
+      await authQueries.updateUserAvatarPath(db, userId, avatarPath);
     }
     
     res.json({ 
@@ -277,28 +252,25 @@ router.post('/register', registrationLimiter, authenticateToken, requireRole(['a
 router.get('/me', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const user = await wrapQuery(db.prepare('SELECT * FROM users WHERE id = ?'), 'SELECT').get(req.user.id);
+    // MIGRATED: Get user using sqlManager
+    const user = await userQueries.getUserById(db, req.user.id);
     
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    // Get user roles
-    const roles = await wrapQuery(db.prepare(`
-      SELECT r.name 
-      FROM roles r 
-      JOIN user_roles ur ON r.id = ur.role_id 
-      WHERE ur.user_id = ?
-    `), 'SELECT').all(user.id);
+    // MIGRATED: Get user roles using sqlManager
+    const roles = await authQueries.getUserRoles(db, user.id);
     
     const userRoles = roles.map(r => r.name);
     
     // Determine the correct avatar URL based on auth provider
+    // Note: getUserById returns camelCase fields (avatarPath, googleAvatarUrl, authProvider)
     let avatarUrl = null;
-    if (user.auth_provider === 'google' && user.google_avatar_url) {
-      avatarUrl = user.google_avatar_url;
-    } else if (user.avatar_path) {
-      avatarUrl = user.avatar_path;
+    if (user.authProvider === 'google' && user.googleAvatarUrl) {
+      avatarUrl = user.googleAvatarUrl;
+    } else if (user.avatarPath) {
+      avatarUrl = user.avatarPath;
     }
     
     // Generate a fresh JWT token with current roles (important for role changes)
@@ -317,12 +289,12 @@ router.get('/me', authenticateToken, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        firstName: user.first_name,
-        lastName: user.last_name,
+        firstName: user.firstName,
+        lastName: user.lastName,
         roles: userRoles,
         avatarUrl: avatarUrl,
-        authProvider: user.auth_provider || 'local',
-        googleAvatarUrl: user.google_avatar_url
+        authProvider: user.authProvider || 'local',
+        googleAvatarUrl: user.googleAvatarUrl
       },
       token: token // Include fresh token with updated roles
     });
@@ -337,7 +309,8 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.get('/check-default-admin', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const defaultAdmin = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('admin@kanban.local');
+    // MIGRATED: Check user exists using sqlManager
+    const defaultAdmin = await authQueries.checkUserExistsByEmail(db, 'admin@kanban.local');
     res.json({ exists: !!defaultAdmin });
   } catch (error) {
     console.error('Error checking default admin:', error);
@@ -349,7 +322,8 @@ router.get('/check-default-admin', async (req, res) => {
 router.get('/check-demo-user', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const demoUser = await wrapQuery(db.prepare('SELECT id FROM users WHERE email = ?'), 'SELECT').get('demo@kanban.local');
+    // MIGRATED: Check user exists using sqlManager
+    const demoUser = await authQueries.checkUserExistsByEmail(db, 'demo@kanban.local');
     res.json({ exists: !!demoUser });
   } catch (error) {
     console.error('Error checking demo user:', error);
@@ -361,8 +335,11 @@ router.get('/check-demo-user', async (req, res) => {
 router.get('/demo-credentials', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const adminPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
-    const demoPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
+    // MIGRATED: Get settings using sqlManager
+    const adminPasswordSetting = await authQueries.getSetting(db, 'ADMIN_PASSWORD');
+    const demoPasswordSetting = await authQueries.getSetting(db, 'DEMO_PASSWORD');
+    const adminPassword = adminPasswordSetting?.value;
+    const demoPassword = demoPasswordSetting?.value;
     
     res.json({
       admin: {
@@ -395,12 +372,8 @@ async function getOAuthSettings(db) {
     return global.oauthConfigCache.settings;
   }
   
-  // Fetch fresh settings from database
-  const settings = await wrapQuery(db.prepare('SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)'), 'SELECT').all('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_CALLBACK_URL', 'GOOGLE_SSO_DEBUG');
-  const settingsObj = {};
-  settings.forEach(setting => {
-    settingsObj[setting.key] = setting.value;
-  });
+  // MIGRATED: Fetch fresh settings from database using sqlManager
+  const settingsObj = await authQueries.getOAuthSettings(db);
   
   // Cache the settings
   global.oauthConfigCache = {
@@ -590,9 +563,9 @@ router.get('/google/callback', async (req, res) => {
       verified_email: userInfo.verified_email
     });
     
-    // Check if user exists
+    // MIGRATED: Check if user exists using sqlManager
     debugLog(settingsObj, '🔐 [GOOGLE SSO] Checking if user exists in database...');
-    let user = await wrapQuery(db.prepare('SELECT * FROM users WHERE email = ?'), 'SELECT').get(userInfo.email);
+    let user = await authQueries.getUserByEmail(db, userInfo.email);
     let isNewUser = false;
     
     debugLog(settingsObj, '🔐 [GOOGLE SSO] User lookup result:', {
@@ -615,18 +588,11 @@ router.get('/google/callback', async (req, res) => {
           debugLog(settingsObj, '🔐 [GOOGLE SSO] Auto-activating invited user via Google OAuth');
           
           try {
-            // Activate the account and convert to Google auth
-            await wrapQuery(db.prepare(`
-              UPDATE users 
-              SET is_active = true,
-                  auth_provider = 'google', 
-                  google_avatar_url = ?,
-                  updated_at = datetime('now')
-              WHERE id = ?
-            `), 'UPDATE').run(userInfo.picture, user.id);
+            // MIGRATED: Activate the account and convert to Google auth using sqlManager
+            await authQueries.updateUserAuthProvider(db, user.id, 'google', userInfo.picture, true);
             
-            // Clean up any pending invitation tokens for this user
-            await wrapQuery(db.prepare('DELETE FROM user_invitations WHERE user_id = ? AND used_at IS NULL'), 'DELETE').run(user.id);
+            // MIGRATED: Clean up any pending invitation tokens using sqlManager
+            await authQueries.deletePendingInvitations(db, user.id);
             
             console.log('🔐 [GOOGLE SSO] ✅ Invited user activated and converted to Google auth');
             
@@ -634,8 +600,8 @@ router.get('/google/callback', async (req, res) => {
             user.is_active = true;
             user.auth_provider = 'google';
             
-            // Get member info for the activated user
-            const memberInfo = await wrapQuery(db.prepare('SELECT id, name, color FROM members WHERE user_id = ?'), 'SELECT').get(user.id);
+            // MIGRATED: Get member info using sqlManager
+            const memberInfo = await authQueries.getMemberByUserId(db, user.id);
             
             // Publish to Redis for real-time updates
             console.log('📤 Publishing user-updated and member-updated to Redis for Google OAuth activation');
@@ -687,30 +653,19 @@ router.get('/google/callback', async (req, res) => {
       } else {
         console.log('🔐 [GOOGLE SSO] ✅ User is active, proceeding with login');
         
-        // Update auth_provider to 'google' and store Google avatar (for users converting from local to Google)
+        // MIGRATED: Update auth_provider to 'google' and store Google avatar using sqlManager
         if (user.auth_provider !== 'google') {
           console.log('🔐 [GOOGLE SSO] Converting user from local to Google auth...');
           try {
-            await wrapQuery(db.prepare(`
-              UPDATE users 
-              SET auth_provider = 'google', 
-                  google_avatar_url = ?,
-                  updated_at = datetime('now')
-              WHERE id = ?
-            `), 'UPDATE').run(userInfo.picture, user.id);
+            await authQueries.updateUserAuthProvider(db, user.id, 'google', userInfo.picture, false);
             console.log('🔐 [GOOGLE SSO] ✅ User auth_provider updated to google');
           } catch (error) {
             console.error('🔐 [GOOGLE SSO] ❌ Failed to update auth_provider:', error);
           }
         } else {
-          // Just update the Google avatar in case it changed
+          // MIGRATED: Just update the Google avatar using sqlManager
           try {
-            await wrapQuery(db.prepare(`
-              UPDATE users 
-              SET google_avatar_url = ?,
-                  updated_at = datetime('now')
-              WHERE id = ?
-            `), 'UPDATE').run(userInfo.picture, user.id);
+            await authQueries.updateGoogleAvatarUrl(db, user.id, userInfo.picture);
           } catch (error) {
             console.error('🔐 [GOOGLE SSO] ❌ Failed to update Google avatar:', error);
           }
@@ -718,21 +673,15 @@ router.get('/google/callback', async (req, res) => {
       }
     }
     
-    // Get user roles from database (for both new and existing users)
+    // MIGRATED: Get user roles using sqlManager
     console.log('🔐 [GOOGLE SSO] Fetching user roles...');
-    const roles = await wrapQuery(db.prepare(`
-      SELECT r.name 
-      FROM roles r 
-      JOIN user_roles ur ON r.id = ur.role_id 
-      WHERE ur.user_id = ?
-    `), 'SELECT').all(user.id);
+    const roles = await authQueries.getUserRoles(db, user.id);
     
     const userRoles = roles.map(r => r.name);
     console.log('🔐 [GOOGLE SSO] User roles found:', userRoles);
     
-    // Clear force_logout flag on successful login
-    // Note: force_logout is BOOLEAN in PostgreSQL, so use = false instead of = 0
-    await wrapQuery(db.prepare('UPDATE users SET force_logout = false WHERE id = ?'), 'UPDATE').run(user.id);
+    // MIGRATED: Clear force_logout flag using sqlManager
+    await authQueries.clearForceLogout(db, user.id);
     
     // Note: APP_URL is updated by the frontend after login, not here
     // The frontend knows the actual public-facing URL (window.location.origin)
@@ -860,9 +809,10 @@ router.get('/debug/oauth', authenticateToken, requireRole(['admin']), async (req
 router.get('/instance-status', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const t = getTranslator(db);
-    const statusSetting = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('INSTANCE_STATUS');
-    const status = statusSetting ? statusSetting.value : 'active';
+    const t = await getTranslator(db);
+    // MIGRATED: Get setting using sqlManager
+    const statusSetting = await authQueries.getSetting(db, 'INSTANCE_STATUS');
+    const status = statusSetting?.value || 'active';
     
     const getStatusMessage = (status) => {
       switch (status) {
@@ -897,11 +847,9 @@ router.get('/instance-status', authenticateToken, async (req, res) => {
 router.get('/is-owner', authenticateToken, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const ownerSetting = await wrapQuery(
-      db.prepare('SELECT value FROM settings WHERE key = ?'),
-      'SELECT'
-    ).get('OWNER');
-    const ownerEmail = ownerSetting ? ownerSetting.value : null;
+    // MIGRATED: Get setting using sqlManager
+    const ownerSetting = await authQueries.getSetting(db, 'OWNER');
+    const ownerEmail = ownerSetting?.value || null;
     
     const isOwner = ownerEmail === req.user.email;
     

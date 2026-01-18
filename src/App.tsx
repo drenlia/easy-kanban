@@ -127,6 +127,9 @@ function AppContent() {
   const [userStatus, setUserStatus] = useState<UserStatus | null>(null);
   const userStatusRef = useRef<UserStatus | null>(null);
   
+  // Track if language has been loaded (to ensure activity feed uses correct language)
+  const [languageLoaded, setLanguageLoaded] = useState<boolean>(false);
+  
   // Initialize extracted hooks
   const versionStatus = useVersionStatus();
   const modalState = useModalState();
@@ -620,6 +623,14 @@ function AppContent() {
             await i18n.changeLanguage(languageToUse);
           }
           
+          // Refetch activity feed with new language
+          try {
+            const loadedActivities = await getActivityFeed(20, languageToUse);
+            activityFeed.setActivities(loadedActivities || []);
+          } catch (error) {
+            console.warn('Failed to refetch activity feed after language change:', error);
+          }
+          
           // setIsAutoRefreshEnabled(prefs.appSettings.autoRefreshEnabled ?? true); // Disabled - using real-time updates
           
           // Restore sprint selection and apply date filters
@@ -644,8 +655,28 @@ function AppContent() {
       if (i18n.language !== browserLang) {
         i18n.changeLanguage(browserLang);
       }
+      // Mark language as loaded even for non-authenticated users
+      setLanguageLoaded(true);
     }
   }, [currentUser, i18n]);
+
+  // Refetch activity feed when language changes
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser?.id) return;
+    
+    const refetchActivities = async () => {
+      try {
+        const currentLang = i18n.language || 'en';
+        const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+        const loadedActivities = await getActivityFeed(20, normalizedLang);
+        activityFeed.setActivities(loadedActivities || []);
+      } catch (error) {
+        console.warn('Failed to refetch activity feed after language change:', error);
+      }
+    };
+    
+    refetchActivities();
+  }, [i18n.language, isAuthenticated, currentUser?.id]);
 
   // Auto-refresh toggle handler - DISABLED (using real-time updates)
   // const handleToggleAutoRefresh = useCallback(async () => {
@@ -1655,28 +1686,30 @@ function AppContent() {
         }
       }
     }
-  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected]);
-
-
-
+  }, [currentPage, boards, selectedBoard, boardCreationPause, isAuthenticated, currentUser?.id, intendedDestination, justRedirected, languageLoaded, i18n.language]);
 
   // Load initial data
   useEffect(() => {
     // Only load data if authenticated and user preferences have been loaded (currentUser.id exists)
-    if (!isAuthenticated || !currentUser?.id) return;
+    // Also wait for language to be loaded to ensure activity feed uses correct language
+    if (!isAuthenticated || !currentUser?.id || !languageLoaded) return;
     
     const loadInitialData = async () => {
       console.log('🔄 Loading initial data...');
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
+          // Get current language for activity feed
+          const currentLang = i18n.language || localStorage.getItem('i18nextLng') || 'en';
+          const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+          
           const [loadedMembers, loadedBoards, loadedPriorities, loadedTags, loadedSprints, loadedActivities] = await Promise.all([
             getMembers(taskFilters.includeSystem),
           getBoards(),
           getAllPriorities(),
           getAllTags(),
           getAllSprints(),
-          getActivityFeed(20)
+          getActivityFeed(20, normalizedLang)
         ]);
           
 
@@ -1741,7 +1774,7 @@ function AppContent() {
     };
 
     loadInitialData();
-  }, [isAuthenticated, currentUser?.id]);
+  }, [isAuthenticated, currentUser?.id, languageLoaded, i18n.language]);
 
   // Reload members only when includeSystem changes (without flashing the entire screen)
   const isInitialSystemMount = useRef(true);
@@ -1965,24 +1998,10 @@ function AppContent() {
         columns: {}
       };
 
-      // Create the board first
+      // Create the board first (backend automatically creates default columns)
       await createBoard(newBoard);
 
-      // Create default columns for the new board
-      const columnPromises = DEFAULT_COLUMNS.map(async (col, index) => {
-        const column: Column = {
-          id: `${col.id}-${boardId}`,
-          title: col.title,
-          tasks: [],
-          boardId: boardId,
-          position: index
-        };
-        return createColumn(column);
-      });
-
-      await Promise.all(columnPromises);
-
-      // Refresh board data to get the complete structure
+      // Refresh board data to get the complete structure (including columns created by backend)
       await refreshBoardData();
       
 
@@ -2951,19 +2970,23 @@ function AppContent() {
       
       // Defer non-critical updates to avoid forced reflows during drag end
       // Use requestAnimationFrame to batch DOM reads/writes
+      // NOTE: WebSocket update will handle the state sync completely
+      // We don't call refreshBoardData here to avoid overwriting the WebSocket update
       requestAnimationFrame(() => {
-        // Defer query logs and board refresh to next frame
+        // Defer query logs to next frame
         // This prevents forced reflows during the drag end handler
         setTimeout(() => {
           fetchQueryLogs();
-          refreshBoardData();
+          // WebSocket update handles state sync, so we don't refresh here
+          // If WebSocket fails, we'll refresh on error
         }, 0);
       });
     } catch (error) {
       // console.error('Failed to reorder column:', error);
+      // Only refresh on error - WebSocket should handle success case
       await refreshBoardData();
     }
-  }, [selectedBoard, fetchQueryLogs, refreshBoardData]);
+  }, [selectedBoard, fetchQueryLogs]);
   
   // Stable callbacks for drag state - use refs to avoid triggering re-renders during drag
   const handleDraggedTaskChange = useCallback((task: Task | null) => {
@@ -2995,11 +3018,13 @@ function AppContent() {
   useEffect(() => {
     const current = taskFilters.filteredColumns || {};
     
-    // Create a stable signature based on column IDs and task IDs
+    // Create a stable signature based on column IDs, positions, and task IDs
+    // CRITICAL: Include position in signature to detect column reordering
     const signature = Object.keys(current).sort().map(columnId => {
       const column = current[columnId];
       const taskIds = (column?.tasks || []).map(t => t.id).sort().join(',');
-      return `${columnId}:${taskIds}`;
+      const position = column?.position ?? 0;
+      return `${columnId}:${position}:${taskIds}`;
     }).join('|');
     
     // Only update state if signature changed (actual data changed)
@@ -3096,29 +3121,35 @@ function AppContent() {
       
       if (oldIndex === -1 || newIndex === -1) return;
       
-
+      // Get target column to determine the correct position
+      const targetColumn = columnArray[newIndex];
+      const sourceColumn = columnArray[oldIndex];
+      const sourcePosition = Math.floor(sourceColumn.position || 0);
+      const targetPosition = Math.floor(targetColumn.position || 0);
       
-      // Reorder columns using arrayMove
-      const reorderedColumns = arrayMove(columnArray, oldIndex, newIndex);
+      // Determine if we're moving left (to lower position) or right (to higher position)
+      const movingLeft = sourcePosition > targetPosition;
+      const movingRight = sourcePosition < targetPosition;
       
-      // Update positions
-      const updatedColumns = reorderedColumns.map((column, index) => ({
-        ...column,
-        position: index
-      }));
+      // For edge cases: when dropping on first or last column
+      const isFirstColumn = newIndex === 0;
+      const isLastColumn = newIndex === columnArray.length - 1;
       
-      // Optimistically update UI
-      const newColumnsObj: Columns = {};
-      updatedColumns.forEach(col => {
-        newColumnsObj[col.id] = col;
-      });
-      setColumns(newColumnsObj);
+      let finalTargetPosition = targetPosition;
       
-      // Update database - pass the new position from the reordered array
-      const movedColumn = updatedColumns.find(col => col.id === active.id);
-      if (movedColumn) {
-        await reorderColumns(active.id as string, movedColumn.position, selectedBoard);
+      if (movingLeft && isFirstColumn) {
+        // Moving left to first position (position 0): dropped column takes position 0
+        finalTargetPosition = 0;
+      } else if (movingRight && isLastColumn) {
+        // Moving right to last position: dropped column takes the last position
+        finalTargetPosition = targetPosition;
+      } else {
+        // Normal case: use target's position
+        finalTargetPosition = targetPosition;
       }
+      
+      // Update database - use handleColumnReorder which handles refresh and renumbering
+      await handleColumnReorder(active.id as string, finalTargetPosition);
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to reorder columns:', error);

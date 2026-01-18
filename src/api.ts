@@ -564,8 +564,12 @@ export const getPublicSettings = async () => {
 };
 
 // Activity Feed
-export const getActivityFeed = async (limit: number = 20) => {
-  const { data } = await api.get(`/activity/feed?limit=${limit}`);
+export const getActivityFeed = async (limit: number = 20, lang?: string) => {
+  // Get current language from localStorage (where i18next stores it) or use provided lang
+  const currentLang = lang || localStorage.getItem('i18nextLng') || 'en';
+  // Normalize to 'en' or 'fr'
+  const normalizedLang = currentLang.toLowerCase().startsWith('fr') ? 'fr' : 'en';
+  const { data } = await api.get(`/activity/feed?limit=${limit}&lang=${normalizedLang}`);
   return data;
 };
 

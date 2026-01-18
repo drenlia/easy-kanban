@@ -50,31 +50,31 @@ export default defineConfig({
     // CORS headers removed - let Express handle all CORS
     proxy: {
       '/api': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/attachments': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/avatars': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/api/files/attachments': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/api/files/avatars': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://0.0.0.0:3222',
+        target: process.env.DOCKER_ENV === 'true' ? 'http://localhost:3222' : 'http://localhost:3222',
         changeOrigin: true,
         ws: true, // Enable WebSocket proxying
       },

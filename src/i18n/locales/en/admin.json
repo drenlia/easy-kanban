@@ -327,7 +327,7 @@
     "userInterfaceSettings": "User Interface Settings",
     "userInterfaceSettingsDescription": "Configure application-wide behavior settings. These settings apply as defaults for all users, but users can override them in their personal preferences.",
     "defaultApplicationLanguage": "Default Application Language",
-    "defaultApplicationLanguageDescription": "Set the default language for the application. This will be used for system-generated content.",
+    "defaultApplicationLanguageDescription": "Set the default language for system-generated content. This affects:\n• Email notifications (invitations, task updates, password resets)\n• Default column names for new boards (e.g., \"To Do\", \"In Progress\")\n• Reports (when user language preference is not set)\n\nNote: User interface language and activity feed messages are controlled by individual user preferences, not this setting.",
     "taskDeleteConfirmation": "Task Delete Confirmation",
     "taskDeleteConfirmationDescription": "Require confirmation before deleting tasks. Users can override this in their personal preferences.",
     "enabled": "Enabled",

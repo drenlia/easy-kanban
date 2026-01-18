@@ -199,15 +199,24 @@ export async function updateColumnPosition(db, columnId, position) {
  * @param {number} minPosition - Minimum position to shift
  * @param {number} maxPosition - Maximum position to shift
  * @param {number} shiftBy - Amount to shift (positive or negative)
+ * @param {string} excludeColumnId - Optional column ID to exclude from shifting
  */
-export async function shiftColumnPositions(db, boardId, minPosition, maxPosition, shiftBy) {
-  const query = `
+export async function shiftColumnPositions(db, boardId, minPosition, maxPosition, shiftBy, excludeColumnId = null) {
+  let query = `
     UPDATE columns 
     SET position = position + $1 
     WHERE boardid = $2 AND position >= $3 AND position <= $4
   `;
+  const params = [shiftBy, boardId, minPosition, maxPosition];
+  
+  // Exclude the column being moved from the shift operation
+  if (excludeColumnId) {
+    query += ` AND id != $5`;
+    params.push(excludeColumnId);
+  }
+  
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.run(shiftBy, boardId, minPosition, maxPosition);
+  return await stmt.run(...params);
 }
 
 /**
