@@ -753,8 +753,10 @@ router.post('/', authenticateToken, checkTaskLimit, async (req, res) => {
       console.error('Background activity logging failed:', error);
     });
     
-    // Log to reporting system
-    await logReportingActivity(db, 'task_created', userId, task.id);
+    // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
+    logReportingActivity(db, 'task_created', userId, task.id).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
     
     // Add the generated ticket to the task object before publishing
     task.ticket = ticket;
@@ -860,8 +862,10 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
       console.error('Background activity logging failed:', error);
     });
     
-    // Log to reporting system
-    await logReportingActivity(db, 'task_created', userId, task.id);
+    // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
+    logReportingActivity(db, 'task_created', userId, task.id).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
     
     // Add the generated ticket to the task object
     task.ticket = ticket;
@@ -1297,7 +1301,10 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const boardTitle = board ? board.title : 'Unknown Board';
     
     // Log to reporting system BEFORE deletion (while we can still fetch task data)
-    await logReportingActivity(db, 'task_deleted', userId, id);
+    // Fire-and-forget: Don't await to avoid blocking API response
+    logReportingActivity(db, 'task_deleted', userId, id).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
     
     // Get task attachments before deleting the task
     const attachmentsStmt = db.prepare('SELECT url FROM attachments WHERE taskId = ?');
@@ -1754,11 +1761,14 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(previousColumnId);
       
       const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
-      await logReportingActivity(db, eventType, userId, taskId, {
+      // Fire-and-forget: Don't await to avoid blocking API response
+      logReportingActivity(db, eventType, userId, taskId, {
         fromColumnId: previousColumnId,
         fromColumnName: oldColumn?.title,
         toColumnId: columnId,
         toColumnName: newColumn?.title
+      }).catch(error => {
+        console.error('Background reporting activity logging failed:', error);
       });
     }
 
@@ -1960,11 +1970,14 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     const oldColumn = await wrapQuery(db.prepare('SELECT title FROM columns WHERE id = ?'), 'SELECT').get(originalColumnId);
     
     const eventType = newColumn?.is_done ? 'task_completed' : 'task_moved';
-    await logReportingActivity(db, eventType, userId, taskId, {
+    // Fire-and-forget: Don't await to avoid blocking API response
+    logReportingActivity(db, eventType, userId, taskId, {
       fromColumnId: originalColumnId,
       fromColumnName: oldColumn?.title,
       toColumnId: targetColumn.id,
       toColumnName: newColumn?.title
+    }).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
     });
     
     // Get the updated task data with all relationships for WebSocket
@@ -2051,8 +2064,10 @@ router.post('/:taskId/watchers/:memberId', authenticateToken, async (req, res) =
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
     
-    // Log to reporting system
-    await logReportingActivity(db, 'watcher_added', userId, taskId);
+    // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
+    logReportingActivity(db, 'watcher_added', userId, taskId).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
     
     // Publish to Redis for real-time updates
     await redisService.publish('task-watcher-added', {
@@ -2124,8 +2139,10 @@ router.post('/:taskId/collaborators/:memberId', authenticateToken, async (req, r
       VALUES (?, ?, ?)
     `), 'INSERT').run(taskId, memberId, new Date().toISOString());
     
-    // Log to reporting system
-    await logReportingActivity(db, 'collaborator_added', userId, taskId);
+    // Log to reporting system (fire-and-forget: Don't await to avoid blocking API response)
+    logReportingActivity(db, 'collaborator_added', userId, taskId).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
     
     // Publish to Redis for real-time updates
     await redisService.publish('task-collaborator-added', {
