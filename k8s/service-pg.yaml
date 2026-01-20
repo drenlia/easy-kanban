@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: easy-kanban-service
+  namespace: easy-kanban-pg
+  labels:
+    app: easy-kanban
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 3010
+    protocol: TCP
+    name: frontend
+  - port: 3222
+    targetPort: 3222
+    protocol: TCP
+    name: backend
+  selector:
+    app: easy-kanban
+    component: frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: easy-kanban-nodeport
+  namespace: easy-kanban-pg
+  labels:
+    app: easy-kanban
+spec:
+  type: NodePort
+  selector:
+    app: easy-kanban
+    component: frontend
+  ports:
+  - name: frontend
+    port: 80
+    targetPort: 3010
+    nodePort: 31951
+    protocol: TCP
+  - name: websocket
+    port: 3222
+    targetPort: 3222
+    nodePort: 32058
+    protocol: TCP

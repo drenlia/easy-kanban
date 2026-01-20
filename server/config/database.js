@@ -222,6 +222,7 @@ function convertSqliteToPostgres(sql) {
   pgSql = pgSql.replace(/is_completed INTEGER DEFAULT 0/gi, 'is_completed BOOLEAN DEFAULT false');
   pgSql = pgSql.replace(/is_completed INTEGER DEFAULT 1/gi, 'is_completed BOOLEAN DEFAULT true');
   pgSql = pgSql.replace(/used BOOLEAN DEFAULT 0/gi, 'used BOOLEAN DEFAULT false');
+  pgSql = pgSql.replace(/shared BOOLEAN DEFAULT 0/gi, 'shared BOOLEAN DEFAULT false');
   pgSql = pgSql.replace(/force_logout INTEGER DEFAULT 0/gi, 'force_logout BOOLEAN DEFAULT false');
   
   // Also handle INTEGER columns that should be BOOLEAN (without DEFAULT)

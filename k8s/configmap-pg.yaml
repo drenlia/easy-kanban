@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: easy-kanban-config-pg
+  namespace: easy-kanban-pg
+  labels:
+    app: easy-kanban
+    database: postgresql
+data:
+  NODE_ENV: "production"
+  DOCKER_ENV: "true"
+  PORT: "3222"
+  VITE_API_URL: "http://localhost:3222"
+  DEMO_ENABLED: "false"
+  
+  # Instance configuration for admin portal access
+  INSTANCE_NAME: "easy-kanban-pg"
+  INSTANCE_TOKEN: "INSTANCE_TOKEN_PLACEHOLDER"
+  ADMIN_SERVICE_URL: "https://admin.ezkan.cloud"
+  
+  # Security configuration
+  JWT_SECRET: "JWT_SECRET_PLACEHOLDER"
+  # CORS origins - Use different subdomain for testing
+  ALLOWED_ORIGINS: "localhost,127.0.0.1,app-pg.ezkan.cloud,admin.ezkan.cloud,ezkan.cloud"
+  
+  # License settings
+  LICENSE_ENABLED: "true"
+  
+  # Application version
+  APP_VERSION: "APP_VERSION_PLACEHOLDER"
+  
+  # Multi-tenant configuration
+  MULTI_TENANT: "true"
+  TENANT_DOMAIN: "ezkan.cloud"
+  STARTUP_TENANT_ID: ""
+  
+  # PostgreSQL Configuration (replaces SQLite)
+  DB_TYPE: "postgresql"
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "easykanban"
+  POSTGRES_USER: "kanban"
+  # POSTGRES_PASSWORD is set via Secret (not in ConfigMap for security)
+  
+  # Remove SQLite proxy configuration (not needed with PostgreSQL)
+  # SQLITE_PROXY_URL: ""  # Explicitly empty - PostgreSQL doesn't need proxy
+  
+  # Real-time updates via PostgreSQL pub/sub (replaces Redis pub/sub for notifications)
+  # PostgreSQL LISTEN/NOTIFY will be used instead of Redis pub/sub for notifications
+  # However, Redis is still required for Socket.IO session sharing across pods
+  REDIS_URL: "redis://redis:6379"

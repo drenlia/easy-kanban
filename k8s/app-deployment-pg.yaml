@@ -1,0 +1,162 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: easy-kanban
+  namespace: easy-kanban-pg
+  labels:
+    app: easy-kanban
+    component: frontend
+    database: postgresql
+spec:
+  replicas: 3  # Start with 3 replicas for testing
+  selector:
+    matchLabels:
+      app: easy-kanban
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: easy-kanban
+        component: frontend
+        database: postgresql
+    spec:
+      # Wait for PostgreSQL to be ready before starting application
+      initContainers:
+      - name: wait-for-postgres
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "⏳ Waiting for PostgreSQL..."
+          TIMEOUT=300
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if nc -z postgres.easy-kanban-pg.svc.cluster.local 5432 2>/dev/null; then
+              echo "✅ PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "   PostgreSQL not ready, waiting 5s... ($ELAPSED/$TIMEOUT)"
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          echo "❌ Timeout waiting for PostgreSQL"
+          exit 1
+      # Wait for NFS server to be ready before mounting volumes
+      - name: wait-for-nfs
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "⏳ Waiting for NFS server..."
+          TIMEOUT=300
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if nc -z nfs-server.easy-kanban.svc.cluster.local 2049 2>/dev/null; then
+              echo "✅ NFS server is ready!"
+              exit 0
+            fi
+            echo "   NFS server not ready, waiting 5s... ($ELAPSED/$TIMEOUT)"
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          echo "❌ Timeout waiting for NFS server"
+          exit 1
+      # Wait for registry to be ready before pulling image
+      - name: wait-for-registry
+        image: busybox:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "⏳ Waiting for registry..."
+          TIMEOUT=300
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if nc -z internal-registry.kube-system.svc.cluster.local 5000 2>/dev/null; then
+              echo "✅ Registry is ready!"
+              exit 0
+            fi
+            echo "   Registry not ready, waiting 5s... ($ELAPSED/$TIMEOUT)"
+            sleep 5
+            ELAPSED=$((ELAPSED + 5))
+          done
+          echo "❌ Timeout waiting for registry"
+          exit 1
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: easy-kanban
+      containers:
+      - name: easy-kanban
+        image: 10.110.240.233:5000/easy-kanban:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3010
+          name: frontend
+        - containerPort: 3222
+          name: backend
+        envFrom:
+        - configMapRef:
+            name: easy-kanban-config-pg
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        startupProbe:
+          httpGet:
+            path: /ready
+            port: 3222
+            httpHeaders:
+            - name: Host
+              value: app-pg.ezkan.cloud
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 30
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3222
+            httpHeaders:
+            - name: Host
+              value: app-pg.ezkan.cloud
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3222
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 10
+          failureThreshold: 6
+        volumeMounts:
+        - name: app-attachments
+          mountPath: /app/server/attachments
+        - name: app-avatars
+          mountPath: /app/server/avatars
+      volumes:
+      - name: app-attachments
+        persistentVolumeClaim:
+          claimName: easy-kanban-shared-pvc-attachments
+      - name: app-avatars
+        persistentVolumeClaim:
+          claimName: easy-kanban-shared-pvc-avatars
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      restartPolicy: Always

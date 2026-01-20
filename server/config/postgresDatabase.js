@@ -127,7 +127,9 @@ class PostgresDatabase {
     
     // Set search_path for multi-tenant mode (must be set for each client)
     if (this.schema !== 'public') {
-      await client.query(`SET search_path TO ${this.schema}, public`);
+      // Quote schema name to handle special characters (like hyphens in tenant IDs)
+      const quotedSchema = `"${this.schema}"`;
+      await client.query(`SET search_path TO ${quotedSchema}, public`);
     }
     
     return client;
@@ -300,14 +302,44 @@ class PostgresDatabase {
       
       for (const stmt of statements) {
         if (stmt.trim()) {
+          // Remove comment lines from the beginning of statements
+          // Comments can appear before CREATE TABLE statements
+          let cleaned = stmt.trim();
+          // Remove leading comment lines (lines starting with --)
+          const lines = cleaned.split('\n');
+          const nonCommentLines = [];
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            // Skip pure comment lines, but keep everything else
+            if (trimmedLine && !trimmedLine.startsWith('--')) {
+              nonCommentLines.push(line);
+            }
+          }
+          cleaned = nonCommentLines.join('\n').trim();
+          
+          // Skip empty statements after removing comments
+          if (!cleaned) {
+            continue;
+          }
+          
+          // Skip pure comment statements
+          if (cleaned.startsWith('--')) {
+            continue;
+          }
+          
           try {
-            // Skip statements that are PostgreSQL-specific and don't need execution
-            const trimmed = stmt.trim();
-            if (trimmed.startsWith('--') || trimmed.toLowerCase().startsWith('comment')) {
-              continue;
+            // Log CREATE TABLE statements for debugging
+            if (cleaned.toUpperCase().startsWith('CREATE TABLE')) {
+              const tableMatch = cleaned.match(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["']?(\w+)["']?/i);
+              if (tableMatch) {
+                console.log(`🔧 Executing CREATE TABLE for: ${tableMatch[1]}`);
+              }
             }
             
-            await client.query(trimmed);
+            // Convert SQLite syntax to PostgreSQL
+            const pgSql = this.convertSqliteToPostgres(cleaned);
+            
+            await client.query(pgSql);
           } catch (error) {
             // Ignore errors for CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, etc.
             // PostgreSQL doesn't have IF NOT EXISTS for all statements, so we check error codes
@@ -316,15 +348,20 @@ class PostgresDatabase {
               continue;
             }
             
+            // Log the error for debugging (but continue executing remaining statements)
+            console.error(`❌ SQL execution error (code: ${error.code}): ${error.message}`);
+            console.error(`   Statement: ${cleaned.substring(0, 200)}...`);
+            
             // Collect other errors but continue executing remaining statements
-            errors.push({ statement: stmt.substring(0, 50), error: error.message || 'Unknown error' });
+            errors.push({ statement: cleaned.substring(0, 50), error: error.message || 'Unknown error', code: error.code });
           }
         }
       }
       
-      // If we collected non-ignorable errors, throw the first one
+      // If we collected non-ignorable errors, throw the first one with all error details
       if (errors.length > 0) {
-        throw new Error(`Error executing SQL: ${errors[0].error} (in statement: ${errors[0].statement}...)`);
+        const errorDetails = errors.map(e => `  - ${e.error} (code: ${e.code || 'unknown'}) in: ${e.statement}...`).join('\n');
+        throw new Error(`Error executing SQL (${errors.length} error(s)):\n${errorDetails}`);
       }
     } finally {
       this.releaseClient(client);
@@ -347,7 +384,9 @@ class PostgresDatabase {
       try {
         // Set search_path for this transaction
         if (this.schema !== 'public') {
-          await client.query(`SET LOCAL search_path TO ${this.schema}, public`);
+          // Quote schema name to handle special characters (like hyphens in tenant IDs)
+          const quotedSchema = `"${this.schema}"`;
+          await client.query(`SET LOCAL search_path TO ${quotedSchema}, public`);
         }
         
         await client.query('BEGIN');
@@ -433,7 +472,9 @@ class PostgresDatabase {
     try {
       // Set search_path for this transaction
       if (this.schema !== 'public') {
-        await client.query(`SET LOCAL search_path TO ${this.schema}, public`);
+        // Quote schema name to handle special characters (like hyphens in tenant IDs)
+        const quotedSchema = `"${this.schema}"`;
+        await client.query(`SET LOCAL search_path TO ${quotedSchema}, public`);
       }
       
       await client.query('BEGIN');
@@ -498,7 +539,9 @@ class PostgresDatabase {
     const adminClient = await this.pool.connect();
     try {
       // Create schema if it doesn't exist
-      await adminClient.query(`CREATE SCHEMA IF NOT EXISTS ${this.schema}`);
+      // Quote schema name to handle special characters (like hyphens in tenant IDs)
+      const quotedSchema = `"${this.schema}"`;
+      await adminClient.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
       console.log(`✅ Schema '${this.schema}' ready for tenant: ${this.tenantId}`);
     } catch (error) {
       if (error.code !== '42P06') { // Schema already exists
