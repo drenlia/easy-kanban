@@ -469,7 +469,11 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     }
     
     // MIGRATED: Get updated user data using sqlManager
-    const updatedUser = await userQueries.getUserWithRoles(db, userId);
+    const updatedUser = await userQueries.getUserByIdForAdmin(db, userId);
+    
+    // Get user's roles as comma-separated string (matching GET /users format)
+    const userRolesResult = await userQueries.getUserRole(db, userId);
+    const rolesArray = userRolesResult ? [userRolesResult] : [];
     
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);
@@ -508,7 +512,16 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     const t = await getTranslator(db);
     res.json({
       success: true,
-      message: t('success.userUpdatedSuccessfully')
+      message: t('success.userUpdatedSuccessfully'),
+      data: {
+        id: updatedUser.id,
+        email: updatedUser.email || email,
+        firstName: updatedUser.first_name || firstName,
+        lastName: updatedUser.last_name || lastName,
+        roles: rolesArray,
+        isActive: Boolean(updatedUser.is_active),
+        createdAt: updatedUser.created_at
+      }
     });
   } catch (error) {
     console.error('Error updating user:', error);
