@@ -21,8 +21,9 @@ const { Pool, Client } = pg;
 class PostgresStatement {
   constructor(db, query) {
     this.db = db;
-    this.query = query;
-    this.source = query; // For compatibility with queryLogger
+    // Convert SQLite syntax to PostgreSQL syntax
+    this.query = db.convertSqliteToPostgres(query);
+    this.source = query; // For compatibility with queryLogger (keep original)
     this.dbProxy = db; // For compatibility with dbAsync.js
   }
 

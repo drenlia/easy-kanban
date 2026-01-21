@@ -89,7 +89,10 @@ echo "   Tenant ID: ${TENANT_ID}"
 echo "   SQLite DB: ${SQLITE_BACKUP_PATH}"
 echo "   PostgreSQL: postgres.easy-kanban-pg.svc.cluster.local:5432"
 echo "   Database: easykanban"
-echo "   Schema: ${TENANT_ID}"
+echo "   Schema: ${TENANT_ID} (Note: Application expects tenant_${TENANT_ID} format)"
+echo ""
+echo "⚠️  WARNING: The migration script uses schema '${TENANT_ID}' but the application"
+echo "   expects 'tenant_${TENANT_ID}'. Make sure the tenant_id matches your instance name!"
 echo ""
 
 # Check if migration script exists
@@ -99,53 +102,130 @@ if [ ! -f "$MIGRATION_SCRIPT" ]; then
     exit 1
 fi
 
-# Set up port-forward to PostgreSQL
-echo "🔌 Setting up port-forward to PostgreSQL..."
-echo "   This will run in the background"
-kubectl port-forward -n "${NAMESPACE}" service/postgres 5432:5432 > /dev/null 2>&1 &
-PORT_FORWARD_PID=$!
+# Get an app pod to run the migration in
+echo "🔍 Finding an app pod to run migration..."
+APP_POD=$(kubectl get pod -n "${NAMESPACE}" -l app=easy-kanban -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
-# Wait for port-forward to be ready
-echo "   ⏳ Waiting for port-forward to be ready..."
-sleep 3
-
-# Check if port-forward is working
-if ! nc -z localhost 5432 2>/dev/null; then
-    echo "   ⚠️  Port-forward may not be ready, but continuing..."
+if [ -z "$APP_POD" ]; then
+    echo "❌ Error: No app pods found in namespace ${NAMESPACE}"
+    echo "   Please ensure the application is deployed first:"
+    echo "   ./k8s/deploy-instance-pg.sh ${TENANT_ID} basic"
+    exit 1
 fi
 
-# Cleanup function
-cleanup() {
-    echo ""
-    echo "🧹 Cleaning up port-forward..."
-    kill $PORT_FORWARD_PID 2>/dev/null || true
-    wait $PORT_FORWARD_PID 2>/dev/null || true
+echo "   ✅ Found pod: ${APP_POD}"
+echo ""
+
+# Copy SQLite backup file into the pod
+# The migration script expects it at: /app/server/data/tenants/${TENANT_ID}/kanban.db
+# OR we can use SQLITE_DB_PATH env var to override
+echo "📤 Copying SQLite backup into pod..."
+BACKUP_FILENAME=$(basename "$SQLITE_BACKUP_PATH")
+
+# Create the tenant directory structure expected by the migration script
+TENANT_DATA_DIR="/app/server/data/tenants/${TENANT_ID}"
+POD_BACKUP_PATH="${TENANT_DATA_DIR}/kanban.db"
+
+# Create tenant directory in pod if it doesn't exist
+kubectl exec -n "${NAMESPACE}" "${APP_POD}" -- mkdir -p "${TENANT_DATA_DIR}"
+
+# Copy the backup file to the expected location
+kubectl cp "${SQLITE_BACKUP_PATH}" "${NAMESPACE}/${APP_POD}:${POD_BACKUP_PATH}" || {
+    echo "❌ Error: Failed to copy backup file into pod"
+    exit 1
 }
 
-trap cleanup EXIT
-
-echo "   ✅ Port-forward active (PID: ${PORT_FORWARD_PID})"
+echo "   ✅ Backup file copied to pod: ${POD_BACKUP_PATH}"
 echo ""
 
-# Run migration script
-echo "🔄 Running migration script..."
+# Copy migration script into the pod (use /app/scripts to match project structure)
+echo "📤 Copying migration script into pod..."
+POD_SCRIPT_PATH="/app/scripts/migrate-sqlite-to-postgres.js"
+
+# Ensure scripts directory exists
+kubectl exec -n "${NAMESPACE}" "${APP_POD}" -- mkdir -p /app/scripts
+
+kubectl cp "${MIGRATION_SCRIPT}" "${NAMESPACE}/${APP_POD}:${POD_SCRIPT_PATH}" || {
+    echo "❌ Error: Failed to copy migration script into pod"
+    exit 1
+}
+
+echo "   ✅ Migration script copied to pod: ${POD_SCRIPT_PATH}"
 echo ""
 
-cd "${PROJECT_ROOT}"
+# Run migration script inside the pod
+echo "🔄 Running migration script inside pod..."
+echo ""
 
-# Set environment variables for migration
-export SQLITE_DB_PATH="${SQLITE_BACKUP_PATH}"
-export POSTGRES_HOST="localhost"
-export POSTGRES_PORT="5432"
-export POSTGRES_DB="easykanban"
-export POSTGRES_USER="kanban"
-export POSTGRES_PASSWORD="kanban_password"
-export MULTI_TENANT="true"
-
-# Run the migration script
-node "${MIGRATION_SCRIPT}" --tenant-id "${TENANT_ID}"
+# Set environment variables and run migration in the pod
+# Use PostgreSQL service name directly (no port-forward needed)
+# Run from /app directory so node_modules resolution works correctly
+# Note: SQLITE_DB_PATH is ignored when isMultiTenant && tenantId is true,
+# so we copy the file to the expected location: /app/server/data/tenants/${TENANT_ID}/kanban.db
+# Run migration script with --skip-confirm flag to avoid interactive prompt
+kubectl exec -n "${NAMESPACE}" "${APP_POD}" -- sh -c "cd /app && env \
+    POSTGRES_HOST=\"postgres.easy-kanban-pg.svc.cluster.local\" \
+    POSTGRES_PORT=\"5432\" \
+    POSTGRES_DB=\"easykanban\" \
+    POSTGRES_USER=\"kanban\" \
+    POSTGRES_PASSWORD=\"kanban_password\" \
+    MULTI_TENANT=\"true\" \
+    node \"${POD_SCRIPT_PATH}\" --tenant-id \"${TENANT_ID}\" --skip-confirm"
 
 MIGRATION_EXIT_CODE=$?
+
+# Copy attachments and avatars from source tenant to target tenant
+if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
+    echo ""
+    echo "📁 Copying attachments and avatars from source tenant to target tenant..."
+    
+    # Determine source tenant (remove -pg suffix if present)
+    # For develop-pg, source is develop
+    SOURCE_TENANT=$(echo "${TENANT_ID}" | sed 's/-pg$//')
+    
+    # Get NFS pod
+    NFS_NAMESPACE="easy-kanban"
+    NFS_POD=$(kubectl get pod -n "${NFS_NAMESPACE}" -l app=nfs-server -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    
+    if [ -n "$NFS_POD" ]; then
+        # Copy attachments
+        echo "   📎 Copying attachments from ${SOURCE_TENANT} to ${TENANT_ID}..."
+        SOURCE_ATTACHMENTS="/exports/attachments/tenants/${SOURCE_TENANT}"
+        TARGET_ATTACHMENTS="/exports/attachments/tenants/${TENANT_ID}"
+        
+        if kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- test -d "${SOURCE_ATTACHMENTS}" 2>/dev/null; then
+            kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- sh -c "mkdir -p ${TARGET_ATTACHMENTS} && cp -r ${SOURCE_ATTACHMENTS}/* ${TARGET_ATTACHMENTS}/ 2>/dev/null || true"
+            ATTACHMENT_COUNT=$(kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- sh -c "find ${TARGET_ATTACHMENTS} -type f 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+            echo "      ✅ Copied attachments (${ATTACHMENT_COUNT} files)"
+        else
+            echo "      ⚠️  Source attachments directory not found, skipping"
+        fi
+        
+        # Copy avatars
+        echo "   👤 Copying avatars from ${SOURCE_TENANT} to ${TENANT_ID}..."
+        SOURCE_AVATARS="/exports/avatars/tenants/${SOURCE_TENANT}"
+        TARGET_AVATARS="/exports/avatars/tenants/${TENANT_ID}"
+        
+        if kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- test -d "${SOURCE_AVATARS}" 2>/dev/null; then
+            kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- sh -c "mkdir -p ${TARGET_AVATARS} && cp -r ${SOURCE_AVATARS}/* ${TARGET_AVATARS}/ 2>/dev/null || true"
+            AVATAR_COUNT=$(kubectl exec -n "${NFS_NAMESPACE}" "${NFS_POD}" -- sh -c "find ${TARGET_AVATARS} -type f 2>/dev/null | wc -l" 2>/dev/null || echo "0")
+            echo "      ✅ Copied avatars (${AVATAR_COUNT} files)"
+        else
+            echo "      ⚠️  Source avatars directory not found, skipping"
+        fi
+    else
+        echo "   ⚠️  NFS pod not found, cannot copy files"
+    fi
+    echo ""
+fi
+
+# Cleanup: Remove temporary files from pod
+echo ""
+echo "🧹 Cleaning up temporary files in pod..."
+kubectl exec -n "${NAMESPACE}" "${APP_POD}" -- sh -c "rm -f ${POD_BACKUP_PATH}" 2>/dev/null || true
+# Note: We keep the script in /app/scripts as it might be useful for future migrations
+echo "   ✅ Cleanup complete (backup file removed, script kept in /app/scripts)"
+echo ""
 
 if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
     echo ""

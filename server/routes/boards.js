@@ -273,8 +273,8 @@ router.post('/', authenticateToken, checkBoardLimit, async (req, res) => {
           title: col.title, 
           boardId: id, 
           position: index, 
-          isFinished: isFinished,  // camelCase for WebSocket
-          isArchived: isArchived   // camelCase for WebSocket
+          is_finished: isFinished,  // snake_case to match frontend
+          is_archived: isArchived   // snake_case to match frontend
         },
         updatedBy: req.user?.id || 'system',
         timestamp: new Date().toISOString()

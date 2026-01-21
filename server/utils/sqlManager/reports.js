@@ -98,8 +98,8 @@ export async function getUserTotalPoints(db, userId) {
 export async function getUserMonthlyPoints(db, userId) {
   const query = `
     SELECT 
-      period_year as "periodYear",
-      period_month as "periodMonth",
+      period_year,
+      period_month,
       total_points as "totalPoints",
       tasks_created as "tasksCreated",
       tasks_completed as "tasksCompleted",

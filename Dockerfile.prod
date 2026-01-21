@@ -46,8 +46,9 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install only runtime dependencies (no build tools needed - better-sqlite3 uses pre-built binaries)
-RUN apk add --no-cache dumb-init curl
+# Install runtime dependencies and build tools for better-sqlite3 (native module compilation)
+# better-sqlite3 is a native module that requires compilation
+RUN apk add --no-cache dumb-init curl python3 make g++
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \

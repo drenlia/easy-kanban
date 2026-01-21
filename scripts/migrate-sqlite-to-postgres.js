@@ -23,6 +23,7 @@ import fs from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import readline from 'readline';
+import crypto from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,6 +33,7 @@ const { Client } = pg;
 const args = process.argv.slice(2);
 const tenantIdIndex = args.indexOf('--tenant-id');
 const tenantId = tenantIdIndex !== -1 ? args[tenantIdIndex + 1] : null;
+const skipConfirm = args.includes('--skip-confirm') || args.includes('--yes') || process.env.SKIP_CONFIRM === 'true';
 const isMultiTenant = process.env.MULTI_TENANT === 'true';
 
 // Configuration
@@ -48,7 +50,8 @@ const config = {
     database: process.env.POSTGRES_DB || 'kanban',
     user: process.env.POSTGRES_USER || 'kanban_user',
     password: process.env.POSTGRES_PASSWORD || 'kanban_password',
-    schema: tenantId || 'public' // Use tenant ID as schema name in multi-tenant mode
+    // Match application's schema naming: tenant_${tenantId} for multi-tenant, 'public' for single-tenant
+    schema: (isMultiTenant && tenantId) ? `tenant_${tenantId}` : 'public'
   }
 };
 
@@ -234,8 +237,9 @@ async function migrateData(sqliteDb, pgClient, tableName, schema = 'public') {
   const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
   const columnNames = columns.join(', ');
   
-  // Prepare insert statement
-  const insertSql = `INSERT INTO ${schema}.${tableName} (${columnNames}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
+  // Prepare insert statement (quote schema name if it contains special characters)
+  const quotedSchema = schema.includes('-') || schema.startsWith('tenant_') ? `"${schema}"` : schema;
+  const insertSql = `INSERT INTO ${quotedSchema}.${tableName} (${columnNames}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`;
   
   // Insert rows in batches
   const batchSize = 1000;
@@ -245,6 +249,14 @@ async function migrateData(sqliteDb, pgClient, tableName, schema = 'public') {
     const batch = rows.slice(i, i + batchSize);
     
     for (const row of batch) {
+          // Check if the first column (usually 'id') is null and generate UUID if needed
+          const firstColumn = columns[0];
+          if (row[firstColumn] === null || row[firstColumn] === undefined) {
+            // Generate a UUID for null IDs (common in TEXT PRIMARY KEY columns)
+            row[firstColumn] = crypto.randomUUID();
+            console.log(`    ⚠️  Generated UUID for null ID in row: ${firstColumn}=${row[firstColumn]}`);
+          }
+          
           const values = columns.map(col => {
             const value = row[col];
             // Convert SQLite boolean (0/1) to PostgreSQL boolean
@@ -298,7 +310,8 @@ async function migrateData(sqliteDb, pgClient, tableName, schema = 'public') {
             
             // Check if it exists in PostgreSQL
             try {
-              const pgCheck = await pgClient.query(`SELECT * FROM ${schema}.${referencedTable} WHERE id = $1`, [fkValue]);
+              const quotedSchema = schema.includes('-') || schema.startsWith('tenant_') ? `"${schema}"` : schema;
+              const pgCheck = await pgClient.query(`SELECT * FROM ${quotedSchema}.${referencedTable} WHERE id = $1`, [fkValue]);
               if (pgCheck.rows.length > 0) {
                 console.error(`       ⚠️  The record EXISTS in PostgreSQL - this might be a case sensitivity or type mismatch issue.`);
               }
@@ -353,20 +366,24 @@ async function migrate() {
   }
   console.log('');
   
-  // Confirm migration
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  
-  const answer = await new Promise(resolve => {
-    rl.question('⚠️  This will migrate data from SQLite to PostgreSQL. Continue? (yes/no): ', resolve);
-  });
-  rl.close();
-  
-  if (answer.toLowerCase() !== 'yes') {
-    console.log('❌ Migration cancelled');
-    process.exit(0);
+  // Confirm migration (skip if --skip-confirm or --yes flag is provided, or SKIP_CONFIRM env var is set)
+  if (!skipConfirm) {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    const answer = await new Promise(resolve => {
+      rl.question('⚠️  This will migrate data from SQLite to PostgreSQL. Continue? (yes/no): ', resolve);
+    });
+    rl.close();
+    
+    if (answer.toLowerCase() !== 'yes') {
+      console.log('❌ Migration cancelled');
+      process.exit(0);
+    }
+  } else {
+    console.log('⚠️  Migrating data from SQLite to PostgreSQL (confirmation skipped)...');
   }
   
   // Connect to SQLite
@@ -390,8 +407,10 @@ async function migrate() {
     // Create schema if in multi-tenant mode
     if (isMultiTenant && tenantId) {
       console.log(`📋 Creating schema: ${config.postgres.schema}`);
-      await pgClient.query(`CREATE SCHEMA IF NOT EXISTS ${config.postgres.schema}`);
-      await pgClient.query(`SET search_path TO ${config.postgres.schema}, public`);
+      // Quote schema name to handle special characters (like hyphens in tenant IDs)
+      const quotedSchema = `"${config.postgres.schema}"`;
+      await pgClient.query(`CREATE SCHEMA IF NOT EXISTS ${quotedSchema}`);
+      await pgClient.query(`SET search_path TO ${quotedSchema}, public`);
       console.log('✅ Schema created\n');
     }
     
@@ -407,9 +426,10 @@ async function migrate() {
       const pgSql = convertSqliteToPostgres(table.sql);
       
       try {
-        // Use schema prefix if in multi-tenant mode
+        // Use schema prefix if in multi-tenant mode (quote schema name to handle hyphens)
+        const quotedSchema = isMultiTenant && tenantId ? `"${config.postgres.schema}"` : '';
         const createSql = isMultiTenant && tenantId
-          ? pgSql.replace(/CREATE TABLE IF NOT EXISTS (\w+)/gi, `CREATE TABLE IF NOT EXISTS ${config.postgres.schema}.$1`)
+          ? pgSql.replace(/CREATE TABLE IF NOT EXISTS (\w+)/gi, `CREATE TABLE IF NOT EXISTS ${quotedSchema}.$1`)
           : pgSql;
         
         await pgClient.query(createSql);
@@ -428,7 +448,8 @@ async function migrate() {
     
     // Fix boolean columns in existing tables (for tables created before schema fix)
     console.log('🔧 Fixing boolean column types in existing tables...');
-    const schemaPrefix = isMultiTenant && tenantId ? `${config.postgres.schema}.` : '';
+    const quotedSchema = isMultiTenant && tenantId ? `"${config.postgres.schema}"` : '';
+    const schemaPrefix = isMultiTenant && tenantId ? `${quotedSchema}.` : '';
     const schemaName = isMultiTenant && tenantId ? config.postgres.schema : 'public';
     
     // Check if task_snapshots exists and fix boolean columns
@@ -459,8 +480,9 @@ async function migrate() {
         const taskSnapshotsTable = tables.find(t => t.name === 'task_snapshots');
         if (taskSnapshotsTable) {
           const pgSql = convertSqliteToPostgres(taskSnapshotsTable.sql);
+          const quotedSchema = isMultiTenant && tenantId ? `"${config.postgres.schema}"` : '';
           const createSql = isMultiTenant && tenantId
-            ? pgSql.replace(/CREATE TABLE IF NOT EXISTS (\w+)/gi, `CREATE TABLE IF NOT EXISTS ${config.postgres.schema}.$1`)
+            ? pgSql.replace(/CREATE TABLE IF NOT EXISTS (\w+)/gi, `CREATE TABLE IF NOT EXISTS ${quotedSchema}.$1`)
             : pgSql;
           await pgClient.query(createSql);
           console.log('    ✅ task_snapshots recreated with correct BOOLEAN types');
@@ -481,8 +503,9 @@ async function migrate() {
     for (const indexSql of indexes) {
       const pgIndexSql = convertSqliteToPostgres(indexSql);
       try {
+        const quotedSchema = isMultiTenant && tenantId ? `"${config.postgres.schema}"` : '';
         const finalIndexSql = isMultiTenant && tenantId
-          ? pgIndexSql.replace(/CREATE INDEX IF NOT EXISTS (\w+) ON (\w+)/gi, `CREATE INDEX IF NOT EXISTS $1 ON ${config.postgres.schema}.$2`)
+          ? pgIndexSql.replace(/CREATE INDEX IF NOT EXISTS (\w+) ON (\w+)/gi, `CREATE INDEX IF NOT EXISTS $1 ON ${quotedSchema}.$2`)
           : pgIndexSql;
         
         await pgClient.query(finalIndexSql);

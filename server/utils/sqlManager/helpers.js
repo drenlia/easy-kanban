@@ -94,7 +94,7 @@ export async function getSetting(db, key) {
  * Get column by ID
  */
 export async function getColumnById(db, columnId) {
-  const query = `SELECT id, title FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -103,7 +103,7 @@ export async function getColumnById(db, columnId) {
  * Get full column info by ID (including boardId and position)
  */
 export async function getColumnFullInfo(db, columnId) {
-  const query = `SELECT id, title, boardid as "boardId", position FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -121,7 +121,7 @@ export async function checkColumnNameDuplicate(db, boardId, title, excludeColumn
  * Get column with is_finished flag
  */
 export async function getColumnWithStatus(db, columnId) {
-  const query = `SELECT id, title, is_finished as "isFinished" FROM columns WHERE id = $1`;
+  const query = `SELECT id, title, is_finished, is_archived FROM columns WHERE id = $1`;
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(columnId);
 }
@@ -154,8 +154,8 @@ export async function getColumnsForBoard(db, boardId) {
       title, 
       boardid as "boardId", 
       position, 
-      is_finished as "isFinished", 
-      is_archived as "isArchived"
+      is_finished,
+      is_archived
     FROM columns 
     WHERE boardid = $1 
     ORDER BY position ASC
@@ -179,8 +179,8 @@ export async function getColumnsForAllBoards(db, boardIds) {
       title, 
       boardid as "boardId", 
       position, 
-      is_finished as "isFinished", 
-      is_archived as "isArchived"
+      is_finished,
+      is_archived
     FROM columns 
     WHERE boardid IN (${placeholders})
     ORDER BY boardid, position ASC
@@ -254,8 +254,8 @@ export async function getAllColumnsForBoard(db, boardId) {
       title, 
       boardid as "boardId", 
       position, 
-      is_finished as "isFinished", 
-      is_archived as "isArchived"
+      is_finished,
+      is_archived
     FROM columns 
     WHERE boardid = $1 
     ORDER BY position ASC

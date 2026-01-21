@@ -66,12 +66,12 @@ router.post('/', authenticateToken, async (req, res) => {
     const tenantId = getTenantId(req);
     await notificationService.publish('column-created', {
       boardId: boardId,
-      column: { id, title, boardId, position: finalPosition, isFinished: isFinished, isArchived: isArchived },  // camelCase for WebSocket
+      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },  // snake_case to match frontend
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     }, tenantId);
     
-    res.json({ id, title, boardId, position: finalPosition, isFinished: isFinished, isArchived: isArchived });  // camelCase in response
+    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });  // snake_case to match frontend
   } catch (error) {
     console.error('Error creating column:', error);
     const db = getRequestDatabase(req);
@@ -148,7 +148,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     const updatedColumn = await helpers.getColumnFullInfo(db, id);
     
     // Publish to Redis for real-time updates
-    // CRITICAL: Use camelCase for WebSocket event (frontend expects camelCase)
+    // CRITICAL: Use snake_case for WebSocket event (frontend expects snake_case)
     // CRITICAL: Include position to prevent frontend from reordering
     const tenantId = getTenantId(req);
     await notificationService.publish('column-updated', {
@@ -158,14 +158,14 @@ router.put("/:id", authenticateToken, async (req, res) => {
         title, 
         boardId: updatedColumn.boardId,  // Include boardId for frontend
         position: updatedColumn.position,  // CRITICAL: Include current position to prevent reordering
-        isFinished: finalIsFinishedValue,  // camelCase
-        isArchived: finalIsArchived  // camelCase
+        is_finished: finalIsFinishedValue,  // snake_case to match frontend
+        is_archived: finalIsArchived  // snake_case to match frontend
       },
       updatedBy: req.user?.id || 'system',
       timestamp: new Date().toISOString()
     }, tenantId);
     
-    res.json({ id, title, isFinished: finalIsFinishedValue, isArchived: finalIsArchived });  // camelCase in response
+    res.json({ id, title, is_finished: finalIsFinishedValue, is_archived: finalIsArchived });  // snake_case to match frontend
   } catch (error) {
     console.error('Error updating column:', error);
     const db = getRequestDatabase(req);
