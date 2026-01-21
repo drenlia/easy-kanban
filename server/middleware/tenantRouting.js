@@ -104,10 +104,20 @@ const getTenantDatabase = async (tenantId) => {
     // Verify database is still open
     try {
       const { wrapQuery } = await import('../utils/queryLogger.js');
-      await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
+      const { isPostgresDatabase } = await import('../utils/dbAsync.js');
+      
+      // For PostgreSQL, use a simple query to verify connection
+      if (isPostgresDatabase(cached.db)) {
+        const stmt = cached.db.prepare('SELECT 1');
+        await wrapQuery(stmt, 'SELECT').get();
+      } else {
+        // For SQLite, use the original method
+        await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
+      }
       return cached;
     } catch (error) {
       // Database closed, remove from cache
+      console.warn(`⚠️ Database cache verification failed for tenant ${tenantId}, reinitializing:`, error.message);
       dbCache.delete(cacheKey);
     }
   }

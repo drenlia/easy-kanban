@@ -187,7 +187,9 @@ class PostgresNotificationService {
       try {
         // Set schema if multi-tenant
         if (tenantId && process.env.MULTI_TENANT === 'true') {
-          await client.query(`SET search_path TO tenant_${tenantId}, public`);
+          // Quote schema name to handle special characters (like hyphens in tenant IDs)
+          const quotedSchema = `"tenant_${tenantId}"`;
+          await client.query(`SET search_path TO ${quotedSchema}, public`);
         }
 
         await client.query('SELECT pg_notify($1, $2)', [escapedChannel, payload]);
