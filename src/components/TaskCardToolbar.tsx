@@ -43,10 +43,11 @@ interface TaskCardToolbarProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   
-  // Show/hide toolbar based on hover or editing state
+  // Show/hide toolbar based on hover, editing state, or selection
   isHoveringCard?: boolean;
   isEditingTitle?: boolean;
   isEditingDescription?: boolean;
+  isSelected?: boolean;
 }
 
 export default function TaskCardToolbar({
@@ -84,7 +85,8 @@ export default function TaskCardToolbar({
   // Show/hide toolbar props
   isHoveringCard = false,
   isEditingTitle = false,
-  isEditingDescription = false
+  isEditingDescription = false,
+  isSelected = false
 }: TaskCardToolbarProps) {
   const { t } = useTranslation(['tasks', 'common']);
   const _priorityButtonRef = useRef<HTMLButtonElement>(null);
@@ -96,7 +98,8 @@ export default function TaskCardToolbar({
   const memberButtonRef = useRef<HTMLButtonElement>(null);
   
   // Determine if toolbar should be visible
-  const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription;
+  // Show toolbar when hovering, editing, or when task is selected (e.g., after page refresh)
+  const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription || isSelected;
   
 
   const handleCopy = () => {

@@ -62,8 +62,8 @@ services:
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
       - POSTGRES_PASSWORD=kanban_password
-    ports:
-      - "5432:5432"
+    # Port mapping removed - not needed for container-to-container communication
+    # If you need external access, use a different host port like "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:

@@ -18,113 +18,144 @@ router.get('/', authenticateToken, async (req, res) => {
     // MIGRATED: Use sqlManager
     const boards = await boardQueries.getAllBoards(db);
 
-    const boardsWithData = await Promise.all(boards.map(async board => {
-      // MIGRATED: Use sqlManager
-      const columns = await helpers.getColumnsForBoard(db, board.id);
-      const columnsObj = {};
-      
-      await Promise.all(columns.map(async column => {
-        // MIGRATED: Use sqlManager to get tasks for column
-        const tasksRaw = await taskQueries.getTasksForColumn(db, column.id);
-        // Helper to parse JSON (handles both string and object from PostgreSQL)
-        const parseJsonField = (field) => {
-          // Handle null, undefined, or empty values
-          if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+    // OPTIMIZATION: Batch fetch all columns for all boards first
+    const allBoardIds = boards.map(b => b.id);
+    const allColumns = allBoardIds.length > 0 
+      ? await helpers.getColumnsForAllBoards(db, allBoardIds)
+      : [];
+    
+    // Group columns by boardId
+    const columnsByBoardId = {};
+    allColumns.forEach(column => {
+      if (!columnsByBoardId[column.boardId]) {
+        columnsByBoardId[column.boardId] = [];
+      }
+      columnsByBoardId[column.boardId].push(column);
+    });
+    
+    // OPTIMIZATION: Batch fetch all tasks for all columns
+    const allColumnIds = allColumns.map(c => c.id);
+    const allTasks = allColumnIds.length > 0
+      ? await taskQueries.getTasksForColumns(db, allColumnIds)
+      : [];
+    
+    // Group tasks by columnId
+    const tasksByColumnId = {};
+    allTasks.forEach(task => {
+      if (!tasksByColumnId[task.columnId]) {
+        tasksByColumnId[task.columnId] = [];
+      }
+      tasksByColumnId[task.columnId].push(task);
+    });
+    
+    // Collect all comment IDs for batch attachment fetch
+    const allCommentIds = allTasks.flatMap(task => {
+      const parseJsonField = (field) => {
+        if (!field || field === '[]' || field === '[null]') return [];
+        if (Array.isArray(field)) return field.filter(Boolean);
+        if (typeof field === 'string') {
+          try {
+            const parsed = JSON.parse(field);
+            return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+          } catch {
             return [];
           }
-          // PostgreSQL returns JSON as objects/arrays directly
-          if (Array.isArray(field)) {
-            return field.filter(Boolean);
-          }
-          // If it's already an object (PostgreSQL JSON type), wrap in array if needed
-          if (typeof field === 'object') {
-            return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
-          }
-          // If it's a string, try to parse it (SQLite format)
-          if (typeof field === 'string') {
-            // Handle empty string or whitespace
-            const trimmed = field.trim();
-            if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
-              return [];
-            }
-            try {
-              const parsed = JSON.parse(trimmed);
-              return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
-            } catch (e) {
-              console.warn('Failed to parse JSON field:', e.message, 'Value:', field);
-              return [];
-            }
-          }
+        }
+        return [];
+      };
+      const comments = parseJsonField(task.comments);
+      return comments.map(c => c.id).filter(Boolean);
+    });
+    
+    // OPTIMIZATION: Batch fetch all attachments for all comments in one query
+    const allAttachments = allCommentIds.length > 0
+      ? await helpers.getAttachmentsForComments(db, allCommentIds)
+      : [];
+    
+    // Group attachments by commentId
+    const attachmentsByCommentId = {};
+    allAttachments.forEach(att => {
+      const commentId = att.commentId || att.commentid;
+      if (!attachmentsByCommentId[commentId]) {
+        attachmentsByCommentId[commentId] = [];
+      }
+      attachmentsByCommentId[commentId].push(att);
+    });
+    
+    // Helper functions for processing
+    const parseJsonField = (field) => {
+      if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+        return [];
+      }
+      if (Array.isArray(field)) {
+        return field.filter(Boolean);
+      }
+      if (typeof field === 'object') {
+        return Array.isArray(field) ? field.filter(Boolean) : [field].filter(Boolean);
+      }
+      if (typeof field === 'string') {
+        const trimmed = field.trim();
+        if (!trimmed || trimmed === '[]' || trimmed === '[null]' || trimmed === 'null') {
           return [];
-        };
-        
-        // Helper to deduplicate by id
-        const deduplicateById = (arr) => {
-          const seen = new Set();
-          return arr.filter(item => {
-            if (!item || !item.id) return false;
-            if (seen.has(item.id)) return false;
-            seen.add(item.id);
-            return true;
-          });
-        };
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+        } catch (e) {
+          console.warn('Failed to parse JSON field:', e.message, 'Value:', field);
+          return [];
+        }
+      }
+      return [];
+    };
+    
+    const deduplicateById = (arr) => {
+      const seen = new Set();
+      return arr.filter(item => {
+        if (!item || !item.id) return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    };
+    
+    // Process boards with pre-fetched data
+    const boardsWithData = boards.map(board => {
+      const columns = columnsByBoardId[board.id] || [];
+      const columnsObj = {};
+      
+      columns.forEach(column => {
+        const tasksRaw = tasksByColumnId[column.id] || [];
         
         const tasks = tasksRaw.map(task => ({
           ...task,
-          // CRITICAL: Use priorityName from JOIN only - never use task.priority (text field can be stale)
-          // If priorityName is null, the priority was deleted or doesn't exist, so return null
-          priority: task.priorityName || null, // Use JOIN value only, not task.priority
+          priority: task.priorityName || null,
           priorityId: task.priorityId || null,
-          priorityName: task.priorityName || null, // Use JOIN value only, not task.priority
+          priorityName: task.priorityName || null,
           priorityColor: task.priorityColor || null,
-          sprintId: task.sprint_id || null, // Map snake_case to camelCase
-          createdAt: task.created_at, // Map snake_case to camelCase
-          updatedAt: task.updated_at, // Map snake_case to camelCase
-          comments: deduplicateById(parseJsonField(task.comments)),
+          sprintId: task.sprint_id || null,
+          createdAt: task.created_at,
+          updatedAt: task.updated_at,
+          comments: deduplicateById(parseJsonField(task.comments)).map(comment => ({
+            ...comment,
+            attachments: attachmentsByCommentId[comment.id] || []
+          })),
           tags: deduplicateById(parseJsonField(task.tags)),
           watchers: deduplicateById(parseJsonField(task.watchers)),
           collaborators: deduplicateById(parseJsonField(task.collaborators))
         }));
         
-        // Get all comment IDs from all tasks in this column
-        const allCommentIds = tasks.flatMap(task => 
-          task.comments.map(comment => comment.id)
-        ).filter(Boolean);
-        
-        // Fetch all attachments for all comments in one query (more efficient)
-        if (allCommentIds.length > 0) {
-          // MIGRATED: Use sqlManager
-          const allAttachments = await helpers.getAttachmentsForComments(db, allCommentIds);
-          
-          // Group attachments by commentId (normalize field name)
-          const attachmentsByCommentId = {};
-          allAttachments.forEach(att => {
-            const commentId = att.commentId || att.commentid;
-            if (!attachmentsByCommentId[commentId]) {
-              attachmentsByCommentId[commentId] = [];
-            }
-            attachmentsByCommentId[commentId].push(att);
-          });
-          
-          // Add attachments to each comment
-          tasks.forEach(task => {
-            task.comments.forEach(comment => {
-              comment.attachments = attachmentsByCommentId[comment.id] || [];
-            });
-          });
-        }
-        
         columnsObj[column.id] = {
           ...column,
           tasks: tasks
         };
-      }));
+      });
       
       return {
         ...board,
         columns: columnsObj
       };
-    }));
+    });
 
 
     res.json(boardsWithData);

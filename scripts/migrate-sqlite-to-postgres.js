@@ -273,6 +273,50 @@ async function migrateData(sqliteDb, pgClient, tableName, schema = 'public') {
         await pgClient.query(insertSql, values);
         inserted++;
       } catch (error) {
+        // Handle foreign key constraint violations (orphaned data)
+        if (error.code === '23503') {
+          // Extract foreign key information from error
+          const fkMatch = error.detail?.match(/Key \(([^)]+)\)=\(([^)]+)\) is not present in table "([^"]+)"/);
+          if (fkMatch) {
+            const [, fkColumn, fkValue, referencedTable] = fkMatch;
+            console.error(`\n    ❌ Foreign key violation in ${tableName}:`);
+            console.error(`       Referenced ${fkColumn} = '${fkValue}' does not exist in table '${referencedTable}'`);
+            
+            // Check if the referenced record exists in SQLite
+            try {
+              const sqliteCheck = sqliteDb.prepare(`SELECT * FROM ${referencedTable} WHERE id = ? OR id = ?`).get(fkValue, fkValue);
+              if (sqliteCheck) {
+                console.error(`       ⚠️  The record EXISTS in SQLite but was NOT migrated to PostgreSQL!`);
+                console.error(`       This suggests the ${referencedTable} migration failed or was skipped.`);
+                console.error(`       SQLite record:`, sqliteCheck);
+              } else {
+                console.error(`       ⚠️  The record does NOT exist in SQLite either - this is truly orphaned data.`);
+              }
+            } catch (checkError) {
+              console.error(`       ⚠️  Could not check SQLite: ${checkError.message}`);
+            }
+            
+            // Check if it exists in PostgreSQL
+            try {
+              const pgCheck = await pgClient.query(`SELECT * FROM ${schema}.${referencedTable} WHERE id = $1`, [fkValue]);
+              if (pgCheck.rows.length > 0) {
+                console.error(`       ⚠️  The record EXISTS in PostgreSQL - this might be a case sensitivity or type mismatch issue.`);
+              }
+            } catch (checkError) {
+              // Ignore check errors
+            }
+            
+            console.error(`       Row data:`, row);
+            console.error(`\n    ⚠️  SKIPPING this orphaned record. You may lose data!`);
+            console.error(`    Consider fixing the data integrity issue before continuing.\n`);
+            continue; // Skip this row and continue with the next one
+          } else {
+            console.warn(`    ⚠️  Foreign key violation (details unclear):`, error.detail);
+            console.warn(`    Row data:`, row);
+            continue;
+          }
+        }
+        // For other errors, still throw
         console.error(`    ❌ Error inserting row into ${tableName}:`, error.message);
         console.error(`    Row data:`, row);
         throw error;
@@ -466,8 +510,7 @@ async function migrate() {
     
     // Reset sequences for tables with auto-increment IDs
     console.log('🔄 Resetting PostgreSQL sequences...');
-    const schemaPrefix = isMultiTenant && tenantId ? `${config.postgres.schema}.` : '';
-    const schemaName = isMultiTenant && tenantId ? config.postgres.schema : 'public';
+    // Reuse schemaPrefix and schemaName declared earlier
     
     for (const table of tables) {
       try {

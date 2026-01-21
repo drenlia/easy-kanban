@@ -269,6 +269,106 @@ export async function getTasksForColumn(db, columnId) {
 }
 
 /**
+ * Get all tasks for multiple columns (batch query for performance)
+ * 
+ * @param {Database} db - Database connection
+ * @param {Array<string>} columnIds - Array of column IDs
+ * @returns {Promise<Array>} Array of task objects with relationships
+ */
+export async function getTasksForColumns(db, columnIds) {
+  if (!columnIds || columnIds.length === 0) {
+    return [];
+  }
+  
+  const placeholders = columnIds.map((_, index) => `$${index + 1}`).join(', ');
+  const query = `
+    SELECT t.id, t.position, t.title, t.description, t.ticket, 
+           t.memberid as "memberId", t.requesterid as "requesterId", 
+           t.startdate as "startDate", t.duedate as "dueDate", 
+           t.effort, t.priority, t.priority_id as "priority_id", 
+           t.columnid as "columnId", t.boardid as "boardId", 
+           t.sprint_id as "sprint_id", t.created_at, t.updated_at,
+           p.id as "priorityId", p.priority as "priorityName", 
+           p.color as "priorityColor",
+           CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
+                THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
+                ELSE NULL END as attachmentCount,
+           COALESCE(json_agg(json_build_object(
+               'id', c.id,
+               'text', c.text,
+               'authorId', c.authorid,
+               'createdAt', c.createdat
+           )) FILTER (WHERE c.id IS NOT NULL), '[]'::json) as comments,
+           COALESCE(json_agg(json_build_object(
+               'id', tag.id,
+               'tag', tag.tag,
+               'description', tag.description,
+               'color', tag.color
+           )) FILTER (WHERE tag.id IS NOT NULL), '[]'::json) as tags,
+           COALESCE(json_agg(json_build_object(
+               'id', watcher.id,
+               'name', watcher.name,
+               'color', watcher.color
+           )) FILTER (WHERE watcher.id IS NOT NULL), '[]'::json) as watchers,
+           COALESCE(json_agg(json_build_object(
+               'id', collaborator.id,
+               'name', collaborator.name,
+               'color', collaborator.color
+           )) FILTER (WHERE collaborator.id IS NOT NULL), '[]'::json) as collaborators
+    FROM tasks t
+    LEFT JOIN comments c ON c.taskid = t.id
+    LEFT JOIN task_tags tt ON tt.taskid = t.id
+    LEFT JOIN tags tag ON tag.id = tt.tagid
+    LEFT JOIN watchers w ON w.taskid = t.id
+    LEFT JOIN members watcher ON watcher.id = w.memberid
+    LEFT JOIN collaborators col ON col.taskid = t.id
+    LEFT JOIN members collaborator ON collaborator.id = col.memberid
+    LEFT JOIN attachments a ON a.taskid = t.id
+    LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
+    WHERE t.columnid IN (${placeholders})
+    GROUP BY t.id, p.id
+    ORDER BY t.columnid, t.position ASC
+  `;
+  
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  const tasks = await stmt.all(...columnIds);
+  
+  // Parse JSON fields for each task
+  return tasks.map(task => {
+    const parseJsonField = (field) => {
+      if (!field || field === '[]' || field === '[null]') return [];
+      if (Array.isArray(field)) return field.filter(Boolean);
+      if (typeof field === 'string') {
+        try {
+          const parsed = JSON.parse(field);
+          return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+    
+    const deduplicateById = (arr) => {
+      const seen = new Set();
+      return arr.filter(item => {
+        if (!item || !item.id) return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+      });
+    };
+    
+    task.comments = deduplicateById(parseJsonField(task.comments));
+    task.tags = deduplicateById(parseJsonField(task.tags));
+    task.watchers = deduplicateById(parseJsonField(task.watchers));
+    task.collaborators = deduplicateById(parseJsonField(task.collaborators));
+    
+    return task;
+  });
+}
+
+/**
  * Get all tasks (simple list)
  * 
  * @param {Database} db - Database connection

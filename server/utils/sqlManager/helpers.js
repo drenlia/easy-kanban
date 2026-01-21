@@ -165,6 +165,31 @@ export async function getColumnsForBoard(db, boardId) {
 }
 
 /**
+ * Get all columns for multiple boards (batch query for performance)
+ */
+export async function getColumnsForAllBoards(db, boardIds) {
+  if (!boardIds || boardIds.length === 0) {
+    return [];
+  }
+  
+  const placeholders = boardIds.map((_, index) => `$${index + 1}`).join(', ');
+  const query = `
+    SELECT 
+      id, 
+      title, 
+      boardid as "boardId", 
+      position, 
+      is_finished as "isFinished", 
+      is_archived as "isArchived"
+    FROM columns 
+    WHERE boardid IN (${placeholders})
+    ORDER BY boardid, position ASC
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(...boardIds);
+}
+
+/**
  * Get maximum position for columns in a board
  */
 export async function getMaxColumnPosition(db, boardId) {

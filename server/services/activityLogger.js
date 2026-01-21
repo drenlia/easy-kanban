@@ -79,19 +79,24 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Get project identifier and task ticket for enhanced context
-    let projectIdentifier = null;
-    let taskTicket = null;
+    // Use values from additionalData if provided (e.g., for deleted tasks), otherwise fetch from database
+    let projectIdentifier = additionalData.projectIdentifier || null;
+    let taskTicket = additionalData.taskTicket || null;
     
-    try {
-      // MIGRATED: Use SQL Manager
-      const taskDetails = await activityQueries.getTaskDetailsForActivity(database, taskId);
-      
-      if (taskDetails) {
-        projectIdentifier = taskDetails.project;
-        taskTicket = taskDetails.ticket;
+    // Only fetch from database if not provided in additionalData (task might be deleted)
+    if (!projectIdentifier || !taskTicket) {
+      try {
+        // MIGRATED: Use SQL Manager
+        const taskDetails = await activityQueries.getTaskDetailsForActivity(database, taskId);
+        
+        if (taskDetails) {
+          projectIdentifier = projectIdentifier || taskDetails.project;
+          taskTicket = taskTicket || taskDetails.ticket;
+        }
+      } catch (prefixError) {
+        // Task might be deleted (e.g., for delete_task action), use values from additionalData
+        console.warn('Failed to get project/task identifiers from database (task may be deleted):', prefixError.message);
       }
-    } catch (prefixError) {
-      console.warn('Failed to get project/task identifiers:', prefixError.message);
     }
 
     // Get bilingual translations for task and board titles
@@ -114,51 +119,81 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     const taskRef = taskTicket ? ` (${taskTicket})` : '';
     
     if (action === 'create_task') {
-      // Check if this is a "create at top" action
-      if (details && details.includes('at top')) {
+      // Check if details is already bilingual JSON (from route)
+      let isBilingualJson = false;
+      let parsedDetails = null;
+      try {
+        parsedDetails = JSON.parse(details);
+        if (parsedDetails.en && parsedDetails.fr) {
+          isBilingualJson = true;
+          // Check if it's a "create at top" message
+          if (parsedDetails.en.includes('at top of column') || parsedDetails.fr.includes('en haut de la colonne')) {
+            // Already complete bilingual message with boardTitle, use as-is
+            // Project/task reference will be appended at the end (after this block)
+            enhancedDetailsBilingual = parsedDetails;
+          } else {
+            // Regular create, but already bilingual - use as-is
+            // Project/task reference will be appended at the end (after this block)
+            enhancedDetailsBilingual = parsedDetails;
+          }
+        }
+      } catch {
+        // Not JSON, continue with string check
+      }
+      
+      // If not already bilingual JSON, check if this is a "create at top" action
+      if (!isBilingualJson && details && details.includes('at top')) {
         enhancedDetailsBilingual = getBilingualTranslation('activity.createdTaskAtTop', {
-          taskTitle: translatedTaskTitle.en // Use English title for both (task titles are not translated)
+          taskTitle: translatedTaskTitle.en, // Use English title for both (task titles are not translated)
+          boardTitle: translatedBoardTitle.en
         });
-        // Override with actual task title (same for both languages)
-        enhancedDetailsBilingual.en = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.en }, 'en');
-        enhancedDetailsBilingual.fr = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.fr }, 'fr');
-      } else {
+        // Override with actual task title and board title (same for both languages)
+        enhancedDetailsBilingual.en = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.en, boardTitle: translatedBoardTitle.en }, 'en');
+        enhancedDetailsBilingual.fr = t('activity.createdTaskAtTop', { taskTitle: translatedTaskTitle.fr, boardTitle: translatedBoardTitle.fr }, 'fr');
+        // Note: taskRef will be appended at the end, so don't include it in the translation
+      } else if (!isBilingualJson) {
+        // For regular create, taskRef is included in the translation template
         enhancedDetailsBilingual.en = t('activity.createdTask', {
           taskTitle: translatedTaskTitle.en,
-          taskRef,
+          taskRef: '', // Will be appended at the end instead
           boardTitle: translatedBoardTitle.en
         }, 'en');
         enhancedDetailsBilingual.fr = t('activity.createdTask', {
           taskTitle: translatedTaskTitle.fr,
-          taskRef,
+          taskRef: '', // Will be appended at the end instead
           boardTitle: translatedBoardTitle.fr
         }, 'fr');
       }
     } else if (action === 'delete_task') {
-      // For delete_task, if taskTitle is "Unknown Task", use the provided details
-      if (taskTitle === 'Unknown Task' && details.includes('deleted task')) {
-        // If details is already a JSON string, parse it; otherwise use as-is for both languages
-        try {
-          const parsed = JSON.parse(details);
-          if (parsed.en && parsed.fr) {
-            enhancedDetailsBilingual = parsed;
-          } else {
-            enhancedDetailsBilingual = { en: details, fr: details };
-          }
-        } catch {
-          enhancedDetailsBilingual = { en: details, fr: details };
+      // Check if details is already bilingual JSON (from route)
+      let isBilingualJson = false;
+      try {
+        const parsed = JSON.parse(details);
+        if (parsed.en && parsed.fr) {
+          isBilingualJson = true;
+          enhancedDetailsBilingual = parsed;
         }
-      } else {
-        enhancedDetailsBilingual.en = t('activity.deletedTask', {
-          taskTitle: translatedTaskTitle.en,
-          taskRef,
-          boardTitle: translatedBoardTitle.en
-        }, 'en');
-        enhancedDetailsBilingual.fr = t('activity.deletedTask', {
-          taskTitle: translatedTaskTitle.fr,
-          taskRef,
-          boardTitle: translatedBoardTitle.fr
-        }, 'fr');
+      } catch {
+        // Not JSON, continue with string check
+      }
+      
+      // If not already bilingual JSON, create bilingual messages
+      if (!isBilingualJson) {
+        // For delete_task, if taskTitle is "Unknown Task", use the provided details
+        if (taskTitle === 'Unknown Task' && details.includes('deleted task')) {
+          enhancedDetailsBilingual = { en: details, fr: details };
+        } else {
+          enhancedDetailsBilingual.en = t('activity.deletedTask', {
+            taskTitle: translatedTaskTitle.en,
+            taskRef,
+            boardTitle: translatedBoardTitle.en
+          }, 'en');
+          enhancedDetailsBilingual.fr = t('activity.deletedTask', {
+            taskTitle: translatedTaskTitle.fr,
+            taskRef,
+            boardTitle: translatedBoardTitle.fr
+          }, 'fr');
+        }
       }
     } else if (action === 'move_task') {
       // Board move already includes task name, add task reference if available
@@ -250,14 +285,21 @@ export const logTaskActivity = async (userId, action, taskId, details, additiona
     }
 
     // Append project and task identifiers (always enabled) - same for both languages
+    // CRITICAL: Always append at the very end, and remove any existing reference to avoid duplicates
     if (projectIdentifier || taskTicket) {
       const identifiers = [];
       if (projectIdentifier) identifiers.push(projectIdentifier);
       if (taskTicket) identifiers.push(taskTicket);
       if (identifiers.length > 0) {
         const suffix = ` (${identifiers.join('/')})`;
-        enhancedDetailsBilingual.en += suffix;
-        enhancedDetailsBilingual.fr += suffix;
+        
+        // Remove any existing project/task reference pattern from the end of the message
+        // Pattern: (PROJ-XXXXX/TASK-XXXXX) or similar
+        const refPattern = /\s*\([^)]*\/[^)]*\)\s*$/;
+        
+        // Append the reference at the very end (after removing any existing one)
+        enhancedDetailsBilingual.en = enhancedDetailsBilingual.en.replace(refPattern, '') + suffix;
+        enhancedDetailsBilingual.fr = enhancedDetailsBilingual.fr.replace(refPattern, '') + suffix;
       }
     }
     

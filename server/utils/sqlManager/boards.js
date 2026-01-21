@@ -25,7 +25,14 @@ export async function getAllBoards(db) {
  */
 export async function getBoardById(db, boardId) {
   const query = `
-    SELECT * FROM boards 
+    SELECT 
+      id,
+      title,
+      project,
+      position,
+      created_at as "createdAt",
+      updated_at as "updatedAt"
+    FROM boards 
     WHERE id = $1
   `;
   

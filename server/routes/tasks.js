@@ -6,7 +6,7 @@ import { TASK_ACTIONS } from '../constants/activityActions.js';
 import { authenticateToken } from '../middleware/auth.js';
 import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
-import { getTranslator } from '../utils/i18n.js';
+import { getTranslator, t } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
 import { dbTransaction, dbRun, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
@@ -827,11 +827,18 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     });
     
     // Log task creation activity (fire-and-forget: Don't await to avoid blocking API response)
+    // Create bilingual message for "create at top" (use imported t function with language parameter)
+    const board = await helpers.getBoardById(db, task.boardId);
+    const boardTitle = board ? board.title : 'Unknown Board';
+    const createAtTopDetails = JSON.stringify({
+      en: t('activity.createdTaskAtTop', { taskTitle: task.title, boardTitle }, 'en'),
+      fr: t('activity.createdTaskAtTop', { taskTitle: task.title, boardTitle }, 'fr')
+    });
     logTaskActivity(
       userId,
       TASK_ACTIONS.CREATE,
       task.id,
-      `created task "${task.title}" at top of column`,
+      createAtTopDetails,
       { 
         columnId: task.columnId,
         boardId: task.boardId,
@@ -1540,15 +1547,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const db = getRequestDatabase(req);
     
     // MIGRATED: Get task details before deletion for logging
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
     const task = await taskQueries.getTaskById(db, id);
     if (!task) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
-    // MIGRATED: Get board title for activity logging
+    // MIGRATED: Get board title and project identifier for activity logging
     const board = await helpers.getBoardById(db, task.boardid || task.boardId);
     const boardTitle = board ? board.title : 'Unknown Board';
+    // Get project identifier from board (explicitly selected in getBoardById query)
+    const projectIdentifier = board?.project || null;
+    const taskTicket = task.ticket || null;
     
     // Log to reporting system BEFORE deletion (while we can still fetch task data)
     // Fire-and-forget: Don't await to avoid blocking API response
@@ -1618,8 +1628,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     // Send batch position update WebSocket event to prevent frontend from making individual PUT requests
     // This avoids hundreds of individual update requests when many tasks need renumbering
     if (remainingTasks.length > 0) {
-      const positionUpdates = remainingTasks.map((t, index) => ({
-        taskId: t.id,
+      const positionUpdates = remainingTasks.map((taskItem, index) => ({
+        taskId: taskItem.id,
         position: index,
         columnId: columnId
       }));
@@ -1634,16 +1644,24 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     // Log deletion activity
     // Fire-and-forget: Don't await activity logging to avoid blocking API response
+    // Create bilingual message for delete (use imported t function with language parameter)
+    // Pass task ticket and project identifier so they can be appended to the message
+    const deleteDetails = JSON.stringify({
+      en: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }, 'en'),
+      fr: t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }, 'fr')
+    });
     logTaskActivity(
       userId,
       TASK_ACTIONS.DELETE,
       id,
-      t('activity.deletedTask', { taskTitle: task.title, taskRef: '', boardTitle: boardTitle }),
+      deleteDetails,
       {
         columnId: columnId,  // Use normalized columnId
         boardId: boardId,  // Use normalized boardId
         tenantId: getTenantId(req),
-        db: db
+        db: db,
+        taskTicket: taskTicket,  // Pass ticket so it can be appended to the message
+        projectIdentifier: projectIdentifier  // Pass project identifier so it can be appended
       }
     ).catch(error => {
       console.error('Background activity logging failed:', error);
@@ -1678,7 +1696,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   try {
     const endpointStartTime = Date.now();
     const db = getRequestDatabase(req);
-    const t = await getTranslator(db);
+    const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
     const now = new Date().toISOString();
     
     // MIGRATED: Validate all tasks exist and get their current data
@@ -1688,7 +1706,7 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
     console.log(`⏱️  [batch-update-positions] Task validation took ${Date.now() - validateStartTime}ms`);
     
     if (currentTasks.length !== taskIds.length) {
-      return res.status(404).json({ error: t('errors.taskNotFound') });
+      return res.status(404).json({ error: tTranslator('errors.taskNotFound') });
     }
     
     const taskMap = new Map(currentTasks.map(t => [t.id, t]));
@@ -1819,17 +1837,29 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       columnMoves.forEach((move) => {
         const oldColumn = columnMap.get(move.previousColumnId);
         const newColumn = columnMap.get(move.columnId);
+        const taskRef = ''; // Batch moves don't include ticket ref in the move object
+        
+        // Create bilingual message for column move (same pattern as regular update route)
+        const movedTaskText = JSON.stringify({
+          en: t('activity.movedTaskFromTo', {
+            taskTitle: move.title,
+            taskRef,
+            fromColumn: oldColumn?.title || 'Unknown',
+            toColumn: newColumn?.title || 'Unknown'
+          }, 'en'),
+          fr: t('activity.movedTaskFromTo', {
+            taskTitle: move.title,
+            taskRef,
+            fromColumn: oldColumn?.title || 'Unknown',
+            toColumn: newColumn?.title || 'Unknown'
+          }, 'fr')
+        });
         
         logTaskActivity(
           userId,
           TASK_ACTIONS.UPDATE,
           move.taskId,
-          t('activity.movedTaskFromTo', {
-            taskTitle: move.title,
-            taskRef: '',
-            fromColumn: oldColumn?.title || 'Unknown',
-            toColumn: newColumn?.title || 'Unknown'
-          }),
+          movedTaskText,
           {
             columnId: move.columnId,
             boardId: move.previousBoardId,
@@ -2016,15 +2046,24 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     }
 
     // Log reorder activity (fire-and-forget: Don't await to avoid blocking API response)
+    // Create bilingual message for reorder
+    const reorderDetails = JSON.stringify({
+      en: t('activity.reorderedTask', { 
+        taskTitle: currentTask.title, 
+        fromPosition: currentPosition, 
+        toPosition: newPosition 
+      }, 'en'),
+      fr: t('activity.reorderedTask', { 
+        taskTitle: currentTask.title, 
+        fromPosition: currentPosition, 
+        toPosition: newPosition 
+      }, 'fr')
+    });
     logTaskActivity(
       userId,
       TASK_ACTIONS.UPDATE, // Reorder is a type of update
       taskId,
-      t('activity.reorderedTask', { 
-        taskTitle: currentTask.title, 
-        fromPosition: currentPosition, 
-        toPosition: newPosition 
-      }),
+      reorderDetails,
       {
         columnId: columnId,
         boardId: currentTask.boardId,
@@ -2219,10 +2258,18 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     // MIGRATED: Log move activity using sqlManager
     const originalBoard = await boardQueries.getBoardById(db, originalBoardId);
     const targetBoard = await boardQueries.getBoardById(db, targetBoardId);
-    const moveDetails = t('activity.movedTaskBoard', {
-      taskTitle: task.title,
-      fromBoard: originalBoard?.title || 'Unknown',
-      toBoard: targetBoard?.title || 'Unknown'
+    // Create bilingual message for board move
+    const moveDetails = JSON.stringify({
+      en: t('activity.movedTaskBoard', {
+        taskTitle: task.title,
+        fromBoard: originalBoard?.title || 'Unknown',
+        toBoard: targetBoard?.title || 'Unknown'
+      }, 'en'),
+      fr: t('activity.movedTaskBoard', {
+        taskTitle: task.title,
+        fromBoard: originalBoard?.title || 'Unknown',
+        toBoard: targetBoard?.title || 'Unknown'
+      }, 'fr')
     });
     
     // Fire-and-forget: Don't await activity logging to avoid blocking API response

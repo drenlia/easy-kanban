@@ -359,7 +359,7 @@
   },
   "activity": {
     "createdTask": "a créé la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",
-    "createdTaskAtTop": "a créé la tâche \"{taskTitle}\" en haut de la colonne",
+    "createdTaskAtTop": "a créé la tâche \"{taskTitle}\" en haut de la colonne dans \"{boardTitle}\"",
     "deletedTask": "a supprimé la tâche \"{taskTitle}\"{taskRef} du tableau \"{boardTitle}\"",
     "movedTask": "{details}{taskRef} dans le tableau \"{boardTitle}\"",
     "updatedTask": "{details} dans la tâche \"{taskTitle}\"{taskRef} dans le tableau \"{boardTitle}\"",

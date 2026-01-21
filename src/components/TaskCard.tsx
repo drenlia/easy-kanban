@@ -1590,10 +1590,11 @@ const TaskCard = React.memo(function TaskCard({
           onLinkToolHover={onLinkToolHover}
           onLinkToolHoverEnd={onLinkToolHoverEnd}
           
-          // Show toolbar only on hover or when editing
+          // Show toolbar on hover, when editing, or when task is selected
           isHoveringCard={isHoveringCard}
           isEditingTitle={isEditingTitle}
           isEditingDescription={isEditingDescription}
+          isSelected={isSelected}
         />
 
         {/* Relationship Type Indicator - Only show when hovering over link tool */}

@@ -359,7 +359,7 @@
   },
   "activity": {
     "createdTask": "created task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
-    "createdTaskAtTop": "created task \"{taskTitle}\" at top of column",
+    "createdTaskAtTop": "created task \"{taskTitle}\" at top of column in \"{boardTitle}\"",
     "deletedTask": "deleted task \"{taskTitle}\"{taskRef} from board \"{boardTitle}\"",
     "movedTask": "{details}{taskRef} in board \"{boardTitle}\"",
     "updatedTask": "{details} in task \"{taskTitle}\"{taskRef} in board \"{boardTitle}\"",
