@@ -192,8 +192,17 @@ class PostgresNotificationService {
           await client.query(`SET search_path TO ${quotedSchema}, public`);
         }
 
+        // Publish to tenant-specific channel (for direct subscriptions)
         await client.query('SELECT pg_notify($1, $2)', [escapedChannel, payload]);
         console.log(`📤 Published to PostgreSQL channel: ${escapedChannel} (original: ${channel}, tenant: ${tenantId || 'none'})`);
+        
+        // ALSO publish to base channel with tenantId in payload (for subscribeToAllTenants)
+        // This ensures WebSocket service receives notifications even when subscribed to base channel
+        if (tenantId && process.env.MULTI_TENANT === 'true') {
+          const basePayload = JSON.stringify({ ...data, tenantId });
+          await client.query('SELECT pg_notify($1, $2)', [channel, basePayload]);
+          console.log(`📤 Also published to base channel: ${channel} (tenant: ${tenantId})`);
+        }
       } finally {
         client.release();
       }
@@ -236,6 +245,10 @@ class PostgresNotificationService {
    * Subscribe to all tenant channels (for WebSocket service)
    * In multi-tenant mode, subscribes to pattern `tenant-*-{channel}`
    * In single-tenant mode, subscribes to base channel
+   * 
+   * Since PostgreSQL doesn't support wildcard LISTEN, we use a pattern-based approach:
+   * - Subscribe to a base channel that matches the escaped pattern
+   * - Use NOTIFY with a pattern that we can match in handleNotification
    */
   async subscribeToAllTenants(channel, callback) {
     if (!this.isConnected || !this.listenerClient) {
@@ -244,15 +257,25 @@ class PostgresNotificationService {
     }
 
     if (process.env.MULTI_TENANT === 'true') {
-      // In multi-tenant mode, we need to subscribe to all tenant channels
-      // Since PostgreSQL doesn't support pattern matching in LISTEN, we'll need to:
-      // 1. Subscribe to a wildcard pattern (not directly supported)
-      // 2. Or maintain a list of active tenants and subscribe to each
-      // 
-      // For now, we'll use a different approach: subscribe to a base channel that all tenants publish to
-      // and include tenantId in the payload. This is less efficient but works with PostgreSQL's limitations.
+      // In multi-tenant mode, we need to subscribe to tenant-specific channels
+      // Since PostgreSQL doesn't support wildcard LISTEN, we subscribe to a pattern-based channel
+      // The pattern is: tenant_*_<channel> (escaped)
+      // We'll listen to a base pattern and extract tenantId from the channel name
       
-      // Subscribe to base channel with tenant info in payload
+      // Subscribe to a pattern that matches all tenant channels
+      // We use a special "all-tenants" prefix that we can match
+      const patternChannel = `tenant_all_${channel}`;
+      const escapedPatternChannel = this.escapeChannelName(patternChannel);
+      
+      // Actually, we need to subscribe to each tenant channel individually
+      // But since we don't know all tenants upfront, we'll use a different approach:
+      // Subscribe to the base channel and rely on the payload containing tenantId
+      // OR: Use a global channel that all tenants publish to
+      
+      // Better approach: Subscribe to base channel, but handle tenant extraction from escaped channel names
+      // We'll need to modify publish to also send to a base channel OR extract tenant from escaped name
+      
+      // For now, let's subscribe to the base channel and extract tenantId from the payload
       await this.subscribe(channel, (data, receivedTenantId) => {
         // Extract tenantId from data if not provided
         const tenantId = receivedTenantId || data.tenantId || null;
@@ -277,10 +300,23 @@ class PostgresNotificationService {
       const data = JSON.parse(payload);
 
       // Extract tenantId from channel name if multi-tenant
+      // Handle both escaped (underscores) and unescaped (hyphens) channel names
       let tenantId = null;
       if (process.env.MULTI_TENANT === 'true') {
-        const match = channel.match(/^tenant-([^-]+)-/);
-        tenantId = match ? match[1] : null;
+        // Try to extract from escaped channel name (tenant_amanda_pg_task_updated)
+        const escapedMatch = channel.match(/^tenant_([^_]+)_/);
+        if (escapedMatch) {
+          tenantId = escapedMatch[1];
+        } else {
+          // Try to extract from unescaped channel name (tenant-amanda-pg-task-updated)
+          const unescapedMatch = channel.match(/^tenant-([^-]+)-/);
+          tenantId = unescapedMatch ? unescapedMatch[1] : null;
+        }
+        
+        // If tenantId not found in channel name, try to get it from payload
+        if (!tenantId && data.tenantId) {
+          tenantId = data.tenantId;
+        }
       }
 
       // Call all callbacks for this channel
