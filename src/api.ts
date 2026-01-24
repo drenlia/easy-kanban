@@ -260,6 +260,11 @@ export const createTaskAtTop = async (task: Task) => {
   return data;
 };
 
+export const copyTask = async (taskId: string, boardId: string) => {
+  const { data } = await api.post<Task>('/tasks/copy', { taskId, boardId });
+  return data;
+};
+
 // Tasks
 export const getTaskById = async (id: string) => {
   const { data } = await api.get<Task>(`/tasks/${id}`);

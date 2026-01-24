@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { logTaskActivity, generateTaskUpdateDetails } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -900,6 +901,179 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
   }
 });
 
+// Copy task
+router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
+  const { taskId } = req.body;
+  const userId = req.user?.id || 'system';
+  
+  if (!taskId) {
+    return res.status(400).json({ error: 'taskId is required' });
+  }
+  
+  try {
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    
+    // Get the original task with all relationships
+    const originalTask = await taskQueries.getTaskWithRelationships(db, taskId);
+    
+    if (!originalTask) {
+      return res.status(404).json({ error: t('errors.taskNotFound') });
+    }
+    
+    // Generate new task ID and ticket number
+    const newTaskId = crypto.randomUUID();
+    const taskPrefix = await helpers.getSetting(db, 'DEFAULT_TASK_PREFIX') || 'TASK-';
+    const newTicket = await generateTaskTicket(db, taskPrefix);
+    
+    // Get original task position
+    const originalPosition = originalTask.position || 0;
+    const columnId = originalTask.columnid || originalTask.columnId;
+    const boardId = originalTask.boardid || originalTask.boardId;
+    
+    // Parse JSON fields from original task
+    const parseJsonField = (field) => {
+      if (field === null || field === undefined || field === '' || field === '[null]' || field === 'null') {
+        return [];
+      }
+      if (Array.isArray(field)) {
+        return field.filter(Boolean);
+      }
+      if (typeof field === 'string') {
+        try {
+          const parsed = JSON.parse(field);
+          return Array.isArray(parsed) ? parsed.filter(Boolean) : (parsed ? [parsed] : []);
+        } catch (e) {
+          return [];
+        }
+      }
+      return [];
+    };
+    
+    const originalTags = parseJsonField(originalTask.tags);
+    const originalWatchers = parseJsonField(originalTask.watchers);
+    const originalCollaborators = parseJsonField(originalTask.collaborators);
+    
+    // Create new task with copied data (excluding id, ticket, timestamps, and relationships)
+    // Ensure startDate is not null (PostgreSQL NOT NULL constraint)
+    const originalStartDate = originalTask.startdate || originalTask.startDate;
+    const defaultStartDate = new Date().toISOString().split('T')[0]; // Today's date as default
+    
+    const newTaskData = {
+      id: newTaskId,
+      title: `${originalTask.title} (Copy)`,
+      description: originalTask.description || '',
+      ticket: newTicket,
+      memberId: originalTask.memberid || originalTask.memberId || null,
+      requesterId: originalTask.requesterid || originalTask.requesterId || null,
+      startDate: originalStartDate || defaultStartDate,
+      dueDate: originalTask.duedate || originalTask.dueDate || originalStartDate || defaultStartDate,
+      effort: originalTask.effort != null ? originalTask.effort : 0,
+      priority: originalTask.priority || null,
+      priorityId: originalTask.priorityId || originalTask.priority_id || null,
+      columnId: columnId,
+      boardId: boardId,
+      position: originalPosition, // Will be inserted at original position
+      sprintId: originalTask.sprint_id || originalTask.sprintId || null
+    };
+    
+    await dbTransaction(db, async () => {
+      // We want: Original stays at originalPosition, Copy goes to originalPosition + 1 (right after)
+      // Strategy: Shift tasks at position > originalPosition down by 1, then create copy at originalPosition + 1
+      // The shiftTaskPositions function shifts tasks where position > minPosition, so original task is NOT shifted
+      await taskQueries.shiftTaskPositions(db, columnId, originalPosition, 999999, 1);
+      
+      // Create the copy at originalPosition + 1 (right after the original)
+      // Original task remains at originalPosition (was not shifted by the above call)
+      newTaskData.position = originalPosition + 1;
+      await taskQueries.createTask(db, newTaskData);
+      
+      // Copy tags
+      for (const tag of originalTags) {
+        if (tag && tag.id) {
+          await helpers.addTagToTask(db, newTaskId, tag.id);
+        }
+      }
+      
+      // Copy watchers
+      for (const watcher of originalWatchers) {
+        if (watcher && watcher.id) {
+          const memberId = watcher.id;
+          await helpers.addWatcher(db, newTaskId, memberId);
+        }
+      }
+      
+      // Copy collaborators
+      for (const collaborator of originalCollaborators) {
+        if (collaborator && collaborator.id) {
+          const memberId = collaborator.id;
+          await helpers.addCollaborator(db, newTaskId, memberId);
+        }
+      }
+    });
+    
+    // Log task copy activity
+    const board = await helpers.getBoardById(db, boardId);
+    const boardTitle = board ? board.title : 'Unknown Board';
+    const copyDetails = JSON.stringify({
+      en: t('activity.copiedTask', { 
+        taskTitle: originalTask.title, 
+        boardTitle 
+      }, 'en'),
+      fr: t('activity.copiedTask', { 
+        taskTitle: originalTask.title, 
+        boardTitle 
+      }, 'fr')
+    });
+    logTaskActivity(
+      userId,
+      TASK_ACTIONS.CREATE,
+      newTaskId,
+      copyDetails,
+      { 
+        columnId: columnId,
+        boardId: boardId,
+        tenantId: getTenantId(req),
+        db: db
+      }
+    ).catch(error => {
+      console.error('Background activity logging failed:', error);
+    });
+    
+    // Log to reporting system
+    logReportingActivity(db, 'task_created', userId, newTaskId).catch(error => {
+      console.error('Background reporting activity logging failed:', error);
+    });
+    
+    // Fetch the created task with all relationships
+    const taskResponse = await fetchTaskWithRelationships(db, newTaskId);
+    
+    // Ensure taskResponse has required fields for WebSocket event
+    const taskForWebSocket = taskResponse || newTaskData;
+    if (!taskForWebSocket.columnId && columnId) {
+      taskForWebSocket.columnId = columnId;
+    }
+    if (!taskForWebSocket.boardId && boardId) {
+      taskForWebSocket.boardId = boardId;
+    }
+    
+    // Publish to Redis/PostgreSQL for real-time updates
+    const publishTimestamp = new Date().toISOString();
+    await notificationService.publish('task-created', {
+      boardId: boardId,
+      task: taskForWebSocket,
+      timestamp: publishTimestamp
+    }, getTenantId(req));
+    
+    res.json(taskResponse || newTaskData);
+  } catch (error) {
+    console.error('Error copying task:', error);
+    const db = getRequestDatabase(req);
+    const t = await getTranslator(db);
+    res.status(500).json({ error: t('errors.failedToCopyTask') || 'Failed to copy task' });
+  }
+});
+
 // Update task
 router.put('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
@@ -1179,12 +1353,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
     
     // MIGRATED: Use sqlManager instead of inline SQL
     const dbUpdateStartTime = Date.now();
+    // Preserve existing startDate if new one is null/undefined (PostgreSQL NOT NULL constraint)
+    const startDate = task.startDate != null ? task.startDate : (normalizedCurrentTask.startDate || new Date().toISOString().split('T')[0]);
     await taskQueries.updateTask(db, id, {
       title: task.title,
       description: task.description,
       memberid: task.memberId,
       requesterid: task.requesterId,
-      startdate: task.startDate,
+      startdate: startDate,
       duedate: task.dueDate,
       effort: task.effort != null ? task.effort : 0,
       priority: priorityName,

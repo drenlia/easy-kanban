@@ -12,6 +12,7 @@ interface UseTaskWebSocketProps {
   selectedBoardRef: RefObject<string | null>;
   pendingTaskRefreshesRef: RefObject<Set<string>>;
   refreshBoardDataRef: RefObject<(() => Promise<void>) | null>;
+  recentlyDeletedTasksRef: RefObject<Set<string>>;
   
   // Task filters hook
   taskFilters: {
@@ -39,6 +40,7 @@ export const useTaskWebSocket = ({
   selectedBoardRef,
   pendingTaskRefreshesRef,
   refreshBoardDataRef,
+  recentlyDeletedTasksRef,
   taskFilters,
   taskLinking,
   currentUser,
@@ -219,6 +221,12 @@ export const useTaskWebSocket = ({
         
         // Process each update for this column
         columnUpdates.forEach(({ taskId, data, isMove }) => {
+          // Ignore tasks that were recently deleted (prevents reappearing after deletion)
+          if (recentlyDeletedTasksRef.current?.has(taskId)) {
+            console.log('🚫 [Batch] Ignoring task-updated for recently deleted task:', taskId);
+            return;
+          }
+          
           // CRITICAL: Get full task data from original state, not from modified columnTasks
           // Priority: 1) moved tasks (preserved before removal), 2) original state, 3) current column, 4) minimal payload
           let fullTaskData = movedTasksData.get(taskId);
@@ -474,7 +482,7 @@ export const useTaskWebSocket = ({
     // - It avoids race conditions between manual updates and effect updates
     }, 0); // Defer to next tick to break up heavy work
     });
-  }, [setColumns, setSelectedTask, setBoards]);
+  }, [setColumns, setSelectedTask, setBoards, recentlyDeletedTasksRef]);
   
   // Helper function to schedule batch processing (defined early so it can be used by getMessageChannel)
   const scheduleBatchProcessing = useCallback((data: any) => {
@@ -545,6 +553,12 @@ export const useTaskWebSocket = ({
   
   const handleTaskCreated = useCallback((data: any) => {
     if (!data.task || !data.boardId) return;
+    
+    // Ignore tasks that were recently deleted (prevents reappearing after deletion)
+    if (recentlyDeletedTasksRef.current?.has(data.task.id)) {
+      console.log('🚫 [WebSocket] Ignoring task-created for recently deleted task:', data.task.id);
+      return;
+    }
     
     // Ensure columnId is in camelCase (handle both snake_case and camelCase)
     if (!data.task.columnId && (data.task.columnid || data.task.column_id)) {
@@ -702,7 +716,7 @@ export const useTaskWebSocket = ({
       // DON'T update filteredColumns here - let the filtering useEffect handle it
       // This prevents duplicate tasks when the effect runs after columns change
     }
-  }, [setBoards, setColumns, selectedBoardRef, pendingTaskRefreshesRef]);
+  }, [setBoards, setColumns, selectedBoardRef, pendingTaskRefreshesRef, recentlyDeletedTasksRef]);
 
   const handleTaskUpdated = useCallback((data: any) => {
     // CRITICAL: Make message handler ULTRA-lightweight - absolute minimum synchronous work
@@ -712,6 +726,12 @@ export const useTaskWebSocket = ({
     // Ultra-fast validation (single optional chaining check)
     const taskId = data?.task?.id;
     if (!taskId || !data?.boardId) return;
+    
+    // Ignore tasks that were recently deleted (prevents reappearing after deletion)
+    if (recentlyDeletedTasksRef.current?.has(taskId)) {
+      console.log('🚫 [WebSocket] Ignoring task-updated for recently deleted task:', taskId);
+      return;
+    }
     
     // IMMEDIATELY defer using pre-computed mechanism (no conditional checks here!)
     // The deferral mechanism was pre-computed in useEffect to avoid 550+ typeof checks
@@ -725,7 +745,7 @@ export const useTaskWebSocket = ({
         scheduleBatchProcessing(data);
       }, 0);
     }
-  }, [scheduleBatchProcessing]);
+  }, [scheduleBatchProcessing, recentlyDeletedTasksRef]);
   
   const handleTaskDeleted = useCallback((data: any) => {
     if (!data.taskId || !data.boardId) return;
@@ -1209,7 +1229,7 @@ export const useTaskWebSocket = ({
         return updatedFilteredColumns;
       });
     }
-  }, [setColumns, setSelectedTask, selectedBoardRef, selectedTask, taskFilters, pendingTaskRefreshesRef]);
+  }, [setColumns, setSelectedTask, selectedBoardRef, selectedTask, taskFilters, pendingTaskRefreshesRef, recentlyDeletedTasksRef]);
   
   return {
     handleTaskCreated,

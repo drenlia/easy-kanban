@@ -35,7 +35,7 @@ import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
 import VersionUpdateBanner from './components/VersionUpdateBanner';
 import { useTaskDeleteConfirmation } from './hooks/useTaskDeleteConfirmation';
-import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
+import api, { getMembers, getBoards, deleteTask, updateTask, reorderTasks, reorderColumns, reorderBoards, updateColumn, updateBoard, createTaskAtTop, createTask, copyTask, createColumn, createBoard, deleteColumn, deleteBoard, getUserSettings, createUser, getUserStatus, getActivityFeed, updateSavedFilterView, getCurrentUser, updateAppUrl } from './api';
 import { toast, ToastContainer } from './utils/toast';
 import { useLoadingState } from './hooks/useLoadingState';
 import { useDebug } from './hooks/useDebug';
@@ -214,6 +214,14 @@ function AppContent() {
   // Task deletion handler with confirmation
   const handleTaskDelete = async (taskId: string) => {
     try {
+      // Track this task as recently deleted to prevent it from reappearing
+      recentlyDeletedTasksRef.current.add(taskId);
+      
+      // Clear the deleted task after 10 seconds (enough time for any delayed updates)
+      setTimeout(() => {
+        recentlyDeletedTasksRef.current.delete(taskId);
+      }, 10000);
+      
       await deleteTask(taskId);
       
       // Remove task from local state and renumber remaining tasks
@@ -864,6 +872,9 @@ function AppContent() {
   
   // Track pending task refreshes (to cancel fallback if WebSocket event arrives)
   const pendingTaskRefreshesRef = useRef<Set<string>>(new Set());
+  
+  // Track recently deleted tasks to prevent them from reappearing via WebSocket updates or refreshBoardData
+  const recentlyDeletedTasksRef = useRef<Set<string>>(new Set());
 
   // Initialize WebSocket hooks after all dependencies are available
   const taskWebSocket = useTaskWebSocket({
@@ -873,6 +884,7 @@ function AppContent() {
     selectedBoardRef,
     pendingTaskRefreshesRef,
     refreshBoardDataRef,
+    recentlyDeletedTasksRef,
     taskFilters: {
       setFilteredColumns: taskFilters.setFilteredColumns,
       viewModeRef: taskFilters.viewModeRef,
@@ -1928,14 +1940,19 @@ function AppContent() {
           if (board) {
             // Force a deep clone to ensure React detects the change at all levels
             // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
+            // Also filter out recently deleted tasks to prevent them from reappearing
             const newColumns: Columns = {};
             if (board.columns) {
               Object.keys(board.columns).forEach(columnId => {
                 const column = board.columns[columnId];
                 if (column) {
+                  // Filter out recently deleted tasks
+                  const filteredTasks = (column.tasks || []).filter(
+                    task => !recentlyDeletedTasksRef.current.has(task.id)
+                  );
                   newColumns[columnId] = {
                     ...column,
-                    tasks: [...(column.tasks || [])]
+                    tasks: filteredTasks
                   };
                 }
               });
@@ -2467,37 +2484,21 @@ function AppContent() {
   }, [withLoading, fetchQueryLogs, columns, selectedTask]);
 
   const handleCopyTask = async (task: Task) => {
-    // Find the original task's position in the sorted list
-    const columnTasks = [...(columns[task.columnId]?.tasks || [])]
-      .sort((a, b) => (a.position || 0) - (b.position || 0));
-    
-    const originalTaskIndex = columnTasks.findIndex(t => t.id === task.id);
     const originalPosition = task.position || 0;
-    
-    // New task will be inserted right after the original (position + 0.5 as intermediate)
-    const newPosition = originalPosition + 0.5;
-    
-    // Generate unique title for tracking
     const copyTitle = `${task.title} (Copy)`;
-    const tempId = generateUUID();
-    
-    const newTask: Task = {
-      ...task,
-      id: tempId,
-      title: copyTitle,
-      comments: [],
-      position: newPosition,
-      // If the original task doesn't have a dueDate, set it to startDate
-      dueDate: task.dueDate || task.startDate
-    };
 
     // PAUSE POLLING to prevent race condition
     setTaskCreationPause(true);
 
     try {
       await withLoading('tasks', async () => {
-        // Use createTaskAtTop for better positioning
-        await createTaskAtTop(newTask);
+        // Use the dedicated copy endpoint which handles:
+        // - Generating new ticket number (incrementing)
+        // - Copying all task fields
+        // - Placing copy at original position
+        // - Shifting original task (and all below it) down by 1
+        // - Copying tags, watchers, and collaborators
+        await copyTask(task.id, task.boardId);
         
         // Don't refresh - WebSocket will handle the update
       });

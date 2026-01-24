@@ -383,14 +383,14 @@ class PostgresDatabase {
       this.transactionClient = client;
       
       try {
-        // Set search_path for this transaction
+        await client.query('BEGIN');
+        
+        // Set search_path for this transaction (must be inside transaction)
         if (this.schema !== 'public') {
           // Quote schema name to handle special characters (like hyphens in tenant IDs)
           const quotedSchema = `"${this.schema}"`;
           await client.query(`SET LOCAL search_path TO ${quotedSchema}, public`);
         }
-        
-        await client.query('BEGIN');
         const result = await callback(...args);
         await client.query('COMMIT');
         return result;
@@ -471,14 +471,14 @@ class PostgresDatabase {
     const client = await this.pool.connect();
     
     try {
-      // Set search_path for this transaction
+      await client.query('BEGIN');
+      
+      // Set search_path for this transaction (must be inside transaction)
       if (this.schema !== 'public') {
         // Quote schema name to handle special characters (like hyphens in tenant IDs)
         const quotedSchema = `"${this.schema}"`;
         await client.query(`SET LOCAL search_path TO ${quotedSchema}, public`);
       }
-      
-      await client.query('BEGIN');
       
       const results = [];
       for (const { query, params = [] } of queries) {

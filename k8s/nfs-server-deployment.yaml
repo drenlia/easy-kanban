@@ -21,8 +21,8 @@ spec:
         command: ['sh', '-c']
         args:
         - |
-          mkdir -p /exports/data /exports/attachments /exports/avatars
-          chmod 777 /exports/data /exports/attachments /exports/avatars
+          mkdir -p /exports/data /exports/attachments /exports/avatars /exports/registry
+          chmod 777 /exports/data /exports/attachments /exports/avatars /exports/registry
         volumeMounts:
         - mountPath: /exports
           name: nfs-data
@@ -36,6 +36,8 @@ spec:
           value: "/exports/attachments *(rw,sync,no_subtree_check,no_root_squash,insecure)"
         - name: NFS_EXPORT_2
           value: "/exports/avatars *(rw,sync,no_subtree_check,no_root_squash,insecure)"
+        - name: NFS_EXPORT_3
+          value: "/exports/registry *(rw,sync,no_subtree_check,no_root_squash,insecure)"
         ports:
         - name: nfs
           containerPort: 2049

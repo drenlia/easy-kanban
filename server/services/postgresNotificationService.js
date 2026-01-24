@@ -31,6 +31,7 @@ class PostgresNotificationService {
     this.isConnected = false;
     this.subscriptions = new Map(); // Map of channel -> Set of callbacks
     this.tenantId = null; // Current tenant context for multi-tenant mode
+    this.allTenantsCallbacks = new Map(); // Map of base channel -> Set of callbacks (for subscribeToAllTenants)
   }
 
   /**
@@ -192,17 +193,15 @@ class PostgresNotificationService {
           await client.query(`SET search_path TO ${quotedSchema}, public`);
         }
 
-        // Publish to tenant-specific channel (for direct subscriptions)
+        // In multi-tenant mode, ensure we're subscribed to this tenant-specific channel
+        // (equivalent to Redis pattern subscription, but done dynamically)
+        if (tenantId && process.env.MULTI_TENANT === 'true') {
+          await this.ensureTenantChannelSubscribed(channel, tenantId);
+        }
+        
+        // Publish to tenant-specific channel (equivalent to Redis: tenant-${tenantId}-${channel})
         await client.query('SELECT pg_notify($1, $2)', [escapedChannel, payload]);
         console.log(`📤 Published to PostgreSQL channel: ${escapedChannel} (original: ${channel}, tenant: ${tenantId || 'none'})`);
-        
-        // ALSO publish to base channel with tenantId in payload (for subscribeToAllTenants)
-        // This ensures WebSocket service receives notifications even when subscribed to base channel
-        if (tenantId && process.env.MULTI_TENANT === 'true') {
-          const basePayload = JSON.stringify({ ...data, tenantId });
-          await client.query('SELECT pg_notify($1, $2)', [channel, basePayload]);
-          console.log(`📤 Also published to base channel: ${channel} (tenant: ${tenantId})`);
-        }
       } finally {
         client.release();
       }
@@ -243,12 +242,13 @@ class PostgresNotificationService {
 
   /**
    * Subscribe to all tenant channels (for WebSocket service)
-   * In multi-tenant mode, subscribes to pattern `tenant-*-{channel}`
+   * In multi-tenant mode, dynamically subscribes to tenant-specific channels as they're used
    * In single-tenant mode, subscribes to base channel
    * 
-   * Since PostgreSQL doesn't support wildcard LISTEN, we use a pattern-based approach:
-   * - Subscribe to a base channel that matches the escaped pattern
-   * - Use NOTIFY with a pattern that we can match in handleNotification
+   * Since PostgreSQL doesn't support wildcard LISTEN, we:
+   * 1. Register the callback for this channel type
+   * 2. Dynamically subscribe to tenant-specific channels when we publish to them
+   * 3. Extract tenantId from channel name (like Redis pattern matching)
    */
   async subscribeToAllTenants(channel, callback) {
     if (!this.isConnected || !this.listenerClient) {
@@ -257,33 +257,60 @@ class PostgresNotificationService {
     }
 
     if (process.env.MULTI_TENANT === 'true') {
-      // In multi-tenant mode, we need to subscribe to tenant-specific channels
-      // Since PostgreSQL doesn't support wildcard LISTEN, we subscribe to a pattern-based channel
-      // The pattern is: tenant_*_<channel> (escaped)
-      // We'll listen to a base pattern and extract tenantId from the channel name
+      // Store callback for this channel type - will be used when we dynamically subscribe to tenant channels
+      if (!this.allTenantsCallbacks.has(channel)) {
+        this.allTenantsCallbacks.set(channel, new Set());
+      }
+      this.allTenantsCallbacks.get(channel).add(callback);
       
-      // Subscribe to a pattern that matches all tenant channels
-      // We use a special "all-tenants" prefix that we can match
-      const patternChannel = `tenant_all_${channel}`;
-      const escapedPatternChannel = this.escapeChannelName(patternChannel);
-      
-      // Actually, we need to subscribe to each tenant channel individually
-      // But since we don't know all tenants upfront, we'll use a different approach:
-      // Subscribe to the base channel and rely on the payload containing tenantId
-      // OR: Use a global channel that all tenants publish to
-      
-      // Better approach: Subscribe to base channel, but handle tenant extraction from escaped channel names
-      // We'll need to modify publish to also send to a base channel OR extract tenant from escaped name
-      
-      // For now, let's subscribe to the base channel and extract tenantId from the payload
-      await this.subscribe(channel, (data, receivedTenantId) => {
-        // Extract tenantId from data if not provided
-        const tenantId = receivedTenantId || data.tenantId || null;
-        callback(data, tenantId);
-      });
+      console.log(`📡 Registered callback for all-tenant channel: ${channel} (will subscribe dynamically to tenant-specific channels)`);
     } else {
       // Single-tenant mode: subscribe to base channel
       await this.subscribe(channel, callback);
+    }
+  }
+
+  /**
+   * Ensure we're subscribed to a tenant-specific channel for a given base channel
+   * This is called dynamically when publishing to ensure we receive notifications
+   * (equivalent to Redis pattern subscription, but done on-demand)
+   */
+  async ensureTenantChannelSubscribed(baseChannel, tenantId) {
+    if (!this.isConnected || !this.listenerClient) {
+      return;
+    }
+    
+    // Check if we have callbacks registered for this base channel type
+    if (!this.allTenantsCallbacks.has(baseChannel) || this.allTenantsCallbacks.get(baseChannel).size === 0) {
+      return; // No callbacks registered, no need to subscribe
+    }
+    
+    // Build tenant-specific channel name (like Redis: tenant-${tenantId}-${channel})
+    const tenantChannel = this.getTenantChannel(baseChannel, tenantId);
+    const escapedTenantChannel = this.escapeChannelName(tenantChannel);
+    
+    // If already subscribed, skip
+    if (this.subscriptions.has(escapedTenantChannel)) {
+      return;
+    }
+    
+    // Subscribe to this tenant-specific channel
+    try {
+      this.subscriptions.set(escapedTenantChannel, new Set());
+      await this.listenerClient.query(`LISTEN ${escapedTenantChannel}`);
+      console.log(`📡 Dynamically subscribed to tenant channel: ${escapedTenantChannel} (tenant: ${tenantId})`);
+      
+      // Register all callbacks for this base channel to this tenant-specific channel
+      const callbacks = this.allTenantsCallbacks.get(baseChannel);
+      callbacks.forEach(callback => {
+        this.subscriptions.get(escapedTenantChannel).add((data) => {
+          // Extract tenantId from channel name and pass to callback (like Redis)
+          callback(data, tenantId);
+        });
+      });
+    } catch (error) {
+      console.error(`❌ Failed to subscribe to tenant channel ${escapedTenantChannel}:`, error);
+      this.subscriptions.delete(escapedTenantChannel);
     }
   }
 

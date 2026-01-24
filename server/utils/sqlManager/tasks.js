@@ -545,28 +545,52 @@ export async function getTaskTicket(db, taskId) {
  * @returns {Promise<string>} Next ticket number (e.g., "TASK-00033")
  */
 export async function generateTaskTicket(db, prefix) {
+  // Use PostgreSQL regex pattern for ordering (similar to generateProjectIdentifier)
+  // Extract the numeric part in JavaScript for reliability
   const query = `
     SELECT ticket FROM tasks
     WHERE ticket IS NOT NULL AND ticket LIKE $1
-    ORDER BY CAST(SUBSTRING(ticket FROM $2) AS INTEGER) DESC
+    ORDER BY 
+      CAST(
+        SUBSTRING(ticket FROM '\\d+$') AS INTEGER
+      ) DESC
     LIMIT 1
   `;
   
   const pattern = `${prefix}%`;
-  const prefixLength = prefix.length + 1; // +1 for the dash
   
-  const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  const result = await stmt.get(pattern, prefixLength);
-  
-  if (!result || !result.ticket) {
+  try {
+    const stmt = wrapQuery(db.prepare(query), 'SELECT');
+    const result = await stmt.get(pattern);
+    
+    if (!result || !result.ticket) {
+      console.log(`📝 [generateTaskTicket] No existing tickets found, starting with ${prefix}00001`);
+      return `${prefix}00001`;
+    }
+    
+    // Extract the number part from the ticket (everything after the prefix and dash)
+    // This matches the approach used in generateProjectIdentifier
+    const ticketStr = result.ticket;
+    const numberPart = ticketStr.substring(prefix.length + 1); // Skip prefix and dash
+    const lastNumber = parseInt(numberPart, 10);
+    
+    // Handle case where parsing fails
+    if (isNaN(lastNumber)) {
+      console.warn(`⚠️ [generateTaskTicket] Failed to parse ticket number from: ${ticketStr}, numberPart: ${numberPart}, using 1`);
+      return `${prefix}00001`;
+    }
+    
+    const nextNumber = lastNumber + 1;
+    const paddedNumber = String(nextNumber).padStart(5, '0');
+    const newTicket = `${prefix}${paddedNumber}`;
+    
+    console.log(`📝 [generateTaskTicket] Last ticket: ${ticketStr}, Next ticket: ${newTicket}`);
+    return newTicket;
+  } catch (error) {
+    console.error(`❌ [generateTaskTicket] Error generating ticket:`, error);
+    // Fallback to 00001 on error
     return `${prefix}00001`;
   }
-  
-  const lastNumber = parseInt(result.ticket.substring(prefix.length + 1), 10);
-  const nextNumber = lastNumber + 1;
-  const paddedNumber = String(nextNumber).padStart(5, '0');
-  
-  return `${prefix}${paddedNumber}`;
 }
 
 /**

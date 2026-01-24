@@ -388,8 +388,8 @@ export default function TaskCardToolbar({
               </button>
             )}
             
-            {/* Add Tag Button */}
-            {onTagAdd && availableTagsForAssignment.length > 0 && (
+            {/* Add Tag Button - Always show when onTagAdd is provided, regardless of available tags */}
+            {onTagAdd && (
               <button
                 ref={quickTagButtonRef}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
