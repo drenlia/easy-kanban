@@ -1,0 +1,21 @@
+{
+  "name": "easy-kanban-qa",
+  "version": "1.0.0",
+  "description": "End-to-end tests for Easy Kanban application",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:login": "playwright test tests/login.spec.ts",
+    "report": "playwright show-report",
+    "install:browsers": "playwright install"
+  },
+  "keywords": ["playwright", "e2e", "testing", "kanban"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "dotenv": "^16.4.5"
+  }
+}

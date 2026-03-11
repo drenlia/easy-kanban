@@ -1,0 +1,21 @@
+# Playwright artifacts
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Dependencies
+node_modules/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables (IMPORTANT: Contains credentials)
+.env
+.env.local
+.env.test
+
+# OS files
+.DS_Store
+Thumbs.db
