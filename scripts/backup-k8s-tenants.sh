@@ -164,6 +164,15 @@ backup_database() {
     if [ "$copy_success" = true ]; then
         print_success "Database backed up to: $backup_path"
         
+        # Create/update latest backup symlink in root backups directory
+        local latest_filename="kanban-${tenant}-latest.db"
+        local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
+        if [ -L "$latest_path" ]; then
+            rm "$latest_path"
+        fi
+        ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
+        print_status "Latest backup link updated: $latest_path"
+        
         # Show backup info
         local size=$(du -h "$backup_path" | cut -f1)
         print_success "Backup size: $size"
@@ -198,6 +207,15 @@ backup_attachments() {
             kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/attachments-backup.tar.gz 2>/dev/null || true
             
             print_success "Attachments backed up to: $backup_path"
+            
+            # Create/update latest backup symlink in root backups directory
+            local latest_filename="kanban-${tenant}-attachments-latest.tar.gz"
+            local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
+            if [ -L "$latest_path" ]; then
+                rm "$latest_path"
+            fi
+            ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
+            print_status "Latest attachments link updated: $latest_path"
             
             # Show backup info
             local size=$(du -h "$backup_path" | cut -f1)
@@ -239,6 +257,15 @@ backup_avatars() {
             kubectl exec -n "${NAMESPACE}" "${pod_name}" -- rm -f /tmp/avatars-backup.tar.gz 2>/dev/null || true
             
             print_success "Avatars backed up to: $backup_path"
+            
+            # Create/update latest backup symlink in root backups directory
+            local latest_filename="kanban-${tenant}-avatars-latest.tar.gz"
+            local latest_path="${BASE_BACKUP_DIR}/${latest_filename}"
+            if [ -L "$latest_path" ]; then
+                rm "$latest_path"
+            fi
+            ln -s "${tenant}/$(basename "$backup_path")" "$latest_path"
+            print_status "Latest avatars link updated: $latest_path"
             
             # Show backup info
             local size=$(du -h "$backup_path" | cut -f1)
