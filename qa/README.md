@@ -31,7 +31,20 @@ cp .env.example .env
 
 **⚠️ IMPORTANT**: The `.env` file is in `.gitignore` and will NOT be committed to git. Your credentials stay local and secure.
 
-## Running Tests
+## How It Works
+
+### Global Authentication (Smart & Fast!)
+
+Tests use **global authentication** - you login once, and all tests reuse that session:
+
+1. **Setup phase** (`auth.setup.ts`) runs FIRST and logs in once
+2. **Session saved** to `.auth/user.json` (gitignored)
+3. **All tests start** with authenticated session automatically
+4. **Much faster** - no repeated logins!
+
+**Result**: 10x faster test execution! 🚀
+
+See [AUTHENTICATION.md](AUTHENTICATION.md) for details.
 
 ### Run all tests (headed mode - visible browser):
 

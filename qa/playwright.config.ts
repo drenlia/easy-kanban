@@ -55,13 +55,23 @@ export default defineConfig({
 
   // Configure projects for major browsers
   projects: [
+    // Setup project - runs first to authenticate
+    {
+      name: 'setup',
+      testMatch: /.*\.setup\.ts/,
+    },
+    
+    // Main test project - uses authenticated state
     {
       name: 'chromium',
       use: { 
         ...devices['Desktop Chrome'],
         // Run in headed mode (visible browser)
         headless: false,
+        // Use authenticated state from setup
+        storageState: '.auth/user.json',
       },
+      dependencies: ['setup'], // Run setup first
     },
 
     // Uncomment to test on other browsers
@@ -70,6 +80,9 @@ export default defineConfig({
     //   use: { 
     //     ...devices['Desktop Firefox'],
     //     headless: false,
+    //     storageState: '.auth/user.json',
+    //   },
+    //   dependencies: ['setup'],
     //   },
     // },
 
@@ -78,7 +91,9 @@ export default defineConfig({
     //   use: { 
     //     ...devices['Desktop Safari'],
     //     headless: false,
+    //     storageState: '.auth/user.json',
     //   },
+    //   dependencies: ['setup'],
     // },
   ],
 });

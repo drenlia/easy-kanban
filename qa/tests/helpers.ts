@@ -2,13 +2,29 @@
  * Easy Kanban Test Utilities
  * 
  * Shared utilities and helpers for Playwright tests
+ * 
+ * AUTHENTICATION NOTE:
+ * Most tests should NOT call login() directly!
+ * Authentication is handled globally via auth.setup.ts
+ * 
+ * The login() function is kept for:
+ * - Testing login functionality itself (auth tests)
+ * - Special cases where you need to login as different user
+ * - Manual testing scenarios
  */
 
 import { Page, expect } from '@playwright/test';
 
 /**
  * Login helper function
- * Performs a login operation with the provided credentials
+ * 
+ * ⚠️ WARNING: Don't use this in regular tests!
+ * Authentication is handled globally via auth.setup.ts
+ * 
+ * Use this ONLY for:
+ * - Testing login functionality (auth/login.spec.ts)
+ * - Testing with different user credentials
+ * - Logout/login flows
  */
 export async function login(page: Page, email: string, password: string) {
   await page.goto('/');
@@ -72,6 +88,9 @@ export async function takeScreenshot(page: Page, name: string) {
 
 /**
  * Check if user is logged in
+ * 
+ * Note: With global auth, tests should always be logged in
+ * This is mainly useful for auth tests themselves
  */
 export async function isLoggedIn(page: Page): Promise<boolean> {
   const loginForm = page.locator('input#email');
@@ -79,8 +98,27 @@ export async function isLoggedIn(page: Page): Promise<boolean> {
 }
 
 /**
+ * Navigate to application
+ * User should already be authenticated via global setup
+ */
+export async function navigateToApp(page: Page) {
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+}
+
+/**
+ * Wait for Kanban board to be ready
+ */
+export async function waitForKanbanBoard(page: Page) {
+  await expect(page.locator('[data-testid="kanban-board"]').or(
+    page.locator('main')
+  )).toBeVisible({ timeout: 10000 });
+}
+
+/**
  * Default test credentials from environment variables
  * Set these in .env file (not committed to git)
+ * Used by auth.setup.ts for global authentication
  */
 export const TEST_USER = {
   email: process.env.TEST_USER_EMAIL || '',

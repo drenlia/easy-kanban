@@ -16,6 +16,9 @@ yarn-error.log*
 .env.local
 .env.test
 
+# Authentication state (IMPORTANT: Contains session tokens)
+.auth/
+
 # OS files
 .DS_Store
 Thumbs.db
