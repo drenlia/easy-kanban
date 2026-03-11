@@ -9,7 +9,8 @@
     "test:debug": "playwright test --debug",
     "test:login": "playwright test tests/login.spec.ts",
     "report": "playwright show-report",
-    "install:browsers": "playwright install"
+    "install:browsers": "playwright install",
+    "env:check": "node -e \"require('dotenv').config(); console.log('✅ Base URL:', process.env.PLAYWRIGHT_BASE_URL || 'Not set'); console.log('✅ Email:', process.env.TEST_USER_EMAIL ? 'Set' : '❌ Not set');\""
   },
   "keywords": ["playwright", "e2e", "testing", "kanban"],
   "author": "",

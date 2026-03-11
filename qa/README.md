@@ -92,21 +92,31 @@ TEST_USER_PASSWORD=your-secure-password
 
 ### Base URL
 
-Tests run against `http://localhost:3222` by default (local development).
+**You can test any accessible URL** - local or remote!
 
-To test against a different URL, set the `PLAYWRIGHT_BASE_URL` environment variable in `.env`:
+**Default**: `http://localhost:3222` (local development)
+
+**To test a remote server** (recommended for your case):
+
+Edit `.env`:
+```bash
+PLAYWRIGHT_BASE_URL=https://kanban.drenlia.dev
+```
+
+**Common scenarios**:
 
 ```bash
-PLAYWRIGHT_BASE_URL=https://your-kanban-instance.com
+# Test remote server (no local setup needed!)
+PLAYWRIGHT_BASE_URL=https://kanban.drenlia.dev
+
+# Test local development
+PLAYWRIGHT_BASE_URL=http://localhost:3222
+
+# Test staging
+PLAYWRIGHT_BASE_URL=https://staging.yourdomain.com
 ```
 
-Or edit `playwright.config.ts`:
-
-```typescript
-use: {
-  baseURL: 'https://your-kanban-instance.com',
-}
-```
+See [TESTING_ENVIRONMENTS.md](TESTING_ENVIRONMENTS.md) for detailed multi-environment setup.
 
 ## Reports
 
