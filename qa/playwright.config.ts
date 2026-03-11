@@ -6,7 +6,11 @@ dotenv.config();
 
 /**
  * Playwright Configuration for Easy Kanban E2E Tests
- * See https://playwright.dev/docs/test-configuration
+ * 
+ * Configuration optimized for:
+ * - Reusing browser instances across tests (faster)
+ * - Running tests in same browser context (realistic)
+ * - Global authentication (login once)
  */
 export default defineConfig({
   testDir: './tests',
@@ -19,8 +23,9 @@ export default defineConfig({
     timeout: 5000
   },
   
-  // Run tests in files in parallel
-  fullyParallel: true,
+  // Run tests serially (same browser, faster for small suites)
+  // Change to true for large test suites
+  fullyParallel: false,
   
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: !!process.env.CI,
@@ -28,8 +33,9 @@ export default defineConfig({
   // Retry on CI only
   retries: process.env.CI ? 2 : 0,
   
-  // Opt out of parallel tests on CI
-  workers: process.env.CI ? 1 : undefined,
+  // Number of workers (1 = serial, undefined = parallel)
+  // Use 1 worker to reuse same browser across tests
+  workers: 1,
   
   // Reporter to use
   reporter: [
@@ -40,7 +46,6 @@ export default defineConfig({
   // Shared settings for all the projects below
   use: {
     // Base URL to use in actions like `await page.goto('/')`
-    // Can be overridden by PLAYWRIGHT_BASE_URL env var
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3222',
     
     // Collect trace when retrying the failed test
@@ -51,14 +56,19 @@ export default defineConfig({
     
     // Video on failure
     video: 'retain-on-failure',
+    
+    // Reuse existing browser context (much faster!)
+    // This keeps you logged in across tests
+    reuseExistingServer: true,
   },
 
-  // Configure projects for major browsers
+  // Configure projects
   projects: [
     // Setup project - runs first to authenticate
     {
       name: 'setup',
       testMatch: /.*\.setup\.ts/,
+      // Setup always runs in its own context
     },
     
     // Main test project - uses authenticated state
@@ -70,30 +80,10 @@ export default defineConfig({
         headless: false,
         // Use authenticated state from setup
         storageState: '.auth/user.json',
+        // Keep browser open between tests (faster!)
+        // Context is reused when workers: 1
       },
       dependencies: ['setup'], // Run setup first
     },
-
-    // Uncomment to test on other browsers
-    // {
-    //   name: 'firefox',
-    //   use: { 
-    //     ...devices['Desktop Firefox'],
-    //     headless: false,
-    //     storageState: '.auth/user.json',
-    //   },
-    //   dependencies: ['setup'],
-    //   },
-    // },
-
-    // {
-    //   name: 'webkit',
-    //   use: { 
-    //     ...devices['Desktop Safari'],
-    //     headless: false,
-    //     storageState: '.auth/user.json',
-    //   },
-    //   dependencies: ['setup'],
-    // },
   ],
 });

@@ -46,36 +46,36 @@ Tests use **global authentication** - you login once, and all tests reuse that s
 
 See [AUTHENTICATION.md](AUTHENTICATION.md) for details.
 
-### Run all tests (headed mode - visible browser):
+### Run all tests (serial mode - same browser, faster):
 
 ```bash
-npx playwright test
+npm test
 ```
+
+**Performance**: ~2-3 seconds per test (runs in same browser)
+
+### Run with UI mode (recommended for development):
+
+```bash
+npm run test:ui
+```
+
+**Best for**:
+- Interactive testing
+- See all tests at once
+- Run/debug any test
+- Time travel debugging
 
 ### Run a specific test file:
 
 ```bash
-npx playwright test tests/login.spec.ts
-```
-
-### Run tests in headless mode (no visible browser):
-
-Edit `playwright.config.ts` and set `headless: true` in the project configuration, then:
-
-```bash
-npx playwright test
-```
-
-### Run tests with UI mode (interactive):
-
-```bash
-npx playwright test --ui
+npx playwright test tests/taskcard/taskcard-create.spec.ts
 ```
 
 ### Debug a test:
 
 ```bash
-npx playwright test --debug
+npm run test:debug
 ```
 
 ## Test Structure

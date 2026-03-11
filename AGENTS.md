@@ -4,6 +4,16 @@
 - Prioritize security, maintainability, and least-privilege by default.
 - Never ship code that violates these rules unless explicitly instructed otherwise.
 
+## Documentation Policy
+- **DO NOT create new .md documentation files** unless explicitly requested by the user
+- Update existing documentation when making changes to related code
+- Use code comments for explaining implementation details
+- Reserve documentation files for:
+  - Major architectural decisions (when requested)
+  - Setup/configuration guides (when requested)
+  - API reference documentation (when requested)
+- Exception: README.md updates are acceptable for significant feature additions
+
 ## Package Management (npm)
 - Always choose secure, actively maintained packages.
 - Packages currently used in this project:
