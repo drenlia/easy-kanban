@@ -7,7 +7,7 @@ metadata:
     app: easy-kanban
     component: frontend
 spec:
-  replicas: 5  # Can be scaled for multi-tenant (all pods share NFS storage)
+  replicas: 0  # Matches Terraform eks-multi-tenant-deployment.tf easy_kanban_shared
   selector:
     matchLabels:
       app: easy-kanban
