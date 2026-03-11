@@ -8,6 +8,7 @@
  */
 
 import { wrapQuery } from '../queryLogger.js';
+import { dbTransaction, isProxyDatabase, isPostgresDatabase } from '../dbAsync.js';
 
 /**
  * Get task by ID with all relationships (comments, watchers, collaborators, tags, attachments)
@@ -782,6 +783,118 @@ export async function renumberTasksInColumn(db, tasks) {
       await updateStmt.run(index, task.id);
     }
   }
+}
+
+/**
+ * Get tasks for a column (simplified version - for renumbering)
+ * This is a minimal implementation to support renumbering functions
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} columnId - Column ID
+ * @returns {Promise<Array>} Array of tasks with id, position, columnId, boardId
+ */
+export async function getTasksForColumnBasic(db, columnId) {
+  const query = `
+    SELECT id, position, columnid as "columnId", boardid as "boardId"
+    FROM tasks
+    WHERE columnid = $1
+    ORDER BY position ASC
+  `;
+  const stmt = wrapQuery(db.prepare(query), 'SELECT');
+  return await stmt.all(columnId);
+}
+
+/**
+ * Renumber tasks in a column to sequential integers (0, 1, 2, 3...)
+ * This is called when positions get too close together or collide
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} columnId - Column ID
+ * @returns {Promise<number>} Number of tasks renumbered
+ */
+export async function renumberTasksInColumnByColumnId(db, columnId) {
+  // Get all tasks in the column, sorted by current position
+  const tasks = await getTasksForColumnBasic(db, columnId);
+  
+  if (tasks.length === 0) {
+    return 0;
+  }
+  
+  // Build batch update queries
+  const batchQueries = [];
+  const isPostgres = isPostgresDatabase(db);
+  const updateQuery = isPostgres ? `
+    UPDATE tasks SET position = $1, updated_at = $2 WHERE id = $3
+  ` : `
+    UPDATE tasks SET position = ?, updated_at = ? WHERE id = ?
+  `;
+  
+  const now = new Date().toISOString();
+  
+  // Renumber to sequential integers: 0, 1, 2, 3...
+  tasks.forEach((task, index) => {
+    const newPosition = index;
+    batchQueries.push({
+      query: updateQuery,
+      params: [newPosition, now, task.id]
+    });
+  });
+  
+  // Execute updates
+  if (isProxyDatabase(db)) {
+    await db.executeBatchTransaction(batchQueries);
+  } else {
+    await dbTransaction(db, async () => {
+      for (const batchQuery of batchQueries) {
+        await wrapQuery(db.prepare(batchQuery.query), 'UPDATE').run(...batchQuery.params);
+      }
+    });
+  }
+  
+  return tasks.length;
+}
+
+/**
+ * Check if tasks in a column need renumbering
+ * Returns true if positions are too close together (< 0.1) or have collisions
+ * 
+ * @param {Database} db - Database connection
+ * @param {string} columnId - Column ID
+ * @returns {Promise<boolean>} True if renumbering is needed
+ */
+export async function shouldRenumberTasksInColumn(db, columnId) {
+  const tasks = await getTasksForColumnBasic(db, columnId);
+  
+  if (tasks.length <= 1) {
+    return false; // No need to renumber if 0 or 1 task
+  }
+  
+  // Sort by position
+  const sortedTasks = tasks.sort((a, b) => {
+    const posA = typeof a.position === 'number' ? a.position : parseFloat(a.position) || 0;
+    const posB = typeof b.position === 'number' ? b.position : parseFloat(b.position) || 0;
+    return posA - posB;
+  });
+  
+  // Check for collisions (same position) or gaps that are too small (< 0.1)
+  const MIN_GAP = 0.1;
+  for (let i = 0; i < sortedTasks.length - 1; i++) {
+    const currentPos = typeof sortedTasks[i].position === 'number' 
+      ? sortedTasks[i].position 
+      : parseFloat(sortedTasks[i].position) || 0;
+    const nextPos = typeof sortedTasks[i + 1].position === 'number' 
+      ? sortedTasks[i + 1].position 
+      : parseFloat(sortedTasks[i + 1].position) || 0;
+    
+    const gap = nextPos - currentPos;
+    
+    // If gap is too small or positions are equal (collision), renumber
+    if (gap < MIN_GAP) {
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 /**

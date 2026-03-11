@@ -977,15 +977,18 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
       sprintId: originalTask.sprint_id || originalTask.sprintId || null
     };
     
+    // FRACTIONAL POSITIONING + BACKGROUND RENUMBERING
+    // 1. Insert copy with position = originalPosition + 0.5 (immediately in correct order)
+    // 2. Renumber all tasks in background to clean integers (0, 1, 2, 3...)
+    // 3. WebSocket updates keep frontend in sync
+    
+    // Calculate fractional position: originalPosition + 0.5
+    const originalPos = typeof originalPosition === 'number' ? originalPosition : parseFloat(originalPosition) || 0;
+    let copyPosition = originalPos + 0.5;
+    
     await dbTransaction(db, async () => {
-      // We want: Original stays at originalPosition, Copy goes to originalPosition + 1 (right after)
-      // Strategy: Shift tasks at position > originalPosition down by 1, then create copy at originalPosition + 1
-      // The shiftTaskPositions function shifts tasks where position > minPosition, so original task is NOT shifted
-      await taskQueries.shiftTaskPositions(db, columnId, originalPosition, 999999, 1);
-      
-      // Create the copy at originalPosition + 1 (right after the original)
-      // Original task remains at originalPosition (was not shifted by the above call)
-      newTaskData.position = originalPosition + 1;
+      // Create the copy with fractional position (places it right after original)
+      newTaskData.position = copyPosition;
       await taskQueries.createTask(db, newTaskData);
       
       // Copy tags
@@ -1011,6 +1014,9 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
         }
       }
     });
+    
+    // NOTE: Frontend handles renumbering after receiving the copy via WebSocket
+    // Backend just creates the copy with +0.5 position, frontend renumbers and sends back
     
     // Log task copy activity
     const board = await helpers.getBoardById(db, boardId);
@@ -1056,6 +1062,10 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
     if (!taskForWebSocket.boardId && boardId) {
       taskForWebSocket.boardId = boardId;
     }
+    // CRITICAL: Always use the calculated copyPosition for WebSocket event
+    // This ensures the copy appears at the correct position (right after original)
+    // fetchTaskWithRelationships might return position in a different format or missing
+    taskForWebSocket.position = copyPosition;
     
     // Publish to Redis/PostgreSQL for real-time updates
     const publishTimestamp = new Date().toISOString();
@@ -1871,6 +1881,9 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
   
   try {
     const endpointStartTime = Date.now();
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] 🔄 [batch-update-positions] Received ${updates.length} updates`);
+    
     const db = getRequestDatabase(req);
     const tTranslator = await getTranslator(db); // Use different name to avoid shadowing imported t
     const now = new Date().toISOString();
@@ -1897,9 +1910,14 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       if (!updatesByColumn.has(columnId)) {
         updatesByColumn.set(columnId, []);
       }
+      // Ensure position is a number (handle string conversion from JSON)
+      const position = typeof update.position === 'number' 
+        ? update.position 
+        : parseFloat(update.position) || 0;
+      
       updatesByColumn.get(columnId).push({
         taskId: update.taskId,
-        position: update.position,
+        position: position, // Use parsed numeric position
         columnId: columnId,
         previousColumnId: currentTask.columnId,
         previousBoardId: currentTask.boardId,
@@ -1957,6 +1975,19 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
       
       const duration = Date.now() - startTime;
       console.log(`✅ [batch-update-positions] Batched transaction completed in ${duration}ms for ${batchQueries.length} updates`);
+      
+      // Log each task update with ticket and position
+      const timestamp = new Date().toISOString();
+      for (const columnUpdates of updatesByColumn.values()) {
+        for (const update of columnUpdates) {
+          const task = taskMap.get(update.taskId);
+          const ticket = task?.ticket || 'N/A';
+          console.log(`[${timestamp}] ✅ [batch-update-positions] ticket: ${ticket}, position: ${update.position}`);
+        }
+      }
+      
+      // NOTE: Frontend already sends renumbered positions (0, 1, 2, 3...)
+      // No need to renumber again on backend - just apply the positions as received
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
@@ -1987,6 +2018,16 @@ router.post('/batch-update-positions', authenticateToken, async (req, res) => {
           }
         }
       });
+      
+      // Log each task update with ticket and position (direct DB mode)
+      const timestamp = new Date().toISOString();
+      for (const columnUpdates of updatesByColumn.values()) {
+        for (const update of columnUpdates) {
+          const task = taskMap.get(update.taskId);
+          const ticket = task?.ticket || 'N/A';
+          console.log(`[${timestamp}] ✅ [batch-update-positions] ticket: ${ticket}, position: ${update.position}`);
+        }
+      }
     }
     
     // Log activity for tasks that changed columns (batch these too if possible)
@@ -2146,7 +2187,13 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: t('errors.taskNotFound') });
     }
 
-    const currentPosition = currentTask.position;
+    // Ensure positions are numbers for comparison
+    const currentPosition = typeof currentTask.position === 'number' 
+      ? currentTask.position 
+      : parseFloat(currentTask.position) || 0;
+    const newPos = typeof newPosition === 'number' 
+      ? newPosition 
+      : parseFloat(newPosition) || 0;
     const previousColumnId = currentTask.columnId;
     const previousBoardId = currentTask.boardId;
 
@@ -2155,69 +2202,81 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       const batchQueries = [];
       const now = new Date().toISOString();
       
-      if (newPosition > currentPosition) {
-        // Moving down: shift tasks between current and new position up by 1
+      if (newPos > currentPosition) {
+        // Moving down: shift tasks between current and new position down by 1
+        // Tasks with position > currentPosition and <= newPosition need to shift up (position - 1)
         batchQueries.push({
           query: `
             UPDATE tasks SET position = position - 1 
             WHERE columnId = ? AND position > ? AND position <= ?
           `,
-          params: [columnId, currentPosition, newPosition]
+          params: [columnId, currentPosition, newPos]
         });
-      } else {
-        // Moving up: shift tasks between new and current position down by 1
+      } else if (newPos < currentPosition) {
+        // Moving up: shift tasks between new and current position up by 1
+        // Tasks with position >= newPosition and < currentPosition need to shift down (position + 1)
         batchQueries.push({
           query: `
             UPDATE tasks SET position = position + 1 
             WHERE columnId = ? AND position >= ? AND position < ?
           `,
-          params: [columnId, newPosition, currentPosition]
+          params: [columnId, newPos, currentPosition]
         });
       }
+      // If newPos === currentPosition, no shift needed
 
       // Update the moved task to its new position and track previous location
-      batchQueries.push({
-        query: `
-          UPDATE tasks SET 
-            position = ?, 
-            columnId = ?,
-            pre_boardId = ?, 
-            pre_columnId = ?,
-            updated_at = ?
-          WHERE id = ?
-        `,
-        params: [newPosition, columnId, previousBoardId, previousColumnId, now, taskId]
-      });
+      // Only update if position actually changed
+      if (newPos !== currentPosition) {
+        batchQueries.push({
+          query: `
+            UPDATE tasks SET 
+              position = ?, 
+              columnId = ?,
+              pre_boardId = ?, 
+              pre_columnId = ?,
+              updated_at = ?
+            WHERE id = ?
+          `,
+          params: [newPos, columnId, previousBoardId, previousColumnId, now, taskId]
+        });
+      }
       
       // Execute all updates in a single batched transaction
       await db.executeBatchTransaction(batchQueries);
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
-        if (newPosition > currentPosition) {
-          // Moving down: shift tasks between current and new position up by 1
+        if (newPos > currentPosition) {
+          // Moving down: shift tasks between current and new position down by 1
+          // Tasks with position > currentPosition and <= newPosition need to shift up (position - 1)
           await wrapQuery(db.prepare(`
             UPDATE tasks SET position = position - 1 
             WHERE columnId = ? AND position > ? AND position <= ?
-          `), 'UPDATE').run(columnId, currentPosition, newPosition);
-        } else {
-          // Moving up: shift tasks between new and current position down by 1
+          `), 'UPDATE').run(columnId, currentPosition, newPos);
+        } else if (newPos < currentPosition) {
+          // Moving up: shift tasks between new and current position up by 1
+          // Tasks with position >= newPosition and < currentPosition need to shift down (position + 1)
           await wrapQuery(db.prepare(`
             UPDATE tasks SET position = position + 1 
             WHERE columnId = ? AND position >= ? AND position < ?
-          `), 'UPDATE').run(columnId, newPosition, currentPosition);
+          `), 'UPDATE').run(columnId, newPos, currentPosition);
         }
+        // If newPos === currentPosition, no shift needed
 
         // Update the moved task to its new position and track previous location
-        await wrapQuery(db.prepare(`
-          UPDATE tasks SET 
-            position = ?, 
-            columnId = ?,
-            pre_boardId = ?, 
-            pre_columnId = ?,
-            updated_at = ?
-          WHERE id = ?
-        `), 'UPDATE').run(newPosition, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
+        // Only update if position actually changed
+        if (newPos !== currentPosition) {
+          await wrapQuery(db.prepare(`
+            UPDATE tasks SET 
+              position = ?, 
+              columnId = ?,
+              pre_boardId = ?, 
+              pre_columnId = ?,
+              updated_at = ?
+            WHERE id = ?
+          `), 'UPDATE').run(newPos, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
+        }
       });
     }
 
@@ -2227,12 +2286,12 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       en: t('activity.reorderedTask', { 
         taskTitle: currentTask.title, 
         fromPosition: currentPosition, 
-        toPosition: newPosition 
+        toPosition: newPos 
       }, 'en'),
       fr: t('activity.reorderedTask', { 
         taskTitle: currentTask.title, 
         fromPosition: currentPosition, 
-        toPosition: newPosition 
+        toPosition: newPos 
       }, 'fr')
     });
     logTaskActivity(
@@ -2276,7 +2335,7 @@ router.post('/reorder', authenticateToken, async (req, res) => {
       title: currentTask.title, // Required for display
       boardId: currentTask.boardId, // Required for routing
       columnId: columnId,
-      position: newPosition,
+      position: newPos,
       memberId: currentTask.memberId || null, // For assignee display
       ticket: currentTask.ticket || null, // For task reference display
       updatedBy: userId

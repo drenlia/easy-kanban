@@ -65,6 +65,14 @@ export const useTaskWebSocket = ({
   const processBatchedUpdates = useCallback(() => {
     if (pendingUpdatesRef.current.size === 0) return;
     
+    // Skip processing if a local reordering is in progress
+    // This prevents WebSocket updates from overwriting optimistic updates
+    if ((window as any).reorderingInProgress) {
+      console.log('🚫 [WebSocket] Skipping batch updates - reordering in progress');
+      pendingUpdatesRef.current.clear();
+      return;
+    }
+    
     const updates = Array.from(pendingUpdatesRef.current.values());
     pendingUpdatesRef.current.clear();
     
@@ -84,8 +92,10 @@ export const useTaskWebSocket = ({
     // Use requestAnimationFrame + setTimeout to break up the work and avoid blocking the main thread
     // This prevents "message handler took Xms" violations
     // Double defer: requestAnimationFrame ensures we're in the right frame, setTimeout breaks up heavy work
+    // REDUCED DELAY: Use 0ms timeout instead of default (~4ms) to minimize delay for position updates
     requestAnimationFrame(() => {
       // Defer the actual heavy processing to the next tick to avoid blocking
+      // Use 0ms timeout for faster updates (still defers to next event loop tick)
       setTimeout(() => {
     
     // Track if we need to update selectedTask
@@ -264,7 +274,11 @@ export const useTaskWebSocket = ({
             updatedBy: data.task.updatedBy ?? fullTaskData.updatedBy,
             // Handle fields that are only included if they changed
             description: data.task.hasOwnProperty('description') ? data.task.description : fullTaskData.description,
-            position: data.task.hasOwnProperty('position') ? (data.task.position ?? fullTaskData.position) : fullTaskData.position,
+            // CRITICAL: Always use position from update if provided (even if 0)
+            // Use nullish coalescing to handle 0 as a valid position value
+            position: data.task.hasOwnProperty('position') 
+              ? (data.task.position !== null && data.task.position !== undefined ? data.task.position : fullTaskData.position)
+              : fullTaskData.position,
             requesterId: data.task.hasOwnProperty('requesterId') ? data.task.requesterId : fullTaskData.requesterId,
             startDate: data.task.hasOwnProperty('startDate') ? data.task.startDate : fullTaskData.startDate,
             dueDate: data.task.hasOwnProperty('dueDate') ? data.task.dueDate : fullTaskData.dueDate,
@@ -414,12 +428,18 @@ export const useTaskWebSocket = ({
               const targetColumn = updatedColumns[targetColumnId];
               if (targetColumn) {
                 const existingIndex = targetColumn.tasks.findIndex((t: any) => t && t.id === taskId);
+                const existingTask = targetColumn.tasks[existingIndex];
                 const mergedTask = {
-                  ...(targetColumn.tasks[existingIndex] || {}),
+                  ...(existingTask || {}),
                   ...data.task,
                   id: taskId,
                   boardId: boardId,
-                  columnId: targetColumnId
+                  columnId: targetColumnId,
+                  // CRITICAL: Always use position from update if provided (even if 0)
+                  // This ensures position updates are applied correctly
+                  position: data.task.hasOwnProperty('position') 
+                    ? (data.task.position !== null && data.task.position !== undefined ? data.task.position : (existingTask?.position ?? 0))
+                    : (existingTask?.position ?? 0)
                 };
                 
                 let updatedTasks: any[];
@@ -619,12 +639,11 @@ export const useTaskWebSocket = ({
               tasks: updatedTasks
             };
           } else {
-            // Task doesn't exist yet, add it at front and renumber
-            const allTasks = [data.task, ...existingTasks];
-            const updatedTasks = allTasks.map((task, index) => ({
-              ...task,
-              position: index
-            }));
+            // Task doesn't exist yet, add it and sort by position (preserve server position)
+            // CRITICAL: Use the position from the server (e.g., 4.50 for copied tasks)
+            // Don't renumber - this would break fractional positions
+            const allTasks = [...existingTasks, data.task];
+            const updatedTasks = allTasks.sort((a, b) => (a.position || 0) - (b.position || 0));
             
             updatedColumns[targetColumnId] = {
               ...updatedColumns[targetColumnId],
@@ -697,12 +716,11 @@ export const useTaskWebSocket = ({
               tasks: updatedTasks
             };
           } else {
-            // Task doesn't exist yet, add it at front and renumber
-            const allTasks = [data.task, ...existingTasks];
-            const updatedTasks = allTasks.map((task, index) => ({
-              ...task,
-              position: index
-            }));
+            // Task doesn't exist yet, add it and sort by position (preserve server position)
+            // CRITICAL: Use the position from the server (e.g., 4.50 for copied tasks)
+            // Don't renumber - this would break fractional positions
+            const allTasks = [...existingTasks, data.task];
+            const updatedTasks = allTasks.sort((a, b) => (a.position || 0) - (b.position || 0));
             
             updatedColumns[targetColumnId] = {
               ...updatedColumns[targetColumnId],

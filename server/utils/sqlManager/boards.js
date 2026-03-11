@@ -9,7 +9,7 @@ import { wrapQuery } from '../queryLogger.js';
 export async function getAllBoards(db) {
   const query = `
     SELECT * FROM boards 
-    ORDER BY CAST(position AS INTEGER) ASC
+    ORDER BY position ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -73,10 +73,10 @@ export async function getBoardByTitle(db, title, excludeBoardId = null) {
  * @returns {Promise<number>} Maximum position or -1
  */
 export async function getMaxBoardPosition(db) {
-  // Cast to INTEGER to ensure proper numeric comparison in PostgreSQL
   // Use quoted alias to preserve case in PostgreSQL
+  // Position is now NUMERIC, so no need to cast
   const query = `
-    SELECT MAX(CAST(position AS INTEGER)) as "maxPos" FROM boards
+    SELECT MAX(position) as "maxPos" FROM boards
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -165,7 +165,7 @@ export async function deleteBoard(db, id) {
 export async function getAllBoardsWithPositions(db) {
   const query = `
     SELECT id, position FROM boards 
-    ORDER BY CAST(position AS INTEGER) ASC
+    ORDER BY position ASC
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');

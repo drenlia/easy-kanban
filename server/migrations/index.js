@@ -7,7 +7,96 @@ import { dbTransaction, dbExec, dbAll, dbRun, isProxyDatabase, isPostgresDatabas
 // that don't have them yet. Only migrations 11+ are defined here.
 
 const migrations = [
-  // Future migrations will be added here with version: 11, 12, etc.
+  {
+    version: 11,
+    name: 'convert_position_to_numeric',
+    description: 'Convert position fields from INTEGER to NUMERIC for tasks, columns, and boards to support fractional positions',
+    up: async (db) => {
+      const isPostgres = isPostgresDatabase(db);
+      
+      if (isPostgres) {
+        // PostgreSQL: Use ALTER COLUMN to change type
+        // Check if columns are already NUMERIC (for idempotency)
+        const checkTasksSql = `
+          SELECT data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'tasks' AND column_name = 'position'
+        `;
+        const checkColumnsSql = `
+          SELECT data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'columns' AND column_name = 'position'
+        `;
+        const checkBoardsSql = `
+          SELECT data_type 
+          FROM information_schema.columns 
+          WHERE table_name = 'boards' AND column_name = 'position'
+        `;
+        
+        const tasksStmt = db.prepare(checkTasksSql);
+        const columnsStmt = db.prepare(checkColumnsSql);
+        const boardsStmt = db.prepare(checkBoardsSql);
+        
+        const tasksType = await dbAll(tasksStmt);
+        const columnsType = await dbAll(columnsStmt);
+        const boardsType = await dbAll(boardsStmt);
+        
+        // Convert to NUMERIC(10,2) if not already numeric
+        if (tasksType.length > 0 && tasksType[0].data_type !== 'numeric') {
+          await dbExec(db, 'ALTER TABLE tasks ALTER COLUMN position TYPE NUMERIC(10,2) USING position::NUMERIC(10,2)');
+          console.log('✅ Converted tasks.position to NUMERIC(10,2)');
+        }
+        
+        if (columnsType.length > 0 && columnsType[0].data_type !== 'numeric') {
+          await dbExec(db, 'ALTER TABLE columns ALTER COLUMN position TYPE NUMERIC(10,2) USING position::NUMERIC(10,2)');
+          console.log('✅ Converted columns.position to NUMERIC(10,2)');
+        }
+        
+        if (boardsType.length > 0 && boardsType[0].data_type !== 'numeric') {
+          await dbExec(db, 'ALTER TABLE boards ALTER COLUMN position TYPE NUMERIC(10,2) USING position::NUMERIC(10,2)');
+          console.log('✅ Converted boards.position to NUMERIC(10,2)');
+        }
+      } else {
+        // SQLite: SQLite's type system is dynamic - INTEGER columns can store REAL values
+        // However, to be explicit and ensure proper storage, we check the schema
+        // If the column is INTEGER, we note that SQLite will automatically handle REAL values
+        // when inserted, but the schema will still show INTEGER
+        // For new databases, CREATE_TABLES_SQL now uses NUMERIC(10,2) which SQLite stores as REAL
+        
+        // Check current type by inspecting table schema
+        const checkTasksSql = "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'";
+        const checkColumnsSql = "SELECT sql FROM sqlite_master WHERE type='table' AND name='columns'";
+        const checkBoardsSql = "SELECT sql FROM sqlite_master WHERE type='table' AND name='boards'";
+        
+        const tasksStmt = db.prepare(checkTasksSql);
+        const columnsStmt = db.prepare(checkColumnsSql);
+        const boardsStmt = db.prepare(checkBoardsSql);
+        
+        const tasksSchema = await dbAll(tasksStmt);
+        const columnsSchema = await dbAll(columnsStmt);
+        const boardsSchema = await dbAll(boardsStmt);
+        
+        // SQLite will automatically store REAL values even in INTEGER columns
+        // But to be explicit, we can verify the column exists and log the migration
+        // The actual data conversion happens automatically when REAL values are inserted
+        
+        if (tasksSchema.length > 0 && tasksSchema[0].sql && tasksSchema[0].sql.includes('position INTEGER')) {
+          console.log('✅ SQLite: tasks.position is INTEGER - will accept REAL values automatically');
+          console.log('   Note: SQLite stores REAL values in INTEGER columns when needed');
+        }
+        
+        if (columnsSchema.length > 0 && columnsSchema[0].sql && columnsSchema[0].sql.includes('position INTEGER')) {
+          console.log('✅ SQLite: columns.position is INTEGER - will accept REAL values automatically');
+          console.log('   Note: SQLite stores REAL values in INTEGER columns when needed');
+        }
+        
+        if (boardsSchema.length > 0 && boardsSchema[0].sql && boardsSchema[0].sql.includes('position INTEGER')) {
+          console.log('✅ SQLite: boards.position is INTEGER - will accept REAL values automatically');
+          console.log('   Note: SQLite stores REAL values in INTEGER columns when needed');
+        }
+      }
+    }
+  }
 ];
 
 /**

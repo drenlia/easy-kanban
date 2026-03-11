@@ -1,126 +1,143 @@
 /**
  * Utility functions for task reordering within and across columns
+ * 
+ * APPROACH:
+ * - MOVE: Frontend reorders to indices [0,1,2,3...], sends ALL positions
+ * - COPY: Backend creates with +0.5, frontend receives, renumbers ALL, sends to backend
+ * - Always use clean integer positions for reliability
  */
 
 import { Task, Columns } from '../types';
-import { updateTask, batchUpdateTaskPositions } from '../api';
-import { arrayMove } from '@dnd-kit/sortable';
+import { batchUpdateTaskPositions } from '../api';
 import { DRAG_COOLDOWN_DURATION } from '../constants';
 
+// Helper to parse position as number
+const parsePos = (pos: any): number => typeof pos === 'number' ? pos : parseFloat(String(pos)) || 0;
+
 /**
- * Handles reordering tasks within the same column
- * @param task - The task being reordered
- * @param columnId - The ID of the column containing the task
- * @param newIndex - The new index position for the task
- * @param columns - Current columns state
- * @param setColumns - Function to update columns state
- * @param setDragCooldown - Function to set drag cooldown flag
- * @param refreshBoardData - Function to refresh board data on error
+ * Moves a task to a specific index within its column.
+ * Renumbers ALL tasks to sequential integers and sends to backend.
  */
-export const handleSameColumnReorder = async (
+export const moveTaskToIndex = async (
   task: Task,
   columnId: string,
-  newIndex: number,
+  targetIndex: number,
   columns: Columns,
   setColumns: React.Dispatch<React.SetStateAction<Columns>>,
   setDragCooldown: (value: boolean) => void,
   refreshBoardData: () => Promise<void>
 ): Promise<void> => {
-  const columnTasks = [...(columns[columnId]?.tasks || [])]
-    .sort((a, b) => (a.position || 0) - (b.position || 0));
-  
-  const currentIndex = columnTasks.findIndex(t => t.id === task.id);
-
-  // console.log('🔄 handleSameColumnReorder called:', {
-  //   taskId: task.id,
-  //   taskTitle: task.title,
-  //   taskPosition: task.position,
-  //   columnId,
-  //   newIndex,
-  //   currentIndex,
-  //   columnTasksCount: columnTasks.length,
-  //   columnTasks: columnTasks.map(t => ({ id: t.id, title: t.title, position: t.position }))
-  // });
-
-  // Check if reorder is actually needed
-  // BUT: Allow reordering when dropping on another task (even if same position)
-  // This enables proper swapping of tasks at the same position
-  if (currentIndex === newIndex) {
-      console.log('🔄 No reorder needed - currentIndex === newIndex:', currentIndex);
-      return;
+  const column = columns[columnId];
+  if (!column) {
+    console.error('❌ [moveTaskToIndex] Column not found:', columnId);
+    return;
   }
 
-  // Store previous state for rollback on error
-  const previousColumnState = {
-    ...columns[columnId],
-    tasks: [...columnTasks]
-  };
-
-  // Optimistic update - reorder in UI immediately
-  const oldIndex = currentIndex;
-  const reorderedTasks = arrayMove(columnTasks, oldIndex, newIndex);
+  // Sort all tasks by position
+  const sortedTasks = [...column.tasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
   
-  // Recalculate positions for all tasks in the group
-  const tasksWithUpdatedPositions = reorderedTasks.map((t, index) => ({
+  // Find current index of the task being moved
+  const currentIndex = sortedTasks.findIndex(t => t.id === task.id);
+  if (currentIndex === -1) {
+    console.error('❌ [moveTaskToIndex] Task not found in column');
+    return;
+  }
+
+  // Create new order: remove task from current position
+  const tasksWithoutMoved = sortedTasks.filter(t => t.id !== task.id);
+  
+  // Clamp target index to valid range
+  const clampedIndex = Math.max(0, Math.min(targetIndex, tasksWithoutMoved.length));
+  
+  // Check if index actually changed (simple comparison)
+  if (currentIndex === clampedIndex) {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] 🔄 [moveTaskToIndex] Order unchanged, skipping - ticket: ${task.ticket || 'N/A'}, currentIndex: ${currentIndex}, targetIndex: ${clampedIndex}`);
+    return;
+  }
+  
+  // Insert task at new position
+  const newOrder = [...tasksWithoutMoved];
+  newOrder.splice(clampedIndex, 0, task);
+
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🔄 [moveTaskToIndex] ticket: ${task.ticket || 'N/A'}, fromIndex: ${currentIndex}, toIndex: ${clampedIndex}`);
+
+  // Renumber all tasks to clean sequential integers [0, 1, 2, 3, ...]
+  const renumberedTasks = newOrder.map((t, index) => ({
     ...t,
     position: index
   }));
-  
-  // NOTE: We don't set the flag here anymore
-  // The WebSocket handler will set it when the first update arrives
-  // This ensures WebSocket updates are processed correctly
-  
+
+  // Store previous state for rollback
+  const previousColumnState = { ...column, tasks: [...column.tasks] };
+
+  // Set flag to prevent WebSocket from overwriting our update
+  // Use a longer timeout since we're sending multiple updates
+  window.justUpdatedFromWebSocket = true;
+  (window as any).lastOptimisticUpdateTime = Date.now();
+  (window as any).reorderingInProgress = true;
+
+  // Optimistic update - INSTANT
   setColumns(prev => ({
     ...prev,
     [columnId]: {
       ...prev[columnId],
-      tasks: tasksWithUpdatedPositions
+      tasks: renumberedTasks
     }
   }));
 
-  // Send all updated tasks with their new positions to backend (batch update)
+  // Send ALL task positions to backend
   try {
-    // Use batch update endpoint for better performance
-    const updates = tasksWithUpdatedPositions.map(task => ({
-      taskId: task.id,
-      position: task.position,
-      columnId: task.columnId
+    const updates = renumberedTasks.map(t => ({
+      taskId: t.id,
+      position: t.position,
+      columnId: columnId
     }));
     
+    // Log before API call
+    const apiCallTimestamp = new Date().toISOString();
+    console.log(`[${apiCallTimestamp}] 📤 [moveTaskToIndex] Sending ${updates.length} updates to backend`);
+    
     await batchUpdateTaskPositions(updates);
-      
-    // Add cooldown to prevent polling interference
+    
+    // Log each task's final position
+    const finalTimestamp = new Date().toISOString();
+    renumberedTasks.forEach(t => {
+      console.log(`[${finalTimestamp}] ✅ [moveTaskToIndex] ticket: ${t.ticket || 'N/A'}, position: ${t.position}`);
+    });
+    
+    // Clear flags after a longer delay to ensure WebSocket doesn't overwrite
+    setTimeout(() => {
+      window.justUpdatedFromWebSocket = false;
+      (window as any).reorderingInProgress = false;
+    }, 1000); // Longer timeout for reliability
+    
+    // Add cooldown
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
-      // Note: We don't refresh immediately to preserve the optimistic update
-      // The WebSocket updates will sync the state correctly
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
-    // Rollback optimistic update on error
-    console.error('❌ Failed to reorder tasks, rolling back:', error);
+    console.error('❌ [moveTaskToIndex] Failed to update positions:', error);
+    // Rollback
     setColumns(prev => ({
       ...prev,
       [columnId]: previousColumnState
     }));
-    
-    // Try to refresh from server, but don't wait for it (it might also fail)
-    refreshBoardData().catch(() => {
-      // Server refresh also failed, but we've already rolled back the UI
-    });
+    window.justUpdatedFromWebSocket = false;
+    (window as any).reorderingInProgress = false;
+    refreshBoardData().catch(() => {});
   }
 };
 
+// Aliases for backward compatibility
+export const moveTaskToPosition = moveTaskToIndex;
+export const handleSameColumnReorder = moveTaskToIndex;
+
 /**
- * Handles moving a task from one column to another
- * @param task - The task being moved
- * @param sourceColumnId - The ID of the source column
- * @param targetColumnId - The ID of the target column
- * @param targetIndex - The index position in the target column
- * @param columns - Current columns state
- * @param setColumns - Function to update columns state
- * @param setDragCooldown - Function to set drag cooldown flag
- * @param refreshBoardData - Function to refresh board data on error
+ * Handles moving a task from one column to another.
+ * Renumbers both source and target columns.
  */
 export const handleCrossColumnMove = async (
   task: Task,
@@ -135,105 +152,162 @@ export const handleCrossColumnMove = async (
   const sourceColumn = columns[sourceColumnId];
   const targetColumn = columns[targetColumnId];
   
-  if (!sourceColumn || !targetColumn) return;
+  if (!sourceColumn || !targetColumn) {
+    console.error('❌ [handleCrossColumnMove] Column not found');
+    return;
+  }
 
-  // Sort target column tasks by position for proper insertion
-  const sortedTargetTasks = [...targetColumn.tasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-  
-  // Remove from source
-  const sourceTasks = sourceColumn.tasks.filter(t => t.id !== task.id);
-  
-  // Insert into target at the specified index position
-  const updatedTask = { ...task, columnId: targetColumnId, position: targetIndex };
-  sortedTargetTasks.splice(targetIndex, 0, updatedTask);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] 🔄 [handleCrossColumnMove] ticket: ${task.ticket || 'N/A'}, fromColumn: ${sourceColumnId}, toColumn: ${targetColumnId}, targetIndex: ${targetIndex}`);
 
-  // Update positions for both columns - use simple sequential indices
-  // First sort the source tasks by their current position, then assign new sequential positions
-  const sortedSourceTasks = [...sourceTasks].sort((a, b) => (a.position || 0) - (b.position || 0));
-  const updatedSourceTasks = sortedSourceTasks.map((task, idx) => ({
-      ...task,
-    position: idx
+  // Store previous state for rollback
+  const previousSourceState = { ...sourceColumn, tasks: [...sourceColumn.tasks] };
+  const previousTargetState = { ...targetColumn, tasks: [...targetColumn.tasks] };
+
+  // Remove from source and renumber source column
+  const sourceTasks = sourceColumn.tasks
+    .filter(t => t.id !== task.id)
+    .sort((a, b) => parsePos(a.position) - parsePos(b.position))
+    .map((t, index) => ({ ...t, position: index }));
+  
+  // Add to target at specified index and renumber target column
+  const targetTasks = [...targetColumn.tasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  const clampedIndex = Math.max(0, Math.min(targetIndex, targetTasks.length));
+  
+  // Insert task at target index with new columnId
+  const updatedTask = { ...task, columnId: targetColumnId };
+  const newTargetOrder = [...targetTasks];
+  newTargetOrder.splice(clampedIndex, 0, updatedTask);
+  
+  // Renumber target tasks
+  const renumberedTargetTasks = newTargetOrder.map((t, index) => ({
+    ...t,
+    position: index
   }));
-  
-  const updatedTargetTasks = sortedTargetTasks.map((task, idx) => ({
-    ...task,
-    position: idx
-  }));
 
-  // Store previous state for rollback on error
-  const previousSourceColumnState = {
-    ...sourceColumn,
-    tasks: [...sourceColumn.tasks]
-  };
-  const previousTargetColumnState = {
-    ...targetColumn,
-    tasks: [...targetColumn.tasks]
-  };
+  // Set flags
+  window.justUpdatedFromWebSocket = true;
+  (window as any).lastOptimisticUpdateTime = Date.now();
+  (window as any).reorderingInProgress = true;
 
-  // Update UI optimistically
-  // NOTE: We don't set the WebSocket flag here - let the WebSocket handler set it
-  // This ensures WebSocket updates are processed correctly and can fix any issues with the optimistic update
+  // Optimistic update - INSTANT
   setColumns(prev => ({
     ...prev,
-    [sourceColumnId]: {
-      ...sourceColumn,
-      tasks: updatedSourceTasks
-    },
-    [targetColumnId]: {
-      ...targetColumn,
-      tasks: updatedTargetTasks
-    }
+    [sourceColumnId]: { ...sourceColumn, tasks: sourceTasks },
+    [targetColumnId]: { ...targetColumn, tasks: renumberedTargetTasks }
   }));
 
-  // Update database using batch endpoint for better performance
+  // Send ALL updates to backend
   try {
-    // Collect all position updates (moved task + source column tasks + target column tasks)
     const updates = [
-      // The moved task
-      {
-        taskId: task.id,
-        position: updatedTargetTasks.find(t => t.id === task.id)?.position || targetIndex,
-        columnId: targetColumnId
-      },
-      // All source column tasks
-      ...updatedSourceTasks.map(t => ({
+      ...sourceTasks.map(t => ({
         taskId: t.id,
         position: t.position,
         columnId: sourceColumnId
       })),
-      // All target column tasks (except the moved one, already included above)
-      ...updatedTargetTasks
-        .filter(t => t.id !== task.id)
-        .map(t => ({
-          taskId: t.id,
-          position: t.position,
-          columnId: targetColumnId
-        }))
+      ...renumberedTargetTasks.map(t => ({
+        taskId: t.id,
+        position: t.position,
+        columnId: targetColumnId
+      }))
     ];
     
-    // Single batch update instead of multiple individual updates
     await batchUpdateTaskPositions(updates);
-      
-    // Add cooldown to prevent polling interference
+    
+    // Log final positions for all affected tasks
+    const finalTimestamp = new Date().toISOString();
+    [...sourceTasks, ...renumberedTargetTasks].forEach(t => {
+      console.log(`[${finalTimestamp}] ✅ [handleCrossColumnMove] ticket: ${t.ticket || 'N/A'}, position: ${t.position}, columnId: ${t.columnId}`);
+    });
+    
+    setTimeout(() => {
+      window.justUpdatedFromWebSocket = false;
+      (window as any).reorderingInProgress = false;
+    }, 1000);
+    
     setDragCooldown(true);
     setTimeout(() => {
       setDragCooldown(false);
-      // Note: We don't refresh immediately to preserve the optimistic update
-      // The WebSocket updates will sync the state correctly
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
-    // Rollback optimistic update on error
-    console.error('❌ Failed to update cross-column move, rolling back:', error);
+    console.error('❌ [handleCrossColumnMove] Failed to move task:', error);
+    // Rollback
     setColumns(prev => ({
       ...prev,
-      [sourceColumnId]: previousSourceColumnState,
-      [targetColumnId]: previousTargetColumnState
+      [sourceColumnId]: previousSourceState,
+      [targetColumnId]: previousTargetState
     }));
-    
-    // Try to refresh from server, but don't wait for it (it might also fail)
-    refreshBoardData().catch(() => {
-      // Server refresh also failed, but we've already rolled back the UI
-    });
+    window.justUpdatedFromWebSocket = false;
+    (window as any).reorderingInProgress = false;
+    refreshBoardData().catch(() => {});
   }
 };
 
+/**
+ * Renumbers all tasks in a column after a copy operation.
+ * Gets CURRENT state to avoid stale closure issues.
+ */
+export const renumberColumnAfterCopy = async (
+  columnId: string,
+  setColumns: React.Dispatch<React.SetStateAction<Columns>>
+): Promise<void> => {
+  // Get current state using functional update pattern
+  let currentColumn: { tasks: Task[] } | null = null;
+  
+  setColumns(prev => {
+    currentColumn = prev[columnId];
+    return prev; // Don't change anything, just read
+  });
+  
+  if (!currentColumn || !currentColumn.tasks) {
+    console.error('❌ [renumberColumnAfterCopy] Column not found:', columnId);
+    return;
+  }
+
+  // Sort tasks by current position and renumber to sequential integers
+  const sortedTasks = [...currentColumn.tasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  const renumberedTasks = sortedTasks.map((t, index) => ({
+    ...t,
+    position: index
+  }));
+
+  console.log('🔄 [renumberColumnAfterCopy] Renumbering', renumberedTasks.length, 'tasks');
+
+  // Update local state with renumbered tasks
+  setColumns(prev => ({
+    ...prev,
+    [columnId]: {
+      ...prev[columnId],
+      tasks: renumberedTasks
+    }
+  }));
+
+  // Send all positions to backend
+  try {
+    const updates = renumberedTasks.map(t => ({
+      taskId: t.id,
+      position: t.position,
+      columnId: columnId
+    }));
+    
+    await batchUpdateTaskPositions(updates);
+    console.log('✅ [renumberColumnAfterCopy] Column renumbered successfully');
+  } catch (error) {
+    console.error('❌ [renumberColumnAfterCopy] Failed to renumber:', error);
+  }
+};
+
+/**
+ * Calculates the position for inserting a task at a specific visual index.
+ */
+export const calculatePositionForIndex = (
+  tasks: Task[],
+  targetIndex: number,
+  excludeTaskId?: string
+): number => {
+  const otherTasks = excludeTaskId 
+    ? tasks.filter(t => t.id !== excludeTaskId)
+    : tasks;
+  
+  return Math.max(0, Math.min(targetIndex, otherTasks.length));
+};

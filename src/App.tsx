@@ -86,7 +86,7 @@ import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUt
 import { clearCustomCursor } from './utils/cursorUtils';
 import { generateUniqueBoardName } from './utils/boardUtils';
 import { renumberColumns } from './utils/columnUtils';
-import { handleSameColumnReorder, handleCrossColumnMove } from './utils/taskReorderingUtils';
+import { handleSameColumnReorder, handleCrossColumnMove, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy } from './utils/taskReorderingUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -2491,17 +2491,32 @@ function AppContent() {
     setTaskCreationPause(true);
 
     try {
+      let copiedTask: Task | null = null;
+      
       await withLoading('tasks', async () => {
         // Use the dedicated copy endpoint which handles:
         // - Generating new ticket number (incrementing)
         // - Copying all task fields
-        // - Placing copy at original position
-        // - Shifting original task (and all below it) down by 1
+        // - Placing copy at +0.5 position (right after original)
         // - Copying tags, watchers, and collaborators
-        await copyTask(task.id, task.boardId);
-        
-        // Don't refresh - WebSocket will handle the update
+        copiedTask = await copyTask(task.id, task.boardId);
       });
+      
+      // After copy is created, renumber the column and send to backend
+      // This ensures clean integer positions (0, 1, 2, 3...)
+      if (copiedTask && task.columnId) {
+        const targetColumnId = task.columnId;
+        // Wait a brief moment for WebSocket to add the task, then renumber
+        // NOTE: renumberColumnAfterCopy gets CURRENT state internally (no stale closure issue)
+        setTimeout(async () => {
+          try {
+            await renumberColumnAfterCopy(targetColumnId, setColumns);
+            console.log('✅ Column renumbered after copy');
+          } catch (err) {
+            console.error('Failed to renumber after copy:', err);
+          }
+        }, 500); // Give WebSocket time to add the task first
+      }
       
       // SAFETY FALLBACK: If WebSocket was offline/reconnecting, manually refresh after delay
       if (wasOfflineRef.current) {
@@ -2809,6 +2824,19 @@ function AppContent() {
     );
   };
 
+  // Wrapper for moveTaskToPosition that provides current state (for position-based moves)
+  const moveTaskToPositionWrapper = async (task: Task, columnId: string, newPosition: number) => {
+    return moveTaskToPosition(
+      task,
+      columnId,
+      newPosition,
+      columns,
+      setColumns,
+      setDragCooldown,
+      refreshBoardData
+    );
+  };
+
   // Handle moving task to different column via ListView dropdown or drag & drop
   const handleMoveTaskToColumn = useCallback(async (taskId: string, targetColumnId: string, position?: number) => {
     // console.log('🎯 handleMoveTaskToColumn called:', {
@@ -2846,24 +2874,34 @@ function AppContent() {
       return;
     }
 
-    // If no position specified, move to end of target column
-    const targetIndex = position !== undefined ? position : targetColumn.tasks.length;
+    // SIMPLIFIED APPROACH: SimpleDragDropManager now passes TARGET INDEX (0, 1, 2...)
+    // All tasks will be renumbered after the move
     
-    // console.log('🎯 Move decision:', {
-    //   sourceColumnId,
-    //   targetColumnId,
-    //   targetIndex,
-    //   isSameColumn: sourceColumnId === targetColumnId
-    // });
+    // Determine the target index
+    let targetIndex: number;
+    if (position !== undefined) {
+      // Use the index directly from SimpleDragDropManager
+      targetIndex = Math.floor(position); // Ensure it's an integer
+    } else {
+      // No index specified, move to end of column
+      const tasksWithoutMoved = targetColumn.tasks.filter(t => t.id !== taskId);
+      targetIndex = tasksWithoutMoved.length;
+    }
+    
+    console.log('🎯 [handleMoveTaskToColumn] Using index:', {
+      taskId,
+      sourceColumnId,
+      targetColumnId,
+      targetIndex,
+      isSameColumn: sourceColumnId === targetColumnId
+    });
     
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
-      // Same column - use reorder logic
-      // console.log('🎯 Calling handleSameColumnReorder');
-      await handleSameColumnReorderWrapper(sourceTask, sourceColumnId, targetIndex);
+      // Same column - reorder using index
+      await moveTaskToPositionWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
-      // Different columns - use cross-column move logic
-      // console.log('🎯 Calling handleCrossColumnMove');
+      // Different columns - cross-column move using index
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   }, [columns]);

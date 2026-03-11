@@ -295,7 +295,7 @@ const CREATE_TABLES_SQL = `
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       project TEXT,
-      position INTEGER DEFAULT 0,
+      position NUMERIC(10,2) DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -304,7 +304,7 @@ const CREATE_TABLES_SQL = `
       id TEXT PRIMARY KEY,
       boardId TEXT NOT NULL,
       title TEXT NOT NULL,
-      position INTEGER DEFAULT 0,
+      position NUMERIC(10,2) DEFAULT 0,
       is_finished BOOLEAN DEFAULT 0,
       is_archived BOOLEAN DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -314,7 +314,7 @@ const CREATE_TABLES_SQL = `
 
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY NOT NULL,
-      position INTEGER DEFAULT 0,
+      position NUMERIC(10,2) DEFAULT 0,
       title TEXT NOT NULL,
       description TEXT,
       ticket TEXT,
