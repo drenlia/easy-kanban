@@ -82,10 +82,35 @@ test('should navigate through boards and view a task', async ({ page }) => {
     } else {
       console.log('⚠️ Description editor not found');
     }
+
+    // Step 6: Change Start Date and End Date
+    const today = new Date().toISOString().split('T')[0];
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 10);
+    const endDateStr = endDate.toISOString().split('T')[0];
+
+    const startDateLabel = page.locator('label').filter({ hasText: /start date|date de début/i }).first();
+    const dueDateLabel = page.locator('label').filter({ hasText: /due date|date d'échéance|échéance/i }).first();
+
+    const startDateInput = startDateLabel.locator('..').locator('input[type="date"]').first();
+    const dueDateInput = dueDateLabel.locator('..').locator('input[type="date"]').first();
+
+    if (await startDateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await startDateInput.fill(today);
+      await startDateInput.blur();
+      await page.waitForTimeout(500);
+      console.log('✅ Step 6a: Set Start Date to today');
+    }
+    if (await dueDateInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await dueDateInput.fill(endDateStr);
+      await dueDateInput.blur();
+      await page.waitForTimeout(500);
+      console.log('✅ Step 6b: Set End Date to today + 10 days');
+    }
   } else {
     console.log('⚠️ No tasks found on board');
   }
   
-  // Step 6: Exit (test ends)
-  console.log('✅ Step 6: Test complete');
+  // Step 7: Exit (test ends)
+  console.log('✅ Step 7: Test complete');
 });
