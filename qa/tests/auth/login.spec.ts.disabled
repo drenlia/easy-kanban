@@ -1,11 +1,19 @@
-import { test, expect } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 
 /**
  * Easy Kanban Login Test
  * 
  * This test verifies the login functionality for the Easy Kanban application.
  * It tests the standard email/password login flow.
+ * 
+ * IMPORTANT: These tests need to run WITHOUT pre-authenticated state.
+ * We create a custom test fixture that doesn't use storageState.
  */
+
+// Create a test without storageState for login tests
+const test = base.extend<{}, { storageState: undefined }>({
+  storageState: [undefined, { scope: 'worker', option: true }],
+});
 
 // Test credentials from environment variables
 // Set TEST_USER_EMAIL and TEST_USER_PASSWORD in .env file

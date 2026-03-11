@@ -49,6 +49,9 @@ setup('authenticate', async ({ page }) => {
     timeout: 5000 
   });
 
+  // Wait for boards to load
+  await expect(page.locator('[data-column-header]').first()).toBeVisible({ timeout: 15000 });
+
   // Save authenticated state
   await page.context().storageState({ path: authFile });
 

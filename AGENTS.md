@@ -6,6 +6,7 @@
 
 ## Documentation Policy
 - **DO NOT create new .md documentation files** unless explicitly requested by the user
+- **ESPECIALLY for QA/testing work**: Do NOT create README files, CHANGES files, or summary documents
 - Update existing documentation when making changes to related code
 - Use code comments for explaining implementation details
 - Reserve documentation files for:

@@ -124,3 +124,101 @@ export const TEST_USER = {
   email: process.env.TEST_USER_EMAIL || '',
   password: process.env.TEST_USER_PASSWORD || '',
 };
+
+/**
+ * Task Creation Helpers
+ * These helpers match the actual Easy Kanban UI flow:
+ * 1. Click + button in column header
+ * 2. New card appears with "New Task" title
+ * 3. Click title to edit
+ * 4. Enter new title and save
+ */
+
+/**
+ * Find a column by its title (case-insensitive)
+ * @param page Playwright page
+ * @param columnName Name of the column (e.g., "To Do", "In Progress")
+ */
+export async function findColumn(page: Page, columnName: string) {
+  const column = page.locator('[data-column-header]', { 
+    hasText: new RegExp(columnName, 'i') 
+  }).first();
+  await expect(column).toBeVisible({ timeout: 5000 });
+  return column;
+}
+
+/**
+ * Create a new task in a specific column
+ * @param page Playwright page
+ * @param columnName Name of the column (e.g., "To Do")
+ * @param title Title for the new task
+ */
+export async function createTask(page: Page, columnName: string, title: string) {
+  // Find the column
+  const column = await findColumn(page, columnName);
+  
+  // Click the + button in the column header
+  const addButton = column.locator('button[data-column-header]');
+  await expect(addButton).toBeVisible();
+  await addButton.click();
+  
+  // Wait for "New Task" card to appear
+  await expect(page.locator('text=New Task').first()).toBeVisible({ timeout: 5000 });
+  
+  // Click on the title to edit it
+  const newTaskTitle = page.locator('text=New Task').first();
+  await newTaskTitle.click();
+  
+  // Wait for input field and enter title
+  const titleInput = page.locator('input.border-blue-400').first();
+  await expect(titleInput).toBeVisible({ timeout: 3000 });
+  await titleInput.fill(title);
+  await titleInput.press('Enter');
+  
+  // Wait for save to complete
+  await page.waitForTimeout(1000);
+  
+  // Return the task card locator
+  return page.locator(`text=${title}`);
+}
+
+/**
+ * Edit task description
+ * @param page Playwright page
+ * @param taskTitle Title of the task to edit
+ * @param description Description text to set
+ */
+export async function editTaskDescription(page: Page, taskTitle: string, description: string) {
+  // Find the task card
+  const taskCard = page.locator(`text=${taskTitle}`).locator('..').locator('..').first();
+  
+  // Click on the card to focus it
+  await taskCard.click();
+  await page.waitForTimeout(500);
+  
+  // Look for description editor (TipTap contenteditable or textarea)
+  const descriptionEditor = page.locator('[contenteditable="true"]').or(
+    page.locator('textarea[placeholder*="description" i]')
+  ).first();
+  
+  if (await descriptionEditor.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await descriptionEditor.fill(description);
+    // Click away to save
+    await page.locator('body').click({ position: { x: 10, y: 10 } });
+    await page.waitForTimeout(1000);
+  }
+}
+
+/**
+ * Get task ticket number
+ * @param page Playwright page
+ * @param taskTitle Title of the task
+ * @returns Ticket number (e.g., "#123" or "PROJ-123")
+ */
+export async function getTaskTicketNumber(page: Page, taskTitle: string): Promise<string> {
+  const taskCard = page.locator(`text=${taskTitle}`).locator('..').locator('..').first();
+  const ticketElement = taskCard.locator('span, div').filter({ 
+    hasText: /#\d+|[A-Z]+-\d+/ 
+  }).first();
+  return await ticketElement.textContent() || '';
+}

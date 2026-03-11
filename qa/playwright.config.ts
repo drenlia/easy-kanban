@@ -24,7 +24,7 @@ export default defineConfig({
   },
   
   // Run tests serially (same browser, faster for small suites)
-  // Change to true for large test suites
+  // This ensures all tests share the same browser instance
   fullyParallel: false,
   
   // Fail the build on CI if you accidentally left test.only in the source code
@@ -33,8 +33,8 @@ export default defineConfig({
   // Retry on CI only
   retries: process.env.CI ? 2 : 0,
   
-  // Number of workers (1 = serial, undefined = parallel)
-  // Use 1 worker to reuse same browser across tests
+  // Number of workers (1 = serial, reuses browser across tests)
+  // CRITICAL: This must be 1 to reuse the same browser instance
   workers: 1,
   
   // Reporter to use
@@ -56,10 +56,6 @@ export default defineConfig({
     
     // Video on failure
     video: 'retain-on-failure',
-    
-    // Reuse existing browser context (much faster!)
-    // This keeps you logged in across tests
-    reuseExistingServer: true,
   },
 
   // Configure projects
@@ -68,22 +64,29 @@ export default defineConfig({
     {
       name: 'setup',
       testMatch: /.*\.setup\.ts/,
-      // Setup always runs in its own context
+      use: {
+        ...devices['Desktop Chrome'],
+      },
     },
     
-    // Main test project - uses authenticated state
+    // Main test project - uses authenticated state and contains all actual tests
     {
       name: 'chromium',
       use: { 
         ...devices['Desktop Chrome'],
-        // Run in headed mode (visible browser)
-        headless: false,
-        // Use authenticated state from setup
+        // Use authenticated state from setup (shares login session)
         storageState: '.auth/user.json',
-        // Keep browser open between tests (faster!)
-        // Context is reused when workers: 1
       },
-      dependencies: ['setup'], // Run setup first
+      // Run all tests except setup files
+      testMatch: /.*\.spec\.ts$/,
+      dependencies: ['setup'], // Run setup first to create auth state
     },
   ],
+  
+  // Web server configuration - points to your running Easy Kanban instance
+  // webServer: {
+  //   command: 'npm start',
+  //   url: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3222',
+  //   reuseExistingServer: true,
+  // },
 });
