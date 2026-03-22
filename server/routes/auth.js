@@ -359,8 +359,10 @@ router.get('/check-demo-user', async (req, res) => {
 router.get('/demo-credentials', async (req, res) => {
   try {
     const db = getRequestDatabase(req);
-    const adminPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD')?.value;
-    const demoPassword = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD')?.value;
+    const adminRow = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('ADMIN_PASSWORD');
+    const adminPassword = adminRow?.value;
+    const demoRow = await wrapQuery(db.prepare('SELECT value FROM settings WHERE key = ?'), 'SELECT').get('DEMO_PASSWORD');
+    const demoPassword = demoRow?.value;
     
     res.json({
       admin: {
