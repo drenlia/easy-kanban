@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Clock, MessageCircle, Calendar, Paperclip, Pencil, Check } from 'lucide-react';
@@ -19,6 +19,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { setDndGloballyDisabled, isDndGloballyDisabled } from '../utils/globalDndState';
 import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
+import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -221,6 +223,26 @@ const TaskCard = React.memo(function TaskCard({
     
     return fixedContent;
   };
+
+  const cardDescriptionHtml = useMemo(() => {
+    const fixed = getFixedDescription() || '';
+    const sanitized = DOMPurify.sanitize(fixed);
+    if (typeof document === 'undefined') return sanitized;
+    const wrap = document.createElement('div');
+    wrap.innerHTML = sanitized;
+    const opensNew = shouldOpenLinkInNewTab(siteSettings);
+    wrap.querySelectorAll('a[href]').forEach(anchor => {
+      if (opensNew) {
+        anchor.setAttribute('target', '_blank');
+        anchor.setAttribute('rel', 'noopener noreferrer');
+      } else {
+        anchor.removeAttribute('target');
+        anchor.removeAttribute('rel');
+      }
+    });
+    return wrap.innerHTML;
+  }, [task.description, taskAttachments, attachmentsLoaded, siteSettings?.SITE_OPENS_NEW_TAB]);
+
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(task.title);
   const [isEditingEffort, setIsEditingEffort] = useState(false);
@@ -1536,27 +1558,34 @@ const TaskCard = React.memo(function TaskCard({
         {/* Task Identifier Overlay - Top Right Corner */}
         {task.ticket && (
           <div className="absolute right-0 z-10" style={{ top: '-8px' }}>
-            <a 
-              href={generateTaskUrl(task.ticket, getProjectIdentifier())}
-              className={`bg-white dark:bg-gray-800 px-1.5 py-0.8 text-gray-600 dark:text-gray-300 font-mono font-bold hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 cursor-pointer`}
-              style={{
-                borderTopLeftRadius: '0.25rem',
-                borderTopRightRadius: '0.25rem',
-                borderBottomLeftRadius: '0',
-                borderBottomRightRadius: '0',
-                border: 'none',
-                fontSize: '12px',
-                textDecoration: 'none',
-                display: 'inline-block',
-                lineHeight: '1.2',
-                verticalAlign: 'top'
-              }}
-              title={t('taskCard.directLinkTo', { ticket: task.ticket })}
+            <KanbanChromeTooltip
+              label={t('taskCard.directLinkTo', { ticket: task.ticket })}
+              wrapperClassName="relative inline-block align-top"
             >
-              {task.ticket}
-            </a>
-                </div>
-              )}
+              <a
+                href={generateTaskUrl(task.ticket, getProjectIdentifier())}
+                {...(getLinkTarget(siteSettings)
+                  ? { target: '_blank', rel: 'noopener noreferrer' }
+                  : {})}
+                className={`bg-white dark:bg-gray-800 px-1.5 py-0.8 text-gray-600 dark:text-gray-300 font-mono font-bold hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900 transition-all duration-200 cursor-pointer whitespace-nowrap max-w-none`}
+                style={{
+                  borderTopLeftRadius: '0.25rem',
+                  borderTopRightRadius: '0.25rem',
+                  borderBottomLeftRadius: '0',
+                  borderBottomRightRadius: '0',
+                  border: 'none',
+                  fontSize: '12px',
+                  textDecoration: 'none',
+                  display: 'inline-block',
+                  lineHeight: '1.2',
+                  verticalAlign: 'top'
+                }}
+              >
+                {task.ticket}
+              </a>
+            </KanbanChromeTooltip>
+          </div>
+        )}
         {/* TaskCard Toolbar - Extracted to separate component */}
         <TaskCardToolbar
           task={task}
@@ -1638,17 +1667,18 @@ const TaskCard = React.memo(function TaskCard({
               {...listeners}
             >
               {isHoveringTitle && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTitleClick(e as any);
-                  }}
-                  className="absolute -left-[10px] top-1/2 -translate-y-1/2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
-                  title={t('taskCard.editTitle')}
-                  data-tour-id="task-quick-edit"
-                >
-                  <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
-                </button>
+                <KanbanChromeTooltip label={t('taskCard.editTitle')} wrapperClassName="absolute -left-[10px] top-1/2 -translate-y-1/2 -translate-x-1 z-10">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTitleClick(e as any);
+                    }}
+                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                    data-tour-id="task-quick-edit"
+                  >
+                    <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
+                  </button>
+                </KanbanChromeTooltip>
               )}
               <h3 
                 className="font-medium text-gray-800 dark:text-gray-100 px-1 py-0.5 rounded text-sm pr-12"
@@ -1720,23 +1750,31 @@ const TaskCard = React.memo(function TaskCard({
                 {...listeners}
               >
                 {isHoveringDescription && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDescriptionClick(e as any);
-                    }}
-                    className="absolute -left-[10px] top-2 -translate-x-1 p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors z-10"
-                    title={t('taskCard.editDescription')}
-                  >
-                    <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
-                  </button>
+                  <KanbanChromeTooltip label={t('taskCard.editDescription')} wrapperClassName="absolute -left-[10px] top-2 -translate-x-1 z-10">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDescriptionClick(e as any);
+                      }}
+                      className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                    >
+                      <Pencil size={12} className="text-gray-400 hover:text-blue-500" />
+                    </button>
+                  </KanbanChromeTooltip>
                 )}
-                <div
-                  className={`task-card-description text-sm text-gray-600 dark:text-gray-300 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
-                    taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
-                  }`}
-                  title={taskViewMode === 'shrink' && task.description ? task.description.replace(/<[^>]*>/g, '') : ""}
-                  onDoubleClick={(e) => {
+                <KanbanChromeTooltip
+                  label={
+                    taskViewMode === 'shrink' && task.description
+                      ? task.description.replace(/<[^>]*>/g, '')
+                      : ''
+                  }
+                  wrapperClassName="block min-w-0"
+                >
+                  <div
+                    className={`task-card-description text-sm text-gray-600 dark:text-gray-300 px-2 py-1 rounded transition-colors min-h-[2.5rem] prose prose-sm max-w-none ${
+                      taskViewMode === 'shrink' ? 'line-clamp-2 overflow-hidden' : ''
+                    }`}
+                    onDoubleClick={(e) => {
                     e.stopPropagation();
                     // Cancel pending single-click timer to prevent TaskDetails from opening
                     if (clickTimerRef.current) {
@@ -1746,15 +1784,16 @@ const TaskCard = React.memo(function TaskCard({
                     handleDescriptionClick(e as any);
                   }}
                   dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(getFixedDescription() || '')
+                    __html: cardDescriptionHtml
                   }}
-                  style={{
-                    // Ensure images fit nicely in task cards
-                    '--tw-prose-body': '1rem',
-                    '--tw-prose-headings': '1rem',
-                    cursor: isDragDisabled || isAnyEditingActive ? 'default' : 'grab'
-                  } as React.CSSProperties}
-                />
+                    style={{
+                      // Ensure images fit nicely in task cards
+                      '--tw-prose-body': '1rem',
+                      '--tw-prose-headings': '1rem',
+                      cursor: isDragDisabled || isAnyEditingActive ? 'default' : 'grab'
+                    } as React.CSSProperties}
+                  />
+                </KanbanChromeTooltip>
               </div>
             )}
           </>
@@ -1768,38 +1807,43 @@ const TaskCard = React.memo(function TaskCard({
           
           return (
             <div className="flex justify-end mb-2" data-sprint-badge="true">
-              <span
-                ref={sprintBadgeRef}
-                className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate cursor-pointer hover:bg-indigo-200 transition-colors"
-                title={t('taskCard.clickToSelectSprint')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  // Set flag to prevent card selection
-                  isInteractingWithDropdownRef.current = true;
-                  // Clear any pending click timer
-                  if (clickTimerRef.current) {
-                    clearTimeout(clickTimerRef.current);
-                    clickTimerRef.current = null;
-                  }
-                  // Open sprint selector using badge position
-                  handleSprintSelectorOpen(sprintBadgeRef);
-                  // Reset flag after delay
-                  setTimeout(() => {
-                    isInteractingWithDropdownRef.current = false;
-                  }, 500);
-                }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  isInteractingWithDropdownRef.current = true;
-                  if (clickTimerRef.current) {
-                    clearTimeout(clickTimerRef.current);
-                    clickTimerRef.current = null;
-                  }
-                }}
+              <KanbanChromeTooltip
+                label={t('taskCard.clickToSelectSprint')}
+                delayMs={0}
+                wrapperClassName="inline-flex max-w-full justify-end"
               >
-                {displayName}
-              </span>
+                <span
+                  ref={sprintBadgeRef}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-100 text-indigo-700 max-w-full truncate cursor-pointer hover:bg-indigo-200 transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    // Set flag to prevent card selection
+                    isInteractingWithDropdownRef.current = true;
+                    // Clear any pending click timer
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                    // Open sprint selector using badge position
+                    handleSprintSelectorOpen(sprintBadgeRef);
+                    // Reset flag after delay
+                    setTimeout(() => {
+                      isInteractingWithDropdownRef.current = false;
+                    }, 500);
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                  }}
+                >
+                  {displayName}
+                </span>
+              </KanbanChromeTooltip>
             </div>
           );
         })()}
@@ -1864,56 +1908,56 @@ const TaskCard = React.memo(function TaskCard({
                 showAllTags ? 'max-w-none' : 'max-w-full overflow-hidden'
               }`}>
                 {(showAllTags ? liveTags : liveTags.slice(0, 3)).map((tag) => (
-                  <span
-                    key={tag.id}
-                    className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
-                    style={getTagDisplayStyle(tag)}
-                    title={t('taskCard.clickToRemoveTag')}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      isInteractingWithTagRef.current = true; // Mark interaction
-                      // Clear any pending click timer on the card to prevent selection
-                      if (clickTimerRef.current) {
-                        clearTimeout(clickTimerRef.current);
-                        clickTimerRef.current = null;
-                      }
-                      const rect = (e.target as HTMLElement).getBoundingClientRect();
-                    const menuWidth = 220;
-                    const menuHeight = 80; // Approximate height of the menu
-                    
-                    // Calculate ideal position (centered below tag)
-                    let left = rect.left + rect.width / 2 - menuWidth / 2;
-                    let top = rect.bottom + 5;
-                    
-                    // Prevent going off the right edge
-                    if (left + menuWidth > window.innerWidth - 10) {
-                      left = window.innerWidth - menuWidth - 10;
-                    }
-                    
-                    // Prevent going off the left edge
-                    if (left < 10) {
-                      left = 10;
-                    }
-                    
-                    // If menu would go below viewport, show it above the tag instead
-                    if (top + menuHeight > window.innerHeight - 10) {
-                      top = rect.top - menuHeight - 5;
-                    }
-                    
-                    // If still going off top, position it within viewport
-                    if (top < 10) {
-                      top = 10;
-                    }
-                    
-                    setTagRemovalPosition({ left, top });
-                    setSelectedTagForRemoval(tag);
-                    setShowTagRemovalMenu(true);
-                  }}
-                >
-                  {tag.tag}
-                </span>
-              ))}
+                  <KanbanChromeTooltip key={tag.id} label={t('taskCard.clickToRemoveTag')}>
+                    <span
+                      className="px-1.5 py-0.5 rounded-full text-xs font-medium cursor-pointer hover:opacity-80 transition-opacity"
+                      style={getTagDisplayStyle(tag)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        isInteractingWithTagRef.current = true; // Mark interaction
+                        // Clear any pending click timer on the card to prevent selection
+                        if (clickTimerRef.current) {
+                          clearTimeout(clickTimerRef.current);
+                          clickTimerRef.current = null;
+                        }
+                        const rect = (e.target as HTMLElement).getBoundingClientRect();
+                        const menuWidth = 220;
+                        const menuHeight = 80; // Approximate height of the menu
+
+                        // Calculate ideal position (centered below tag)
+                        let left = rect.left + rect.width / 2 - menuWidth / 2;
+                        let top = rect.bottom + 5;
+
+                        // Prevent going off the right edge
+                        if (left + menuWidth > window.innerWidth - 10) {
+                          left = window.innerWidth - menuWidth - 10;
+                        }
+
+                        // Prevent going off the left edge
+                        if (left < 10) {
+                          left = 10;
+                        }
+
+                        // If menu would go below viewport, show it above the tag instead
+                        if (top + menuHeight > window.innerHeight - 10) {
+                          top = rect.top - menuHeight - 5;
+                        }
+
+                        // If still going off top, position it within viewport
+                        if (top < 10) {
+                          top = 10;
+                        }
+
+                        setTagRemovalPosition({ left, top });
+                        setSelectedTagForRemoval(tag);
+                        setShowTagRemovalMenu(true);
+                      }}
+                    >
+                      {tag.tag}
+                    </span>
+                  </KanbanChromeTooltip>
+                ))}
               {!showAllTags && liveTags.length > 3 && (
                 <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
                   +{liveTags.length - 3}
@@ -1930,45 +1974,46 @@ const TaskCard = React.memo(function TaskCard({
           <div className="flex items-center gap-2">
             {/* Dates - ultra compact with sprint selector */}
             <div className="flex items-center gap-0.5">
-              <div
-                ref={calendarIconRef}
-                title={t('taskCard.clickToSelectSprint')}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  // Set flag to prevent card selection
-                  isInteractingWithDropdownRef.current = true;
-                  // Clear any pending click timer
-                  if (clickTimerRef.current) {
-                    clearTimeout(clickTimerRef.current);
-                    clickTimerRef.current = null;
-                  }
-                  handleSprintSelectorOpen();
-                  // Reset flag after delay
-                  setTimeout(() => {
-                    isInteractingWithDropdownRef.current = false;
-                  }, 500);
-                }}
-                onMouseDown={(e) => {
-                  e.stopPropagation();
-                  isInteractingWithDropdownRef.current = true;
-                  if (clickTimerRef.current) {
-                    clearTimeout(clickTimerRef.current);
-                    clickTimerRef.current = null;
-                  }
-                }}
-                data-tour-id="sprint-association"
-              >
-                <Calendar 
-                  size={12} 
-                  className="cursor-pointer hover:text-blue-600 transition-colors"
-                />
-              </div>
-              <div 
-                className="text-[8px] leading-none font-mono cursor-pointer hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
-                onClick={handleDateRangeClick}
-                title={t('taskCard.clickToChangeDates')}
-              >
+              <KanbanChromeTooltip label={t('taskCard.clickToSelectSprint')} delayMs={0} wrapperClassName="inline-flex">
+                <div
+                  ref={calendarIconRef}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    // Set flag to prevent card selection
+                    isInteractingWithDropdownRef.current = true;
+                    // Clear any pending click timer
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                    handleSprintSelectorOpen();
+                    // Reset flag after delay
+                    setTimeout(() => {
+                      isInteractingWithDropdownRef.current = false;
+                    }, 500);
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    isInteractingWithDropdownRef.current = true;
+                    if (clickTimerRef.current) {
+                      clearTimeout(clickTimerRef.current);
+                      clickTimerRef.current = null;
+                    }
+                  }}
+                  data-tour-id="sprint-association"
+                >
+                  <Calendar
+                    size={12}
+                    className="cursor-pointer hover:text-blue-600 transition-colors"
+                  />
+                </div>
+              </KanbanChromeTooltip>
+              <KanbanChromeTooltip label={t('taskCard.clickToChangeDates')} wrapperClassName="inline-flex">
+                <div
+                  className="text-[8px] leading-none font-mono cursor-pointer hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors"
+                  onClick={handleDateRangeClick}
+                >
                 {/* Start Date */}
                 <div
                   className={`${!dateValidation.startDateValid ? 'font-semibold ring-1 ring-red-400 rounded px-0.5' : ''}`}
@@ -1983,7 +2028,6 @@ const TaskCard = React.memo(function TaskCard({
                     }
                   }}
                   onMouseLeave={() => setShowStartDateTooltip(false)}
-                  title={!dateValidation.startDateValid ? dateValidation.startDateError : ''}
                 >
                   {formatDate(task.startDate)}
                 </div>
@@ -2002,12 +2046,12 @@ const TaskCard = React.memo(function TaskCard({
                       }
                     }}
                     onMouseLeave={() => setShowDueDateTooltip(false)}
-                    title={!dateValidation.dueDateValid ? dateValidation.dueDateError : ''}
                   >
                     {formatDate(task.dueDate)}
                   </div>
                 )}
-              </div>
+                </div>
+              </KanbanChromeTooltip>
             </div>
             
             {/* Effort - squeezed close */}
@@ -2043,36 +2087,37 @@ const TaskCard = React.memo(function TaskCard({
                   }}
                 />
               ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    // Set flag to prevent card selection
-                    isInteractingWithDropdownRef.current = true;
-                    // Clear any pending click timer
-                    if (clickTimerRef.current) {
-                      clearTimeout(clickTimerRef.current);
-                      clickTimerRef.current = null;
-                    }
-                    setIsEditingEffort(true);
-                    // Reset flag after delay
-                    setTimeout(() => {
-                      isInteractingWithDropdownRef.current = false;
-                    }, 500);
-                  }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                    isInteractingWithDropdownRef.current = true;
-                    if (clickTimerRef.current) {
-                      clearTimeout(clickTimerRef.current);
-                      clickTimerRef.current = null;
-                    }
-                  }}
-                  className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer text-xs"
-                  title={t('taskCard.clickToChangeEffort')}
-                >
-                  {task.effort}h
-                </button>
+                <KanbanChromeTooltip label={t('taskCard.clickToChangeEffort')} wrapperClassName="inline-flex">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      // Set flag to prevent card selection
+                      isInteractingWithDropdownRef.current = true;
+                      // Clear any pending click timer
+                      if (clickTimerRef.current) {
+                        clearTimeout(clickTimerRef.current);
+                        clickTimerRef.current = null;
+                      }
+                      setIsEditingEffort(true);
+                      // Reset flag after delay
+                      setTimeout(() => {
+                        isInteractingWithDropdownRef.current = false;
+                      }, 500);
+                    }}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      isInteractingWithDropdownRef.current = true;
+                      if (clickTimerRef.current) {
+                        clearTimeout(clickTimerRef.current);
+                        clickTimerRef.current = null;
+                      }
+                    }}
+                    className="hover:bg-gray-100 rounded px-0.5 py-0.5 transition-colors cursor-pointer text-xs"
+                  >
+                    {task.effort}h
+                  </button>
+                </KanbanChromeTooltip>
               )}
             </div>
 
@@ -2084,18 +2129,14 @@ const TaskCard = React.memo(function TaskCard({
                 onMouseEnter={handleCommentTooltipShow}
                 onMouseLeave={handleCommentTooltipHide}
               >
-                <div
-                  className="flex items-center gap-0.5 rounded px-1 py-1"
-                  title={t('taskCard.hoverToViewComments')}
-                >
-                  <MessageCircle 
-                    size={12} 
-                    className="text-blue-600" 
-                  />
-                  <span className="text-blue-600 font-medium text-xs">
-                    {validComments.length}
-                  </span>
-                </div>
+                <KanbanChromeTooltip label={t('taskCard.hoverToViewComments')} wrapperClassName="inline-flex">
+                  <div className="flex items-center gap-0.5 rounded px-1 py-1">
+                    <MessageCircle size={12} className="text-blue-600" />
+                    <span className="text-blue-600 font-medium text-xs">
+                      {validComments.length}
+                    </span>
+                  </div>
+                </KanbanChromeTooltip>
               
               </div>
             )}
@@ -2106,20 +2147,27 @@ const TaskCard = React.memo(function TaskCard({
             {/* Attachments indicator - clickable */}
             {task.attachmentCount > 0 && (
               <div className="relative">
-                <button
-                  ref={attachmentsButtonRef}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowAttachmentsDropdown(!showAttachmentsDropdown);
-                  }}
-                  className="flex items-center gap-0.5 text-gray-500 hover:text-blue-600 cursor-pointer transition-colors"
-                  title={task.attachmentCount > 1 ? t('taskCard.attachments', { count: task.attachmentCount }) : t('taskCard.attachment', { count: task.attachmentCount })}
-                  data-stop-propagation
+                <KanbanChromeTooltip
+                  label={
+                    task.attachmentCount > 1
+                      ? t('taskCard.attachments', { count: task.attachmentCount })
+                      : t('taskCard.attachment', { count: task.attachmentCount })
+                  }
+                  wrapperClassName="inline-flex"
                 >
-                  <Paperclip size={12} />
-                  <span className="text-xs">{task.attachmentCount}</span>
-                </button>
-
+                  <button
+                    ref={attachmentsButtonRef}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAttachmentsDropdown(!showAttachmentsDropdown);
+                    }}
+                    className="flex items-center gap-0.5 text-gray-500 hover:text-blue-600 cursor-pointer transition-colors"
+                    data-stop-propagation
+                  >
+                    <Paperclip size={12} />
+                    <span className="text-xs">{task.attachmentCount}</span>
+                  </button>
+                </KanbanChromeTooltip>
               </div>
             )}
 
@@ -2165,14 +2213,15 @@ const TaskCard = React.memo(function TaskCard({
 
             {/* Priority */}
             <div className="relative priority-container">
-              <button
-              ref={priorityButtonRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowPrioritySelect(!showPrioritySelect);
-              }}
-              className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
-              style={(() => {
+              <KanbanChromeTooltip label={t('taskCard.clickToChangePriority')} wrapperClassName="inline-flex">
+                <button
+                  ref={priorityButtonRef}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowPrioritySelect(!showPrioritySelect);
+                  }}
+                  className={`px-2 py-1 rounded-full text-xs cursor-pointer hover:opacity-80 transition-all ${showPrioritySelect ? 'ring-2 ring-blue-400' : ''}`}
+                  style={(() => {
                 // Always use priorityId to find the current priority (handles renamed priorities)
                 // Fall back to priorityName from API (from JOIN), then stored priority name
                 let priorityOption = task.priorityId 
@@ -2196,10 +2245,9 @@ const TaskCard = React.memo(function TaskCard({
                 }
                 
                 return priorityOption ? getPriorityColors(priorityOption.color) : { backgroundColor: '#f3f4f6', color: '#6b7280' };
-              })()}
-              title={t('taskCard.clickToChangePriority')}
-            >
-              {(() => {
+                  })()}
+                >
+                  {(() => {
                 // Always use priorityId to look up current priority name (handles renamed priorities)
                 // This ensures we show the current name, not the old stored name
                 if (task.priorityId) {
@@ -2209,10 +2257,11 @@ const TaskCard = React.memo(function TaskCard({
                   }
                 }
                 // Fallback: use priorityName from API (from JOIN), or stored priority name
-                return task.priorityName || task.priority || '';
-              })()}
-            </button>
-            
+                    return task.priorityName || task.priority || '';
+                  })()}
+                </button>
+              </KanbanChromeTooltip>
+
             {/* Completed Column Banner Overlay - positioned over priority */}
             {columnIsFinished && !columnIsArchived && (
               <div className="absolute inset-0 pointer-events-none z-30">
@@ -2308,9 +2357,9 @@ const TaskCard = React.memo(function TaskCard({
 
       {/* Portal-rendered comment tooltip */}
       {showCommentTooltip && createPortal(
-        <div 
+        <div
           ref={commentTooltipRef}
-          className="comment-tooltip fixed w-80 bg-gray-800 text-white text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col"
+          className="comment-tooltip fixed w-80 text-xs rounded-md shadow-lg z-[9999] max-h-64 flex flex-col border border-gray-700 dark:border-gray-600 bg-gray-900 text-gray-100 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-300"
           style={{
             left: `${tooltipPosition.left}px`,
             top: `${tooltipPosition.top}px`
@@ -2391,21 +2440,26 @@ const TaskCard = React.memo(function TaskCard({
                         };
 
                         return (
-                          <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-600' : ''}`}>
+                          <div key={comment.id} className={`mb-3 ${index > 0 ? 'pt-2 border-t border-gray-700 dark:border-gray-300' : ''}`}>
                             <div className="flex items-center gap-2 mb-1">
                               <div 
                                 className="w-2 h-2 rounded-full flex-shrink-0" 
                                 style={{ backgroundColor: author?.color || '#6B7280' }} 
                               />
-                              <span className="font-medium text-gray-200">{author?.name || 'Unknown'}</span>
-                              <span className="text-gray-400 text-xs">
+                              <span className="font-medium text-gray-200 dark:text-gray-800">{author?.name || 'Unknown'}</span>
+                              <span className="text-gray-400 dark:text-gray-600 text-xs">
                                 {formatDateTime(comment.createdAt)}
                               </span>
                               {comment.attachments && comment.attachments.length > 0 && (
-                                <Paperclip size={12} className="text-gray-400" title={`${comment.attachments.length} attachment(s)`} />
+                                <KanbanChromeTooltip
+                                  label={t('taskCard.attachments', { count: comment.attachments.length })}
+                                  wrapperClassName="inline-flex"
+                                >
+                                  <Paperclip size={12} className="text-gray-400 dark:text-gray-600" />
+                                </KanbanChromeTooltip>
                               )}
                             </div>
-                            <div className="text-gray-300 text-xs leading-relaxed select-text">
+                            <div className="text-gray-300 dark:text-gray-700 text-xs leading-relaxed select-text">
                               {renderCommentHTML(comment.text)}
                             </div>
                           </div>
@@ -2414,8 +2468,8 @@ const TaskCard = React.memo(function TaskCard({
                       </div>
                       
                       {/* Sticky footer */}
-                      <div className="border-t border-gray-600 p-3 bg-gray-800 rounded-b-md flex items-center justify-between">
-                        <span className="text-gray-300 font-medium">
+                      <div className="border-t border-gray-700 dark:border-gray-300 p-3 bg-gray-900 dark:bg-gray-100 rounded-b-md flex items-center justify-between">
+                        <span className="text-gray-300 dark:text-gray-800 font-medium">
                           {t('taskCard.comments', { count: validComments.length })}
                         </span>
                         <button
@@ -2640,19 +2694,14 @@ const TaskCard = React.memo(function TaskCard({
       {(showStartDateTooltip || showDueDateTooltip) && dateTooltipPosition && createPortal(
         <div
           ref={dateTooltipRef}
-          className="fixed bg-red-600 text-white text-xs px-2 py-1 rounded shadow-lg z-[10000] pointer-events-none whitespace-nowrap"
+          className="fixed z-[10000] pointer-events-none whitespace-nowrap px-2 py-1 text-xs font-normal normal-case tracking-normal rounded shadow-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 transform -translate-x-1/2 -translate-y-full"
           style={{
             left: `${dateTooltipPosition.left}px`,
             top: `${dateTooltipPosition.top}px`,
-            transform: 'translate(-50%, -100%)',
-            marginBottom: '4px'
           }}
         >
           {showStartDateTooltip && dateValidation.startDateError}
           {showDueDateTooltip && dateValidation.dueDateError}
-          <div 
-            className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-red-600"
-          />
         </div>,
         document.body
       )}

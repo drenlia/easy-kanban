@@ -433,18 +433,14 @@ router.put('/settings', authenticateToken, async (req, res) => {
       return res.json({ message: 'Setting skipped (undefined value)' });
     }
     
-    // Allow null for selectedSprintId (represents "All Sprints")
-    // For other settings, skip null values
-    if (setting_value === null && setting_key !== 'selectedSprintId') {
+    // Null clears specific keys (delete row) — same pattern as selectedSprintId ("All Sprints")
+    if (setting_value === null) {
+      if (setting_key === 'selectedSprintId' || setting_key === 'currentFilterViewId') {
+        await userQueries.deleteUserSetting(db, userId, setting_key);
+        return res.json({ message: 'Setting cleared successfully (null value stored as deletion)' });
+      }
       console.warn(`Skipping save for ${setting_key}: value is null`);
       return res.json({ message: 'Setting skipped (null value)' });
-    }
-    
-    // MIGRATED: Special handling for selectedSprintId null value - delete the row using sqlManager
-    if (setting_value === null && setting_key === 'selectedSprintId') {
-      await userQueries.deleteUserSetting(db, userId, setting_key);
-      
-      return res.json({ message: 'Setting cleared successfully (null value stored as deletion)' });
     }
     
     // Convert value to string safely

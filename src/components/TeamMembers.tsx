@@ -1,6 +1,7 @@
 import { TeamMember } from '../types';
 import { useTranslation } from 'react-i18next';
 import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 export const PRESET_COLORS = [
   '#FF3B30', // Bright Red
@@ -183,9 +184,11 @@ export default function TeamMembers({
             )}
             
             {onToggleWatchers && (
-              <button
-                onClick={() => onToggleWatchers(!includeWatchers)}
-                className={`
+              <KanbanChromeTooltip label={t('teamMembers.watchersTooltip')} delayMs={0} wrapperClassName="inline-flex">
+                <button
+                  type="button"
+                  onClick={() => onToggleWatchers(!includeWatchers)}
+                  className={`
                   flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
                   transition-all duration-200
                   ${includeWatchers
@@ -194,16 +197,18 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title={t('teamMembers.watchersTooltip')}
-              >
-                <span>{t('teamMembers.watchers')}</span>
-              </button>
+                >
+                  <span>{t('teamMembers.watchers')}</span>
+                </button>
+              </KanbanChromeTooltip>
             )}
             
             {onToggleCollaborators && (
-              <button
-                onClick={() => onToggleCollaborators(!includeCollaborators)}
-                className={`
+              <KanbanChromeTooltip label={t('teamMembers.collaboratorsTooltip')} delayMs={0} wrapperClassName="inline-flex">
+                <button
+                  type="button"
+                  onClick={() => onToggleCollaborators(!includeCollaborators)}
+                  className={`
                   flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium
                   transition-all duration-200
                   ${includeCollaborators
@@ -212,10 +217,10 @@ export default function TeamMembers({
                   }
                   focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2
                 `}
-                title={t('teamMembers.collaboratorsTooltip')}
-              >
-                <span>{t('teamMembers.collaborators')}</span>
-              </button>
+                >
+                  <span>{t('teamMembers.collaborators')}</span>
+                </button>
+              </KanbanChromeTooltip>
             )}
             
             {onToggleRequesters && (

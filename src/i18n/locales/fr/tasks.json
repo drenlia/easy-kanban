@@ -70,7 +70,13 @@
     "searchTasks": "Rechercher des tâches par numéro ou titre...",
     "goToParent": "Aller à la tâche parente",
     "goToChild": "Aller à la tâche enfant",
-    "removeChild": "Retirer la tâche enfant"
+    "removeChild": "Retirer la tâche enfant",
+    "moveBoardConfirmTitle": "Déplacer la tâche vers un autre tableau ?",
+    "moveBoardConfirmBody_one": "Cette tâche a une relation (parent, enfant ou associée). Le déplacement vers un autre tableau supprimera ce lien pour cette tâche.",
+    "moveBoardConfirmBody_other": "Cette tâche a {{count}} relations (parent, enfant ou associée). Le déplacement vers un autre tableau supprimera ces liens pour cette tâche.",
+    "moveBoardTargetBoard": "Tableau cible : {{board}}",
+    "moveBoardConfirmAction": "Déplacer et supprimer les liens",
+    "moveBoardMoving": "Déplacement…"
   },
   "toolbar": {
     "dragToMove": "Glisser pour déplacer la tâche",
@@ -124,6 +130,12 @@
     "tip": "Conseil :",
     "tipSprintOnly": "Sélectionnez \"Tous les sprints\" dans le sélecteur de sprint pour voir toutes les tâches.",
     "tipGeneral": "Effacez vos filtres ou ajustez votre sélection de sprint pour voir cette tâche.",
+    "sprintAssignPrompt": "Voulez-vous assigner cette tâche au sprint sélectionné ({{sprintName}}) ?",
+    "yesAssignToSprint": "Oui",
+    "noKeepUnassigned": "Non",
+    "clearFiltersButton": "Effacer les filtres",
+    "sprintAssignFailedTitle": "Impossible d'assigner le sprint",
+    "sprintAssignFailedBody": "La tâche n'a pas été mise à jour. Réessayez ou assignez le sprint depuis la fiche tâche.",
     "filterTypes": {
       "searchFilters": "filtres de recherche",
       "sprintSelection": "sélection de sprint",
@@ -164,7 +176,9 @@
     "clickToSetDate": "Cliquer pour définir la date",
     "hoverToViewComments": "Survoler pour voir les commentaires",
     "searchSprints": "Rechercher des sprints...",
-    "noTasksFound": "Aucune tâche trouvée correspondant à vos filtres"
+    "noTasksFound": "Aucune tâche trouvée correspondant à vos filtres",
+    "showHideDependencies": "Afficher/Masquer les dépendances",
+    "sprintColumnUnavailableSingleSprint": "La colonne Sprint est masquée pour le backlog ou un seul sprint"
   },
   "columnLabels": {
     "sprint": "Sprint",
@@ -194,7 +208,7 @@
     "descriptionSaveHint": "Appuyez sur Entrée pour enregistrer (ou ajouter des éléments de liste), Maj+Entrée pour une nouvelle ligne, Échap pour annuler, ou cliquez à l'extérieur pour enregistrer",
     "sprint": "Sprint : {{name}}",
     "clickToRemoveTag": "Cliquer pour retirer l'étiquette",
-    "clickToSelectSprint": "Cliquer pour sélectionner le sprint ou définir des dates personnalisées",
+    "clickToSelectSprint": "Cliquer pour associer un sprint",
     "clickToChangeDates": "Cliquer pour modifier les dates",
     "clickToChangeEffort": "Cliquer pour modifier l'effort",
     "hoverToViewComments": "Survoler pour voir les commentaires",

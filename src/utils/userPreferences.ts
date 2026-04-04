@@ -50,6 +50,8 @@ export interface UserPreferences {
   kanbanColumnWidth: number; // User-adjustable width for Kanban columns (default: 300px)
   ganttScrollPositions: { [boardId: string]: { date: string; sessionId: string } }; // Per-board scroll positions
   listViewColumnVisibility: ColumnVisibility;
+  /** List view: show parent/child dependency tree in the ID column */
+  listViewShowDependencies: boolean;
   selectedSprintId: string | null; // Selected sprint for filtering
   lastReportTab: string | null; // Last accessed report tab (persists across sessions)
   language: 'en' | 'fr'; // User's preferred language
@@ -171,6 +173,7 @@ const BASE_DEFAULT_PREFERENCES: UserPreferences = {
     comments: true,
     createdAt: false // Hide created date by default
   },
+  listViewShowDependencies: false,
   searchFilters: {
     text: '',
     dateFrom: '',
@@ -347,6 +350,35 @@ export const initializeNewUserPreferences = async (userId: string): Promise<void
   }
 };
 
+const EMPTY_SEARCH_FILTERS_FOR_CLEAR: UserPreferences['searchFilters'] = {
+  text: '',
+  dateFrom: '',
+  dateTo: '',
+  dueDateFrom: '',
+  dueDateTo: '',
+  selectedMembers: [],
+  selectedPriorities: [],
+  selectedTags: [],
+  projectId: '',
+  taskId: '',
+};
+
+/**
+ * Apply the same filter reset as "Clear filters" on the hidden-task warning (does not change sprint).
+ * Use with saveUserPreferences() for one atomic cookie + DB sync (avoids many racing PUTs).
+ */
+export const mergeClearedKanbanVisibilityFilters = (base: UserPreferences): UserPreferences => ({
+  ...base,
+  searchFilters: { ...EMPTY_SEARCH_FILTERS_FOR_CLEAR },
+  isSearchActive: false,
+  selectedMembers: [],
+  includeAssignees: true,
+  includeWatchers: false,
+  includeCollaborators: false,
+  includeRequesters: false,
+  currentFilterViewId: null,
+});
+
 // Save preferences to cookie and database
 export const saveUserPreferences = async (preferences: UserPreferences, userId: string | null = null): Promise<void> => {
   // Set global saving state to block user status polling
@@ -368,8 +400,8 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
         // Special case: allow null for selectedSprintId (represents "All Sprints")
         const saveIfDefined = (key: string, value: any) => {
           if (value !== undefined) {
-            // Allow null for selectedSprintId to save "All Sprints" selection
-            if (value === null && key === 'selectedSprintId') {
+            // Null deletes row on server for these keys
+            if (value === null && (key === 'selectedSprintId' || key === 'currentFilterViewId')) {
               return updateUserSetting(key, value);
             }
             if (value !== null) {
@@ -404,6 +436,7 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           
           // List View Column Visibility
           saveIfDefined('listViewColumnVisibility', JSON.stringify(preferences.listViewColumnVisibility)),
+          saveIfDefined('listViewShowDependencies', preferences.listViewShowDependencies),
           
           // Member Filter Preferences
           saveIfDefined('includeAssignees', preferences.includeAssignees),
@@ -413,8 +446,11 @@ export const saveUserPreferences = async (preferences: UserPreferences, userId: 
           saveIfDefined('includeSystem', preferences.includeSystem),
           
           // Search State (for cross-device consistency)
+          saveIfDefined('isSearchActive', preferences.isSearchActive),
+          saveIfDefined('searchFilters', JSON.stringify(preferences.searchFilters)),
           saveIfDefined('isAdvancedSearchExpanded', preferences.isAdvancedSearchExpanded),
           saveIfDefined('lastSelectedBoard', preferences.lastSelectedBoard),
+          saveIfDefined('currentFilterViewId', preferences.currentFilterViewId),
           
           // Selected Members (persistent filter)
           saveIfDefined('selectedMembers', JSON.stringify(preferences.selectedMembers)),
@@ -584,6 +620,12 @@ export const loadUserPreferencesAsync = async (userId: string | null = null): Pr
           }
           return cookieColumns; // Keep cookie
         })(),
+
+        listViewShowDependencies: smartMerge(
+          preferences.listViewShowDependencies,
+          dbSettings.listViewShowDependencies,
+          defaults.listViewShowDependencies
+        ),
         
         // App Settings
         appSettings: {
@@ -690,6 +732,7 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         'includeSystem': 'includeSystem',
         'searchFilters': 'searchFilters',
         'listViewColumnVisibility': 'listViewColumnVisibility',
+        'listViewShowDependencies': 'listViewShowDependencies',
         'ganttScrollPositions': 'ganttScrollPositions',
         'language': 'language',
       };
@@ -710,8 +753,8 @@ export const updateUserPreference = async <K extends keyof UserPreferences>(
         dbValue = JSON.stringify(value);
       }
       
-      // Special case: allow null for selectedSprintId (represents "All Sprints")
-      if (dbKey === 'selectedSprintId' && value === null) {
+      // Null deletes row on server for these keys
+      if ((dbKey === 'selectedSprintId' || dbKey === 'currentFilterViewId') && value === null) {
         await updateUserSetting(dbKey, null);
       } else if (value !== null && value !== undefined) {
         await updateUserSetting(dbKey, dbValue);

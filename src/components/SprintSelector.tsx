@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronDown, Search, X } from 'lucide-react';
+import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface Sprint {
   id: string;
@@ -183,22 +184,28 @@ const SprintSelector: React.FC<SprintSelectorProps> = ({
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 relative"
-        title={t('sprintSelector.selectSprint')}
-        data-tour-id="sprint-selector"
-      >
-        <Calendar className="h-4 w-4" />
-        <span className="max-w-[150px] truncate">
-          {selectedSprintId === 'backlog' ? t('sprintSelector.backlog') : selectedSprint ? selectedSprint.name : t('sprintSelector.allSprints')}
-        </span>
-        {/* Red dot indicator when a sprint filter is active */}
-        {selectedSprintId !== null && (
-          <span className="absolute -top-1 -right-1 h-2.5 w-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800" title={t('sprintSelector.filterActive')} />
-        )}
-        <ChevronDown className="h-4 w-4" />
-      </button>
+      <KanbanChromeTooltip label={t('sprintSelector.selectSprint')} delayMs={0} wrapperClassName="relative inline-flex">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 relative"
+          data-tour-id="sprint-selector"
+        >
+          <Calendar className="h-4 w-4" />
+          <span className="max-w-[150px] truncate">
+            {selectedSprintId === 'backlog' ? t('sprintSelector.backlog') : selectedSprint ? selectedSprint.name : t('sprintSelector.allSprints')}
+          </span>
+          {/* Red dot indicator when a sprint filter is active */}
+          {selectedSprintId !== null && (
+            <KanbanChromeTooltip
+              label={t('sprintSelector.filterActive')}
+              wrapperClassName="absolute -top-1 -right-1 inline-flex"
+            >
+              <span className="h-2.5 w-2.5 bg-red-500 rounded-full border-2 border-white dark:border-gray-800" />
+            </KanbanChromeTooltip>
+          )}
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </KanbanChromeTooltip>
 
       {isOpen && (
         <div className="absolute left-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-hidden flex flex-col">

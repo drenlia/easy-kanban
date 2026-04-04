@@ -16,7 +16,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   onCancel,
   onAutoSave,
 }) => {
-  const { t } = useTranslation('admin');
+  const { t } = useTranslation('admin', { keyPrefix: 'projectSettings' });
   const [finishedColumnNames, setFinishedColumnNames] = useState<string[]>([]);
   const [newColumnName, setNewColumnName] = useState('');
 
@@ -86,9 +86,9 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
   return (
     <div className="p-6">
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{t('projectSettings.title')}</h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">{t('title')}</h2>
         <p className="text-gray-600 dark:text-gray-400">
-          {t('projectSettings.description')}
+          {t('description')}
         </p>
       </div>
 
@@ -97,10 +97,10 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
         <div className="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
           <div className="mb-4">
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-2">
-              {t('projectSettings.finishedColumnNames')}
+              {t('finishedColumnNames')}
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              {t('projectSettings.finishedColumnNamesDescription')}
+              {t('finishedColumnNamesDescription')}
             </p>
             
             {/* Add new column name input */}
@@ -110,7 +110,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
                 value={newColumnName}
                 onChange={(e) => setNewColumnName(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder={t('projectSettings.enterColumnName')}
+                placeholder={t('enterColumnName')}
                 className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
               />
               <button
@@ -118,7 +118,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
                 disabled={!newColumnName.trim() || finishedColumnNames.includes(newColumnName.trim())}
                 className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-300 disabled:cursor-not-allowed"
               >
-                {t('projectSettings.add')}
+                {t('add')}
               </button>
             </div>
             
@@ -147,10 +147,10 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           <div className="flex items-center justify-between">
             <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">
-              {t('projectSettings.highlightOverdueTasks')}
+              {t('highlightOverdueTasks')}
             </label>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t('projectSettings.highlightOverdueTasksDescription')}
+                {t('highlightOverdueTasksDescription')}
               </p>
             </div>
             <div className="flex items-center">
@@ -180,7 +180,7 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('projectSettings.defaultProjectPrefix')}
+              {t('defaultProjectPrefix')}
             </label>
             <input
               type="text"
@@ -190,14 +190,17 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
               placeholder="PROJ-"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {t('projectSettings.defaultProjectPrefixDescription')}
+              {t('defaultProjectPrefixDescription')}
+            </p>
+            <p className="mt-1.5 text-[11px] leading-snug italic text-gray-500 dark:text-gray-400">
+              {t('defaultProjectPrefixFutureNote')}
             </p>
           </div>
 
           {/* Default Task Prefix */}
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              {t('projectSettings.defaultTaskPrefix')}
+              {t('defaultTaskPrefix')}
             </label>
             <input
               type="text"
@@ -207,20 +210,20 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
               placeholder="TASK-"
             />
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {t('projectSettings.defaultTaskPrefixDescription')}
+              {t('defaultTaskPrefixDescription')}
             </p>
           </div>
         </div>
 
         {/* Information Box */}
         <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">{t('projectSettings.howItWorks')}</h3>
+          <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">{t('howItWorks')}</h3>
           <ul className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
-            <li>• {t('projectSettings.howItWorks1', { prefix: editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-' })}</li>
-            <li>• {t('projectSettings.howItWorks2', { prefix: editingSettings.DEFAULT_TASK_PREFIX || 'TASK-' })}</li>
-            <li>• {t('projectSettings.howItWorks3')}</li>
-            <li>• {t('projectSettings.howItWorks4')}</li>
-            <li>• {t('projectSettings.howItWorks5')}</li>
+            <li>• {t('howItWorks1', { prefix: editingSettings.DEFAULT_PROJ_PREFIX || 'PROJ-' })}</li>
+            <li>• {t('howItWorks2', { prefix: editingSettings.DEFAULT_TASK_PREFIX || 'TASK-' })}</li>
+            <li>• {t('howItWorks3')}</li>
+            <li>• {t('howItWorks4')}</li>
+            <li>• {t('howItWorks5')}</li>
           </ul>
         </div>
       </div>
@@ -231,13 +234,13 @@ const AdminProjectSettingsTab: React.FC<AdminProjectSettingsTabProps> = ({
           onClick={onCancel}
           className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
-          {t('projectSettings.cancel')}
+          {t('cancel')}
         </button>
         <button
           onClick={() => onSave()}
           className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
-          {t('projectSettings.saveSettings')}
+          {t('saveSettings')}
         </button>
       </div>
     </div>

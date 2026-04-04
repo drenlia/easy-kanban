@@ -19,45 +19,95 @@ export const useColumnWebSocket = ({
   selectedBoardRef,
   currentUser,
 }: UseColumnWebSocketProps) => {
-  
-  const handleColumnCreated = useCallback((data: any) => {
-    if (!data.column || !data.boardId) return;
-    
-    // Update boards state for all boards
-    setBoards(prevBoards => {
-      return prevBoards.map(board => {
-        if (board.id === data.boardId) {
-          const updatedBoard = { ...board };
-          const updatedColumns = { ...updatedBoard.columns };
-          
-          // Add the new column
+  /** Full board column list from server (create+renumber or reorder); preserves tasks from prior state. */
+  const applyServerColumnsLayout = useCallback(
+    (boardId: string, columnsList: any[]) => {
+      if (!boardId || !columnsList?.length) return;
+
+      window.justUpdatedFromWebSocket = true;
+
+      setBoards(prevBoards =>
+        prevBoards.map(board => {
+          if (board.id !== boardId) return board;
+          const sortedColumns = [...columnsList].sort(
+            (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
+          );
+          const updatedColumns: Columns = {};
+          sortedColumns.forEach((col: any) => {
+            updatedColumns[col.id] = {
+              ...col,
+              tasks: board.columns[col.id]?.tasks || [],
+            };
+          });
+          return { ...board, columns: updatedColumns };
+        })
+      );
+
+      if (boardId === selectedBoardRef.current) {
+        setColumns(prevColumns => {
+          const sortedColumns = [...columnsList].sort(
+            (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0)
+          );
+          const updatedColumns: Columns = {};
+          sortedColumns.forEach((col: any) => {
+            updatedColumns[col.id] = {
+              ...col,
+              tasks: prevColumns[col.id]?.tasks || [],
+            };
+          });
+          return updatedColumns;
+        });
+      }
+
+      setTimeout(() => {
+        window.justUpdatedFromWebSocket = false;
+      }, 1000);
+    },
+    [setBoards, setColumns, selectedBoardRef]
+  );
+
+  const handleColumnCreated = useCallback(
+    (data: any) => {
+      if (!data.column || !data.boardId) return;
+
+      if (data.columns && Array.isArray(data.columns) && data.columns.length > 0) {
+        applyServerColumnsLayout(data.boardId, data.columns);
+        return;
+      }
+
+      setBoards(prevBoards => {
+        return prevBoards.map(board => {
+          if (board.id === data.boardId) {
+            const updatedBoard = { ...board };
+            const updatedColumns = { ...updatedBoard.columns };
+
+            updatedColumns[data.column.id] = {
+              ...data.column,
+              tasks: [],
+            };
+
+            updatedBoard.columns = updatedColumns;
+            return updatedBoard;
+          }
+          return board;
+        });
+      });
+
+      if (data.boardId === selectedBoardRef.current) {
+        setColumns(prevColumns => {
+          const updatedColumns = { ...prevColumns };
+
           updatedColumns[data.column.id] = {
             ...data.column,
-            tasks: []
+            tasks: [],
           };
-          
-          updatedBoard.columns = updatedColumns;
-          return updatedBoard;
-        }
-        return board;
-      });
-    });
-    
-    // Only update columns if it's for the currently selected board
-    if (data.boardId === selectedBoardRef.current) {
-      setColumns(prevColumns => {
-        const updatedColumns = { ...prevColumns };
-        
-        // Add the new column with empty tasks array
-        updatedColumns[data.column.id] = {
-          ...data.column,
-          tasks: []
-        };
-        
-        return updatedColumns;
-      });
-    }
-  }, [setBoards, setColumns, selectedBoardRef]);
+
+          return updatedColumns;
+        });
+      }
+    },
+    [applyServerColumnsLayout, setBoards, setColumns, selectedBoardRef]
+  );
 
   const handleColumnUpdated = useCallback((data: any) => {
     if (!data.column || !data.boardId) return;
@@ -146,74 +196,19 @@ export const useColumnWebSocket = ({
     }
   }, [setBoards, setColumns, selectedBoardRef]);
 
-  const handleColumnReordered = useCallback((data: any) => {
-    if (!data.boardId || !data.columns) return;
-    
-    // CRITICAL: Skip if we just updated from WebSocket to prevent overwriting batch updates
-    if (window.justUpdatedFromWebSocket) {
-      console.log('⏭️ [Column Reordered] Skipping - WebSocket update in progress');
-      return;
-    }
-    
-    // Set flag to prevent refreshBoardData from overwriting this update
-    window.justUpdatedFromWebSocket = true;
-    
-    // Process updates from current user to ensure state sync after column reordering
-    // The backend returns updated columns with correct positions, so we should use them
-    // This ensures the frontend state matches the backend after reordering operations
-    // This is especially important for edge cases where the frontend's optimistic update
-    // might not match the backend's actual result (e.g., moving to first/last position)
-    
-    // Update boards state for all boards
-    setBoards(prevBoards => {
-      return prevBoards.map(board => {
-        if (board.id === data.boardId) {
-          const updatedBoard = { ...board };
-          const updatedColumns: Columns = {};
-          
-          // Rebuild columns object with updated positions, preserving tasks
-          // CRITICAL: Sort columns by position to ensure correct order
-          const sortedColumns = [...data.columns].sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
-          sortedColumns.forEach((col: any) => {
-            updatedColumns[col.id] = {
-              ...col,
-              tasks: updatedBoard.columns[col.id]?.tasks || []
-            };
-          });
-          
-          updatedBoard.columns = updatedColumns;
-          return updatedBoard;
-        }
-        return board;
-      });
-    });
-    
-    // Only update columns if it's for the currently selected board
-    if (data.boardId === selectedBoardRef.current) {
-      setColumns(prevColumns => {
-        const updatedColumns: Columns = {};
-        
-        // Rebuild columns object with updated positions, preserving tasks
-        // CRITICAL: Sort columns by position to ensure correct order
-        // Use the positions from the backend to ensure accuracy
-        const sortedColumns = [...data.columns].sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
-        sortedColumns.forEach((col: any) => {
-          updatedColumns[col.id] = {
-            ...col,
-            tasks: prevColumns[col.id]?.tasks || []
-          };
-        });
-        
-        return updatedColumns;
-      });
-    }
-    
-    // Clear the flag after a delay to prevent refreshBoardData from overwriting
-    // Use a longer timeout since we're not calling refreshBoardData after reorder anymore
-    setTimeout(() => {
-      window.justUpdatedFromWebSocket = false;
-    }, 1000);
-  }, [setBoards, setColumns, selectedBoardRef]);
+  const handleColumnReordered = useCallback(
+    (data: any) => {
+      if (!data.boardId || !data.columns) return;
+
+      if (window.justUpdatedFromWebSocket) {
+        console.log('⏭️ [Column Reordered] Skipping - WebSocket update in progress');
+        return;
+      }
+
+      applyServerColumnsLayout(data.boardId, data.columns);
+    },
+    [applyServerColumnsLayout]
+  );
 
   return {
     handleColumnCreated,

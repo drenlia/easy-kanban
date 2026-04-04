@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Columns, Task, TeamMember, Board } from '../types';
+import { Columns, Task, TeamMember, Board, Priority } from '../types';
 import { SavedFilterView, getSavedFilterView } from '../api';
 import { TaskViewMode, ViewMode, loadUserPreferences, updateUserPreference } from '../utils/userPreferences';
 import { filterTasks, hasActiveFilters } from '../utils/taskUtils';
@@ -475,6 +475,36 @@ export const useTaskFilters = ({
     updateCurrentUserPreference('currentFilterViewId', view?.id || null);
   };
 
+  /**
+   * Clear search + member selections so a newly created task can appear (does not change sprint selection).
+   * Resets role chips to the same defaults as new users (assignees on) so TeamMembers does not show
+   * "no filter options selected".
+   */
+  const clearVisibilityObstructingFilters = useCallback(() => {
+    const emptyFilters = {
+      text: '',
+      dateFrom: '',
+      dateTo: '',
+      dueDateFrom: '',
+      dueDateTo: '',
+      selectedMembers: [],
+      selectedPriorities: [] as Priority[],
+      selectedTags: [] as string[],
+      projectId: '',
+      taskId: '',
+    };
+    setSearchFilters(emptyFilters);
+    setIsSearchActive(false);
+    setSelectedMembers([]);
+    setIncludeAssignees(true);
+    setIncludeWatchers(false);
+    setIncludeCollaborators(false);
+    setIncludeRequesters(false);
+    setCurrentFilterView(null);
+    // Cookie + DB: caller must await saveUserPreferences(mergeClearedKanbanVisibilityFilters(...))
+    // so one atomic write wins over smart-merge-on-load (many racing updateUserPreference PUTs used to lose).
+  }, []);
+
   const handleMemberToggle = (memberId: string) => {
     const newSelectedMembers = selectedMembers.includes(memberId) 
       ? selectedMembers.filter(id => id !== memberId)
@@ -617,6 +647,7 @@ export const useTaskFilters = ({
     handleToggleCollaborators,
     handleToggleRequesters,
     handleToggleSystem,
+    clearVisibilityObstructingFilters,
   };
 };
 

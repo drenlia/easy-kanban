@@ -1004,7 +1004,38 @@ export async function shiftTaskPositions(db, columnId, minPosition, maxPosition,
  * @param {string} previousColumnId - Previous column ID
  * @returns {Promise<Object>} Result object
  */
-export async function updateTaskPositionAndColumn(db, taskId, position, columnId, previousBoardId, previousColumnId) {
+export async function updateTaskPositionAndColumn(
+  db,
+  taskId,
+  position,
+  columnId,
+  previousBoardId,
+  previousColumnId,
+  newBoardId = null
+) {
+  const now = new Date().toISOString();
+  if (newBoardId) {
+    const query = `
+      UPDATE tasks SET 
+        position = $1, 
+        columnid = $2,
+        boardid = $3,
+        pre_boardid = $4, 
+        pre_columnid = $5,
+        updated_at = $6
+      WHERE id = $7
+    `;
+    const stmt = wrapQuery(db.prepare(query), 'UPDATE');
+    return await stmt.run(
+      position,
+      columnId,
+      newBoardId,
+      previousBoardId,
+      previousColumnId,
+      now,
+      taskId
+    );
+  }
   const query = `
     UPDATE tasks SET 
       position = $1, 
@@ -1014,9 +1045,19 @@ export async function updateTaskPositionAndColumn(db, taskId, position, columnId
       updated_at = $5
     WHERE id = $6
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.run(position, columnId, previousBoardId, previousColumnId, new Date().toISOString(), taskId);
+  return await stmt.run(position, columnId, previousBoardId, previousColumnId, now, taskId);
+}
+
+/**
+ * Remove every task_rels row involving this task (both directions).
+ * Used when moving a task to another board so links stay within-board for flow chart / list / gantt.
+ */
+export async function deleteAllRelationshipsInvolvingTask(db, taskId) {
+  const query = `DELETE FROM task_rels WHERE task_id = $1 OR to_task_id = $1`;
+  const stmt = wrapQuery(db.prepare(query), 'DELETE');
+  return await stmt.run(taskId);
 }
 
 /**
@@ -1187,14 +1228,14 @@ export async function getConnectedTaskIds(db, taskId) {
       CASE 
         WHEN task_id = $1 THEN to_task_id 
         ELSE task_id 
-      END as connected_id
+      END as "connectedId"
     FROM task_rels 
     WHERE task_id = $1 OR to_task_id = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   const results = await stmt.all(taskId);
-  return results.map(r => r.connected_id);
+  return results.map(r => r.connectedId ?? r.connected_id).filter(Boolean);
 }
 
 /**
@@ -1212,19 +1253,19 @@ export async function getTasksForFlowChart(db, taskIds) {
   const placeholders = taskIds.map((_, i) => `$${i + 1}`).join(', ');
   const query = `
     SELECT 
-      t.id,
-      t.ticket,
-      t.title,
-      t.memberid,
-      mem.name as memberName,
-      mem.color as memberColor,
-      c.title as status,
-      t.priority,
-      t.priority_id,
-      p.priority as priority_name,
-      t.startdate,
-      t.duedate,
-      b.project as projectid
+      t.id as "id",
+      t.ticket as "ticket",
+      t.title as "title",
+      t.memberid as "memberId",
+      mem.name as "memberName",
+      mem.color as "memberColor",
+      c.title as "status",
+      t.priority as "priority",
+      t.priority_id as "priority_id",
+      p.priority as "priorityName",
+      t.startdate as "startDate",
+      t.duedate as "dueDate",
+      b.project as "projectId"
     FROM tasks t
     LEFT JOIN members mem ON t.memberid = mem.id
     LEFT JOIN columns c ON t.columnid = c.id
@@ -1252,19 +1293,20 @@ export async function getRelationshipsForFlowChart(db, taskIds) {
   const placeholders = taskIds.map((_, i) => `$${i + 1}`).join(', ');
   const query = `
     SELECT 
-      tr.id,
-      tr.task_id,
-      tr.relationship,
-      tr.to_task_id,
-      t1.ticket as task_ticket,
-      t2.ticket as related_task_ticket
+      tr.id as "id",
+      tr.task_id as "taskId",
+      tr.relationship as "relationship",
+      tr.to_task_id as "relatedTaskId",
+      t1.ticket as "taskTicket",
+      t2.ticket as "relatedTaskTicket"
     FROM task_rels tr
     JOIN tasks t1 ON tr.task_id = t1.id
     JOIN tasks t2 ON tr.to_task_id = t2.id
     WHERE tr.task_id IN (${placeholders}) AND tr.to_task_id IN (${placeholders})
   `;
   
+  // Same $1..$n placeholders are reused in both IN lists — bind each id only once (PG errors if you pass 2n params).
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
-  return await stmt.all(...taskIds, ...taskIds);
+  return await stmt.all(...taskIds);
 }
 

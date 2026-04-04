@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { dbTransaction, dbRun, isProxyDatabase } from '../utils/dbAsync.js';
 import redisService from '../services/redisService.js';
+import notificationService from '../services/notificationService.js';
 
 /**
  * Check all users for new achievements/badges using badges table

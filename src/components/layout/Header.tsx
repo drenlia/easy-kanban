@@ -413,16 +413,33 @@ const Header: React.FC<HeaderProps> = ({
     }
   };
 
+  /** Site title always navigates in this tab (ignore browser “open links in new tab” and SITE_OPENS_NEW_TAB). */
+  const handleSiteTitleNavigation = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const raw = (siteSettings.SITE_URL || '').trim();
+    if (!raw || raw === '#') {
+      onPageChange('kanban');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    window.location.assign(raw);
+  };
+
   return (
     <header className="sticky top-0 z-50 bg-white dark:bg-gray-800 shadow-sm border-b border-gray-100 dark:border-gray-700" data-tour-id="navigation">
       <div className="w-4/5 mx-auto px-6 py-2.5 flex justify-between items-center">
         <div className="flex items-center gap-3">
-          <a 
-            href={siteSettings.SITE_URL || '#'} 
-            {...(siteSettings.SITE_OPENS_NEW_TAB === undefined || siteSettings.SITE_OPENS_NEW_TAB === 'true' 
-              ? { target: '_blank', rel: 'noopener noreferrer' } 
-              : {})}
-            className="text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+          <a
+            href={siteSettings.SITE_URL || '#'}
+            onClick={handleSiteTitleNavigation}
+            onAuxClick={(e) => {
+              if (e.button === 1) {
+                e.preventDefault();
+                handleSiteTitleNavigation(e);
+              }
+            }}
+            className="text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
           >
             {siteSettings.SITE_NAME || 'Easy Kanban'}
           </a>

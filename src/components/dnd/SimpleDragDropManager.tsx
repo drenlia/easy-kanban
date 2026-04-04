@@ -561,29 +561,12 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
       isOnline
     });
 
-    if (!over) {
-      console.log('⚠️ [handleDragEnd] No over target, returning');
-      return;
-    }
-
-    // console.log('🎯 Enhanced Drag End:', { 
-    // activeId: active.id, 
-    // overId: over.id,
-    // activeData: active.data?.current,
-    // overData: over.data?.current 
-    // });
-    
-    // Debug collision detection
-    if (active.data?.current?.type === 'task' && over.data?.current?.type === 'board') {
-      // console.log('🎯 Board collision detected:', {
-      // taskId: active.id,
-      // boardId: over.data.current.boardId,
-      // currentBoardId,
-      // isDifferentBoard: over.data.current.boardId !== currentBoardId
-      // });
-    }
-
     try {
+      if (!over) {
+        console.log('⚠️ [handleDragEnd] No over target, returning');
+        return;
+      }
+
       const activeData = active.data?.current;
       const overData = over.data?.current;
       
@@ -673,26 +656,18 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
               if (targetIndex < 0) {
                 position = 0;
               } else {
-                // Determine drag direction by comparing positions
-                const draggedPos = parsePos(task.position);
-                const targetPos = parsePos(targetTask.position);
                 const isSameColumn = targetColumnId === task.columnId;
                 
                 if (isSameColumn) {
-                  // Same column: insert based on drag direction
-                  // If dragging down (targetPos > draggedPos), insert AFTER target (targetIndex + 1)
-                  // If dragging up (targetPos < draggedPos), insert BEFORE target (targetIndex)
-                  // Special case: if target is at position 0 and we're dragging up, insert at 0
-                  if (targetPos > draggedPos) {
-                    // Dragging down: insert after target task
-                    position = targetIndex + 1;
-                  } else if (targetPos < draggedPos) {
-                    // Dragging up: insert before target task
+                  // Use sorted list indices so duplicate/stale `position` values still pick the right side (before vs after)
+                  const sortedAll = [...targetColumn.tasks].sort(
+                    (a, b) => parsePos(a.position) - parsePos(b.position)
+                  );
+                  const draggedIndexAll = sortedAll.findIndex(t => t.id === task.id);
+                  const targetIndexAll = sortedAll.findIndex(t => t.id === targetTask.id);
+                  if (draggedIndexAll > targetIndexAll) {
                     position = targetIndex;
                   } else {
-                    // Same position: this shouldn't happen, but if it does, keep current position
-                    // However, user explicitly dropped on another task, so allow the move
-                    // Insert after to ensure a change occurs
                     position = targetIndex + 1;
                   }
                 } else {
@@ -704,12 +679,11 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
               console.log('🎯 [Drop on task] Target index:', {
                 targetTaskId: targetTask.id,
                 targetTaskPos: parsePos(targetTask.position),
-                draggedTaskPos: draggedPos,
+                draggedTaskPos: parsePos(task.position),
                 targetIndexInList: sortedTasks.findIndex(t => t.id === targetTask.id),
                 calculatedPosition: position,
                 totalTasks: sortedTasks.length,
-                isSameColumn: targetColumnId === task.columnId,
-                dragDirection: isSameColumn && parsePos(targetTask.position) > draggedPos ? 'down' : 'up'
+                isSameColumn: targetColumnId === task.columnId
               });
             } else {
               position = 0;
@@ -893,17 +867,26 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
     } catch (error) {
       // console.error('❌ Drag operation failed:', error);
     } finally {
-      // Clear drag states when drag ends
+      // Always clear drag UI state (preview, dragged task) — including when `over` was null
+      // or when the user cancelled; otherwise insertion placeholders stay mounted and shift columns.
+      lastPreviewRef.current = null;
+      lastOverIdRef.current = null;
       onDraggedTaskChange?.(null);
       onDraggedColumnChange?.(null);
       onBoardTabHover?.(false);
       onDragPreviewChange?.(null);
-      
-      // Reset tab area state
       setIsHoveringBoardTabDelayed(false);
-      
-      // console.log('🏁 All states cleared - board tab hover reset to FALSE');
     }
+  };
+
+  const handleDragCancel = () => {
+    lastPreviewRef.current = null;
+    lastOverIdRef.current = null;
+    onDraggedTaskChange?.(null);
+    onDraggedColumnChange?.(null);
+    onBoardTabHover?.(false);
+    onDragPreviewChange?.(null);
+    setIsHoveringBoardTabDelayed(false);
   };
 
   return (
@@ -911,6 +894,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
       collisionDetection={customCollisionDetection}
       sensors={sensors}
     >

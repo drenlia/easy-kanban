@@ -9,7 +9,8 @@ import {
   Task, 
   Columns, 
   PriorityOption,
-  Tag 
+  Tag,
+  ColumnVisibilityWarning
 } from '../../types';
 import { TaskViewMode, ViewMode } from '../../utils/userPreferences';
 import TeamMembers from '../TeamMembers';
@@ -97,8 +98,10 @@ interface KanbanPageProps {
   onDragOver: (event: any) => void;
   onDragEnd: (event: any) => void;
   onAddTask: (columnId: string) => Promise<void>;
-  columnWarnings: {[columnId: string]: string};
+  columnWarnings: Record<string, ColumnVisibilityWarning>;
   onDismissColumnWarning: (columnId: string) => void;
+  onClearFiltersForHiddenTask?: () => void;
+  onAssignCreatedTaskToSprint?: (columnId: string, taskId: string, sprintId: string) => Promise<void>;
   onRemoveTask: (taskId: string) => Promise<void>;
   onEditTask: (task: Task) => Promise<void>;
   onCopyTask: (task: Task) => Promise<void>;
@@ -210,6 +213,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onAddTask,
   columnWarnings,
   onDismissColumnWarning,
+  onClearFiltersForHiddenTask,
+  onAssignCreatedTaskToSprint,
   onRemoveTask,
   onEditTask,
   onCopyTask,
@@ -660,6 +665,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                 boards={boards}
                 siteSettings={siteSettings}
                 currentUser={currentUser}
+                boardRelationships={boardRelationships}
+                selectedSprintId={selectedSprintId}
               />
             </div>
           ) : viewMode === 'gantt' ? (
@@ -759,6 +766,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                             onAddTask={onAddTask}
                             columnWarnings={columnWarnings}
                             onDismissColumnWarning={onDismissColumnWarning}
+                            onClearFiltersForHiddenTask={onClearFiltersForHiddenTask}
+                            onAssignCreatedTaskToSprint={onAssignCreatedTaskToSprint}
                             onRemoveTask={onRemoveTask}
                             onEditTask={onEditTask}
                             onCopyTask={onCopyTask}
@@ -834,6 +843,8 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
                       onAddTask={onAddTask}
                       columnWarnings={columnWarnings}
                       onDismissColumnWarning={onDismissColumnWarning}
+                      onClearFiltersForHiddenTask={onClearFiltersForHiddenTask}
+                      onAssignCreatedTaskToSprint={onAssignCreatedTaskToSprint}
                       onRemoveTask={onRemoveTask}
                       onEditTask={onEditTask}
                       onCopyTask={onCopyTask}

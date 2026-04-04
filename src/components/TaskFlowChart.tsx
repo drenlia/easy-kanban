@@ -46,10 +46,12 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
     
     try {
       const flowData = await getTaskFlowChart(rootTaskId);
+      const taskRows = Array.isArray(flowData?.tasks) ? flowData.tasks : [];
+      const relRows = Array.isArray(flowData?.relationships) ? flowData.relationships : [];
       
       // Convert tasks array to map for easier lookup
       const tasksMap = new Map();
-      flowData.tasks.forEach(task => {
+      taskRows.forEach(task => {
         tasksMap.set(task.id, {
           ...task,
           children: [],
@@ -58,33 +60,35 @@ export default function TaskFlowChart({ currentTaskId, currentTaskData }: TaskFl
       });
       
       // Build parent-child relationships
-      flowData.relationships.forEach(rel => {
-        const parentTask = tasksMap.get(rel.taskId);
-        const childTask = tasksMap.get(rel.relatedTaskId);
+      relRows.forEach(rel => {
+        const fromId = rel.taskId ?? (rel as { task_id?: string }).task_id;
+        const toId = rel.relatedTaskId ?? (rel as { to_task_id?: string }).to_task_id;
+        const parentTask = tasksMap.get(fromId);
+        const childTask = tasksMap.get(toId);
         
-        if (parentTask && childTask) {
+        if (parentTask && childTask && fromId && toId) {
           if (rel.relationship === 'parent') {
             // Current task is parent of related task
-            parentTask.children.push(rel.relatedTaskId);
-            childTask.parents.push(rel.taskId);
+            parentTask.children.push(toId);
+            childTask.parents.push(fromId);
           } else if (rel.relationship === 'child') {
             // Current task is child of related task
-            childTask.children.push(rel.taskId);
-            parentTask.parents.push(rel.relatedTaskId);
+            childTask.children.push(fromId);
+            parentTask.parents.push(toId);
           }
         }
       });
       
       // Collect available statuses
       const statuses = new Set<string>();
-      flowData.tasks.forEach(task => {
+      taskRows.forEach(task => {
         if (task.status) {
           statuses.add(task.status);
         }
       });
       setAvailableStatuses(Array.from(statuses).sort());
       
-      return { tasks: tasksMap, relationships: flowData.relationships };
+      return { tasks: tasksMap, relationships: relRows };
       
     } catch (error) {
       console.error(`❌ TaskFlowChart: Error fetching flow chart data:`, error);

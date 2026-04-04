@@ -117,9 +117,11 @@ router.get('/shared', authenticateToken, async (req, res) => {
     
     const formattedViews = views.map(view => {
       const formatted = formatViewForResponse(view);
-      // creatorName is already in the view from the query
+      // creatorName from query (quoted alias); PG may expose lowercase key
       if (view.creatorName) {
         formatted.creatorName = view.creatorName;
+      } else if (view.creatorname) {
+        formatted.creatorName = view.creatorname;
       }
       return formatted;
     });

@@ -1589,7 +1589,7 @@ export default function TaskPage({
                           const hashPart = url.split('#').slice(1).join('#');
                           window.location.hash = hashPart;
                         }}
-                        className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
+                        className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer transition-colors"
                         title={`Go to parent task ${parentTask.ticket}`}
                       >
                         {parentTask.ticket}
@@ -1599,7 +1599,7 @@ export default function TaskPage({
                   
                   {/* Children Field - Right Side */}
                   <div className={parentTask ? '' : 'col-span-2'}>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">{t('taskPage.children')}:</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{t('taskPage.children')}:</label>
                     
                     {/* Selected Children Display */}
                     {childTasks.length > 0 && (
@@ -1607,7 +1607,7 @@ export default function TaskPage({
                         {childTasks.map(child => (
                           <span
                             key={child.id}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 hover:opacity-80 transition-opacity"
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full font-medium bg-blue-100 dark:bg-blue-950 dark:ring-1 dark:ring-blue-700/60 text-blue-900 dark:text-blue-100 hover:opacity-90 transition-opacity"
                           >
                             <span 
                               onClick={() => {
@@ -1621,7 +1621,7 @@ export default function TaskPage({
                                 const hashPart = url.split('#').slice(1).join('#');
                                 window.location.hash = hashPart;
                               }}
-                              className="text-blue-800 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
+                              className="text-blue-900 dark:text-blue-100 hover:text-blue-700 dark:hover:text-white hover:underline cursor-pointer transition-colors"
                               title={`Go to child task ${child.ticket}`}
                             >
                               {child.ticket}
@@ -1629,7 +1629,7 @@ export default function TaskPage({
                             <button
                               type="button"
                               onClick={() => handleRemoveChildTask(child.id)}
-                              className="ml-1 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
+                              className="ml-1 text-blue-700 dark:text-blue-200 hover:bg-red-500 hover:text-white rounded-full w-3 h-3 flex items-center justify-center text-xs font-bold transition-colors"
                               title={t('taskPage.removeChildTask')}
                             >
                               ×
@@ -1655,13 +1655,13 @@ export default function TaskPage({
                       {showChildrenDropdown && (
                         <div className="absolute z-10 mt-1 w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md shadow-lg max-h-60 overflow-auto">
                           {/* Search Input */}
-                          <div className="p-2 border-b border-gray-200">
+                          <div className="p-2 border-b border-gray-200 dark:border-gray-600">
                             <input
                               type="text"
                               placeholder={t('taskPage.searchTasks')}
                               value={childrenSearchTerm}
                               onChange={(e) => setChildrenSearchTerm(e.target.value)}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
                               autoFocus
                             />
                           </div>
@@ -1674,14 +1674,14 @@ export default function TaskPage({
                                   key={availableTask.id}
                                   type="button"
                                   onClick={() => handleAddChildTask(availableTask.id)}
-                                  className="w-full px-3 py-2 text-left hover:bg-blue-50 focus:bg-blue-50 focus:outline-none transition-colors text-sm"
+                                  className="w-full px-3 py-2 text-left hover:bg-blue-50 dark:hover:bg-blue-900/35 focus:bg-blue-50 dark:focus:bg-blue-900/35 focus:outline-none transition-colors text-sm"
                                 >
-                                  <div className="font-medium text-blue-600">{availableTask.ticket}</div>
-                                  <div className="text-gray-600 truncate">{availableTask.title}</div>
+                                  <div className="font-medium text-blue-600 dark:text-blue-400">{availableTask.ticket}</div>
+                                  <div className="text-gray-600 dark:text-gray-300 truncate">{availableTask.title}</div>
                                 </button>
                               ))
                             ) : (
-                              <div className="px-3 py-2 text-sm text-gray-500">
+                              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
                                 {childrenSearchTerm ? t('taskPage.noTasksFound') : t('taskPage.noAvailableTasks')}
                               </div>
                             )}

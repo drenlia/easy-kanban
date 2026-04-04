@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview } from './types';
+import { TeamMember, Task, Column, Columns, Board, PriorityOption, Tag, QueryLog, DragPreview, ColumnVisibilityWarning } from './types';
 import { SavedFilterView, getSavedFilterView } from './api';
 import DebugPanel from './components/DebugPanel';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -30,6 +30,7 @@ const PageLoader = () => (
 // Lazy load ModalManager to reduce initial bundle size (only needed when authenticated) with retry logic
 const ModalManager = lazyWithRetry(() => import('./components/layout/ModalManager'));
 import TaskDeleteConfirmation from './components/TaskDeleteConfirmation';
+import CrossBoardMoveConfirmation from './components/CrossBoardMoveConfirmation';
 import ActivityFeed from './components/ActivityFeed';
 import TaskLinkingOverlay from './components/TaskLinkingOverlay';
 import NetworkStatusIndicator from './components/NetworkStatusIndicator';
@@ -56,9 +57,9 @@ import { useSettingsWebSocket } from './hooks/useSettingsWebSocket';
 import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
 import websocketClient from './services/websocketClient';
-import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
+import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
-import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getAllSprints } from './api';
+import { getAllPriorities, getAllTags, getTags, getPriorities, getSettings, getTaskWatchers, getTaskCollaborators, addTagToTask, removeTagFromTask, getBoardTaskRelationships, getTaskRelationships, getAllSprints } from './api';
 import { 
   DEFAULT_COLUMNS, 
   DRAG_COOLDOWN_DURATION, 
@@ -386,8 +387,20 @@ function AppContent() {
   const [activationEmail, setActivationEmail] = useState<string>('');
   const [activationParsed, setActivationParsed] = useState<boolean>(false);
   const [adminRefreshKey, setAdminRefreshKey] = useState(0);
-  const [columnWarnings, setColumnWarnings] = useState<{[columnId: string]: string}>({});
+  const [columnWarnings, setColumnWarnings] = useState<Record<string, ColumnVisibilityWarning>>({});
+  const columnWarningsRef = useRef<Record<string, ColumnVisibilityWarning>>({});
+  useEffect(() => {
+    columnWarningsRef.current = columnWarnings;
+  }, [columnWarnings]);
+
   const [showColumnDeleteConfirm, setShowColumnDeleteConfirm] = useState<string | null>(null);
+
+  const [crossBoardMovePending, setCrossBoardMovePending] = useState<{
+    taskId: string;
+    targetBoardId: string;
+    relationshipCount: number;
+  } | null>(null);
+  const [crossBoardMoveBusy, setCrossBoardMoveBusy] = useState(false);
   
   // Task linking state extracted to useTaskLinking hook (taskLinking)
   
@@ -447,6 +460,116 @@ function AppContent() {
     boards,
     updateCurrentUserPreference,
   });
+
+  // Hide column banner when the task appears in filtered Kanban data (filters/sprint assignment changed).
+  useEffect(() => {
+    const snap = columnWarningsRef.current;
+    const colIds = Object.keys(snap);
+    if (colIds.length === 0) return;
+    const fc = taskFilters.filteredColumns;
+    if (!fc || Object.keys(fc).length === 0) return;
+    const toRemove: string[] = [];
+    for (const colId of colIds) {
+      const w = snap[colId];
+      if (!w) continue;
+      const visible = Object.values(fc).some(
+        col => col?.tasks?.some(t => t.id === w.taskId)
+      );
+      if (visible) toRemove.push(colId);
+    }
+    if (toRemove.length === 0) return;
+    setColumnWarnings(prev => {
+      const next = { ...prev };
+      for (const c of toRemove) delete next[c];
+      return next;
+    });
+  }, [taskFilters.filteredColumns]);
+
+  /** After creating a task or updating sprint, recompute whether it is still hidden by filters. */
+  const buildColumnVisibilityWarningForTask = useCallback(
+    (task: Task): ColumnVisibilityWarning | null => {
+      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(
+        task,
+        taskFilters.searchFilters,
+        taskFilters.isSearchActive
+      );
+      const wouldBeFilteredBySprint = (() => {
+        if (taskFilters.selectedSprintId === null) return false;
+        if (taskFilters.selectedSprintId === 'backlog') return false;
+        return task.sprintId !== taskFilters.selectedSprintId;
+      })();
+      const wouldBeFilteredByMembers = (() => {
+        if (
+          !taskFilters.includeAssignees &&
+          !taskFilters.includeWatchers &&
+          !taskFilters.includeCollaborators &&
+          !taskFilters.includeRequesters
+        ) {
+          return false;
+        }
+        const showAllMembers = taskFilters.selectedMembers.length === 0;
+        const memberIds = new Set(taskFilters.selectedMembers);
+        let hasMatchingMember = false;
+        if (taskFilters.includeAssignees) {
+          if (showAllMembers) {
+            if (task.memberId) hasMatchingMember = true;
+          } else if (task.memberId && memberIds.has(task.memberId)) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeRequesters) {
+          if (showAllMembers) {
+            if (task.requesterId) hasMatchingMember = true;
+          } else if (task.requesterId && memberIds.has(task.requesterId)) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeWatchers && task.watchers && Array.isArray(task.watchers)) {
+          if (showAllMembers) {
+            if (task.watchers.length > 0) hasMatchingMember = true;
+          } else if (task.watchers.some(w => w && memberIds.has(w.id))) {
+            hasMatchingMember = true;
+          }
+        }
+        if (!hasMatchingMember && taskFilters.includeCollaborators && task.collaborators && Array.isArray(task.collaborators)) {
+          if (showAllMembers) {
+            if (task.collaborators.length > 0) hasMatchingMember = true;
+          } else if (task.collaborators.some(c => c && memberIds.has(c.id))) {
+            hasMatchingMember = true;
+          }
+        }
+        return !hasMatchingMember;
+      })();
+
+      if (!wouldBeFilteredBySearch && !wouldBeFilteredBySprint && !wouldBeFilteredByMembers) {
+        return null;
+      }
+      const sprintId = taskFilters.selectedSprintId;
+      const showSprintPrompt =
+        wouldBeFilteredBySprint && sprintId !== null && sprintId !== 'backlog';
+      return {
+        taskId: task.id,
+        showSprintPrompt,
+        selectedSprintId: showSprintPrompt ? sprintId : undefined,
+        showClearFilters: wouldBeFilteredBySearch || wouldBeFilteredByMembers,
+        reasons: {
+          search: wouldBeFilteredBySearch,
+          sprint: wouldBeFilteredBySprint,
+          members: wouldBeFilteredByMembers,
+        },
+      };
+    },
+    [
+      taskFilters.searchFilters,
+      taskFilters.isSearchActive,
+      taskFilters.selectedSprintId,
+      taskFilters.includeAssignees,
+      taskFilters.includeWatchers,
+      taskFilters.includeCollaborators,
+      taskFilters.includeRequesters,
+      taskFilters.selectedMembers,
+    ]
+  );
   
   // Initialize Activity Feed hook now that currentUser is available
   const activityFeed = useActivityFeed(currentUser?.id || null);
@@ -1844,30 +1967,24 @@ function AppContent() {
       // CRITICAL FIX: Check if board data is already loaded in boards array
       const boardInState = boards.find(b => b.id === selectedBoard);
       if (boardInState && boardInState.columns && Object.keys(boardInState.columns).length > 0) {
-        // Board data already loaded, set columns immediately to prevent blank screen
-        // CRITICAL: Always sync columns from boards state when switching boards
-        // This ensures priority updates (and other changes) are visible immediately
-        // The WebSocket flag only prevents overwriting during active batch processing
-        // After batch processing completes (2 seconds), we should sync to get latest data
-        const lastUpdateTime = window.lastWebSocketUpdateTime || 0;
-        const timeSinceUpdate = Date.now() - lastUpdateTime;
-        const shouldSync = !window.justUpdatedFromWebSocket || timeSinceUpdate > 2000;
-        
-        if (shouldSync) {
-          // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
-          // Only copy what we need - columns structure and task arrays
-          const newColumns: Columns = {};
-          Object.keys(boardInState.columns || {}).forEach(columnId => {
-            const column = boardInState.columns[columnId];
-            if (column) {
-              newColumns[columnId] = {
-                ...column,
-                tasks: [...(column.tasks || [])]
-              };
-            }
-          });
-          setColumns(newColumns);
-        }
+        // Board data already loaded — always copy columns for the newly selected board.
+        // Do NOT gate this on justUpdatedFromWebSocket: after a cross-board drop (or any
+        // WS batch), that flag can still be true while the user switches boards. Skipping
+        // setColumns leaves the *previous* board's column IDs in `columns`, while
+        // boardColumnVisibility[selectedBoard] lists the new board's IDs, so
+        // getFullyFilteredColumns matches nothing and the Kanban stays blank until another
+        // navigation forces a sync.
+        const newColumns: Columns = {};
+        Object.keys(boardInState.columns || {}).forEach(columnId => {
+          const column = boardInState.columns[columnId];
+          if (column) {
+            newColumns[columnId] = {
+              ...column,
+              tasks: [...(column.tasks || [])]
+            };
+          }
+        });
+        setColumns(newColumns);
         setIsSwitchingBoard(false);
       } else {
         // Board data not loaded yet, fetch it (refreshBoardData will load relationships)
@@ -1920,11 +2037,11 @@ function AppContent() {
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
 
-  const refreshBoardData = useCallback(async () => {
+  const refreshBoardData = useCallback(async (options?: { force?: boolean }) => {
     // CRITICAL: Skip refresh if we just updated from WebSocket to prevent overwriting real-time updates
     // This is especially important for batch position updates (259 tasks) where WebSocket updates
     // are processed together and should not be overwritten by a refresh
-    if (window.justUpdatedFromWebSocket) {
+    if (!options?.force && window.justUpdatedFromWebSocket) {
       console.log('⏭️ [refreshBoardData] Skipping refresh - WebSocket update in progress');
       return;
     }
@@ -2255,99 +2372,11 @@ function AppContent() {
         }
       }, 1000);
       
-      // Check if the new task would be filtered out and show warning
-      const wouldBeFilteredBySearch = wouldTaskBeFilteredOut(newTask, taskFilters.searchFilters, taskFilters.isSearchActive);
-      const wouldBeFilteredBySprint = (() => {
-        // Check if task matches sprint filtering criteria
-        if (taskFilters.selectedSprintId === null) {
-          return false; // No sprint filter active
-        }
-        
-        if (taskFilters.selectedSprintId === 'backlog') {
-          // Backlog shows only tasks without sprintId - new tasks match this, so no warning
-          return false;
-        }
-        
-        // Specific sprint selected - task must have matching sprintId
-        // New tasks don't have sprintId set initially, so they would be filtered out
-        return newTask.sprintId !== taskFilters.selectedSprintId;
-      })();
-      const wouldBeFilteredByMembers = (() => {
-        // Check if task matches member filtering criteria
-        if (!taskFilters.includeAssignees && !taskFilters.includeWatchers && !taskFilters.includeCollaborators && !taskFilters.includeRequesters) {
-          return false; // No member filters active
-        }
-        
-        // If no members selected, treat as "all members" (task will be shown)
-        const showAllMembers = taskFilters.selectedMembers.length === 0;
-        const memberIds = new Set(taskFilters.selectedMembers);
-        let hasMatchingMember = false;
-        
-        if (taskFilters.includeAssignees) {
-          if (showAllMembers) {
-            // All tasks with assignees are shown
-            if (newTask.memberId) hasMatchingMember = true;
-          } else {
-            // Only tasks assigned to selected members
-            if (newTask.memberId && memberIds.has(newTask.memberId)) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeRequesters) {
-          if (showAllMembers) {
-            // All tasks with requesters are shown
-            if (newTask.requesterId) hasMatchingMember = true;
-          } else {
-            // Only tasks requested by selected members
-            if (newTask.requesterId && memberIds.has(newTask.requesterId)) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeWatchers && newTask.watchers && Array.isArray(newTask.watchers)) {
-          if (showAllMembers) {
-            // All tasks with watchers are shown
-            if (newTask.watchers.length > 0) hasMatchingMember = true;
-          } else {
-            // Only tasks watched by selected members
-            if (newTask.watchers.some(w => w && memberIds.has(w.id))) hasMatchingMember = true;
-          }
-        }
-        
-        if (!hasMatchingMember && taskFilters.includeCollaborators && newTask.collaborators && Array.isArray(newTask.collaborators)) {
-          if (showAllMembers) {
-            // All tasks with collaborators are shown
-            if (newTask.collaborators.length > 0) hasMatchingMember = true;
-          } else {
-            // Only tasks with selected members as collaborators
-            if (newTask.collaborators.some(c => c && memberIds.has(c.id))) hasMatchingMember = true;
-          }
-        }
-        
-        return !hasMatchingMember; // Return true if would be filtered out
-      })();
-      
-      if (wouldBeFilteredBySearch || wouldBeFilteredBySprint || wouldBeFilteredByMembers) {
-        // Build a more specific message based on which filters are active
-        const activeFilterTypes: string[] = [];
-        if (wouldBeFilteredBySearch) activeFilterTypes.push(t('column.filterTypes.searchFilters'));
-        if (wouldBeFilteredBySprint) activeFilterTypes.push(t('column.filterTypes.sprintSelection'));
-        if (wouldBeFilteredByMembers) activeFilterTypes.push(t('column.filterTypes.memberFilters'));
-        
-        const andConjunction = t('column.and');
-        const filterList = activeFilterTypes.length === 1 
-          ? activeFilterTypes[0]
-          : activeFilterTypes.length === 2
-          ? `${activeFilterTypes[0]} ${andConjunction} ${activeFilterTypes[1]}`
-          : `${activeFilterTypes.slice(0, -1).join(', ')}, ${andConjunction} ${activeFilterTypes[activeFilterTypes.length - 1]}`;
-        
-        const tipLabel = t('column.tip');
-        const message = wouldBeFilteredBySprint && !wouldBeFilteredBySearch
-          ? `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipSprintOnly')}`
-          : `${t('column.taskHiddenByFilters', { filterList })}\n**${tipLabel}** ${t('column.tipGeneral')}`;
-        
+      const warn = buildColumnVisibilityWarningForTask(newTask);
+      if (warn) {
         setColumnWarnings(prev => ({
           ...prev,
-          [columnId]: message
+          [columnId]: warn,
         }));
       }
       
@@ -2984,23 +3013,53 @@ function AppContent() {
     setShowColumnDeleteConfirm(null);
   };
 
-  // Handle cross-board task drop
-  const handleTaskDropOnBoard = useCallback(async (taskId: string, targetBoardId: string) => {
-    try {
-      // console.log(`🔄 Moving task ${taskId} to board ${targetBoardId}`);
-      await moveTaskToBoard(taskId, targetBoardId);
-      
-      // Refresh both boards to reflect the change
-      await refreshBoardData();
-      
-      // Show success message
-      // console.log(`✅ Task moved successfully to ${targetBoardId}`);
-      
-    } catch (error) {
-      // console.error('Failed to move task to board:', error);
-      // You could add a toast notification here
-    }
+  const performCrossBoardMove = useCallback(async (taskId: string, targetBoardId: string) => {
+    await moveTaskToBoard(taskId, targetBoardId);
+    // Force refresh: cross-board move often coincides with justUpdatedFromWebSocket; a skipped
+    // refresh leaves boards[] stale for the target board until the user switches tabs again.
+    await refreshBoardData({ force: true });
   }, [refreshBoardData]);
+
+  // Handle cross-board task drop (confirms when task has parent/child/related links — server removes them on move)
+  const handleTaskDropOnBoard = useCallback(
+    async (taskId: string, targetBoardId: string) => {
+      try {
+        let relationshipCount = 0;
+        try {
+          const rels = await getTaskRelationships(taskId);
+          if (Array.isArray(rels)) relationshipCount = rels.length;
+        } catch (err) {
+          console.error('Could not load task relationships before cross-board move:', err);
+        }
+        if (relationshipCount > 0) {
+          setCrossBoardMovePending({ taskId, targetBoardId, relationshipCount });
+          return;
+        }
+        await performCrossBoardMove(taskId, targetBoardId);
+      } catch (error) {
+        console.error('Failed to move task to board:', error);
+      }
+    },
+    [performCrossBoardMove]
+  );
+
+  const handleConfirmCrossBoardMove = useCallback(async () => {
+    const pending = crossBoardMovePending;
+    if (!pending) return;
+    setCrossBoardMoveBusy(true);
+    try {
+      await performCrossBoardMove(pending.taskId, pending.targetBoardId);
+      setCrossBoardMovePending(null);
+    } catch (error) {
+      console.error('Failed to move task to board:', error);
+    } finally {
+      setCrossBoardMoveBusy(false);
+    }
+  }, [crossBoardMovePending, performCrossBoardMove]);
+
+  const handleCancelCrossBoardMove = useCallback(() => {
+    if (!crossBoardMoveBusy) setCrossBoardMovePending(null);
+  }, [crossBoardMoveBusy]);
 
   const handleColumnReorder = useCallback(async (columnId: string, newPosition: number) => {
     try {
@@ -3057,11 +3116,21 @@ function AppContent() {
   useEffect(() => {
     const current = taskFilters.filteredColumns || {};
     
-    // Create a stable signature based on column IDs, positions, and task IDs
-    // CRITICAL: Include position in signature to detect column reordering
+    // Create a stable signature based on column IDs, positions, and task order
+    // CRITICAL: Task list must reflect sort order (by position), not alphabetically by id.
+    // Same set of task ids in a column yields the same string if we only sort ids — so
+    // intra-column reorders never updated stableFilteredColumns and DnD saw stale order on the next drag.
     const signature = Object.keys(current).sort().map(columnId => {
       const column = current[columnId];
-      const taskIds = (column?.tasks || []).map(t => t.id).sort().join(',');
+      const taskIds = [...(column?.tasks || [])]
+        .sort((a, b) => {
+          const pa = typeof a.position === 'number' ? a.position : parseFloat(String(a.position)) || 0;
+          const pb = typeof b.position === 'number' ? b.position : parseFloat(String(b.position)) || 0;
+          if (pa !== pb) return pa - pb;
+          return String(a.id).localeCompare(String(b.id));
+        })
+        .map(t => t.id)
+        .join(',');
       const position = column?.position ?? 0;
       return `${columnId}:${position}:${taskIds}`;
     }).join('|');
@@ -3106,9 +3175,10 @@ function AppContent() {
       newTitle = `${baseColumnName} ${columnNumber}`;
     }
 
-    // Get the position of the column we want to insert after
+    // Server interprets position as insert index: ceil(n) with shift of columns >= that index.
+    // afterPosition + 1 places the new column immediately to the right of the anchor column.
     const afterColumn = columns[afterColumnId];
-    const afterPosition = afterColumn?.position || 0;
+    const afterPosition = afterColumn?.position ?? 0;
 
     const columnId = generateUUID();
     const newColumn: Column = {
@@ -3116,22 +3186,63 @@ function AppContent() {
       title: newTitle,
       tasks: [],
       boardId: selectedBoard,
-      position: afterPosition + 0.5 // Insert between current and next column
+      position: afterPosition + 1,
     };
 
     try {
-      await createColumn(newColumn);
-      
-      // Add the new column to visible columns (new columns are never archived by default)
-      const currentVisibleColumns = boardColumnVisibility[selectedBoard] || Object.keys(columns);
-      const updatedVisibleColumns = [...currentVisibleColumns, columnId];
-      handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
-      
-      await refreshBoardData(); // Refresh to ensure consistent state
-      
-      // Renumber all columns to ensure clean integer positions
-      await renumberColumns(selectedBoard);
-      
+      const created = await createColumn(newColumn);
+
+      if (
+        Array.isArray(created.columns) &&
+        created.columns.length > 0 &&
+        selectedBoard
+      ) {
+        const sorted = [...created.columns].sort(
+          (a, b) => (a.position ?? 0) - (b.position ?? 0)
+        );
+
+        window.justUpdatedFromWebSocket = true;
+        setBoards(prev =>
+          prev.map(board => {
+            if (board.id !== selectedBoard) return board;
+            const nextCols: Columns = {};
+            sorted.forEach(col => {
+              nextCols[col.id] = {
+                ...col,
+                tasks: board.columns[col.id]?.tasks ?? [],
+              };
+            });
+            return { ...board, columns: nextCols };
+          })
+        );
+        setColumns(prev => {
+          const nextCols: Columns = {};
+          sorted.forEach(col => {
+            nextCols[col.id] = {
+              ...col,
+              tasks: prev[col.id]?.tasks ?? [],
+            };
+          });
+          return nextCols;
+        });
+        setTimeout(() => {
+          window.justUpdatedFromWebSocket = false;
+        }, 1000);
+
+        const currentVisibleColumns =
+          boardColumnVisibility[selectedBoard] || Object.keys(columns);
+        const visibleSet = new Set([...currentVisibleColumns, columnId]);
+        const newVisible = sorted.map(c => c.id).filter(id => visibleSet.has(id));
+        handleBoardColumnVisibilityChange(selectedBoard, newVisible);
+      } else {
+        const currentVisibleColumns =
+          boardColumnVisibility[selectedBoard] || Object.keys(columns);
+        const updatedVisibleColumns = [...currentVisibleColumns, columnId];
+        handleBoardColumnVisibilityChange(selectedBoard, updatedVisibleColumns);
+        await refreshBoardData();
+        if (selectedBoard) await renumberColumns(selectedBoard);
+      }
+
       await fetchQueryLogs();
     } catch (error) {
       // console.error('Failed to create column:', error);
@@ -3233,13 +3344,79 @@ function AppContent() {
   // Filter handlers are now in useTaskFilters hook (taskFilters.*)
 
   // Handle selecting all members
-  // Handle dismissing column warnings
-  const handleDismissColumnWarning = (columnId: string) => {
+  const handleDismissColumnWarning = useCallback((columnId: string) => {
     setColumnWarnings(prev => {
       const { [columnId]: removed, ...rest } = prev;
       return rest;
     });
-  };
+  }, []);
+
+  const handleClearFiltersForHiddenTask = useCallback(async () => {
+    taskFilters.clearVisibilityObstructingFilters();
+    setColumnWarnings({});
+    const uid = currentUser?.id;
+    if (!uid) return;
+    const prefs = mergeClearedKanbanVisibilityFilters(loadUserPreferences(uid));
+    await saveUserPreferences(prefs, uid);
+  }, [taskFilters.clearVisibilityObstructingFilters, currentUser?.id]);
+
+  const handleAssignCreatedTaskToSprint = useCallback(
+    async (columnId: string, taskId: string, sprintId: string) => {
+      const task = Object.values(columns).flatMap(c => c.tasks).find(tk => tk.id === taskId);
+      if (!task) {
+        handleDismissColumnWarning(columnId);
+        return;
+      }
+      try {
+        const updated: Task = { ...task, sprintId };
+        await updateTask(updated);
+        setColumns(prev => ({
+          ...prev,
+          [task.columnId]: {
+            ...prev[task.columnId],
+            tasks: prev[task.columnId].tasks.map(tk => (tk.id === taskId ? updated : tk)),
+          },
+        }));
+        if (selectedBoard) {
+          setBoards(prev =>
+            prev.map(board => {
+              if (board.id !== selectedBoard) return board;
+              const cols = { ...board.columns };
+              for (const cid of Object.keys(cols)) {
+                const col = cols[cid];
+                if (!col?.tasks?.some(tk => tk.id === taskId)) continue;
+                cols[cid] = {
+                  ...col,
+                  tasks: col.tasks.map(tk => (tk.id === taskId ? updated : tk)),
+                };
+              }
+              return { ...board, columns: cols };
+            })
+          );
+        }
+        const nextWarn = buildColumnVisibilityWarningForTask(updated);
+        if (nextWarn) {
+          setColumnWarnings(prev => ({ ...prev, [columnId]: nextWarn }));
+        } else {
+          handleDismissColumnWarning(columnId);
+        }
+      } catch (err) {
+        console.error('Failed to assign sprint to new task:', err);
+        toast.error(
+          t('column.sprintAssignFailedTitle'),
+          t('column.sprintAssignFailedBody'),
+          4000
+        );
+      }
+    },
+    [
+      columns,
+      selectedBoard,
+      handleDismissColumnWarning,
+      t,
+      buildColumnVisibilityWarningForTask,
+    ]
+  );
 
   // Filter handlers, shouldIncludeTask, and filtering useEffect are now in useTaskFilters hook (taskFilters.*)
 
@@ -3677,6 +3854,8 @@ function AppContent() {
                                     onAddTask={handleAddTask}
                                     columnWarnings={columnWarnings}
                                     onDismissColumnWarning={handleDismissColumnWarning}
+                                    onClearFiltersForHiddenTask={handleClearFiltersForHiddenTask}
+                                    onAssignCreatedTaskToSprint={handleAssignCreatedTaskToSprint}
                                     onEditTask={handleEditTask}
                                     onCopyTask={handleCopyTask}
                                     onRemoveTask={handleRemoveTask}
@@ -3772,6 +3951,19 @@ function AppContent() {
         onCancel={taskDeleteConfirmation.cancelDelete}
         isDeleting={taskDeleteConfirmation.isDeleting}
         position={taskDeleteConfirmation.confirmationPosition}
+      />
+
+      <CrossBoardMoveConfirmation
+        isOpen={!!crossBoardMovePending}
+        relationshipCount={crossBoardMovePending?.relationshipCount ?? 0}
+        targetBoardTitle={
+          crossBoardMovePending
+            ? boards.find(b => b.id === crossBoardMovePending.targetBoardId)?.title
+            : undefined
+        }
+        onConfirm={handleConfirmCrossBoardMove}
+        onCancel={handleCancelCrossBoardMove}
+        isBusy={crossBoardMoveBusy}
       />
 
       {showDebug && (

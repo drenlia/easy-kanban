@@ -218,9 +218,20 @@ export const reorderBoards = async (boardId: string, newPosition: number) => {
   return data;
 };
 
+/** POST /columns — includes full `columns` list after server-side renumber (0..n-1). */
+export type CreateColumnApiResponse = {
+  id: string;
+  title: string;
+  boardId: string;
+  position: number;
+  is_finished?: boolean;
+  is_archived?: boolean;
+  columns?: Column[];
+};
+
 // Columns
 export const createColumn = async (column: Column) => {
-  const { data } = await api.post<Column>('/columns', column);
+  const { data } = await api.post<CreateColumnApiResponse>('/columns', column);
   return data;
 };
 

@@ -329,14 +329,18 @@ class PostgresDatabase {
           }
           
           try {
-            // Log CREATE TABLE statements for debugging
-            if (cleaned.toUpperCase().startsWith('CREATE TABLE')) {
+            // Optional: per-table noise during schema bootstrap (runs on full db.exec(), not on normal DML).
+            // Set LOG_PG_CREATE_TABLE=true when debugging tenant/schema init — not tied to Gantt scroll saves.
+            if (
+              process.env.LOG_PG_CREATE_TABLE === 'true' &&
+              cleaned.toUpperCase().startsWith('CREATE TABLE')
+            ) {
               const tableMatch = cleaned.match(/CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["']?(\w+)["']?/i);
               if (tableMatch) {
                 console.log(`🔧 Executing CREATE TABLE for: ${tableMatch[1]}`);
               }
             }
-            
+
             // Convert SQLite syntax to PostgreSQL
             const pgSql = this.convertSqliteToPostgres(cleaned);
             

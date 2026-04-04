@@ -274,6 +274,19 @@ export async function getColumnIdsForBoard(db, boardId) {
 }
 
 /**
+ * Renumber all columns on a board to 0..n-1 in current sort order (position, id).
+ * Call after insert/delete/reorder edge cases so positions stay contiguous.
+ * @returns {Promise<Array>} All columns for the board from getAllColumnsForBoard
+ */
+export async function renumberBoardColumnPositions(db, boardId) {
+  const columnRows = await getColumnIdsForBoard(db, boardId);
+  for (let index = 0; index < columnRows.length; index++) {
+    await updateColumnPosition(db, columnRows[index].id, index);
+  }
+  return getAllColumnsForBoard(db, boardId);
+}
+
+/**
  * Update column (title, is_finished, is_archived)
  */
 export async function updateColumn(db, columnId, title, isFinished, isArchived) {
@@ -416,14 +429,15 @@ export async function getCollaboratorsForTask(db, taskId) {
  * Add watcher to task
  */
 export async function addWatcher(db, taskId, memberId) {
+  // Omit createdAt/createdat: use table DEFAULT (matches schema in database.js; PG lowercases to createdat, not created_at)
   const query = `
-    INSERT INTO watchers (taskid, memberid, created_at)
-    VALUES ($1, $2, $3)
+    INSERT INTO watchers (taskid, memberid)
+    VALUES ($1, $2)
     ON CONFLICT (taskid, memberid) DO NOTHING
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'INSERT');
-  return await stmt.run(taskId, memberId, new Date().toISOString());
+  return await stmt.run(taskId, memberId);
 }
 
 /**
@@ -440,13 +454,13 @@ export async function removeWatcher(db, taskId, memberId) {
  */
 export async function addCollaborator(db, taskId, memberId) {
   const query = `
-    INSERT INTO collaborators (taskid, memberid, created_at)
-    VALUES ($1, $2, $3)
+    INSERT INTO collaborators (taskid, memberid)
+    VALUES ($1, $2)
     ON CONFLICT (taskid, memberid) DO NOTHING
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'INSERT');
-  return await stmt.run(taskId, memberId, new Date().toISOString());
+  return await stmt.run(taskId, memberId);
 }
 
 /**

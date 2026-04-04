@@ -407,6 +407,7 @@
     "highlightOverdueTasksDescription": "Lorsqu'elle est activée, les tâches en retard seront mises en évidence avec un badge \"RETARD\".",
     "defaultProjectPrefix": "Préfixe de projet par défaut",
     "defaultProjectPrefixDescription": "Préfixe utilisé pour les identifiants de projet de nouveaux tableaux (ex. : \"PROJ-\" → \"PROJ-00001\")",
+    "defaultProjectPrefixFutureNote": "Réservé à de futures évolutions : ce champ pourra servir à la gestion de portefeuilles et de programmes (PPM), aux chefs de projet (PM) et aux product owners (PO) travaillant sur plusieurs portefeuilles et projets.",
     "defaultTaskPrefix": "Préfixe de tâche par défaut",
     "defaultTaskPrefixDescription": "Préfixe utilisé pour les identifiants de ticket de nouvelles tâches (ex. : \"TASK-\" → \"TASK-00001\")",
     "howItWorks": "Comment ça fonctionne :",

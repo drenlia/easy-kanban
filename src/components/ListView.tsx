@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip, Calendar } from 'lucide-react';
+import { ChevronDown, ChevronUp, Eye, EyeOff, Menu, X, Check, Trash2, Copy, FileText, ChevronLeft, ChevronRight, MessageCircle, UserPlus, Plus, Paperclip, Calendar, GitBranch } from 'lucide-react';
 import { Task, TeamMember, Priority, PriorityOption, Tag, Columns, Board, CurrentUser } from '../types';
 import { TaskViewMode, loadUserPreferences, updateUserPreference, ColumnVisibility } from '../utils/userPreferences';
 import { formatToYYYYMMDD, formatToYYYYMMDDHHmmss, parseLocalDate } from '../utils/dateUtils';
@@ -10,12 +10,14 @@ import { getBoardColumns, addTagToTask, removeTagFromTask } from '../api';
 import DOMPurify from 'dompurify';
 import { generateTaskUrl } from '../utils/routingUtils';
 import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils';
-import { getAuthenticatedAvatarUrl } from '../utils/authImageUrl';
+import { getAuthenticatedAvatarUrl, getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
+import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
 import { truncateMemberName } from '../utils/memberUtils';
 import ExportMenu from './ExportMenu';
 import TextEditor from './TextEditor';
 import AddTagModal from './AddTagModal';
 import DateRangePicker from './DateRangePicker';
+import { CHROME_TOOLTIP_POPOVER_CLASS, KanbanChromeTooltip } from './KanbanChromeTooltip';
 
 interface ListViewScrollControls {
   canScrollLeft: boolean;
@@ -43,6 +45,147 @@ interface ListViewProps {
   boards?: Board[]; // To get project identifier from board
   siteSettings?: { [key: string]: string }; // Site settings for badge system
   currentUser?: CurrentUser | null; // Current user for admin checks
+  /** Parent/child/related links for the current board (list view dependency tree uses parent edges only) */
+  boardRelationships?: BoardTaskRelationship[];
+  /** When set (specific sprint or `backlog`), Sprint column is hidden (redundant). `null` = all sprints, show column per prefs. */
+  selectedSprintId?: string | null;
+}
+
+/** Matches GET /boards/:boardId/relationships rows */
+export interface BoardTaskRelationship {
+  id: string;
+  taskId: string;
+  toTaskId: string;
+  relationship: 'parent' | 'child' | 'related';
+  createdAt?: string;
+}
+
+interface ListDependencyMeta {
+  depth: number;
+  /** Length depth - 1: draw vertical guide at column i when true */
+  verticalMask: boolean[];
+  isLastChild: boolean;
+}
+
+function buildListViewDependencyOrder(
+  sortedTasks: Task[],
+  relationships: BoardTaskRelationship[] | undefined
+): { ordered: Task[]; metaById: Map<string, ListDependencyMeta> } {
+  const metaById = new Map<string, ListDependencyMeta>();
+  if (!sortedTasks.length) {
+    return { ordered: [], metaById };
+  }
+
+  const taskIds = new Set(sortedTasks.map(t => t.id));
+  const taskById = new Map(sortedTasks.map(t => [t.id, t]));
+  const orderIndex = new Map(sortedTasks.map((t, i) => [t.id, i]));
+
+  const children = new Map<string, string[]>();
+  for (const rel of relationships || []) {
+    if (rel.relationship !== 'parent') continue;
+    const parent = rel.taskId;
+    const child = rel.toTaskId;
+    if (!taskIds.has(parent) || !taskIds.has(child)) continue;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent)!.push(child);
+  }
+  for (const [p, arr] of children) {
+    const uniq = [...new Set(arr)];
+    uniq.sort((a, b) => (orderIndex.get(a) ?? 0) - (orderIndex.get(b) ?? 0));
+    children.set(p, uniq);
+  }
+
+  const isChild = new Set<string>();
+  for (const rel of relationships || []) {
+    if (rel.relationship !== 'parent') continue;
+    if (taskIds.has(rel.taskId) && taskIds.has(rel.toTaskId)) {
+      isChild.add(rel.toTaskId);
+    }
+  }
+
+  let roots = sortedTasks.filter(t => !isChild.has(t.id));
+  if (roots.length === 0) {
+    roots = [...sortedTasks];
+  }
+
+  const ordered: Task[] = [];
+  const placed = new Set<string>();
+
+  function dfs(
+    taskId: string,
+    depth: number,
+    ancestorHasNext: boolean[],
+    isLastAmongSiblings: boolean,
+    stack: Set<string>
+  ) {
+    if (placed.has(taskId)) return;
+    if (stack.has(taskId)) return;
+    stack.add(taskId);
+
+    const task = taskById.get(taskId);
+    if (!task) {
+      stack.delete(taskId);
+      return;
+    }
+
+    placed.add(taskId);
+    ordered.push(task);
+    metaById.set(taskId, {
+      depth,
+      verticalMask: [...ancestorHasNext],
+      isLastChild: isLastAmongSiblings
+    });
+
+    const kids = children.get(taskId) || [];
+    kids.forEach((cid, idx) => {
+      const notLast = idx < kids.length - 1;
+      dfs(cid, depth + 1, [...ancestorHasNext, notLast], idx === kids.length - 1, stack);
+    });
+    stack.delete(taskId);
+  }
+
+  roots.forEach((task, idx) => {
+    dfs(task.id, 0, [], idx === roots.length - 1, new Set());
+  });
+
+  for (const t of sortedTasks) {
+    if (!placed.has(t.id)) {
+      ordered.push(t);
+      placed.add(t.id);
+      metaById.set(t.id, { depth: 0, verticalMask: [], isLastChild: true });
+    }
+  }
+
+  return { ordered, metaById };
+}
+
+function ListDependencyGutter({
+  depth,
+  verticalMask,
+  isLastChild
+}: ListDependencyMeta) {
+  if (depth === 0) {
+    return <div className="shrink-0" aria-hidden />;
+  }
+  return (
+    <div
+      className="flex items-stretch shrink-0 text-gray-400 dark:text-gray-500 text-[11px] leading-none select-none"
+      aria-hidden
+    >
+      {verticalMask.map((cont, i) => (
+        <div key={i} className="w-3 flex justify-center shrink-0 self-stretch min-h-[1.25rem]">
+          {cont ? (
+            <span className="block w-px h-full min-h-[1.25rem] bg-gray-300 dark:bg-gray-600" />
+          ) : null}
+        </div>
+      ))}
+      <div className="flex items-center gap-0 pr-1 shrink-0 whitespace-nowrap font-mono">
+        <span>{isLastChild ? '└' : '├'}</span>
+        <span>─</span>
+        <span className="text-[10px]">&gt;</span>
+      </div>
+    </div>
+  );
 }
 
 type SortField = 'sprint' | 'ticket' | 'title' | 'priority' | 'assignee' | 'startDate' | 'dueDate' | 'createdAt' | 'column' | 'tags' | 'comments';
@@ -58,10 +201,44 @@ interface ColumnConfig {
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
 
+const LIST_VIEW_INSTANT_TOOLTIP_CLASS = `${CHROME_TOOLTIP_POPOVER_CLASS} top-full mt-1 z-[60]`;
+
+/** Blob fix + DOMPurify + anchor `target` / `rel` from `SITE_OPENS_NEW_TAB` (matches TaskCard). */
+function buildListViewDescriptionHtml(
+  description: string | undefined,
+  siteSettings?: { [key: string]: string }
+): string {
+  let fixed = description || '';
+  const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
+  fixed = fixed.replace(blobPattern, (_match, filename) => {
+    const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
+    return authenticatedUrl || `/uploads/${filename}`;
+  });
+  if (fixed.includes('blob:')) {
+    fixed = fixed.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
+    fixed = fixed.replace(/blob:[^\s"')]+/gi, '');
+  }
+  const html = DOMPurify.sanitize(fixed);
+  if (typeof document === 'undefined') return html;
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  const opensNew = shouldOpenLinkInNewTab(siteSettings);
+  wrap.querySelectorAll('a[href]').forEach(anchor => {
+    if (opensNew) {
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+    } else {
+      anchor.removeAttribute('target');
+      anchor.removeAttribute('rel');
+    }
+  });
+  return wrap.innerHTML;
+}
+
 // Note: Column labels are now translated in the component using useTranslation
 const DEFAULT_COLUMNS: ColumnConfig[] = [
   { key: 'sprint', label: 'Sprint', visible: true, width: 150 },
-  { key: 'ticket', label: 'ID', visible: true, width: 100 },
+  { key: 'ticket', label: 'ID', visible: true, width: 128 },
   { key: 'title', label: 'Task', visible: true, width: 300 },
   { key: 'assignee', label: 'Assignee', visible: true, width: 120 },
   { key: 'priority', label: 'Priority', visible: true, width: 120 },
@@ -91,7 +268,9 @@ export default function ListView({
   onScrollControlsChange,
   boards,
   siteSettings,
-  currentUser
+  currentUser,
+  boardRelationships = [],
+  selectedSprintId = null
 }: ListViewProps) {
   const { t } = useTranslation(['tasks', 'common']);
   
@@ -164,6 +343,19 @@ export default function ListView({
   // Horizontal scroll navigation state
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
+  const [showListDependencyTree, setShowListDependencyTree] = useState(false);
+  const [depsToggleHovered, setDepsToggleHovered] = useState(false);
+  const [columnMenuTooltipHovered, setColumnMenuTooltipHovered] = useState(false);
+  const [rowActionTooltip, setRowActionTooltip] = useState<{
+    taskId: string;
+    action: 'copy' | 'delete';
+  } | null>(null);
+  const [sprintCalTooltipTaskId, setSprintCalTooltipTaskId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const prefs = loadUserPreferences(currentUser?.id ?? null);
+    setShowListDependencyTree(Boolean(prefs.listViewShowDependencies));
+  }, [currentUser?.id]);
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const scrollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -465,6 +657,25 @@ export default function ListView({
     });
   }, [allTasks, sortField, sortDirection, availablePriorities, members, sprints]);
 
+  const { tableTasks, listDepMetaById } = useMemo(() => {
+    if (!showListDependencyTree) {
+      return { tableTasks: sortedTasks, listDepMetaById: new Map<string, ListDependencyMeta>() };
+    }
+    const { ordered, metaById } = buildListViewDependencyOrder(sortedTasks, boardRelationships);
+    return { tableTasks: ordered, listDepMetaById: metaById };
+  }, [sortedTasks, boardRelationships, showListDependencyTree]);
+
+  const ticketColumnWidthBoost = showListDependencyTree ? 140 : 0;
+
+  const ticketColumnThStyle = (colWidth: number) => {
+    const dim = colWidth + ticketColumnWidthBoost;
+    return { width: dim, minWidth: dim } as const;
+  };
+  /** No maxWidth so long prefixes (e.g. TASK-99999) stay fully visible. */
+  const ticketColumnTdStyle = (colWidth: number) => ({
+    minWidth: colWidth + ticketColumnWidthBoost
+  });
+
   // Update scroll state when table content changes
   useEffect(() => {
     // Check scroll state after a short delay to ensure layout is complete
@@ -489,7 +700,7 @@ export default function ListView({
     }
     
     return () => clearTimeout(timeoutId);
-  }, [sortedTasks]);
+  }, [tableTasks]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -500,15 +711,27 @@ export default function ListView({
     }
   };
 
+  /** Hide Sprint column when not in “all sprints” mode (single sprint or backlog — no useful variation in that column). */
+  const isSingleSprintListFilter = selectedSprintId != null;
+
+  const countEffectiveVisibleColumns = (cols: ColumnConfig[]) =>
+    cols.filter(col => {
+      if (!col.visible) return false;
+      if (col.key === 'sprint' && isSingleSprintListFilter) return false;
+      return true;
+    }).length;
+
   const toggleColumnVisibility = (key: SortField) => {
+    if (key === 'sprint' && isSingleSprintListFilter) {
+      return;
+    }
     const newColumns = columns.map(col => 
       col.key === key ? { ...col, visible: !col.visible } : col
     );
     
-    // Prevent hiding all columns - ensure at least one is always visible
-    const visibleCount = newColumns.filter(col => col.visible).length;
-    if (visibleCount === 0) {
-      return; // Don't allow hiding all columns
+    // Prevent hiding all columns (count columns that actually appear in the table)
+    if (countEffectiveVisibleColumns(newColumns) === 0) {
+      return;
     }
     
     setColumns(newColumns);
@@ -656,16 +879,20 @@ export default function ListView({
         {/* Watchers & Collaborators Icons */}
         <div className="flex gap-1">
           {task?.watchers && task.watchers.length > 0 && (
-            <div className="flex items-center" title={formatMembersTooltip(task.watchers, 'watcher')}>
-              <Eye size={10} className="text-blue-500" />
-              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
-            </div>
+            <KanbanChromeTooltip label={formatMembersTooltip(task.watchers, 'watcher')} delayMs={0} wrapperClassName="flex items-center">
+              <span className="flex items-center">
+                <Eye size={10} className="text-blue-500" />
+                <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.watchers.length}</span>
+              </span>
+            </KanbanChromeTooltip>
           )}
           {task?.collaborators && task.collaborators.length > 0 && (
-            <div className="flex items-center" title={formatMembersTooltip(task.collaborators, 'collaborator')}>
-              <UserPlus size={10} className="text-blue-500" />
-              <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
-            </div>
+            <KanbanChromeTooltip label={formatMembersTooltip(task.collaborators, 'collaborator')} delayMs={0} wrapperClassName="flex items-center">
+              <span className="flex items-center">
+                <UserPlus size={10} className="text-blue-500" />
+                <span className="text-[9px] text-blue-600 ml-0.5 font-medium">{task.collaborators.length}</span>
+              </span>
+            </KanbanChromeTooltip>
           )}
         </div>
       </div>
@@ -879,7 +1106,7 @@ export default function ListView({
   };
 
   // Sprint selector handlers
-  const handleSprintSelectorOpen = (taskId: string, event: React.MouseEvent<HTMLDivElement>) => {
+  const handleSprintSelectorOpen = (taskId: string, event: React.SyntheticEvent<HTMLDivElement>) => {
     const target = event.currentTarget;
     const coords = calculateDropdownCoords(target, 'sprint');
     setSprintSelectorCoords(coords);
@@ -1263,7 +1490,14 @@ export default function ListView({
     return { vertical: 'above', left: 0, top: 0 };
   };
 
-  const visibleColumns = columns.filter(col => col.visible);
+  let visibleColumns = columns.filter(col => {
+    if (!col.visible) return false;
+    if (col.key === 'sprint' && isSingleSprintListFilter) return false;
+    return true;
+  });
+  if (visibleColumns.length === 0 && isSingleSprintListFilter) {
+    visibleColumns = columns.filter(col => col.visible);
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -1292,15 +1526,25 @@ export default function ListView({
                       availablePriorities={availablePriorities}
                       isAdmin={currentUser?.roles?.includes('admin') || false}
                     />
-                    <button
-                      ref={columnMenuButtonRef}
-                      onClick={handleColumnMenuToggle}
-                      className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
-                      title={t('listView.showHideColumns')}
-                      data-tour-id="column-visibility"
-                    >
-                      <Menu size={14} />
-                    </button>
+                    <span className="relative inline-flex shrink-0">
+                      <button
+                        ref={columnMenuButtonRef}
+                        type="button"
+                        onClick={handleColumnMenuToggle}
+                        className="opacity-60 hover:opacity-100 p-1 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-opacity"
+                        aria-label={t('listView.showHideColumns')}
+                        data-tour-id="column-visibility"
+                        onMouseEnter={() => setColumnMenuTooltipHovered(true)}
+                        onMouseLeave={() => setColumnMenuTooltipHovered(false)}
+                      >
+                        <Menu size={14} />
+                      </button>
+                      {columnMenuTooltipHovered ? (
+                        <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
+                          {t('listView.showHideColumns')}
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
                 </div>
 
@@ -1309,17 +1553,61 @@ export default function ListView({
                 <th
                   key={column.key}
                   className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600 relative group"
-                  style={{ 
-                    width: column.width,
-                    maxWidth: column.key === 'title' ? 300 : column.width,
-                    minWidth: column.key === 'title' ? 200 : 'auto'
-                  }}
+                  style={
+                    column.key === 'ticket'
+                      ? ticketColumnThStyle(column.width)
+                      : {
+                          width: column.width,
+                          maxWidth: column.key === 'title' ? 300 : column.width,
+                          minWidth: column.key === 'title' ? 200 : 'auto'
+                        }
+                  }
                   onClick={() => handleSort(column.key)}
                 >
-                  <div className="flex items-center justify-between">
-                    <span>{t(`columnLabels.${column.key}`, { ns: 'tasks' }) || column.label}</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                      {column.key === 'ticket' && (
+                        <span
+                          className="relative shrink-0 flex items-center"
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            aria-label={t('listView.showHideDependencies')}
+                            aria-pressed={showListDependencyTree}
+                            onMouseEnter={() => setDepsToggleHovered(true)}
+                            onMouseLeave={() => setDepsToggleHovered(false)}
+                            onClick={() => {
+                              const next = !showListDependencyTree;
+                              setShowListDependencyTree(next);
+                              void updateUserPreference(
+                                'listViewShowDependencies',
+                                next,
+                                currentUser?.id ?? null
+                              );
+                            }}
+                            className={`p-1 rounded transition-colors ${
+                              showListDependencyTree
+                                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
+                                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            }`}
+                          >
+                            <GitBranch size={14} />
+                          </button>
+                          {depsToggleHovered ? (
+                            <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
+                              {t('listView.showHideDependencies')}
+                            </span>
+                          ) : null}
+                        </span>
+                      )}
+                      <span className="truncate">
+                        {t(`columnLabels.${column.key}`, { ns: 'tasks' }) || column.label}
+                      </span>
+                    </div>
                     {sortField === column.key && (
-                      sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                      sortDirection === 'asc' ? <ChevronUp size={14} className="shrink-0" /> : <ChevronDown size={14} className="shrink-0" />
                     )}
                   </div>
                 </th>
@@ -1327,14 +1615,14 @@ export default function ListView({
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {sortedTasks.length === 0 ? (
+            {tableTasks.length === 0 ? (
               <tr>
                 <td colSpan={visibleColumns.length + 1} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                   {t('listView.noTasksFound')}
                 </td>
               </tr>
             ) : (
-              sortedTasks.map((task, index) => {
+              tableTasks.map((task, index) => {
                 // Animation classes based on phase
                 const getAnimationClasses = () => {
                   if (animatingTask !== task.id) return '';
@@ -1364,28 +1652,55 @@ export default function ListView({
                   <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500 w-24">
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-gray-500 mr-1">{index + 1}</span>
-                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div
+                        className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onMouseLeave={() => setRowActionTooltip(null)}
+                      >
                         {/* View Details Button - REMOVED: Click title/description to open details */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onCopyTask(task);
-                          }}
-                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-green-600"
-                          title={t('listView.copyTask')}
-                        >
-                          <Copy size={12} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onRemoveTask(task.id, e);
-                          }}
-                          className="p-0.5 hover:bg-gray-200 rounded text-gray-600 hover:text-red-600"
-                          title={t('listView.deleteTask')}
-                        >
-                          <Trash2 size={12} />
-                        </button>
+                        <span className="relative inline-flex">
+                          <button
+                            type="button"
+                            aria-label={t('listView.copyTask')}
+                            onMouseEnter={() =>
+                              setRowActionTooltip({ taskId: task.id, action: 'copy' })
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCopyTask(task);
+                            }}
+                            className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 hover:text-green-600"
+                          >
+                            <Copy size={12} />
+                          </button>
+                          {rowActionTooltip?.taskId === task.id &&
+                          rowActionTooltip?.action === 'copy' ? (
+                            <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
+                              {t('listView.copyTask')}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="relative inline-flex">
+                          <button
+                            type="button"
+                            aria-label={t('listView.deleteTask')}
+                            onMouseEnter={() =>
+                              setRowActionTooltip({ taskId: task.id, action: 'delete' })
+                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRemoveTask(task.id, e);
+                            }}
+                            className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 hover:text-red-600"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                          {rowActionTooltip?.taskId === task.id &&
+                          rowActionTooltip?.action === 'delete' ? (
+                            <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
+                              {t('listView.deleteTask')}
+                            </span>
+                          ) : null}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -1393,10 +1708,14 @@ export default function ListView({
                     <td 
                       key={column.key} 
                       className={`px-3 py-2 ${column.key !== 'title' ? 'whitespace-nowrap' : ''}`}
-                      style={{ 
-                        maxWidth: column.key === 'title' ? 300 : column.width,
-                        minWidth: column.key === 'title' ? 200 : 'auto'
-                      }}
+                      style={
+                        column.key === 'ticket'
+                          ? ticketColumnTdStyle(column.width)
+                          : {
+                              maxWidth: column.key === 'title' ? 300 : column.width,
+                              minWidth: column.key === 'title' ? 200 : 'auto'
+                            }
+                      }
                     >
                       {column.key === 'title' && (
                         <div className="max-w-full">
@@ -1491,6 +1810,9 @@ export default function ListView({
                                 title={task.description ? task.description.replace(/<[^>]*>/g, '') : ''}
                                 onClick={(e) => {
                                   e.stopPropagation();
+                                  if ((e.target as HTMLElement).closest('a')) {
+                                    return;
+                                  }
                                   // Delay opening/closing TaskDetails to allow double-click to cancel it
                                   if (clickTimerRef.current) {
                                     clearTimeout(clickTimerRef.current);
@@ -1507,6 +1829,9 @@ export default function ListView({
                                 }}
                                 onDoubleClick={(e) => {
                                   e.stopPropagation();
+                                  if ((e.target as HTMLElement).closest('a')) {
+                                    return;
+                                  }
                                   // Cancel pending single-click timer to prevent TaskDetails from opening
                                   if (clickTimerRef.current) {
                                     clearTimeout(clickTimerRef.current);
@@ -1516,28 +1841,7 @@ export default function ListView({
                                   startEditing(task.id, 'description', task.description);
                                 }}
                                 dangerouslySetInnerHTML={{
-                                  __html: DOMPurify.sanitize(
-                                    (() => {
-                                      // Fix blob URLs in task description
-                                      let fixedDescription = task.description || '';
-                                      const blobPattern = /blob:[^"]*#(img-[^"]*)/g;
-                                      fixedDescription = fixedDescription.replace(blobPattern, (_match, filename) => {
-                                        // Convert blob URL to authenticated server URL
-                                        const authenticatedUrl = getAuthenticatedAttachmentUrl(`/attachments/${filename}`);
-                                        return authenticatedUrl || `/uploads/${filename}`;
-                                      });
-                                      
-                                      // Fallback: Remove ANY remaining blob URLs that couldn't be matched
-                                      if (fixedDescription.includes('blob:')) {
-                                        // Replace remaining blob URLs in img tags
-                                        fixedDescription = fixedDescription.replace(/<img[^>]*src="blob:[^"]*"[^>]*>/gi, '<!-- Image removed: blob URL expired -->');
-                                        // Also replace any blob URLs in other contexts
-                                        fixedDescription = fixedDescription.replace(/blob:[^\s"')]+/gi, '');
-                                      }
-                                      
-                                      return fixedDescription;
-                                    })()
-                                  )
+                                  __html: buildListViewDescriptionHtml(task.description, siteSettings),
                                 }}
                               />
                             )
@@ -1554,19 +1858,27 @@ export default function ListView({
                         </div>
                       )}
                       {column.key === 'ticket' && (
-                        <div className="text-sm text-gray-600 font-mono">
-                          {task.ticket ? (
-                            <a
-                              href={generateTaskUrl(task.ticket, getProjectIdentifier(task.boardId || ''))}
-                              className="text-blue-600 hover:text-blue-800 hover:underline transition-colors cursor-pointer"
-                              title={`Go to task ${task.ticket}`}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {task.ticket}
-                            </a>
-                          ) : (
-                            '-'
+                        <div className="flex items-center gap-1 text-sm text-gray-600 font-mono">
+                          {showListDependencyTree && (
+                            <ListDependencyGutter {...(listDepMetaById.get(task.id) ?? { depth: 0, verticalMask: [], isLastChild: true })} />
                           )}
+                          <div className="shrink-0 whitespace-nowrap">
+                            {task.ticket ? (
+                              <a
+                                href={generateTaskUrl(task.ticket, getProjectIdentifier(task.boardId || ''))}
+                                {...(getLinkTarget(siteSettings)
+                                  ? { target: '_blank', rel: 'noopener noreferrer' }
+                                  : {})}
+                                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline transition-colors cursor-pointer"
+                                title={`Go to task ${task.ticket}`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {task.ticket}
+                              </a>
+                            ) : (
+                              '-'
+                            )}
+                          </div>
                         </div>
                       )}
                       {column.key === 'assignee' && (
@@ -1666,17 +1978,39 @@ export default function ListView({
                       )}
                       {column.key === 'startDate' && (
                         <div className="flex items-center gap-1">
-                          <div
-                            title={t('listView.clickToSelectSprint')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSprintSelectorOpen(task.id, e);
-                            }}
-                          >
-                            <Calendar 
-                              size={12} 
-                              className="cursor-pointer hover:text-blue-600 transition-colors flex-shrink-0"
-                            />
+                          <div className="relative inline-flex shrink-0">
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              aria-label={t('listView.clickToSelectSprint')}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleSprintSelectorOpen(task.id, e);
+                                }
+                              }}
+                              onMouseEnter={() => setSprintCalTooltipTaskId(task.id)}
+                              onMouseLeave={() =>
+                                setSprintCalTooltipTaskId(prev =>
+                                  prev === task.id ? null : prev
+                                )
+                              }
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSprintSelectorOpen(task.id, e);
+                              }}
+                            >
+                              <Calendar
+                                size={12}
+                                className="cursor-pointer hover:text-blue-600 transition-colors flex-shrink-0"
+                              />
+                            </div>
+                            {sprintCalTooltipTaskId === task.id ? (
+                              <span className={LIST_VIEW_INSTANT_TOOLTIP_CLASS}>
+                                {t('listView.clickToSelectSprint')}
+                              </span>
+                            ) : null}
                           </div>
                           {(() => {
                             const validation = getDateValidation(task);
@@ -2286,22 +2620,34 @@ export default function ListView({
             <div className="px-3 py-2 text-xs font-medium text-gray-700 border-b border-gray-100">
               {t('listView.showHideColumns')}
             </div>
-            {columns.map(col => (
-              <button
-                key={col.key}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  toggleColumnVisibility(col.key);
-                }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
-                disabled={col.visible && visibleColumns.length === 1} // Prevent hiding last column
-              >
-                {col.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                <span className={col.visible && visibleColumns.length === 1 ? 'text-gray-400' : ''}>
-                  {t(`columnLabels.${col.key}`, { ns: 'tasks' }) || col.label}
-                </span>
-              </button>
-            ))}
+            {columns.map(col => {
+              const sprintSuppressed = col.key === 'sprint' && isSingleSprintListFilter;
+              const effectiveVisible =
+                col.visible && !sprintSuppressed;
+              const effCount = countEffectiveVisibleColumns(columns);
+              const cannotHideLast = effectiveVisible && effCount === 1;
+              return (
+                <button
+                  key={col.key}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleColumnVisibility(col.key);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={sprintSuppressed || cannotHideLast}
+                  title={
+                    sprintSuppressed
+                      ? t('listView.sprintColumnUnavailableSingleSprint')
+                      : undefined
+                  }
+                >
+                  {effectiveVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                  <span className={cannotHideLast ? 'text-gray-400 dark:text-gray-500' : ''}>
+                    {t(`columnLabels.${col.key}`, { ns: 'tasks' }) || col.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>,
         document.body

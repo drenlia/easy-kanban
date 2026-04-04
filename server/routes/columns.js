@@ -43,35 +43,64 @@ router.post('/', authenticateToken, async (req, res) => {
     
     // Check if this column should be marked as archived (auto-detect "Archive" column)
     const isArchived = title.toLowerCase() === 'archive';
-    
-    let finalPosition;
-    if (position !== undefined && position !== null) {
-      // Use provided position (for inserting between columns)
-      // CRITICAL: Ensure it's an integer (handle string "1.5" -> 1, or decimal 1.5 -> 1)
-      finalPosition = Math.floor(Number(position));
-      if (isNaN(finalPosition)) {
-        finalPosition = 0;
+
+    // Client sends (afterColumn.position + 0.5) or (afterColumn.position + 1) to insert to the RIGHT
+    // of that column. Using Math.floor (old code) turned 1.5 into 1 — same slot as the anchor column.
+    // Use ceil so 1.5 -> 2, then shift existing columns at >= insertAt to make room.
+    let allColumns;
+    await dbTransaction(db, async () => {
+      let insertPosition;
+      if (position !== undefined && position !== null) {
+        const num = Number(position);
+        if (Number.isNaN(num)) {
+          const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+          insertPosition = maxPos + 1;
+        } else {
+          insertPosition = Math.max(0, Math.ceil(num));
+          const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+          if (maxPos >= insertPosition) {
+            await helpers.shiftColumnPositions(db, boardId, insertPosition, maxPos, 1, null);
+          }
+        }
+      } else {
+        const maxPos = await helpers.getMaxColumnPosition(db, boardId);
+        insertPosition = maxPos + 1;
       }
-    } else {
-      // Default behavior: append to end
-      // MIGRATED: Use sqlManager to get max position
-      const maxPos = await helpers.getMaxColumnPosition(db, boardId);
-      finalPosition = maxPos + 1;
-    }
-    
-    // MIGRATED: Use sqlManager to create column
-    await helpers.createColumn(db, id, title, boardId, finalPosition, isFinished, isArchived);
-    
-    // Publish to Redis for real-time updates
+
+      await helpers.createColumn(db, id, title, boardId, insertPosition, isFinished, isArchived);
+      // Immediate 0..n-1 renumber so DB, API, and realtime always agree on order
+      allColumns = await helpers.renumberBoardColumnPositions(db, boardId);
+    });
+
+    const self = allColumns.find((c) => c.id === id);
+    const finalPosition = self?.position ?? 0;
+
+    // Publish full layout so clients rebuild columns state (same pattern as column-reordered)
     const tenantId = getTenantId(req);
     await notificationService.publish('column-created', {
       boardId: boardId,
-      column: { id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived },  // snake_case to match frontend
+      column: {
+        id,
+        title,
+        boardId,
+        position: finalPosition,
+        is_finished: isFinished,
+        is_archived: isArchived,
+      },
+      columns: allColumns,
       updatedBy: req.user?.id || 'system',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     }, tenantId);
-    
-    res.json({ id, title, boardId, position: finalPosition, is_finished: isFinished, is_archived: isArchived });  // snake_case to match frontend
+
+    res.json({
+      id,
+      title,
+      boardId,
+      position: finalPosition,
+      is_finished: isFinished,
+      is_archived: isArchived,
+      columns: allColumns,
+    });
   } catch (error) {
     console.error('Error creating column:', error);
     const db = getRequestDatabase(req);
@@ -295,19 +324,13 @@ router.post('/renumber', authenticateToken, async (req, res) => {
   const { boardId } = req.body;
   try {
     const db = getRequestDatabase(req);
-    
+
+    let allColumns;
     await dbTransaction(db, async () => {
-      // MIGRATED: Get all column IDs using sqlManager
-      const columns = await helpers.getColumnIdsForBoard(db, boardId);
-      
-      // Renumber them sequentially starting from 0
-      // MIGRATED: Use sqlManager to update positions
-      for (let index = 0; index < columns.length; index++) {
-        await helpers.updateColumnPosition(db, columns[index].id, index);
-      }
+      allColumns = await helpers.renumberBoardColumnPositions(db, boardId);
     });
 
-    res.json({ message: 'Columns renumbered successfully' });
+    res.json({ message: 'Columns renumbered successfully', columns: allColumns });
   } catch (error) {
     console.error('Error renumbering columns:', error);
     const db = getRequestDatabase(req);

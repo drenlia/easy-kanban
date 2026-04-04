@@ -2440,14 +2440,20 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     }
     
     // Store original location for tracking
-    const originalBoardId = task.boardId;
-    const originalColumnId = task.columnId;
+    const originalBoardId = task.boardId || task.boardid;
+    const originalColumnId = task.columnId || task.columnid;
     
     // Start transaction for atomic operation
     if (isProxyDatabase(db)) {
       // Proxy mode: Collect all queries and send as batch
       const batchQueries = [];
       const now = new Date().toISOString();
+
+      // Cross-board move: relationships are board-scoped in UI; strip all links involving this task
+      batchQueries.push({
+        query: 'DELETE FROM task_rels WHERE task_id = ? OR to_task_id = ?',
+        params: [taskId, taskId]
+      });
       
       // Shift existing tasks in target column to make room at position 0
       batchQueries.push({
@@ -2475,17 +2481,19 @@ router.post('/move-to-board', authenticateToken, async (req, res) => {
     } else {
       // Direct DB mode: Use standard transaction
       await dbTransaction(db, async () => {
+        await taskQueries.deleteAllRelationshipsInvolvingTask(db, taskId);
         // MIGRATED: Shift existing tasks in target column to make room at position 0
         await taskQueries.incrementTaskPositions(db, targetColumn.id);
         
-        // MIGRATED: Update the existing task to move it to the new location
+        // MIGRATED: Update task column, board, and pre_* audit fields (boardId required for PostgreSQL path)
         await taskQueries.updateTaskPositionAndColumn(
           db, 
           taskId, 
           0, 
           targetColumn.id, 
           originalBoardId, 
-          originalColumnId
+          originalColumnId,
+          targetBoardId
         );
       });
     }
@@ -2998,57 +3006,59 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
       const relationships = await taskQueries.getRelationshipsForFlowChart(db, taskIdsArray);
       
       console.log(`✅ FlowChart API: Found ${tasks.length} tasks and ${relationships.length} relationships`);
+
+      const jsonSafeId = (v) => (typeof v === 'bigint' ? v.toString() : v);
       
-      // Step 4: Build the response
+      // Step 4: Build the response (normalize row keys: PG may return lowercase without quoted aliases)
       const response = {
         rootTaskId: taskId,
         tasks: tasks.map(task => ({
           id: task.id,
           ticket: task.ticket,
           title: task.title,
-          memberId: task.memberId,
-          memberName: task.memberName || 'Unknown',
-          memberColor: task.memberColor || '#6366F1',
-          status: task.status || 'Unknown',
-          priority: task.priority_name || task.priority || 'medium',
-          startDate: task.startDate,
-          dueDate: task.dueDate,
-          projectId: task.projectId
+          memberId: task.memberId ?? task.memberid,
+          memberName: task.memberName ?? task.membername ?? 'Unknown',
+          memberColor: task.memberColor ?? task.membercolor ?? '#6366F1',
+          status: task.status ?? 'Unknown',
+          priority: task.priorityName ?? task.priority_name ?? task.priority ?? 'medium',
+          startDate: task.startDate ?? task.startdate,
+          dueDate: task.dueDate ?? task.duedate,
+          projectId: task.projectId ?? task.projectid
         })),
         relationships: relationships.map(rel => ({
-          id: rel.id,
-          taskId: rel.task_id,
+          id: jsonSafeId(rel.id),
+          taskId: rel.taskId ?? rel.task_id,
           relationship: rel.relationship,
-          relatedTaskId: rel.to_task_id,
-          taskTicket: rel.task_ticket,
-          relatedTaskTicket: rel.related_task_ticket
+          relatedTaskId: rel.relatedTaskId ?? rel.to_task_id,
+          taskTicket: rel.taskTicket ?? rel.task_ticket,
+          relatedTaskTicket: rel.relatedTaskTicket ?? rel.related_task_ticket
         }))
       };
       
       res.json(response);
     } else {
-      // No connected tasks, return just the root task
+      // No connected tasks, return just the root task (lowercase cols + quoted aliases for PG/SQLite)
       const rootTaskQuery = `
         SELECT 
-          t.id,
-          t.ticket,
-          t.title,
-          t.memberId,
-          mem.name as memberName,
-          mem.color as memberColor,
-          c.title as status,
-          t.priority,
-          t.priority_id,
-          p.priority as priority_name,
-          t.startDate,
-          t.dueDate,
-          b.project as projectId
+          t.id as "id",
+          t.ticket as "ticket",
+          t.title as "title",
+          t.memberid as "memberId",
+          mem.name as "memberName",
+          mem.color as "memberColor",
+          c.title as "status",
+          t.priority as "priority",
+          t.priority_id as "priority_id",
+          p.priority as "priorityName",
+          t.startdate as "startDate",
+          t.duedate as "dueDate",
+          b.project as "projectId"
         FROM tasks t
-        LEFT JOIN members mem ON t.memberId = mem.id
-        LEFT JOIN columns c ON t.columnId = c.id
-        LEFT JOIN boards b ON t.boardId = b.id
+        LEFT JOIN members mem ON t.memberid = mem.id
+        LEFT JOIN columns c ON t.columnid = c.id
+        LEFT JOIN boards b ON t.boardid = b.id
         LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
-        WHERE t.id = ?
+        WHERE t.id = $1
       `;
       
       const rootTask = await wrapQuery(db.prepare(rootTaskQuery), 'SELECT').get(taskId);
@@ -3060,14 +3070,14 @@ router.get('/:taskId/flow-chart', authenticateToken, async (req, res) => {
             id: rootTask.id,
             ticket: rootTask.ticket,
             title: rootTask.title,
-            memberId: rootTask.memberId,
-            memberName: rootTask.memberName || 'Unknown',
-            memberColor: rootTask.memberColor || '#6366F1',
-            status: rootTask.status || 'Unknown',
-            priority: rootTask.priority_name || rootTask.priority || 'medium',
-            startDate: rootTask.startDate,
-            dueDate: rootTask.dueDate,
-            projectId: rootTask.projectId
+            memberId: rootTask.memberId ?? rootTask.memberid,
+            memberName: rootTask.memberName ?? rootTask.membername ?? 'Unknown',
+            memberColor: rootTask.memberColor ?? rootTask.membercolor ?? '#6366F1',
+            status: rootTask.status ?? 'Unknown',
+            priority: rootTask.priorityName ?? rootTask.priority_name ?? rootTask.priority ?? 'medium',
+            startDate: rootTask.startDate ?? rootTask.startdate,
+            dueDate: rootTask.dueDate ?? rootTask.duedate,
+            projectId: rootTask.projectId ?? rootTask.projectid
           }],
           relationships: []
         };

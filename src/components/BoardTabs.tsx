@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Trash2, GripVertical } from 'lucide-react';
 import { Board, Task } from '../types';
-import { useSortable, SortableContext, rectSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { useSortable, SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
 import { 
@@ -12,6 +12,13 @@ import {
   canMoveTaskToBoard, 
   getBoardTabDropClasses 
 } from '../utils/crossBoardDragUtils';
+
+/** Inactive tab — sits on the track */
+const tabTrackInactive =
+  'rounded-lg px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 transition-colors duration-150 hover:bg-white/70 dark:hover:bg-gray-700/60 hover:text-gray-900 dark:hover:text-gray-100';
+/** Selected tab — raised chip */
+const tabTrackActive =
+  'rounded-lg px-3 py-2 text-sm font-semibold text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 shadow-sm ring-1 ring-gray-200/90 dark:ring-gray-600/90 transition-shadow duration-150';
 
 interface BoardTabsProps {
   boards: Board[];
@@ -87,9 +94,12 @@ const DroppableBoardTab: React.FC<{
     if (!isDragActive) return true; // Allow normal behavior when not dragging
     
     // Find the tab container to get bounds
-    const tabContainer = document.querySelector('.flex.items-center.space-x-1.overflow-x-auto') ||
-                        document.querySelector('[class*="board-tabs"]') ||
-                        document.querySelector('button[id^="board-"]')?.parentElement;
+    const tabContainer =
+      document.querySelector('.board-tabs-scroll') ||
+      document.querySelector('[data-board-tabs-scroll]') ||
+      document.querySelector('.flex.items-center.space-x-1.overflow-x-auto') ||
+      document.querySelector('[class*="board-tabs"]') ||
+      document.querySelector('button[id^="board-"]')?.parentElement;
     
     if (tabContainer) {
       const rect = tabContainer.getBoundingClientRect();
@@ -160,13 +170,9 @@ const DroppableBoardTab: React.FC<{
         userSelect: isDragActive && canDrop ? 'none' : 'auto'
       }}
       className={`
-        px-4 py-2 text-sm font-medium rounded-t-lg cursor-pointer
-        flex items-center gap-2 whitespace-nowrap min-w-[80px] justify-center
-        ${isSelected 
-          ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-t border-l border-r border-gray-200 dark:border-gray-700' 
-          : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-800 dark:hover:text-gray-100'
-        }
-        ${isDragActive && canDrop && (isHovering || isDropReady) ? 'bg-blue-100 border-2 border-blue-400 scale-105 shadow-lg' : ''}
+        cursor-pointer flex items-center gap-2 whitespace-nowrap min-w-[5.5rem] justify-center
+        ${isSelected ? tabTrackActive : tabTrackInactive}
+        ${isDragActive && canDrop && (isHovering || isDropReady) ? 'ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-950/45 scale-[1.02] shadow-md' : ''}
         ${tabClasses}
         transition-all duration-200
         relative
@@ -184,10 +190,12 @@ const DroppableBoardTab: React.FC<{
       <div className={`flex items-center gap-2 ${isDragActive && canDrop ? 'pointer-events-none' : ''}`}>
         <span className="truncate max-w-[150px] pointer-events-none">{board.title}</span>
         {taskCount !== undefined && taskCount > 0 && (
-          <span className={`
-            px-1.5 py-0.5 text-xs rounded-full font-medium min-w-[20px] text-center pointer-events-none
-            ${hasActiveFilters ? 'bg-blue-500 text-white' : 'bg-gray-500 text-white'}
-          `}>
+          <span
+            className={`
+            px-1.5 py-0.5 text-[0.65rem] leading-none rounded-full font-semibold min-w-[1.25rem] text-center pointer-events-none tabular-nums
+            ${hasActiveFilters ? 'bg-blue-600 text-white dark:bg-blue-500' : 'bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-100'}
+          `}
+          >
             {taskCount}
           </span>
         )}
@@ -228,81 +236,92 @@ const SortableBoardTab: React.FC<{
 
   return (
     <>
-      <div ref={setNodeRef} style={style} className="relative group">
-        {/* Drag Handle - Small icon on the left */}
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`
+          relative group inline-flex max-w-full min-w-0 items-center
+          ${isSelected ? tabTrackActive : tabTrackInactive}
+          ${isDragging ? 'opacity-60 shadow-lg ring-2 ring-gray-300/50 dark:ring-gray-500/40' : ''}
+        `}
+      >
+        {/* Drag handle — dedicated hit target, does not steal tab clicks */}
         <div
-          className="absolute left-1 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 hover:text-gray-600 cursor-grab active:cursor-grabbing opacity-50 hover:opacity-100 transition-opacity"
+          className="absolute left-1 top-1/2 z-[2] -translate-y-1/2 flex h-7 w-6 cursor-grab touch-none items-center justify-center rounded-md text-gray-400 opacity-60 transition-opacity hover:bg-gray-200/80 hover:text-gray-600 active:cursor-grabbing dark:hover:bg-gray-600/50 dark:hover:text-gray-300 group-hover:opacity-100"
           title={t('boardTabs.dragToReorder')}
           {...attributes}
           {...listeners}
         >
-          <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
-            <path d="M8 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM8 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 6a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM20 18a2 2 0 1 1-4 0 2 2 0 0 1 4 0z"/>
-          </svg>
+          <GripVertical className="h-4 w-4" aria-hidden />
         </div>
-        
-        {/* Main Tab Button - Now clickable without drag interference */}
-        <button
-          onClick={onSelect}
-          onDoubleClick={onEdit}
-          className={`px-4 py-3 pl-6 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
-            isSelected
-              ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-b-2 border-blue-500 dark:border-blue-400'
-              : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700'
-          } ${isDragging ? 'opacity-50 scale-95 shadow-2xl transform rotate-2' : ''}`}
-          title={t('boardTabs.clickToSelectDoubleClickToRename')}
-        >
-          <div className="flex items-center gap-2">
-            <span>{board.title}</span>
-            {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-              <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
-                {taskCount}
-              </span>
-            )}
-          </div>
-        </button>
-        
-        {/* Delete Button - Admin Only */}
-        {canDelete && (
+
+        <div className="flex min-w-0 flex-1 items-center pl-8">
           <button
-            ref={setDeleteButtonRef}
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove();
-            }}
-            className="absolute -top -right-1 p-1.5 rounded-full transition-colors opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-600"
-            title={t('boardTabs.deleteBoard')}
+            type="button"
+            onClick={onSelect}
+            onDoubleClick={onEdit}
+            className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent text-left text-inherit transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900 rounded-sm"
+            title={t('boardTabs.clickToSelectDoubleClickToRename')}
           >
-            <Trash2 size={12} />
+            <div className="flex items-center gap-2">
+              <span className="truncate max-w-[10rem]">{board.title}</span>
+              {showTaskCount && taskCount !== undefined && taskCount > 0 && (
+                <span className="shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums bg-blue-100 text-blue-800 dark:bg-blue-900/80 dark:text-blue-200">
+                  {taskCount}
+                </span>
+              )}
+            </div>
           </button>
-        )}
+
+          {/* Zero width until this tab is hovered — only the active tab grows to reveal trash after the pill */}
+          {canDelete && (
+            <div
+              className="flex max-w-0 shrink-0 items-center justify-end overflow-hidden opacity-0 transition-[max-width,opacity] duration-200 ease-out group-hover:max-w-[2.25rem] group-hover:opacity-100 group-focus-within:max-w-[2.25rem] group-focus-within:opacity-100"
+            >
+              <button
+                type="button"
+                ref={setDeleteButtonRef}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRemove();
+                }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md p-0 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+                title={t('boardTabs.deleteBoard')}
+              >
+                <Trash2 size={14} strokeWidth={2} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Delete Confirmation Menu - Using portal to escape stacking context */}
       {canDelete && showDeleteConfirm === board.id && deleteButtonRef && createPortal(
         <div 
-          className="delete-confirmation fixed bg-white border border-gray-200 rounded-lg shadow-lg p-2 z-[9999] min-w-[140px]"
+          className="delete-confirmation fixed z-[9999] min-w-[160px] rounded-lg border border-gray-200 bg-white p-3 shadow-xl dark:border-gray-600 dark:bg-gray-800"
           style={{
             top: `${deleteButtonRef.getBoundingClientRect().bottom + 5}px`,
             left: `${deleteButtonRef.getBoundingClientRect().left - 120}px`,
           }}
         >
-          <div className="text-sm text-gray-700 mb-2">
+          <div className="mb-2 text-sm text-gray-700 dark:text-gray-200">
             {(taskCount || 0) > 0 
               ? t('boardTabs.deleteBoardAndTasks', { count: taskCount })
               : t('boardTabs.deleteEmptyBoard')
             }
           </div>
-          <div className="flex space-x-2">
+          <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => onConfirmDelete(board.id)}
-              className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700"
             >
               {t('buttons.yes')}
             </button>
             <button
+              type="button"
               onClick={onCancelDelete}
-              className="px-2 py-1 text-xs bg-gray-300 text-gray-700 rounded hover:bg-gray-400 transition-colors"
+              className="rounded-md bg-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-800 transition-colors hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-100 dark:hover:bg-gray-500"
             >
               {t('buttons.no')}
             </button>
@@ -329,18 +348,15 @@ const RegularBoardTab: React.FC<{
   return (
     <div className="relative group">
       <button
+        type="button"
         onClick={onSelect}
-        className={`px-4 py-3 pr-3 text-sm font-medium rounded-t-lg transition-all cursor-pointer ${
-          isSelected
-            ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border-b-2 border-blue-500 dark:border-blue-400'
-            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700'
-        }`}
+        className={`${isSelected ? tabTrackActive : tabTrackInactive} w-full text-left`}
         title={t('boardTabs.clickToSelectBoard')}
       >
         <div className="flex items-center gap-2">
-          <span>{board.title}</span>
+          <span className="truncate max-w-[11rem]">{board.title}</span>
           {showTaskCount && taskCount !== undefined && taskCount > 0 && (
-            <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+            <span className="shrink-0 px-1.5 py-0.5 text-[0.65rem] font-semibold leading-none rounded-full tabular-nums bg-blue-100 text-blue-800 dark:bg-blue-900/80 dark:text-blue-200">
               {taskCount}
             </span>
           )}
@@ -480,16 +496,18 @@ export default function BoardTabs({
 
   if (boards.length === 0) {
     return (
-      <div className="flex items-center gap-2 p-4">
-        <h2 className="text-lg font-semibold text-gray-600">{t('boardTabs.noBoards')}</h2>
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-gray-300 bg-gray-50/80 px-4 py-3 dark:border-gray-600 dark:bg-gray-800/40">
+        <h2 className="text-sm font-medium text-gray-600 dark:text-gray-400">{t('boardTabs.noBoards')}</h2>
         {isAdmin && (
           <button
+            type="button"
             onClick={onAddBoard}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:border-blue-500 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200 dark:hover:border-blue-400 dark:hover:text-blue-300"
             title={t('boardTabs.addBoard')}
             data-tour-id="add-board-button"
           >
-            <Plus size={18} />
+            <Plus size={16} strokeWidth={2} />
+            <span className="hidden sm:inline">{t('boardTabs.newBoard')}</span>
           </button>
         )}
       </div>
@@ -587,48 +605,47 @@ export default function BoardTabs({
 
   return (
     <div className="mb-6">
-      
-      <div className="flex items-center justify-between">
-        {/* Board Tabs */}
-        <div className="flex items-center space-x-2 flex-1 min-w-0" data-tour-id="board-tabs">
-          {/* Left scroll button */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2" data-tour-id="board-tabs">
           {canScrollLeft && (
             <button
+              type="button"
               onClick={scrollLeft}
-              className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-colors hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100"
               title={t('boardTabs.scrollLeft')}
             >
-              <ChevronLeft size={16} className="text-gray-600 dark:text-gray-300" />
+              <ChevronLeft size={18} strokeWidth={2} />
             </button>
           )}
-          
-          {/* Scrollable tabs container */}
-          <div 
+
+          <div
             ref={tabsContainerRef}
-            className="flex items-center space-x-1 overflow-x-auto flex-1 min-w-0 hide-scrollbar"
+            data-board-tabs-scroll
+            className="board-tabs-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border border-gray-200/90 bg-gray-100/55 px-1 py-1 dark:border-gray-700/90 dark:bg-gray-800/45 hide-scrollbar"
           >
             {isAdmin ? (
               // Admin view with drag and drop (only when not dragging tasks)
               draggedTask ? (
                 // When dragging a task, render tabs without board DndContext to allow cross-board drops
-                <div className="flex items-center space-x-1 flex-shrink-0">
+                <div className="flex flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
-                    <div key={board.id}>
+                    <div key={board.id} className="shrink-0">
                       {editingBoardId === board.id ? (
-                        // Inline editing form
-                        <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                        <form
+                          onSubmit={handleTitleSubmit}
+                          className="min-w-[10rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-600 dark:bg-gray-900"
+                        >
                           <input
                             type="text"
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
-                            className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full rounded-md border-0 bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-100"
                             autoFocus
                             onBlur={handleTitleSubmit}
                             disabled={isSubmitting}
                           />
                         </form>
                       ) : (
-                        // Droppable tab for cross-board drops
                         <DroppableBoardTab
                           board={board}
                           isSelected={selectedBoard === board.id}
@@ -649,17 +666,19 @@ export default function BoardTabs({
                 // Normal board management with DndContext (only when not dragging a task)
                 <DndContext onDragEnd={handleDragEnd}>
                   <SortableContext items={boards.filter(board => board && board.id).map(board => board.id)} strategy={rectSortingStrategy}>
-                    <div className="flex items-center space-x-1 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
-                  <div key={board.id}>
+                  <div key={board.id} className="shrink-0">
                     {editingBoardId === board.id ? (
-                      // Inline editing form
-                      <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                      <form
+                        onSubmit={handleTitleSubmit}
+                        className="min-w-[10rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-600 dark:bg-gray-900"
+                      >
                         <input
                           type="text"
                           value={editingTitle}
                           onChange={(e) => setEditingTitle(e.target.value)}
-                          className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full rounded-md border-0 bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-100"
                           autoFocus
                           onBlur={handleTitleSubmit}
                           disabled={isSubmitting}
@@ -701,29 +720,29 @@ export default function BoardTabs({
                   </SortableContext>
                 </DndContext>
               ) : (
-                // When dragging a task, render droppable tabs without nested DndContext
-                <div className="flex items-center space-x-1 flex-shrink-0">
+                <div className="flex flex-shrink-0 items-center gap-1">
                   {boards.map(board => (
-                    <div key={board.id}>
+                    <div key={board.id} className="shrink-0">
                       {editingBoardId === board.id ? (
-                        // Inline editing form
-                        <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                        <form
+                          onSubmit={handleTitleSubmit}
+                          className="min-w-[10rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-600 dark:bg-gray-900"
+                        >
                           <input
                             type="text"
                             value={editingTitle}
                             onChange={(e) => setEditingTitle(e.target.value)}
-                            className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            className="w-full rounded-md border-0 bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-100"
                             autoFocus
                             onBlur={handleTitleSubmit}
                             disabled={isSubmitting}
                           />
                         </form>
                       ) : (
-                        // Droppable tab for cross-board drops
                         <DroppableBoardTab
                           board={board}
                           isSelected={selectedBoard === board.id}
-                          taskCount={getFilteredTaskCount ? getFilteredTaskCount(board.id) : 0}
+                          taskCount={getFilteredTaskCount ? getFilteredTaskCount(board) : 0}
                           hasActiveFilters={hasActiveFilters}
                           draggedTask={draggedTask}
                           selectedBoardId={selectedBoard}
@@ -738,18 +757,19 @@ export default function BoardTabs({
                 </div>
               )
             ) : (
-              // Regular user view - use droppable tabs when dragging tasks
-              <div className="flex items-center space-x-1 flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-1">
                 {boards.map(board => (
-                  <div key={board.id}>
+                  <div key={board.id} className="shrink-0">
                     {editingBoardId === board.id ? (
-                      // Inline editing form
-                      <form onSubmit={handleTitleSubmit} className="px-4 py-3">
+                      <form
+                        onSubmit={handleTitleSubmit}
+                        className="min-w-[10rem] rounded-lg border border-gray-200 bg-white px-2 py-1.5 dark:border-gray-600 dark:bg-gray-900"
+                      >
                         <input
                           type="text"
                           value={editingTitle}
                           onChange={(e) => setEditingTitle(e.target.value)}
-                          className="w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className="w-full rounded-md border-0 bg-transparent px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-100"
                           autoFocus
                           onBlur={handleTitleSubmit}
                           disabled={isSubmitting}
@@ -788,27 +808,27 @@ export default function BoardTabs({
             )}
           </div>
           
-          {/* Right scroll button */}
           {canScrollRight && (
             <button
+              type="button"
               onClick={scrollRight}
-              className="p-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex-shrink-0"
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-transparent text-gray-500 transition-colors hover:border-gray-200 hover:bg-white hover:text-gray-800 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-100"
               title={t('boardTabs.scrollRight')}
             >
-              <ChevronRight size={16} className="text-gray-600 dark:text-gray-300" />
+              <ChevronRight size={18} strokeWidth={2} />
             </button>
           )}
         </div>
 
-        {/* Add Board Button - Admin Only */}
         {isAdmin && (
           <button
+            type="button"
             onClick={onAddBoard}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500 hover:text-gray-700"
+            className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 transition-colors hover:border-blue-500 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:text-gray-400 dark:hover:border-blue-400 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
             title={t('boardTabs.addNewBoard')}
             data-tour-id="add-board-button"
           >
-            <Plus size={18} />
+            <Plus size={18} strokeWidth={2} />
           </button>
         )}
       </div>

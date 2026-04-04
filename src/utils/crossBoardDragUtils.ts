@@ -60,14 +60,14 @@ export const getBoardTabDropClasses = (
   }
   
   if (isDropReady) {
-    return `${baseClasses} ring-2 ring-blue-400 bg-blue-50 scale-105 shadow-lg animate-pulse`;
+    return `${baseClasses} ring-2 ring-blue-500 dark:ring-blue-400 bg-blue-50 dark:bg-blue-950/50 scale-[1.02] shadow-lg animate-pulse`;
   }
-  
+
   if (isHovering) {
-    return `${baseClasses} bg-blue-25 border-blue-200`;
+    return `${baseClasses} bg-blue-100/80 dark:bg-blue-900/40 ring-1 ring-blue-300 dark:ring-blue-600`;
   }
-  
-  return `${baseClasses} opacity-70`;
+
+  return `${baseClasses} opacity-80`;
 };
 
 /**

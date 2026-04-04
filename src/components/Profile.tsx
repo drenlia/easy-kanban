@@ -361,8 +361,17 @@ export default function Profile({ isOpen, onClose, currentUser, onProfileUpdated
   };
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+    <div
+      className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+      role="presentation"
+      onClick={handleClose}
+    >
+      <div
+        className="relative top-20 mx-auto p-6 border w-[480px] shadow-xl rounded-lg bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700"
+        role="dialog"
+        aria-modal="true"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="mt-3">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-xl font-semibold text-gray-900 dark:text-gray-100">{t('profile.title')}</h3>

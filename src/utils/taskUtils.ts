@@ -208,24 +208,14 @@ export const wouldTaskBeFilteredOut = (task: Task, searchFilters: SearchFilters,
 };
 
 /**
- * Format member names for tooltips
+ * Format member names for tooltips: full list, one name per line (use with multiline tooltip chrome).
  */
 export const formatMembersTooltip = (members: TeamMember[], type: 'watcher' | 'collaborator'): string => {
   if (!members || members.length === 0) return '';
-  
+
   const typeLabel = type === 'watcher' ? 'Watcher' : 'Collaborator';
   const typeLabelPlural = type === 'watcher' ? 'Watchers' : 'Collaborators';
-  
-  if (members.length === 1) {
-    return `${typeLabel}: ${members[0].name}`;
-  }
-  
-  if (members.length <= 3) {
-    return `${typeLabelPlural}: ${members.map(m => m.name).join(', ')}`;
-  }
-  
-  // For more than 3 members, show first 2 and count
-  const firstTwo = members.slice(0, 2).map(m => m.name).join(', ');
-  const remaining = members.length - 2;
-  return `${typeLabelPlural}: ${firstTwo} +${remaining} more`;
+  const header = members.length === 1 ? typeLabel : `${typeLabelPlural} (${members.length})`;
+
+  return [header, ...members.map(m => m.name || m.id)].join('\n');
 };

@@ -406,6 +406,7 @@
     "highlightOverdueTasksDescription": "When enabled, overdue tasks will be highlighted with a \"LATE\" badge.",
     "defaultProjectPrefix": "Default Project Prefix",
     "defaultProjectPrefixDescription": "Prefix used for new board project identifiers (e.g., \"PROJ-\" → \"PROJ-00001\")",
+    "defaultProjectPrefixFutureNote": "Reserved for future enhancements: this will support portfolio/program management (PPM), project managers (PMs), and product owners (POs) when working across multiple portfolios and projects.",
     "defaultTaskPrefix": "Default Task Prefix",
     "defaultTaskPrefixDescription": "Prefix used for new task ticket identifiers (e.g., \"TASK-\" → \"TASK-00001\")",
     "howItWorks": "How it works:",
