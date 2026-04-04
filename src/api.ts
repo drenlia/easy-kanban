@@ -567,7 +567,9 @@ export const getPublicSettings = async () => {
     baseURL: '/api'
   });
   
-  pendingPublicSettingsPromise = publicApi.get('/settings').then(response => {
+  pendingPublicSettingsPromise = publicApi
+    .get('/settings', { headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } })
+    .then(response => {
     cachedPublicSettings = response.data;
     pendingPublicSettingsPromise = null; // Clear pending promise
     return response.data;

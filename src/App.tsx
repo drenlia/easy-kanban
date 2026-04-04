@@ -1987,7 +1987,9 @@ function AppContent() {
         setColumns(newColumns);
         setIsSwitchingBoard(false);
       } else {
-        // Board data not loaded yet, fetch it (refreshBoardData will load relationships)
+        // Board data not in state yet — clear columns immediately so the previous board's tasks
+        // are not shown while refresh runs (e.g. new board or slow network).
+        setColumns({});
         // CRITICAL: refreshBoardData already checks the flag, so it's safe to call
         refreshBoardData().finally(() => {
           // Clear switching state after data is loaded
@@ -2037,7 +2039,7 @@ function AppContent() {
   // Real-time events - DISABLED (Socket.IO removed)
   // TODO: Implement simpler real-time solution (polling or SSE)
 
-  const refreshBoardData = useCallback(async (options?: { force?: boolean }) => {
+  const refreshBoardData = useCallback(async (options?: { force?: boolean; forBoardId?: string }) => {
     // CRITICAL: Skip refresh if we just updated from WebSocket to prevent overwriting real-time updates
     // This is especially important for batch position updates (259 tasks) where WebSocket updates
     // are processed together and should not be overwritten by a refresh
@@ -2050,10 +2052,13 @@ function AppContent() {
       const loadedBoards = await getBoards();
       setBoards(loadedBoards);
       
+      // Hydrate columns for a specific board (e.g. newly created) before selectedBoard state updates,
+      // or for the current selectedBoard when forBoardId is omitted.
+      const boardIdToHydrate = options?.forBoardId !== undefined ? options.forBoardId : selectedBoard;
+      
       if (loadedBoards.length > 0) {
-        // Check if the selected board still exists
-        if (selectedBoard) {
-          const board = loadedBoards.find(b => b.id === selectedBoard);
+        if (boardIdToHydrate) {
+          const board = loadedBoards.find(b => b.id === boardIdToHydrate);
           if (board) {
             // Force a deep clone to ensure React detects the change at all levels
             // OPTIMIZED: Use shallow copy instead of expensive JSON.parse(JSON.stringify())
@@ -2077,11 +2082,13 @@ function AppContent() {
             setColumns(newColumns);
             
             // Relationships are loaded by the board selection effect above, no need to load here
-          } else {
-            // Selected board no longer exists, clear selection
+          } else if (options?.forBoardId === undefined) {
+            // Selected board no longer exists, clear selection (normal navigation only)
             setSelectedBoard(null);
             setColumns({});
             taskLinking.setBoardRelationships([]);
+          } else {
+            setColumns({});
           }
         }
       }
@@ -2135,11 +2142,11 @@ function AppContent() {
       // Create the board first (backend automatically creates default columns)
       await createBoard(newBoard);
 
-      // Refresh board data to get the complete structure (including columns created by backend)
-      await refreshBoardData();
-      
+      // Refresh and hydrate columns for the NEW board. Do not use refreshBoardData() alone here:
+      // it keys off selectedBoard, which is still the previous board until the next line — that
+      // re-applied the old board's tasks onto the UI (bug).
+      await refreshBoardData({ force: true, forBoardId: boardId });
 
-      
       // Set the new board as selected and update URL
       setSelectedBoard(boardId);
       window.location.hash = boardId;

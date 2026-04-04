@@ -20,6 +20,21 @@ const isMultiTenant = () => {
   return process.env.MULTI_TENANT === 'true';
 };
 
+/**
+ * Hostname used for tenant extraction (must match {tenantId}.{TENANT_DOMAIN}).
+ * - Prefer X-Forwarded-Host / X-Original-Host / Host in that order (ingress usually sets these).
+ * - If a header lists multiple hosts (comma-separated proxy chain), use the first hop (client-facing host).
+ * - Strip port so drenlia-pg.ezkan.cloud:443 still resolves.
+ */
+function pickHostnameForTenant(req) {
+  const forwardedHost = req.get('x-forwarded-host');
+  const originalHost = req.get('x-original-host');
+  const hostHeader = req.get('host');
+  const raw = forwardedHost || originalHost || hostHeader || req.hostname || '';
+  const firstHop = String(raw).split(',')[0].trim();
+  return firstHop.split(':')[0].trim() || '';
+}
+
 // Extract tenant ID from hostname
 // Examples:
 //   customer1.ezkan.cloud -> customer1
@@ -33,14 +48,13 @@ const extractTenantId = (hostname) => {
     return null;
   }
   
-  // Extract subdomain (tenant ID) from hostname
-  // Remove port if present (e.g., localhost:3010 -> localhost)
-  const hostnameWithoutPort = hostname.split(':')[0];
+  const hostnameWithoutPort = hostname.split(':')[0].trim();
   
   // Get domain from environment or use default
   const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
   
   // Check if hostname matches tenant pattern: {tenantId}.{domain}
+  // Note: only a single DNS label is supported as tenantId (subdomain), not nested names.
   if (hostnameWithoutPort.endsWith(`.${domain}`)) {
     const parts = hostnameWithoutPort.split('.');
     if (parts.length >= 2) {
@@ -158,18 +172,22 @@ export const tenantRouting = async (req, res, next) => {
     const forwardedHost = req.get('x-forwarded-host');
     const originalHost = req.get('x-original-host');
     const hostHeader = req.get('host');
-    const hostname = forwardedHost || originalHost || hostHeader || req.hostname;
+    const hostname = pickHostnameForTenant(req);
     
-    // Debug: log all hostname sources for troubleshooting
+    // Debug: log all hostname sources for troubleshooting (raw vs normalized)
     if (isMultiTenant()) {
-      console.log(`🔍 Tenant routing - X-Forwarded-Host: ${forwardedHost || 'none'}, X-Original-Host: ${originalHost || 'none'}, Host: ${hostHeader || 'none'}, hostname: ${req.hostname || 'none'}, Using: ${hostname}`);
+      const pathLabel = `${req.method} ${req.originalUrl || req.url}`;
+      console.log(
+        `🔍 Tenant routing ${pathLabel} — X-Forwarded-Host: ${forwardedHost || 'none'}, X-Original-Host: ${originalHost || 'none'}, Host: ${hostHeader || 'none'}, req.hostname: ${req.hostname || 'none'} → normalized: "${hostname}"`
+      );
     }
     
     let tenantId = extractTenantId(hostname);
     
-    // Debug logging for tenant extraction
     if (isMultiTenant()) {
-      console.log(`🔍 Tenant routing - Hostname: ${hostname}, Extracted tenantId: ${tenantId || 'null (single-tenant)'}`);
+      const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
+      const schemaHint = tenantId ? `tenant_${tenantId}` : 'public (no tenant subdomain — check Host / TENANT_DOMAIN=${domain})';
+      console.log(`🔍 Tenant routing → tenantId: ${tenantId || 'null'}, schema: ${schemaHint}`);
     }
     
     // For admin portal routes, allow tenant to be specified via query parameter or header

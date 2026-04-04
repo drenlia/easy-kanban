@@ -188,7 +188,9 @@ generate_manifests() {
         "${SCRIPT_DIR}/service-pg.yaml" > "${TEMP_DIR}/service.yaml"
     
     # Generate ingress rule for this specific tenant hostname
+    # ingress.yaml defaults to namespace easy-kanban; PG services live in easy-kanban-pg only.
     sed -e "s/easy-kanban-pg/${NAMESPACE}/g" \
+        -e "s/^  namespace: easy-kanban$/  namespace: ${NAMESPACE}/g" \
         -e "s/easy-kanban.local/${FULL_HOSTNAME}/g" \
         -e "s/name: easy-kanban-ingress/name: easy-kanban-ingress-${INSTANCE_NAME}/g" \
         "${SCRIPT_DIR}/ingress.yaml" > "${TEMP_DIR}/ingress.yaml"

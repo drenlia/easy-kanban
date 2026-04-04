@@ -24,6 +24,8 @@ router.get('/', async (req, res, next) => {
     settings.forEach(setting => {
       settingsObj[setting.key] = setting.value;
     });
+    // Per-tenant OAuth and site metadata must not be cached by browsers or intermediaries
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     res.json(settingsObj);
   } catch (error) {
     console.error('Get public settings error:', error);

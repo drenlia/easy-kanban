@@ -34,8 +34,60 @@ fi
 TENANT_ID="$1"
 SQLITE_BACKUP_PATH="$2"
 NAMESPACE="easy-kanban-pg"
+# Hostname for migrated PG tenant: https://${TENANT_ID}.${TENANT_DOMAIN}/...
+TENANT_DOMAIN="${TENANT_DOMAIN:-ezkan.cloud}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# If GOOGLE_CALLBACK_URL was migrated from SQLite, rewrite its host to the PG tenant host
+# (e.g. drenlia.ezkan.cloud → drenlia-pg.ezkan.cloud when TENANT_ID=drenlia-pg).
+rewrite_google_callback_url_for_pg_tenant() {
+    local schema_q="\"tenant_${TENANT_ID}\""
+    local current
+    current=$(kubectl exec -n "${NAMESPACE}" deployment/postgres -- psql -U kanban -d easykanban -tAc \
+        "SELECT COALESCE(value, '') FROM ${schema_q}.settings WHERE key = 'GOOGLE_CALLBACK_URL' LIMIT 1;" 2>/dev/null \
+        | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+    if [ -z "$current" ]; then
+        echo "   ℹ️  GOOGLE_CALLBACK_URL is empty — skipping OAuth callback host rewrite"
+        return 0
+    fi
+
+    local new_host="${TENANT_ID}.${TENANT_DOMAIN}"
+    local new_url=""
+
+    if command -v python3 >/dev/null 2>&1; then
+        new_url=$(python3 -c "
+import urllib.parse
+import sys
+u = urllib.parse.urlparse(sys.argv[1])
+print(urllib.parse.urlunparse((u.scheme, sys.argv[2], u.path, u.params, u.query, u.fragment)))
+" "$current" "$new_host" 2>/dev/null) || new_url=""
+    fi
+    if [ -z "$new_url" ]; then
+        new_url=$(echo "$current" | sed -E "s#^(https?://)[^/?#]+#\1${new_host}#") || true
+    fi
+
+    if [ -z "$new_url" ] || [ "$new_url" = "$current" ]; then
+        if [ "$new_url" = "$current" ]; then
+            echo "   ℹ️  GOOGLE_CALLBACK_URL already targets ${new_host}"
+        fi
+        return 0
+    fi
+
+    echo "   🔗 Rewriting GOOGLE_CALLBACK_URL for PostgreSQL tenant host:"
+    echo "      was: ${current}"
+    echo "      now: ${new_url}"
+
+    local esc="${new_url//\'/\'\'}"
+    if kubectl exec -n "${NAMESPACE}" deployment/postgres -- psql -U kanban -d easykanban -c \
+        "UPDATE ${schema_q}.settings SET value = '${esc}', updated_at = CURRENT_TIMESTAMP WHERE key = 'GOOGLE_CALLBACK_URL';" \
+        >/dev/null 2>&1; then
+        echo "   ✅ Updated GOOGLE_CALLBACK_URL"
+    else
+        echo "   ⚠️  Failed to update GOOGLE_CALLBACK_URL (run psql manually)"
+    fi
+}
 
 # Validate tenant ID
 if [[ ! "$TENANT_ID" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
@@ -86,13 +138,11 @@ fi
 echo ""
 echo "📋 Migration Configuration:"
 echo "   Tenant ID: ${TENANT_ID}"
+echo "   OAuth callback host: ${TENANT_ID}.${TENANT_DOMAIN} (when GOOGLE_CALLBACK_URL is set)"
 echo "   SQLite DB: ${SQLITE_BACKUP_PATH}"
 echo "   PostgreSQL: postgres.easy-kanban-pg.svc.cluster.local:5432"
 echo "   Database: easykanban"
-echo "   Schema: ${TENANT_ID} (Note: Application expects tenant_${TENANT_ID} format)"
-echo ""
-echo "⚠️  WARNING: The migration script uses schema '${TENANT_ID}' but the application"
-echo "   expects 'tenant_${TENANT_ID}'. Make sure the tenant_id matches your instance name!"
+echo "   PostgreSQL schema: tenant_${TENANT_ID}"
 echo ""
 
 # Check if migration script exists
@@ -177,6 +227,10 @@ MIGRATION_EXIT_CODE=$?
 # Copy attachments and avatars from source tenant to target tenant
 if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
     echo ""
+    echo "🔗 OAuth callback URL (if migrated from SQLite)..."
+    rewrite_google_callback_url_for_pg_tenant
+
+    echo ""
     echo "📁 Copying attachments and avatars from source tenant to target tenant..."
     
     # Determine source tenant (remove -pg suffix if present)
@@ -234,7 +288,7 @@ if [ $MIGRATION_EXIT_CODE -eq 0 ]; then
     echo "📋 Next Steps:"
     echo "   1. Verify the data in PostgreSQL:"
     echo "      kubectl exec -it -n ${NAMESPACE} deployment/postgres -- psql -U kanban -d easykanban -c \"\\dn\""
-    echo "      kubectl exec -it -n ${NAMESPACE} deployment/postgres -- psql -U kanban -d easykanban -c \"SET search_path TO ${TENANT_ID}; \\dt\""
+    echo "      kubectl exec -it -n ${NAMESPACE} deployment/postgres -- psql -U kanban -d easykanban -c \"SELECT tablename FROM pg_tables WHERE schemaname = 'tenant_${TENANT_ID}' ORDER BY 1;\""
     echo ""
     echo "   2. Test the application:"
     echo "      Visit: https://${TENANT_ID}.ezkan.cloud"

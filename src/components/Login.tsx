@@ -14,7 +14,7 @@ interface LoginProps {
 
 export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, intendedDestination, onForgotPassword }: LoginProps) {
   const { t, i18n } = useTranslation('auth');
-  const { siteSettings: contextSiteSettings } = useSettings(); // Use SettingsContext for settings
+  const { siteSettings: contextSiteSettings, isLoading: settingsLoading } = useSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -177,15 +177,15 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
     }
   }, []);
 
-  // Check if Google OAuth is configured - use SettingsContext instead of fetching
+  // Show Google sign-in only when public settings include a non-empty GOOGLE_CLIENT_ID
+  // (see GET /api/settings in server/routes/settings.js). Wait for settings fetch to finish
+  // so we do not keep the initial false when the first context value is still {}.
   useEffect(() => {
-    // Use settings from SettingsContext (already fetched, no need for additional API call)
-    if (contextSiteSettings && Object.keys(contextSiteSettings).length > 0) {
-      // Only check for GOOGLE_CLIENT_ID (which is safe to be public)
-      // The server will validate the complete OAuth config when actually used
-      setGoogleOAuthEnabled(!!contextSiteSettings.GOOGLE_CLIENT_ID);
-    }
-  }, [contextSiteSettings]);
+    if (settingsLoading) return;
+    const raw = contextSiteSettings?.GOOGLE_CLIENT_ID;
+    const enabled = typeof raw === 'string' && raw.trim().length > 0;
+    setGoogleOAuthEnabled(enabled);
+  }, [contextSiteSettings, settingsLoading]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
