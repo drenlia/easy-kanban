@@ -2793,9 +2793,10 @@ const TaskCard = React.memo(function TaskCard({
     return false;
   }
   
-  // Re-render if available tags/priorities arrays change (reference check)
+  // Re-render if available tags/priorities/sprints arrays change (reference check)
   if (prevProps.availableTags !== nextProps.availableTags ||
-      prevProps.availablePriorities !== nextProps.availablePriorities) {
+      prevProps.availablePriorities !== nextProps.availablePriorities ||
+      prevProps.availableSprints !== nextProps.availableSprints) {
     return false;
   }
   
