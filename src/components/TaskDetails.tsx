@@ -14,6 +14,11 @@ import { mergeTaskTagsWithLiveData, getTagDisplayStyle } from '../utils/tagUtils
 import { getAuthenticatedAttachmentUrl } from '../utils/authImageUrl';
 import { truncateMemberName } from '../utils/memberUtils';
 import AddTagModal from './AddTagModal';
+import { feDebug } from '../utils/clientDebug';
+
+function detailsLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_TASK_DETAILS')) console.log(...args);
+}
 
 interface TaskDetailsProps {
   task: Task;
@@ -495,7 +500,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                 title: editedTask.title,
                 description: editedTask.description
               });
-              console.log('Auto-saved changes before switching tasks');
+              detailsLog('Auto-saved changes before switching tasks');
             } catch (error) {
               console.error('Error saving changes before task switch:', error);
             }
@@ -794,7 +799,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         rel.to_task_id === childTaskId
       );
       
-      console.log('🗑️ Attempting to remove child task:', {
+      detailsLog('🗑️ Attempting to remove child task:', {
         childTaskId,
         foundRelationship: relationship,
         allRelationships: relationships
@@ -834,7 +839,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         const availableTasksData = await getAvailableTasksForRelationship(task.id);
         setAvailableTasksForChildren(Array.isArray(availableTasksData) ? availableTasksData : []);
         
-        console.log('✅ Successfully removed child task and reloaded data');
+        detailsLog('✅ Successfully removed child task and reloaded data');
       } else {
         console.error('❌ No relationship found to delete');
       }
@@ -890,7 +895,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         attachments: uploadedAttachments
       };
 
-      console.log('Sending comment to backend:', newComment);
+      detailsLog('Sending comment to backend:', newComment);
 
       // Save comment to server
       const savedComment = await createComment(newComment);
@@ -1116,14 +1121,14 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
     
     isUploadingRef.current = true;
     try {
-      console.log('📎 Uploading', pendingAttachments.length, 'task attachments...');
+      detailsLog('📎 Uploading', pendingAttachments.length, 'task attachments...');
       
       // Use the new upload utility
       const uploadedAttachments = await uploadTaskFiles(task.id, {
         currentTaskAttachments: taskAttachmentsRef.current,
         currentDescription: editedTaskRef.current.description,
         onTaskAttachmentsUpdate: (updatedAttachments) => {
-          console.log('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
+          detailsLog('🔄 Updating taskAttachments with:', updatedAttachments.length, 'attachments');
           setTaskAttachments(updatedAttachments);
           
           // Update parent component immediately with new attachment count
@@ -1135,13 +1140,13 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
           onUpdate(updatedTask);
         },
         onDescriptionUpdate: (updatedDescription) => {
-          console.log('🔄 Updating task description with server URLs');
+          detailsLog('🔄 Updating task description with server URLs');
           const updatedTask = { ...editedTask, description: updatedDescription };
           setEditedTask(updatedTask);
           saveImmediately(updatedTask);
         },
         onSuccess: (attachments) => {
-          console.log('✅ Task attachments saved successfully:', attachments.length, 'files');
+          detailsLog('✅ Task attachments saved successfully:', attachments.length, 'files');
           // Clear pending attachments on success
           clearFiles();
         },
@@ -1157,7 +1162,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
         }
       });
       
-      console.log('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
+      detailsLog('📎 Task attachment upload completed, got:', uploadedAttachments.length, 'attachments');
     } catch (error: any) {
       console.error('❌ Failed to save task attachments:', error);
       // Clear pending attachments on error to prevent retry loop
@@ -1796,7 +1801,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                     <span 
                       onClick={() => {
                         const url = generateTaskUrl(parentTask.ticket, parentTask.projectId);
-                        console.log('🔗 TaskDetails Parent URL:', { 
+                        detailsLog('🔗 TaskDetails Parent URL:', { 
                           ticket: parentTask.ticket, 
                           projectId: parentTask.projectId, 
                           generatedUrl: url 
@@ -1828,7 +1833,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                             <span 
                               onClick={() => {
                                 const url = generateTaskUrl(child.ticket, child.projectId);
-                                console.log('🔗 TaskDetails Child URL:', { 
+                                detailsLog('🔗 TaskDetails Child URL:', { 
                                   ticket: child.ticket, 
                                   projectId: child.projectId, 
                                   generatedUrl: url 

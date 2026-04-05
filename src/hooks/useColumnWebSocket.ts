@@ -1,5 +1,6 @@
 import { useCallback, RefObject } from 'react';
 import { Board, Columns } from '../types';
+import { feDebug } from '../utils/clientDebug';
 
 interface UseColumnWebSocketProps {
   // State setters
@@ -201,7 +202,7 @@ export const useColumnWebSocket = ({
       if (!data.boardId || !data.columns) return;
 
       if (window.justUpdatedFromWebSocket) {
-        console.log('⏭️ [Column Reordered] Skipping - WebSocket update in progress');
+        if (feDebug('FE_DEBUG_WEBSOCKET')) console.log('⏭️ [Column Reordered] Skipping - WebSocket update in progress');
         return;
       }
 

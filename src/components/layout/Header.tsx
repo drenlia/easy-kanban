@@ -6,6 +6,7 @@ import ThemeToggle from '../ThemeToggle';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
+import { feDebug } from '../../utils/clientDebug';
 import ResetCountdown from '../ResetCountdown';
 
 interface SystemInfo {
@@ -219,30 +220,30 @@ const Header: React.FC<HeaderProps> = ({
     if (!currentUser) return;
 
     const handleSettingsUpdate = (data: any) => {
-      console.log('📊 [Header] Settings updated via WebSocket:', data);
-      
+      if (feDebug('FE_DEBUG_REPORTS_UI')) console.log('📊 [Header] Settings updated via WebSocket:', data);
+
       // If REPORTS_ENABLED was updated, refresh the reports button visibility
       if (data.key === 'REPORTS_ENABLED') {
         const isEnabled = data.value === 'true' || data.value === true;
-        console.log(`📊 [Header] Reports module is now: ${isEnabled ? 'ENABLED' : 'DISABLED'}`);
+        if (feDebug('FE_DEBUG_REPORTS_UI')) console.log(`📊 [Header] Reports module is now: ${isEnabled ? 'ENABLED' : 'DISABLED'}`);
         setReportsEnabled(isEnabled);
-        
+
         // If reports were disabled and user is on reports page, redirect to kanban
         if (!isEnabled && currentPage === 'reports') {
-          console.log('📊 [Header] Redirecting to Kanban as reports were disabled');
+          if (feDebug('FE_DEBUG_REPORTS_UI')) console.log('📊 [Header] Redirecting to Kanban as reports were disabled');
           window.location.hash = 'kanban';
         }
       }
-      
+
       // If REPORTS_VISIBLE_TO was updated, refresh the visibility setting
       if (data.key === 'REPORTS_VISIBLE_TO') {
-        console.log(`📊 [Header] Reports visibility changed to: ${data.value}`);
+        if (feDebug('FE_DEBUG_REPORTS_UI')) console.log(`📊 [Header] Reports visibility changed to: ${data.value}`);
         setReportsVisibleTo(data.value);
-        
+
         // If visibility changed to admin-only and user is not admin and on reports page, redirect
         const isAdmin = currentUser?.roles?.includes('admin');
         if (data.value === 'admin' && !isAdmin && currentPage === 'reports') {
-          console.log('📊 [Header] Redirecting to Kanban as reports are now admin-only');
+          if (feDebug('FE_DEBUG_REPORTS_UI')) console.log('📊 [Header] Redirecting to Kanban as reports are now admin-only');
           window.location.hash = 'kanban';
         }
       }

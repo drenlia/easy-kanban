@@ -10,6 +10,7 @@ import { REPORT_TABS, ROUTES } from '../constants';
 import { loadUserPreferencesAsync, updateUserPreference } from '../utils/userPreferences';
 import { useSettings } from '../contexts/SettingsContext';
 import { getReportsSettings } from '../api';
+import { feDebug } from '../utils/clientDebug';
 
 type ReportTab = 'stats' | 'leaderboard' | 'burndown' | 'team' | 'tasks';
 
@@ -81,7 +82,7 @@ const Reports: React.FC<ReportsProps> = ({ currentUser }) => {
               REPORTS_ACHIEVEMENTS_ENABLED: reportsSettings.REPORTS_ACHIEVEMENTS_ENABLED || 'true',
               REPORTS_VISIBLE_TO: reportsSettings.REPORTS_VISIBLE_TO || 'all',
             };
-            console.log('📊 Reports Settings from SettingsContext:', newSettings);
+            if (feDebug('FE_DEBUG_REPORTS_UI')) console.log('📊 Reports Settings from SettingsContext:', newSettings);
             setSettings(newSettings);
             setLoading(false);
             return;

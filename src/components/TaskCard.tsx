@@ -21,6 +21,11 @@ import DOMPurify from 'dompurify';
 import TextEditor from './TextEditor';
 import { KanbanChromeTooltip } from './KanbanChromeTooltip';
 import { getLinkTarget, shouldOpenLinkInNewTab } from '../utils/linkUtils';
+import { feDebug } from '../utils/clientDebug';
+
+function cardLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_TASK_CARD')) console.log(...args);
+}
 
 // System user member ID constant
 const SYSTEM_MEMBER_ID = '00000000-0000-0000-0000-000000000001';
@@ -1391,7 +1396,7 @@ const TaskCard = React.memo(function TaskCard({
             const currentTaskId = task.id;
             const currentSelectedTaskId = selectedTask?.id;
             
-            console.log('[TaskCard] Starting selection timer for task:', currentTaskId, 'currently selected:', currentSelectedTaskId);
+            cardLog('[TaskCard] Starting selection timer for task:', currentTaskId, 'currently selected:', currentSelectedTaskId);
             
             clickTimerRef.current = setTimeout(() => {
               // CRITICAL: Re-read task and selectedTask from props to avoid stale closures
@@ -1414,7 +1419,7 @@ const TaskCard = React.memo(function TaskCard({
               
               // Only proceed if timer wasn't cleared (e.g., by double-click)
               if (shouldSelect && clickTimerRef.current !== null) {
-                console.log('[TaskCard] Executing selection for task:', latestTaskId, 'currently selected:', latestSelectedTaskId);
+                cardLog('[TaskCard] Executing selection for task:', latestTaskId, 'currently selected:', latestSelectedTaskId);
                 // Toggle: if clicking the same task that's already selected, close TaskDetails
                 // Use the latest IDs to avoid stale closure issues
                 if (latestSelectedTaskId === latestTaskId) {
@@ -1422,11 +1427,11 @@ const TaskCard = React.memo(function TaskCard({
                   setIsHoveringCard(false);
                   setIsHoveringTitle(false);
                   setIsHoveringDescription(false);
-                  console.log('[TaskCard] Closing TaskDetails (same task clicked)');
+                  cardLog('[TaskCard] Closing TaskDetails (same task clicked)');
                   onSelect(null);
                 } else {
                   // Switching to a different task - use the latest task object from props
-                  console.log('[TaskCard] Switching to task:', latestTaskId);
+                  cardLog('[TaskCard] Switching to task:', latestTaskId);
                   // Use task prop directly to ensure we have the latest data
                   // Don't clear hover state here - let it be managed by mouse events
                   onSelect(task);
@@ -1443,9 +1448,9 @@ const TaskCard = React.memo(function TaskCard({
                 isSelectingRef.current = false;
                 // Debug: Log why selection was blocked
                 if (clickTimerRef.current === null) {
-                  console.log('[TaskCard] Selection blocked: timer was cleared');
+                  cardLog('[TaskCard] Selection blocked: timer was cleared');
                 } else {
-                  console.log('[TaskCard] Selection blocked:', {
+                  cardLog('[TaskCard] Selection blocked:', {
                     isInteractingWithTag: isInteractingWithTagRef.current,
                     isInteractingWithDropdown: isInteractingWithDropdownRef.current,
                     showTagRemovalMenu,
@@ -1468,7 +1473,7 @@ const TaskCard = React.memo(function TaskCard({
               clickTimerRef.current = null;
             }
             isSelectingRef.current = false; // Reset selection flag
-            console.log('[TaskCard] Selection prevented:', {
+            cardLog('[TaskCard] Selection prevented:', {
               isInteractingWithTag: isInteractingWithTagRef.current,
               isInteractingWithDropdown: isInteractingWithDropdownRef.current,
               isSelecting: isSelectingRef.current,
@@ -1515,7 +1520,7 @@ const TaskCard = React.memo(function TaskCard({
           e.stopPropagation();
         }}
         onMouseUp={isLinkingMode ? (e) => {
-          console.log('🔗 TaskCard onMouseUp in linking mode:', {
+          cardLog('🔗 TaskCard onMouseUp in linking mode:', {
             taskId: task.id,
             sourceTaskId: linkingSourceTask?.id,
             isDifferentTask: linkingSourceTask?.id !== task.id
@@ -1525,17 +1530,17 @@ const TaskCard = React.memo(function TaskCard({
           if (onFinishLinking) {
             if (linkingSourceTask?.id !== task.id) {
               // Different task - create relationship
-              console.log('🔗 Creating relationship:', linkingSourceTask?.ticket, '→', task.ticket);
+              cardLog('🔗 Creating relationship:', linkingSourceTask?.ticket, '→', task.ticket);
               onFinishLinking(task);
             } else {
               // Same task - cancel linking
-              console.log('🔗 Same task - canceling linking');
+              cardLog('🔗 Same task - canceling linking');
               onFinishLinking(null);
             }
           }
         } : undefined}
         onPointerUp={isLinkingMode ? (e) => {
-          console.log('🔗 TaskCard onPointerUp in linking mode:', {
+          cardLog('🔗 TaskCard onPointerUp in linking mode:', {
             taskId: task.id,
             sourceTaskId: linkingSourceTask?.id,
             isDifferentTask: linkingSourceTask?.id !== task.id
@@ -1545,11 +1550,11 @@ const TaskCard = React.memo(function TaskCard({
           if (onFinishLinking) {
             if (linkingSourceTask?.id !== task.id) {
               // Different task - create relationship
-              console.log('🔗 Creating relationship (pointer):', linkingSourceTask?.ticket, '→', task.ticket);
+              cardLog('🔗 Creating relationship (pointer):', linkingSourceTask?.ticket, '→', task.ticket);
               onFinishLinking(task);
             } else {
               // Same task - cancel linking
-              console.log('🔗 Same task - canceling linking (pointer)');
+              cardLog('🔗 Same task - canceling linking (pointer)');
               onFinishLinking(null);
             }
           }

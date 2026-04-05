@@ -1,5 +1,10 @@
 import { io, Socket } from 'socket.io-client';
 import { handleAuthError } from '../utils/authErrorHandler';
+import { feDebug } from '../utils/clientDebug';
+
+function wsDebug(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_WEBSOCKET')) console.log(...args);
+}
 
 class WebSocketClient {
   private socket: Socket | null = null;
@@ -66,7 +71,7 @@ class WebSocketClient {
         return;
       }
 
-      console.log('✅ [WebSocket] Token validated, establishing connection');
+      wsDebug('✅ [WebSocket] Token validated, establishing connection');
       this.establishConnection(token);
     } catch (error) {
       console.warn(`⚠️ [WebSocket] Token validation error, attempting connection anyway:`, error);
@@ -95,7 +100,7 @@ class WebSocketClient {
       ? ['websocket'] // Multi-tenant: websocket ONLY - no polling fallback
       : ['polling', 'websocket']; // Single-tenant: polling first, then upgrade to websocket
 
-    console.log(`🔌 WebSocket transport config: ${isMultiTenant ? 'multi-tenant' : 'single-tenant'} mode, using transports: [${transports.join(', ')}]`);
+    wsDebug(`🔌 WebSocket transport config: ${isMultiTenant ? 'multi-tenant' : 'single-tenant'} mode, using transports: [${transports.join(', ')}]`);
 
     // Socket.IO options - in multi-tenant mode, enforce websocket-only strictly
     const socketOptions: any = {
@@ -130,7 +135,7 @@ class WebSocketClient {
       this.reconnectAttempts = 0;
       this.reconnectDelay = 1000; // Reset delay
       
-      console.log(`✅ WebSocket connected (transport: ${this.socket?.io?.engine?.transport?.name || 'unknown'})`);
+      wsDebug(`✅ WebSocket connected (transport: ${this.socket?.io?.engine?.transport?.name || 'unknown'})`);
       
       // Re-register all event listeners
       this.reregisterEventListeners();
@@ -140,7 +145,7 @@ class WebSocketClient {
         this.socket.onAny((eventName, ...args) => {
           // Log all events for debugging
           if (eventName.includes('tag')) {
-            console.log('🔍 [WebSocket] Received event:', eventName, 'with data:', args);
+            wsDebug('🔍 [WebSocket] Received event:', eventName, 'with data:', args);
           }
         });
       }
@@ -199,7 +204,7 @@ class WebSocketClient {
       if (error.message && (error.message === 'timeout' || error.message.toLowerCase().includes('timeout'))) {
         // Only log once per connection attempt to avoid spam
         if (this.reconnectAttempts === 0) {
-          console.log('⏳ WebSocket connection timeout (will retry automatically)');
+          wsDebug('⏳ WebSocket connection timeout (will retry automatically)');
         }
         this.isConnected = false;
         return;
@@ -216,7 +221,7 @@ class WebSocketClient {
                          error.message?.toLowerCase().includes('auth');
       
       if (isAuthError) {
-        console.log('🔑 WebSocket auth error - token expired or invalid');
+          if (feDebug('FE_DEBUG_AUTH')) console.log('🔑 WebSocket auth error - token expired or invalid');
         handleAuthError('WebSocket authentication failed');
         return;
       }
@@ -246,7 +251,7 @@ class WebSocketClient {
       if (error.message && (error.message === 'timeout' || error.message.toLowerCase().includes('timeout'))) {
         // Only log occasionally to avoid spam during reconnection attempts
         if (this.reconnectAttempts % 3 === 0) {
-          console.log(`⏳ WebSocket reconnection timeout (attempt ${this.reconnectAttempts + 1}, will continue retrying)`);
+          wsDebug(`⏳ WebSocket reconnection timeout (attempt ${this.reconnectAttempts + 1}, will continue retrying)`);
         }
         this.reconnectAttempts++;
         return;
@@ -309,16 +314,16 @@ class WebSocketClient {
       callbacks.push(callback);
       
       if (this.socket) {
-        console.log(`🔧 [WebSocket] Registering Socket.IO listener for event: ${eventName}`, { socketConnected: this.socket.connected });
+        wsDebug(`🔧 [WebSocket] Registering Socket.IO listener for event: ${eventName}`, { socketConnected: this.socket.connected });
         this.socket.on(eventName, (...args) => {
-          console.log(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
+          wsDebug(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
           callback(...args);
         });
       } else {
-        console.log(`⚠️ [WebSocket] Socket not available, callback stored for event: ${eventName}`);
+        wsDebug(`⚠️ [WebSocket] Socket not available, callback stored for event: ${eventName}`);
       }
     } else {
-      console.log(`⚠️ [WebSocket] Duplicate callback prevented for event: ${eventName}`);
+      wsDebug(`⚠️ [WebSocket] Duplicate callback prevented for event: ${eventName}`);
     }
   }
 
@@ -329,7 +334,7 @@ class WebSocketClient {
       return;
     }
     
-    console.log(`🔄 [WebSocket] Re-registering ${this.eventCallbacks.size} event types`);
+    wsDebug(`🔄 [WebSocket] Re-registering ${this.eventCallbacks.size} event types`);
     
     // CRITICAL: Remove all existing listeners first to prevent duplicates during reconnection storms
     // This is especially important during sleep/wake cycles where multiple rapid reconnections occur
@@ -342,18 +347,18 @@ class WebSocketClient {
     this.eventCallbacks.forEach((callbacks, eventName) => {
       callbacks.forEach(callback => {
         if (eventName.includes('tag')) {
-          console.log(`🔧 [WebSocket] Re-registering listener for: ${eventName}`);
+          wsDebug(`🔧 [WebSocket] Re-registering listener for: ${eventName}`);
         }
         this.socket?.on(eventName, (...args) => {
           if (eventName.includes('tag')) {
-            console.log(`📨 [WebSocket] Re-registered listener received: ${eventName}`, args);
+            wsDebug(`📨 [WebSocket] Re-registered listener received: ${eventName}`, args);
           }
           callback(...args);
         });
       });
     });
     
-    console.log(`✅ [WebSocket] Re-registration complete`);
+    wsDebug(`✅ [WebSocket] Re-registration complete`);
   }
 
   // Helper method to store and register event listeners
@@ -836,9 +841,9 @@ class WebSocketClient {
 
   // Task tag events
   onTaskTagAdded(callback: (data: any) => void) {
-    console.log('🔧 [WebSocket] Registering task-tag-added event listener');
+    wsDebug('🔧 [WebSocket] Registering task-tag-added event listener');
     this.addEventListener('task-tag-added', callback);
-    console.log('✅ [WebSocket] task-tag-added event listener registered');
+    wsDebug('✅ [WebSocket] task-tag-added event listener registered');
   }
 
   offTaskTagAdded(callback?: (data: any) => void) {

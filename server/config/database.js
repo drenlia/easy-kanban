@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { runMigrations } from '../migrations/index.js';
+import { DEBUG_SETTING_DEFAULTS } from '../constants/debugSettings.js';
 import { initializeDemoData } from './demoData.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { dbExec, dbGet, dbAll, dbRun } from '../utils/dbAsync.js';
@@ -890,6 +891,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
       ['GOOGLE_CLIENT_ID', ''],
       ['GOOGLE_CLIENT_SECRET', ''],
       ['GOOGLE_SSO_DEBUG', 'false'],
+      ...DEBUG_SETTING_DEFAULTS,
       // Admin-configurable user preference defaults
       ['DEFAULT_VIEW_MODE', 'kanban'], // Default view mode for new users
       ['DEFAULT_TASK_VIEW_MODE', 'expand'], // Default task view mode for new users

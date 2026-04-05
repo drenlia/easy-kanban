@@ -67,6 +67,8 @@ import {
   BOARD_CREATION_PAUSE_DURATION,
   DND_ACTIVATION_DISTANCE 
 } from './constants';
+import { feDebug } from './utils/clientDebug';
+import { dndLog } from './utils/dndDebug';
 import { 
   getInitialSelectedBoard, 
   getInitialPage,
@@ -138,6 +140,7 @@ function AppContent() {
   
   // Log when boardRelationships changes
   useEffect(() => {
+    if (!feDebug('FE_DEBUG_TASK_LINKING')) return;
     console.log('🔗 [App] taskLinking.boardRelationships changed:', {
       count: taskLinking.boardRelationships.length,
       relationships: taskLinking.boardRelationships.map(r => ({
@@ -359,7 +362,7 @@ function AppContent() {
   
   // Also log the current value whenever KanbanPage would receive it
   useEffect(() => {
-    if (currentPage === 'kanban' && selectedBoard) {
+    if (currentPage === 'kanban' && selectedBoard && feDebug('FE_DEBUG_TASK_LINKING')) {
       console.log('🔗 [App] Current boardRelationships value (what KanbanPage would receive):', {
         count: taskLinking.boardRelationships.length,
         selectedBoard,
@@ -928,7 +931,7 @@ function AppContent() {
       } catch (error: any) {
         // Handle user account deletion (404 error)
         if (error?.response?.status === 404) {
-          console.log('🔐 User account no longer exists - forcing logout');
+          if (feDebug('FE_DEBUG_AUTH')) console.log('🔐 User account no longer exists - forcing logout');
           
           // Clear all local storage and session data
           localStorage.clear();
@@ -1334,7 +1337,7 @@ function AppContent() {
 
   // Task linking handlers
   const handleStartLinking = (task: Task, startPosition: {x: number, y: number}) => {
-    console.log('🔗 handleStartLinking called:', {
+    if (feDebug('FE_DEBUG_TASK_LINKING')) console.log('🔗 handleStartLinking called:', {
       taskTicket: task.ticket,
       taskId: task.id,
       startPosition
@@ -1349,17 +1352,19 @@ function AppContent() {
       endX: startPosition.x,
       endY: startPosition.y
     });
-    console.log('✅ Linking mode activated, linkingLine set:', {
-      startX: startPosition.x,
-      startY: startPosition.y,
-      endX: startPosition.x,
-      endY: startPosition.y
-    });
+    if (feDebug('FE_DEBUG_TASK_LINKING')) {
+      console.log('✅ Linking mode activated, linkingLine set:', {
+        startX: startPosition.x,
+        startY: startPosition.y,
+        endX: startPosition.x,
+        endY: startPosition.y
+      });
+    }
   };
 
   const handleUpdateLinkingLine = (endPosition: {x: number, y: number}) => {
     if (taskLinking.linkingLine) {
-      console.log('🔗 handleUpdateLinkingLine called:', { endPosition, currentLine: taskLinking.linkingLine });
+      if (feDebug('FE_DEBUG_TASK_LINKING')) console.log('🔗 handleUpdateLinkingLine called:', { endPosition, currentLine: taskLinking.linkingLine });
       taskLinking.setLinkingLine({
         ...taskLinking.linkingLine,
         endX: endPosition.x,
@@ -1618,18 +1623,23 @@ function AppContent() {
         try {
           const ownerCheck = await api.get('/auth/is-owner');
           if (ownerCheck.data.isOwner) {
-            console.log('🔄 User is owner, updating APP_URL during initialization...');
-            const baseUrl = window.location.origin;
-            console.log('🔄 Calling updateAppUrl with:', baseUrl);
-            const result = await updateAppUrl(baseUrl);
-            console.log('✅ APP_URL updated successfully:', result);
-          } else {
+            if (feDebug('FE_DEBUG_APP_CORE')) {
+              console.log('🔄 User is owner, updating APP_URL during initialization...');
+              const baseUrl = window.location.origin;
+              console.log('🔄 Calling updateAppUrl with:', baseUrl);
+              const result = await updateAppUrl(baseUrl);
+              console.log('✅ APP_URL updated successfully:', result);
+            } else {
+              const baseUrl = window.location.origin;
+              await updateAppUrl(baseUrl);
+            }
+          } else if (feDebug('FE_DEBUG_APP_CORE')) {
             console.log('ℹ️ User is not owner, skipping APP_URL update');
           }
         } catch (error: any) {
           // Don't fail initialization if owner check or APP_URL update fails
           if (error.response?.status === 403 || error.response?.status === 401) {
-            console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('ℹ️ User is not owner or not authorized, skipping APP_URL update');
           } else {
             console.warn('⚠️ Failed to check ownership or update APP_URL during initialization:', error.message);
           }
@@ -1830,7 +1840,7 @@ function AppContent() {
     if (!isAuthenticated || !currentUser?.id || !languageLoaded) return;
     
     const loadInitialData = async () => {
-      console.log('🔄 Loading initial data...');
+      if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔄 Loading initial data...');
       await withLoading('general', async () => {
         try {
           // console.log(`🔄 Loading initial data with includeSystem: ${includeSystem}`);
@@ -1872,8 +1882,8 @@ function AppContent() {
               : loadedBoards[0];
             
             if (boardToSelect) {
-              console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
-              
+              if (feDebug('FE_DEBUG_APP_CORE')) console.log(`🎯 [INITIAL LOAD] Auto-selecting board: ${boardToSelect.title} (${boardToSelect.id})`);
+
               // Set board and columns synchronously to prevent blank board
               setSelectedBoard(boardToSelect.id);
               setColumns(boardToSelect.columns || {});
@@ -1890,7 +1900,7 @@ function AppContent() {
             // Board already selected, just update its columns
             // CRITICAL: Skip if we just updated from WebSocket to prevent overwriting batch updates
             if (window.justUpdatedFromWebSocket) {
-              console.log('⏭️ [Initial Load] Skipping columns update - WebSocket update in progress');
+              if (feDebug('FE_DEBUG_APP_CORE')) console.log('⏭️ [Initial Load] Skipping columns update - WebSocket update in progress');
               return;
             }
             
@@ -1958,8 +1968,8 @@ function AppContent() {
   // Update columns when selected board changes
   // Load board data when selected board changes (essential for board switching)
   useEffect(() => {
-    console.log('🔗 [App] useEffect triggered:', { selectedBoard, currentPage, hasBoards: boards.length > 0 });
-    
+    if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔗 [App] useEffect triggered:', { selectedBoard, currentPage, hasBoards: boards.length > 0 });
+
     if (selectedBoard) {
       // Set switching state to prevent task count updates during board switch
       setIsSwitchingBoard(true);
@@ -2044,7 +2054,7 @@ function AppContent() {
     // This is especially important for batch position updates (259 tasks) where WebSocket updates
     // are processed together and should not be overwritten by a refresh
     if (!options?.force && window.justUpdatedFromWebSocket) {
-      console.log('⏭️ [refreshBoardData] Skipping refresh - WebSocket update in progress');
+      if (feDebug('FE_DEBUG_APP_CORE')) console.log('⏭️ [refreshBoardData] Skipping refresh - WebSocket update in progress');
       return;
     }
     
@@ -2345,12 +2355,14 @@ function AppContent() {
     setTaskCreationPause(true);
 
     const createTimestamp = new Date().toISOString();
-    console.log(`🆕 [${createTimestamp}] Creating task:`, {
-      taskId: newTask.id,
-      title: newTask.title,
-      columnId: newTask.columnId,
-      boardId: newTask.boardId
-    });
+    if (feDebug('FE_DEBUG_APP_CORE')) {
+      console.log(`🆕 [${createTimestamp}] Creating task:`, {
+        taskId: newTask.id,
+        title: newTask.title,
+        columnId: newTask.columnId,
+        boardId: newTask.boardId
+      });
+    }
 
     try {
       await withLoading('tasks', async () => {
@@ -2369,12 +2381,12 @@ function AppContent() {
         // Check if WebSocket event already updated the task
         if (pendingTaskRefreshesRef.current.has(newTask.id)) {
           // WebSocket event never arrived, force refresh to get ticket
-          console.log(`⏱️ [${fallbackTimestamp}] Fallback triggered - WebSocket event never arrived for task ${newTask.id}`);
+          if (feDebug('FE_DEBUG_APP_CORE')) console.log(`⏱️ [${fallbackTimestamp}] Fallback triggered - WebSocket event never arrived for task ${newTask.id}`);
           pendingTaskRefreshesRef.current.delete(newTask.id);
           if (refreshBoardDataRef.current) {
             refreshBoardDataRef.current();
           }
-        } else {
+        } else if (feDebug('FE_DEBUG_APP_CORE')) {
           console.log(`✅ [${fallbackTimestamp}] Fallback skipped - WebSocket event already handled task ${newTask.id}`);
         }
       }, 1000);
@@ -2547,7 +2559,7 @@ function AppContent() {
         setTimeout(async () => {
           try {
             await renumberColumnAfterCopy(targetColumnId, setColumns);
-            console.log('✅ Column renumbered after copy');
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('✅ Column renumbered after copy');
           } catch (err) {
             console.error('Failed to renumber after copy:', err);
           }
@@ -2556,10 +2568,10 @@ function AppContent() {
       
       // SAFETY FALLBACK: If WebSocket was offline/reconnecting, manually refresh after delay
       if (wasOfflineRef.current) {
-        console.log('⚠️ Copying task while WebSocket is reconnecting - will refresh board in 2s to ensure it appears');
+        if (feDebug('FE_DEBUG_APP_CORE')) console.log('⚠️ Copying task while WebSocket is reconnecting - will refresh board in 2s to ensure it appears');
         setTimeout(() => {
           if (refreshBoardDataRef.current) {
-            console.log('🔄 Safety fallback: Refreshing board after task copy (was offline)');
+            if (feDebug('FE_DEBUG_APP_CORE')) console.log('🔄 Safety fallback: Refreshing board after task copy (was offline)');
             refreshBoardDataRef.current();
           }
         }, 2000);
@@ -2875,12 +2887,12 @@ function AppContent() {
 
   // Handle moving task to different column via ListView dropdown or drag & drop
   const handleMoveTaskToColumn = useCallback(async (taskId: string, targetColumnId: string, position?: number) => {
-    // console.log('🎯 handleMoveTaskToColumn called:', {
-    //   taskId,
-    //   targetColumnId,
-    //   position,
-    //   columnsCount: Object.keys(columns).length
-    // });
+    dndLog('🎯 handleMoveTaskToColumn called:', {
+      taskId,
+      targetColumnId,
+      position,
+      columnsCount: Object.keys(columns).length
+    });
 
     // Find the task and its current column
     let sourceTask: Task | null = null;
@@ -2894,19 +2906,19 @@ function AppContent() {
       }
     });
 
-    // console.log('🎯 Task lookup result:', {
-    //   sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
-    //   sourceColumnId
-    // });
+    dndLog('🎯 Task lookup result:', {
+      sourceTask: sourceTask ? { id: sourceTask.id, title: sourceTask.title, position: sourceTask.position } : null,
+      sourceColumnId
+    });
 
     if (!sourceTask || !sourceColumnId) {
-      // console.log('🎯 Task not found, returning early');
+      dndLog('🎯 Task not found, returning early');
       return; // Task not found
     }
 
     const targetColumn = columns[targetColumnId];
     if (!targetColumn) {
-      // console.log('🎯 Target column not found:', targetColumnId);
+      dndLog('🎯 Target column not found:', targetColumnId);
       return;
     }
 
@@ -2923,15 +2935,7 @@ function AppContent() {
       const tasksWithoutMoved = targetColumn.tasks.filter(t => t.id !== taskId);
       targetIndex = tasksWithoutMoved.length;
     }
-    
-    console.log('🎯 [handleMoveTaskToColumn] Using index:', {
-      taskId,
-      sourceColumnId,
-      targetColumnId,
-      targetIndex,
-      isSameColumn: sourceColumnId === targetColumnId
-    });
-    
+
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
       // Same column - reorder using index

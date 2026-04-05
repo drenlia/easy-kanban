@@ -14,6 +14,7 @@ import {
 import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Task, Column, Board } from '../../types';
 import { resetDndGlobalState } from '../../utils/globalDndState';
+import { dndLog } from '../../utils/dndDebug';
 
 interface SimpleDragDropManagerProps {
   children: React.ReactNode;
@@ -543,7 +544,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
   const handleDragEnd = async (event: DragEndEvent) => {
     // Block drag completion when offline
     if (!isOnline) {
-      console.log('🚫 Drag end blocked - network offline');
       onDraggedTaskChange?.(null);
       onDraggedColumnChange?.(null);
       onBoardTabHover?.(false);
@@ -553,35 +553,26 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
     
     const { active, over } = event;
 
-    console.log('🎯 [handleDragEnd] Called:', {
-      activeId: active.id,
-      overId: over?.id,
-      overDataType: over?.data?.current?.type,
-      activeDataType: active.data?.current?.type,
-      isOnline
-    });
-
     try {
       if (!over) {
-        console.log('⚠️ [handleDragEnd] No over target, returning');
         return;
       }
 
       const activeData = active.data?.current;
       const overData = over.data?.current;
-      
-      // console.log('🎯 Processing drag end:', {
-      //   activeDataType: activeData?.type,
-      //   overDataType: overData?.type,
-      //   activeTaskId: activeData?.task?.id,
-      //   overTaskId: overData?.task?.id
-      // });
+
+      dndLog('🎯 Processing drag end:', {
+        activeDataType: activeData?.type,
+        overDataType: overData?.type,
+        activeTaskId: activeData?.task?.id,
+        overTaskId: overData?.task?.id
+      });
 
       if (activeData?.type === 'task') {
-        // console.log('🎯 Entering task move logic');
+        dndLog('🎯 Entering task move logic');
         // Handle task moves
         const task = activeData.task as Task;
-        // console.log('🎯 Task data:', { taskId: task.id, taskTitle: task.title, taskColumnId: task.columnId, taskPosition: task.position });
+        dndLog('🎯 Task data:', { taskId: task.id, taskTitle: task.title, taskColumnId: task.columnId, taskPosition: task.position });
         
         if (overData?.type === 'board' && overData.boardId !== currentBoardId) {
           // Check if Y-coordinate detection should override collision detection
@@ -599,19 +590,19 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           }
           
           // Cross-board move (only if mouse is actually in tab area)
-          // console.log('🔄 Cross-board move (Y-coord approved):', task.id, '→', overData.boardId);
-          // console.log('🔄 Cross-board details:', { 
-          // taskId: task.id, 
-          // targetBoardId: overData.boardId, 
-          // currentBoardId,
-          // overDataType: overData.type,
-          // mouseY: currentMouseY,
-          // inTabArea: isInTabAreaAtDrop
-          // });
+          dndLog('🔄 Cross-board move (Y-coord approved):', task.id, '→', overData.boardId);
+          dndLog('🔄 Cross-board details:', {
+            taskId: task.id,
+            targetBoardId: overData.boardId,
+            currentBoardId,
+            overDataType: overData.type,
+            mouseY: currentMouseY,
+            inTabArea: isInTabAreaAtDrop
+          });
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
-          // console.log('✅ Cross-board move completed');
+          dndLog('✅ Cross-board move completed');
         } else {
-          // console.log('🎯 Same board move - enhanced position calculation');
+          dndLog('🎯 Same board move - enhanced position calculation');
           // Same board move - enhanced position calculation
           let targetColumnId = task.columnId; // default to same column
           let position = task.position || 0;
@@ -626,7 +617,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           let targetTask: Task | null = null;
           if (overData?.type === 'task' && overData.task) {
             targetTask = overData.task;
-            console.log('✅ [handleDragEnd] Found task via overData.type');
           } else if (over.id) {
             // Fallback: over.id might be a task ID when using SortableContext
             // Search all columns to find the task
@@ -634,7 +624,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
               const foundTask = column.tasks.find(t => t.id === over.id);
               if (foundTask) {
                 targetTask = foundTask;
-                console.log('✅ [handleDragEnd] Found task via over.id fallback:', over.id);
                 break;
               }
             }
@@ -675,16 +664,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
                   position = targetIndex;
                 }
               }
-              
-              console.log('🎯 [Drop on task] Target index:', {
-                targetTaskId: targetTask.id,
-                targetTaskPos: parsePos(targetTask.position),
-                draggedTaskPos: parsePos(task.position),
-                targetIndexInList: sortedTasks.findIndex(t => t.id === targetTask.id),
-                calculatedPosition: position,
-                totalTasks: sortedTasks.length,
-                isSameColumn: targetColumnId === task.columnId
-              });
             } else {
               position = 0;
             }
@@ -721,8 +700,7 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
             const tasksWithoutDragged = targetColumn?.tasks.filter(t => t.id !== task.id) || [];
             position = tasksWithoutDragged.length;
           } else {
-            // No valid drop target found - log for debugging
-            console.warn('⚠️ [handleDragEnd] No valid drop target found:', {
+            dndLog('⚠️ [handleDragEnd] No valid drop target found:', {
               overId: over.id,
               overDataType: overData?.type,
               activeTaskId: task.id,
@@ -757,19 +735,14 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
             return;
           }
 
-          // Always log the move attempt for debugging
-          console.log('🔄 [handleDragEnd] Attempting move:', {
+          dndLog('🎯 [handleDragEnd] onTaskMove', {
             taskId: task.id,
-            from: `${task.columnId}[${sourcePosition}]`,
-            to: `${targetColumnId}[${position}]`,
-            isCrossColumn: !isSameColumn,
-            targetTask: targetTask?.id || 'none'
+            targetColumnId,
+            position,
+            sourceColumnId: task.columnId,
+            sourcePosition
           });
-          
           await onTaskMove(task.id, targetColumnId, position);
-          console.log('✅ [handleDragEnd] Move completed');
-          
-          // console.log('✅ Move completed successfully');
         }
       } else if (activeData?.type === 'column') {
         // Handle column reordering

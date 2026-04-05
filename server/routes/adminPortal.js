@@ -11,6 +11,7 @@ import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
 import { isPostgresDatabase } from '../utils/dbAsync.js';
+import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';
 
@@ -194,7 +195,10 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     
     // MIGRATED: Upsert setting using sqlManager
     const result = await settingsQueries.upsertSetting(db, key, value);
-    
+    if (key === 'SERVER_DEBUG_SQL') {
+      clearSqlDebugSettingsCache();
+    }
+
     console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
     
     res.json({
@@ -234,7 +238,10 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
       if (value !== undefined && value !== null) {
         // MIGRATED: Upsert setting using sqlManager
         await settingsQueries.upsertSetting(db, key, value);
-        
+        if (key === 'SERVER_DEBUG_SQL') {
+          clearSqlDebugSettingsCache();
+        }
+
         results.push({ key, value });
         console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
       }

@@ -10,6 +10,7 @@
 import { Task, Columns } from '../types';
 import { batchUpdateTaskPositions } from '../api';
 import { DRAG_COOLDOWN_DURATION } from '../constants';
+import { dndLog } from './dndDebug';
 
 // Helper to parse position as number
 const parsePos = (pos: any): number => typeof pos === 'number' ? pos : parseFloat(String(pos)) || 0;
@@ -51,17 +52,20 @@ export const moveTaskToIndex = async (
   
   // Check if index actually changed (simple comparison)
   if (currentIndex === clampedIndex) {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] 🔄 [moveTaskToIndex] Order unchanged, skipping - ticket: ${task.ticket || 'N/A'}, currentIndex: ${currentIndex}, targetIndex: ${clampedIndex}`);
     return;
   }
-  
+
+  dndLog('🎯 [moveTaskToIndex]', {
+    taskId: task.id,
+    columnId,
+    currentIndex,
+    targetIndex,
+    clampedIndex
+  });
+
   // Insert task at new position
   const newOrder = [...tasksWithoutMoved];
   newOrder.splice(clampedIndex, 0, task);
-
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🔄 [moveTaskToIndex] ticket: ${task.ticket || 'N/A'}, fromIndex: ${currentIndex}, toIndex: ${clampedIndex}`);
 
   // Renumber all tasks to clean sequential integers [0, 1, 2, 3, ...]
   const renumberedTasks = newOrder.map((t, index) => ({
@@ -95,18 +99,8 @@ export const moveTaskToIndex = async (
       columnId: columnId
     }));
     
-    // Log before API call
-    const apiCallTimestamp = new Date().toISOString();
-    console.log(`[${apiCallTimestamp}] 📤 [moveTaskToIndex] Sending ${updates.length} updates to backend`);
-    
     await batchUpdateTaskPositions(updates);
-    
-    // Log each task's final position
-    const finalTimestamp = new Date().toISOString();
-    renumberedTasks.forEach(t => {
-      console.log(`[${finalTimestamp}] ✅ [moveTaskToIndex] ticket: ${t.ticket || 'N/A'}, position: ${t.position}`);
-    });
-    
+
     // Clear flags after a longer delay to ensure WebSocket doesn't overwrite
     setTimeout(() => {
       window.justUpdatedFromWebSocket = false;
@@ -157,8 +151,12 @@ export const handleCrossColumnMove = async (
     return;
   }
 
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] 🔄 [handleCrossColumnMove] ticket: ${task.ticket || 'N/A'}, fromColumn: ${sourceColumnId}, toColumn: ${targetColumnId}, targetIndex: ${targetIndex}`);
+  dndLog('🎯 [handleCrossColumnMove]', {
+    taskId: task.id,
+    sourceColumnId,
+    targetColumnId,
+    targetIndex
+  });
 
   // Store previous state for rollback
   const previousSourceState = { ...sourceColumn, tasks: [...sourceColumn.tasks] };
@@ -213,13 +211,7 @@ export const handleCrossColumnMove = async (
     ];
     
     await batchUpdateTaskPositions(updates);
-    
-    // Log final positions for all affected tasks
-    const finalTimestamp = new Date().toISOString();
-    [...sourceTasks, ...renumberedTargetTasks].forEach(t => {
-      console.log(`[${finalTimestamp}] ✅ [handleCrossColumnMove] ticket: ${t.ticket || 'N/A'}, position: ${t.position}, columnId: ${t.columnId}`);
-    });
-    
+
     setTimeout(() => {
       window.justUpdatedFromWebSocket = false;
       (window as any).reorderingInProgress = false;
@@ -271,7 +263,7 @@ export const renumberColumnAfterCopy = async (
     position: index
   }));
 
-  console.log('🔄 [renumberColumnAfterCopy] Renumbering', renumberedTasks.length, 'tasks');
+  dndLog('🔄 [renumberColumnAfterCopy] Renumbering', renumberedTasks.length, 'tasks');
 
   // Update local state with renumbered tasks
   setColumns(prev => ({
@@ -291,7 +283,7 @@ export const renumberColumnAfterCopy = async (
     }));
     
     await batchUpdateTaskPositions(updates);
-    console.log('✅ [renumberColumnAfterCopy] Column renumbered successfully');
+    dndLog('✅ [renumberColumnAfterCopy] Column renumbered successfully');
   } catch (error) {
     console.error('❌ [renumberColumnAfterCopy] Failed to renumber:', error);
   }

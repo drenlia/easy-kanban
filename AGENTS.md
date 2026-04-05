@@ -57,6 +57,25 @@
 - Support both single-tenant (Docker) and multi-tenant (Kubernetes) modes
 - Run migrations via `server/migrations/index.js` for schema changes
 
+## Debug logging flags (`settings` table)
+
+Tenant-scoped boolean strings (`"true"` / `"false"`). Use to gate verbose diagnostics without rebuilding the client.
+
+| Prefix | Where logs appear | Exposed on public `GET /api/settings`? |
+|--------|-------------------|----------------------------------------|
+| **`FE_DEBUG_*`** | Browser DevTools console | **Yes** — listed in `server/constants/debugSettings.js` (`FE_PUBLIC_DEBUG_FLAG_KEYS`) so flags load before login where needed |
+| **`SERVER_DEBUG_*`** | Node.js server stdout/stderr only | **No** — admins still see/edit them via `GET/PUT /api/admin/settings` |
+
+Defined defaults: `server/constants/debugSettings.js` (`DEBUG_SETTING_DEFAULTS`), seeded on new DBs in `database.js` and for existing DBs via **migration 12** (`add_debug_logging_settings`) and **migration 13** (`add_fe_debug_api_dnd_settings` for tenants that already applied 12).
+
+**Client usage:** `src/utils/clientDebug.ts` — `syncClientDebugFromSettings()` is called from `SettingsContext` after fetch; use `feDebug('FE_DEBUG_…')` before `console.log`.
+
+**Server usage:** `server/utils/serverDebug.js` — `await serverDebug(db, 'SERVER_DEBUG_SETTINGS')` etc.
+
+Suggested flags (all default `false`): `FE_DEBUG_AUTH`, `FE_DEBUG_WEBSOCKET`, `FE_DEBUG_APP_CORE`, `FE_DEBUG_TASK_LINKING`, `FE_DEBUG_REPORTS_UI`, `FE_DEBUG_FLOWCHART`, `FE_DEBUG_TASK_CARD`, `FE_DEBUG_TASK_PAGE`, `FE_DEBUG_TASK_DETAILS`, `FE_DEBUG_SETTINGS_CONTEXT`, `FE_DEBUG_API` (axios request/response summaries; `Authorization` redacted), `FE_DEBUG_DND` (drag/reorder `console.log` via `src/utils/dndDebug.ts`); `SERVER_DEBUG_SETTINGS`, `SERVER_DEBUG_HTTP`, `SERVER_DEBUG_SQL` (per-query `wrapQuery` stdout lines when enabled; setting read is cached ~15s in `server/utils/sqlDebugSettingsCache.js`, cleared when `SERVER_DEBUG_SQL` is updated via settings API).
+
+Task **drag / reorder** debug lines were **removed** (not gated): same-column, cross-column, and cross-board move noise should stay off in production.
+
 ## Task activity email notifications (queue) — implementation notes
 
 When restoring **task/comment email** notifications (throttled queue in `notification_queue`, processed by `notificationThrottler.js`, sent via `EmailService`), design for **multi-tenant** and **multiple K8s pods** as follows.

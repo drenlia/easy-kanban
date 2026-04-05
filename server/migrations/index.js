@@ -96,6 +96,39 @@ const migrations = [
         }
       }
     }
+  },
+  {
+    version: 12,
+    name: 'add_debug_logging_settings',
+    description: 'Insert default FE_DEBUG_* and SERVER_DEBUG_* settings for gated console logs',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const { DEBUG_SETTING_DEFAULTS } = await import('../constants/debugSettings.js');
+      for (const [key, value] of DEBUG_SETTING_DEFAULTS) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+    }
+  },
+  {
+    version: 13,
+    name: 'add_fe_debug_api_dnd_settings',
+    description: 'Insert FE_DEBUG_API and FE_DEBUG_DND if missing (new public debug flags)',
+    up: async (db) => {
+      const { settings: settingsQueries } = await import('../utils/sqlManager/index.js');
+      const extra = [
+        ['FE_DEBUG_API', 'false'],
+        ['FE_DEBUG_DND', 'false']
+      ];
+      for (const [key, value] of extra) {
+        const existing = await settingsQueries.getSettingByKey(db, key);
+        if (!existing) {
+          await settingsQueries.createSetting(db, key, value);
+        }
+      }
+    }
   }
 ];
 

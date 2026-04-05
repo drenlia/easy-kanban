@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { getSettings, getPublicSettings } from '../api';
 import websocketClient from '../services/websocketClient';
+import { syncClientDebugFromSettings, feDebug } from '../utils/clientDebug';
 
 interface SiteSettings {
   [key: string]: string | undefined;
@@ -38,18 +39,20 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     try {
       const token = localStorage.getItem('authToken');
       if (!token) {
-        console.log('🔍 [SettingsContext] checkIsAdmin: No token found');
+        if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('🔍 [SettingsContext] checkIsAdmin: No token found');
         return false;
       }
       
       // Decode JWT token to check roles (simple base64 decode, no verification needed for client-side check)
       const payload = JSON.parse(atob(token.split('.')[1]));
       const isAdmin = payload.roles && Array.isArray(payload.roles) && payload.roles.includes('admin');
-      console.log('🔍 [SettingsContext] checkIsAdmin:', {
-        hasToken: !!token,
-        roles: payload.roles,
-        isAdmin
-      });
+      if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) {
+        console.log('🔍 [SettingsContext] checkIsAdmin:', {
+          hasToken: !!token,
+          roles: payload.roles,
+          isAdmin
+        });
+      }
       return isAdmin;
     } catch (error) {
       console.error('🔍 [SettingsContext] checkIsAdmin error:', error);
@@ -61,7 +64,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const fetchSettings = useCallback(async () => {
     // Prevent concurrent fetches
     if (isFetchingRef.current) {
-      console.log('⏸️ [SettingsContext] Fetch already in progress, skipping...');
+      if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('⏸️ [SettingsContext] Fetch already in progress, skipping...');
       return {};
     }
     
@@ -72,11 +75,13 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       if (isAuthenticated) {
         // Check if user is admin - only admins should call /api/admin/settings
         const isAdmin = checkIsAdmin();
-        console.log('📥 [SettingsContext] fetchSettings:', {
-          isAuthenticated,
-          isAdmin,
-          endpoint: isAdmin ? '/api/admin/settings' : '/api/settings (public)'
-        });
+        if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) {
+          console.log('📥 [SettingsContext] fetchSettings:', {
+            isAuthenticated,
+            isAdmin,
+            endpoint: isAdmin ? '/api/admin/settings' : '/api/settings (public)'
+          });
+        }
         if (isAdmin) {
           // Use admin endpoint (includes all settings)
           settings = await getSettings();
@@ -87,10 +92,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         }
       } else {
         // Use public endpoint (no auth required)
-        console.log('📥 [SettingsContext] fetchSettings: Not authenticated, using public endpoint');
+        if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📥 [SettingsContext] fetchSettings: Not authenticated, using public endpoint');
         settings = await getPublicSettings();
       }
-      
+
+      syncClientDebugFromSettings(settings);
       setSiteSettings(settings);
       setSystemSettings(settings); // Keep both for backwards compatibility
       setIsLoading(false);
@@ -127,7 +133,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'authToken') {
         // Auth status changed (from another tab/window), refetch settings with correct endpoint
-        console.log('📨 [SettingsContext] Auth token changed (storage event), refetching settings...');
+        if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📨 [SettingsContext] Auth token changed (storage event), refetching settings...');
         // Clear any pending debounce
         if (debounceTimer) clearTimeout(debounceTimer);
         // Debounce to prevent rapid successive calls
@@ -141,11 +147,13 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       // Auth status changed (same tab - logout/login), refetch settings with correct endpoint
       const hasToken = e.detail?.hasToken !== false; // Default to true if not specified
       const actualToken = localStorage.getItem('authToken');
-      console.log('📨 [SettingsContext] Auth token changed (custom event), refetching settings...', {
-        hasToken,
-        actualTokenExists: !!actualToken,
-        willCheckAdmin: hasToken && !!actualToken
-      });
+      if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) {
+        console.log('📨 [SettingsContext] Auth token changed (custom event), refetching settings...', {
+          hasToken,
+          actualTokenExists: !!actualToken,
+          willCheckAdmin: hasToken && !!actualToken
+        });
+      }
       
       // If event says hasToken but token doesn't exist, wait a bit for it to be set
       if (hasToken && !actualToken) {
@@ -155,7 +163,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
         debounceTimer = setTimeout(() => {
           const tokenAfterWait = localStorage.getItem('authToken');
           if (tokenAfterWait) {
-            console.log('📨 [SettingsContext] Token now available, fetching settings');
+            if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📨 [SettingsContext] Token now available, fetching settings');
             fetchSettings();
           } else {
             console.warn('📨 [SettingsContext] Token still not available after wait, using public endpoint');
@@ -202,14 +210,15 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     }
 
     const handleSettingsUpdate = (data: any) => {
-      console.log('📨 [SettingsContext] Settings updated via WebSocket:', data);
-      
+      if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📨 [SettingsContext] Settings updated via WebSocket:', data);
+
       // Update the specific setting directly from WebSocket data
       if (data.key && data.value !== undefined) {
-        setSiteSettings(prev => ({
-          ...prev,
-          [data.key]: data.value
-        }));
+        setSiteSettings(prev => {
+          const next = { ...prev, [data.key]: data.value };
+          syncClientDebugFromSettings(next);
+          return next;
+        });
         setSystemSettings(prev => ({
           ...prev,
           [data.key]: data.value

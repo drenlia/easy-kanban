@@ -1,6 +1,11 @@
 import { useCallback, useRef, useEffect, RefObject } from 'react';
 import { Board, Columns, Task, TeamMember } from '../types';
 import { getBoardTaskRelationships } from '../api';
+import { feDebug } from '../utils/clientDebug';
+
+function wsHookLog(...args: unknown[]) {
+  if (feDebug('FE_DEBUG_WEBSOCKET')) console.log(...args);
+}
 
 interface UseTaskWebSocketProps {
   // State setters
@@ -68,7 +73,7 @@ export const useTaskWebSocket = ({
     // Skip processing if a local reordering is in progress
     // This prevents WebSocket updates from overwriting optimistic updates
     if ((window as any).reorderingInProgress) {
-      console.log('🚫 [WebSocket] Skipping batch updates - reordering in progress');
+      wsHookLog('🚫 [WebSocket] Skipping batch updates - reordering in progress');
       pendingUpdatesRef.current.clear();
       return;
     }
@@ -233,7 +238,7 @@ export const useTaskWebSocket = ({
         columnUpdates.forEach(({ taskId, data, isMove }) => {
           // Ignore tasks that were recently deleted (prevents reappearing after deletion)
           if (recentlyDeletedTasksRef.current?.has(taskId)) {
-            console.log('🚫 [Batch] Ignoring task-updated for recently deleted task:', taskId);
+            wsHookLog('🚫 [Batch] Ignoring task-updated for recently deleted task:', taskId);
             return;
           }
           
@@ -576,7 +581,7 @@ export const useTaskWebSocket = ({
     
     // Ignore tasks that were recently deleted (prevents reappearing after deletion)
     if (recentlyDeletedTasksRef.current?.has(data.task.id)) {
-      console.log('🚫 [WebSocket] Ignoring task-created for recently deleted task:', data.task.id);
+      wsHookLog('🚫 [WebSocket] Ignoring task-created for recently deleted task:', data.task.id);
       return;
     }
     
@@ -747,7 +752,7 @@ export const useTaskWebSocket = ({
     
     // Ignore tasks that were recently deleted (prevents reappearing after deletion)
     if (recentlyDeletedTasksRef.current?.has(taskId)) {
-      console.log('🚫 [WebSocket] Ignoring task-updated for recently deleted task:', taskId);
+      wsHookLog('🚫 [WebSocket] Ignoring task-updated for recently deleted task:', taskId);
       return;
     }
     
@@ -846,7 +851,7 @@ export const useTaskWebSocket = ({
   }, [setBoards, setColumns, selectedBoardRef, setSelectedTask]);
   
   const handleTaskRelationshipCreated = useCallback((data: any) => {
-    console.log('🔗 [WebSocket] task-relationship-created received:', data);
+    wsHookLog('🔗 [WebSocket] task-relationship-created received:', data);
     
     // Always clear the taskRelationships cache for both tasks involved
     // This ensures hover highlighting will reload fresh data
@@ -863,7 +868,7 @@ export const useTaskWebSocket = ({
     // This ensures all users viewing the board get the update, even if selectedBoardRef is stale
     const currentBoardId = selectedBoardRef.current;
     if (data.boardId) {
-      console.log('🔗 [WebSocket] Refreshing relationships for board:', data.boardId, {
+      wsHookLog('🔗 [WebSocket] Refreshing relationships for board:', data.boardId, {
         matchesCurrentBoard: data.boardId === currentBoardId,
         currentBoardId: currentBoardId
       });
@@ -871,7 +876,7 @@ export const useTaskWebSocket = ({
       // Load relationships for the board where the relationship was created
       getBoardTaskRelationships(data.boardId)
         .then(relationships => {
-          console.log('🔗 [WebSocket] Loaded relationships:', relationships.length, 'for board:', data.boardId);
+          wsHookLog('🔗 [WebSocket] Loaded relationships:', relationships.length, 'for board:', data.boardId);
           taskLinking.setBoardRelationships(relationships);
         })
         .catch(error => {
@@ -995,7 +1000,7 @@ export const useTaskWebSocket = ({
           
           if (taskIndex !== -1) {
             taskFound = true;
-            console.log('✅ [WebSocket] handleTaskTagAdded: Task found in column', {
+            wsHookLog('✅ [WebSocket] handleTaskTagAdded: Task found in column', {
               columnId,
               taskIndex,
               currentTags: column.tasks[taskIndex].tags?.length || 0
@@ -1007,7 +1012,7 @@ export const useTaskWebSocket = ({
             // Ensure tags array exists
             const existingTags = Array.isArray(task.tags) ? task.tags : [];
             
-            console.log('🏷️ [WebSocket] handleTaskTagAdded: Current tags', {
+            wsHookLog('🏷️ [WebSocket] handleTaskTagAdded: Current tags', {
               existingTagsCount: existingTags.length,
               existingTagIds: existingTags.map(t => t.id),
               newTagId: data.tagId,
@@ -1025,7 +1030,7 @@ export const useTaskWebSocket = ({
               };
               const newTags = [...existingTags, newTag];
               
-              console.log('➕ [WebSocket] handleTaskTagAdded: Adding tag', {
+              wsHookLog('➕ [WebSocket] handleTaskTagAdded: Adding tag', {
                 newTag,
                 newTagsCount: newTags.length
               });
@@ -1042,7 +1047,7 @@ export const useTaskWebSocket = ({
                 tasks: updatedTasks
               };
               
-              console.log('✅ [WebSocket] handleTaskTagAdded: Task updated in column', {
+              wsHookLog('✅ [WebSocket] handleTaskTagAdded: Task updated in column', {
                 columnId,
                 taskId: updatedTask.id,
                 tagsCount: updatedTask.tags.length,
@@ -1052,10 +1057,10 @@ export const useTaskWebSocket = ({
               // Track updated task if it's the selected one
               if (selectedTaskRef.current && selectedTaskRef.current.id === data.taskId) {
                 updatedTaskRef.current = updatedTask;
-                console.log('✅ [WebSocket] handleTaskTagAdded: Selected task updated');
+                wsHookLog('✅ [WebSocket] handleTaskTagAdded: Selected task updated');
               }
             } else {
-              console.log('⚠️ [WebSocket] handleTaskTagAdded: Tag already exists, skipping');
+              wsHookLog('⚠️ [WebSocket] handleTaskTagAdded: Tag already exists, skipping');
             }
           }
         });
@@ -1078,7 +1083,7 @@ export const useTaskWebSocket = ({
         }) || ''];
         const finalTask = finalColumn?.tasks.find(t => t.id === data.taskId);
         
-      console.log('✅ [WebSocket] handleTaskTagAdded: Updated columns state', {
+      wsHookLog('✅ [WebSocket] handleTaskTagAdded: Updated columns state', {
         taskFound: !!finalTask,
         finalTagsCount: finalTask?.tags?.length || 0,
         finalTagIds: finalTask?.tags?.map(t => t.id) || [],
@@ -1093,7 +1098,7 @@ export const useTaskWebSocket = ({
       
       // Update selectedTask if it's the one that got the tag
       if (updatedTaskRef.current) {
-        console.log('✅ [WebSocket] handleTaskTagAdded: Updating selectedTask');
+        wsHookLog('✅ [WebSocket] handleTaskTagAdded: Updating selectedTask');
         setSelectedTask(updatedTaskRef.current);
       }
       
@@ -1135,12 +1140,12 @@ export const useTaskWebSocket = ({
           return updatedFilteredColumns;
       });
       
-      console.log('✅ [WebSocket] handleTaskTagAdded: Updated both columns and filteredColumns');
+      wsHookLog('✅ [WebSocket] handleTaskTagAdded: Updated both columns and filteredColumns');
     }, 0);
   }, [setColumns, setSelectedTask, selectedBoardRef, pendingTaskRefreshesRef, taskFilters, selectedTaskRef]);
   
   const handleTaskTagRemoved = useCallback((data: any) => {
-    console.log('📥 [WebSocket] handleTaskTagRemoved received:', data);
+    wsHookLog('📥 [WebSocket] handleTaskTagRemoved received:', data);
     
     if (!data.taskId || !data.tagId || !data.boardId) {
       console.warn('⚠️ [WebSocket] handleTaskTagRemoved: Missing required fields', { taskId: data.taskId, tagId: data.tagId, boardId: data.boardId });
@@ -1151,11 +1156,11 @@ export const useTaskWebSocket = ({
     const eventBoardId = data.boardId || data.boardid || data.board_id;
     const currentBoardId = selectedBoardRef.current;
     
-    console.log('📋 [WebSocket] handleTaskTagRemoved: boardId:', eventBoardId, 'selectedBoard:', currentBoardId);
+    wsHookLog('📋 [WebSocket] handleTaskTagRemoved: boardId:', eventBoardId, 'selectedBoard:', currentBoardId);
     
     // Only update if the task is for the current board
     if (eventBoardId === currentBoardId) {
-      console.log('✅ [WebSocket] handleTaskTagRemoved: Board matches, updating state');
+      wsHookLog('✅ [WebSocket] handleTaskTagRemoved: Board matches, updating state');
       const updatedTaskRef = { current: null as Task | null };
       
       // Update columns state directly
