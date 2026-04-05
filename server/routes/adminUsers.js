@@ -328,8 +328,8 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
     // MIGRATED: Get APP_URL setting using sqlManager
     const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
-    if (appUrlSetting?.value) {
-      baseUrl = appUrlSetting.value.replace(/\/$/, '');
+    if (appUrlSetting && String(appUrlSetting).trim()) {
+      baseUrl = String(appUrlSetting).replace(/\/$/, '');
     } else {
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;
@@ -555,8 +555,8 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
     // MIGRATED: Get APP_URL setting using sqlManager
     const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     
-    if (appUrlSetting?.value) {
-      baseUrl = appUrlSetting.value.replace(/\/$/, '');
+    if (appUrlSetting && String(appUrlSetting).trim()) {
+      baseUrl = String(appUrlSetting).replace(/\/$/, '');
     } else {
       // Construct from tenantId if available (multi-tenant mode)
       const tenantId = req.tenantId;

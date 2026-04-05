@@ -130,7 +130,9 @@ router.get('/system-info', authenticateToken, requireRole(['admin']), async (req
         // Demo mode: use default limit or get from settings
         // MIGRATED: Get STORAGE_LIMIT setting using sqlManager
         const limitSetting = await helpers.getSetting(db, 'STORAGE_LIMIT');
-        storageLimit = limitSetting ? parseInt(limitSetting.value) : 5368709120; // Default 5GB
+        storageLimit = limitSetting != null && limitSetting !== ''
+          ? parseInt(String(limitSetting), 10)
+          : 5368709120; // Default 5GB
       }
       
       diskUsed = storageUsage;
@@ -188,9 +190,9 @@ router.get('/owner', authenticateToken, requireRole(['admin']), async (req, res)
   try {
     const db = getRequestDatabase(req);
     // MIGRATED: Get OWNER setting using sqlManager
-    const ownerSetting = await helpers.getSetting(db, 'OWNER');
-    
-    res.json({ owner: ownerSetting?.value || null });
+    // helpers.getSetting returns the value string (not { value }), same as sqlManager contract
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    res.json({ owner: ownerEmail || null });
   } catch (error) {
     console.error('Error fetching owner:', error);
     res.status(500).json({ error: 'Failed to fetch owner' });
@@ -203,9 +205,8 @@ router.get('/portal-config', authenticateToken, requireRole(['admin']), async (r
     const db = getRequestDatabase(req);
     // MIGRATED: Get ADMIN_PORTAL_URL setting using sqlManager
     const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
-    
-    res.json({ 
-      adminPortalUrl: adminPortalUrl?.value || null 
+    res.json({
+      adminPortalUrl: adminPortalUrl || null
     });
   } catch (error) {
     console.error('Error fetching portal config:', error);
@@ -218,27 +219,22 @@ router.get('/instance-portal/billing-history', authenticateToken, requireRole(['
   try {
     const db = getRequestDatabase(req);
     // MIGRATED: Check if user is the owner using sqlManager
-    const ownerSetting = await helpers.getSetting(db, 'OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can access billing history' });
     }
     
-    // MIGRATED: Get admin portal URL using sqlManager
     const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // MIGRATED: Get instance ID using sqlManager
     const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.get(
-      `${adminPortalUrl.value}/api/instance-portal/billing-history`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/billing-history`,
       {
-        params: { instanceId: instanceId?.value },
+        params: { instanceId: instanceId || undefined },
         headers: {
           'Authorization': `Bearer ${req.header('Authorization')?.replace('Bearer ', '')}`
         },
@@ -265,27 +261,22 @@ router.post('/instance-portal/change-plan', authenticateToken, requireRole(['adm
   try {
     const db = getRequestDatabase(req);
     // MIGRATED: Check if user is the owner using sqlManager
-    const ownerSetting = await helpers.getSetting(db, 'OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can change the subscription plan' });
     }
     
-    // MIGRATED: Get admin portal URL using sqlManager
     const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // MIGRATED: Get instance ID using sqlManager
     const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.post(
-      `${adminPortalUrl.value}/api/instance-portal/subscription/change-plan`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/subscription/change-plan`,
       {
-        instanceId: instanceId?.value,
+        instanceId: instanceId || undefined,
         ...req.body
       },
       {
@@ -315,27 +306,22 @@ router.post('/instance-portal/cancel-subscription', authenticateToken, requireRo
   try {
     const db = getRequestDatabase(req);
     // MIGRATED: Check if user is the owner using sqlManager
-    const ownerSetting = await helpers.getSetting(db, 'OWNER');
-    
-    if (!ownerSetting || ownerSetting.value !== req.user.email) {
+    const ownerEmail = await helpers.getSetting(db, 'OWNER');
+    if (!ownerEmail || String(ownerEmail).trim().toLowerCase() !== String(req.user.email || '').trim().toLowerCase()) {
       return res.status(403).json({ error: 'Only the instance owner can cancel the subscription' });
     }
     
-    // MIGRATED: Get admin portal URL using sqlManager
     const adminPortalUrl = await helpers.getSetting(db, 'ADMIN_PORTAL_URL');
-    
-    if (!adminPortalUrl || !adminPortalUrl.value) {
+    if (!adminPortalUrl || !String(adminPortalUrl).trim()) {
       return res.status(404).json({ error: 'Admin portal URL not configured' });
     }
     
-    // MIGRATED: Get instance ID using sqlManager
     const instanceId = await helpers.getSetting(db, 'INSTANCE_ID');
     
-    // Make request to admin portal
     const response = await axios.post(
-      `${adminPortalUrl.value}/api/instance-portal/subscription/cancel`,
+      `${String(adminPortalUrl).replace(/\/$/, '')}/api/instance-portal/subscription/cancel`,
       {
-        instanceId: instanceId?.value,
+        instanceId: instanceId || undefined,
         ...req.body
       },
       {

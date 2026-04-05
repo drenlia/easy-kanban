@@ -1276,8 +1276,8 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     let baseUrl = process.env.BASE_URL;
 
     if (!baseUrl) {
-      if (appUrlSetting?.value) {
-        baseUrl = appUrlSetting.value.replace(/\/$/, '');
+      if (appUrlSetting && String(appUrlSetting).trim()) {
+        baseUrl = String(appUrlSetting).replace(/\/$/, '');
       } else {
         const tenantId = req.tenantId;
         if (tenantId) {

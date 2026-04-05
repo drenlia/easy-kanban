@@ -22,6 +22,30 @@ function toDateInputValue(value: string | null | undefined): string {
   return m ? m[1] : '';
 }
 
+/** Local calendar YYYY-MM-DD for `<input type="date">`. */
+function formatLocalYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Default sprint range: work week starts Monday.
+ * - Start: today if Monday, otherwise the next Monday (upcoming sprint boundary).
+ * - End: Friday after two full Mon–Fri weeks (start + 11 calendar days).
+ */
+function getDefaultNewSprintDates(now = new Date()): { start_date: string; end_date: string } {
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const daysUntilMonday = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
+  d.setDate(d.getDate() + daysUntilMonday);
+  const start = new Date(d);
+  const end = new Date(d);
+  end.setDate(end.getDate() + 11); // second Friday after start Monday
+  return { start_date: formatLocalYmd(start), end_date: formatLocalYmd(end) };
+}
+
 const AdminSprintSettingsTab: React.FC = () => {
   const { t } = useTranslation('admin');
   const [sprints, setSprints] = useState<PlanningPeriod[]>([]);
@@ -100,11 +124,12 @@ const AdminSprintSettingsTab: React.FC = () => {
   };
 
   const handleCreate = () => {
+    const { start_date, end_date } = getDefaultNewSprintDates();
     setIsCreating(true);
     setFormData({
       name: '',
-      start_date: '',
-      end_date: '',
+      start_date,
+      end_date,
       is_active: false,
       description: ''
     });

@@ -81,7 +81,8 @@ export async function getPrioritiesByNames(db, priorityNames) {
 }
 
 /**
- * Get setting value by key
+ * Get setting value by key (scalar `value` column only).
+ * @returns {Promise<string|null>}
  */
 export async function getSetting(db, key) {
   const query = `SELECT value FROM settings WHERE key = $1`;
