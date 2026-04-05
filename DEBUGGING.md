@@ -105,6 +105,8 @@ The app’s `lazyWithRetry` helper may retry and then force a reload; a **hard r
 
 **Kubernetes rolling restart with `image: …:latest` and `imagePullPolicy: Always`:** While old pods are still running, new pods may pull a **new** digest for `:latest`. The Service load-balances across both — the browser can get `index-*.js` from one build and a lazy chunk from another pod where that filename does not exist → same `Failed to fetch dynamically imported module` loop until the rollout finishes (or forever if something keeps skewing pulls). Prefer an **immutable tag per release** (e.g. git SHA) in the Deployment, or scale to one replica during cutover, or use a `Recreate` deploy strategy if brief downtime is acceptable.
 
+**“New version” refresh during rollout:** A full reload can land on a pod that is **terminating** or still serve a **stale document** from cache. Mitigations used in this repo: (1) **client** — `useVersionStatus` retries `GET /api/version` a few times then navigates with a `_v=` cache-bust query param; (2) **cluster** — `app-deployment-pg.yaml` uses `rollingUpdate.maxUnavailable: 0`, `preStop: sleep 15`, and `terminationGracePeriodSeconds: 45` so endpoints drain before SIGTERM. The old SQLite **proxy** model avoided per-pod DB files but did not remove load-balancing across app pods; the same rollout rules still apply to **static assets** and HTTP.
+
 ---
 
 ## Practical tips

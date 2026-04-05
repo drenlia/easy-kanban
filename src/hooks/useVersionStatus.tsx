@@ -124,18 +124,33 @@ export const useVersionStatus = (): UseVersionStatusReturn => {
     if (versionInfo.newVersion) {
       localStorage.setItem('dismissedVersion', versionInfo.newVersion);
     }
-    // Set flag to indicate readiness check should run after refresh
     sessionStorage.setItem('pendingVersionRefresh', 'true');
-    // Clear the banner before refresh
     setShowVersionBanner(false);
-    
-    // Force a hard reload (bypass cache) to ensure we get the new JavaScript bundles
-    // This prevents "Failed to fetch dynamically imported module" errors
-    // when old bundles reference chunk files that no longer exist
-    // Use window.location.href assignment to force a full page reload
-    // Remove any existing query parameters first to avoid interfering with asset loading
-    const baseUrl = window.location.origin + window.location.pathname;
-    window.location.href = baseUrl;
+
+    const navigateWithCacheBust = () => {
+      const u = new URL(window.location.href);
+      u.searchParams.set('_v', String(Date.now()));
+      window.location.href = u.toString();
+    };
+
+    // During K8s rollouts, a blind reload can hit a terminating pod or a cached HTML shell.
+    // Try a few lightweight requests to /api/version (public) first, then navigate with _v= cache bust.
+    void (async () => {
+      const maxAttempts = 4;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const res = await fetch('/api/version', { cache: 'no-store' });
+          if (res.ok) {
+            navigateWithCacheBust();
+            return;
+          }
+        } catch {
+          /* network / pod gone — retry */
+        }
+        await new Promise((r) => setTimeout(r, 350 + attempt * 150));
+      }
+      navigateWithCacheBust();
+    })();
   };
 
   const handleDismissVersionBanner = () => {

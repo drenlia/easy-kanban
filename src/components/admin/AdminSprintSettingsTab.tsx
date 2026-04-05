@@ -15,6 +15,13 @@ interface PlanningPeriod {
   created_at: string;
 }
 
+/** `<input type="date">` only accepts YYYY-MM-DD; PostgreSQL JSON often sends ISO datetimes. */
+function toDateInputValue(value: string | null | undefined): string {
+  if (!value) return '';
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
 const AdminSprintSettingsTab: React.FC = () => {
   const { t } = useTranslation('admin');
   const [sprints, setSprints] = useState<PlanningPeriod[]>([]);
@@ -98,9 +105,9 @@ const AdminSprintSettingsTab: React.FC = () => {
     setEditingId(sprint.id);
     setFormData({
       name: sprint.name,
-      start_date: sprint.start_date,
-      end_date: sprint.end_date,
-      is_active: sprint.is_active,
+      start_date: toDateInputValue(sprint.start_date),
+      end_date: toDateInputValue(sprint.end_date),
+      is_active: Boolean(sprint.is_active),
       description: sprint.description || ''
     });
   };
@@ -306,10 +313,15 @@ const AdminSprintSettingsTab: React.FC = () => {
     if (!dateString) {
       return '-';
     }
-    
+
+    const ymd = toDateInputValue(dateString);
+    if (!ymd) return '-';
+
     // Parse as local date to avoid timezone offset issues
-    const [year, month, day] = dateString.split('-').map(Number);
+    const [year, month, day] = ymd.split('-').map(Number);
+    if (!year || !month || !day) return '-';
     const date = new Date(year, month - 1, day); // month is 0-indexed
+    if (Number.isNaN(date.getTime())) return '-';
     return date.toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',

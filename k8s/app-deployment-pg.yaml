@@ -9,6 +9,12 @@ metadata:
     database: postgresql
 spec:
   replicas: 3  # Start with 3 replicas for testing
+  # Prefer new pods ready before taking old ones out; reduces mixed-version + dead-pod hits during refresh
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: easy-kanban
@@ -88,10 +94,16 @@ spec:
         labelSelector:
           matchLabels:
             app: easy-kanban
+      terminationGracePeriodSeconds: 45
       containers:
       - name: easy-kanban
         image: 10.110.240.233:5000/easy-kanban:latest
         imagePullPolicy: Always
+        lifecycle:
+          preStop:
+            exec:
+              # Give the Service / kube-proxy time to stop sending new connections before SIGTERM
+              command: ["/bin/sh", "-c", "sleep 15"]
         ports:
         - containerPort: 3010
           name: frontend

@@ -16,13 +16,14 @@ import { wrapQuery } from '../queryLogger.js';
  * @returns {Promise<Array>} Array of sprint objects
  */
 export async function getAllSprints(db) {
-  // Use DB column names (snake_case) — frontend and PUT /api/admin/sprints/:id expect start_date, end_date, is_active.
+  // Cast dates to text so JSON is always YYYY-MM-DD. Otherwise node-pg may return Date objects and
+  // res.json() emits ISO datetimes — <input type="date"> ignores those and the admin form looks empty.
   const query = `
     SELECT 
       id,
       name,
-      start_date,
-      end_date,
+      start_date::text AS start_date,
+      end_date::text AS end_date,
       is_active,
       description,
       created_at,
@@ -46,8 +47,8 @@ export async function getActiveSprint(db) {
     SELECT
       id,
       name,
-      start_date,
-      end_date,
+      start_date::text AS start_date,
+      end_date::text AS end_date,
       is_active,
       description,
       created_at
@@ -70,10 +71,23 @@ export async function getActiveSprint(db) {
  */
 export async function getSprintById(db, sprintId) {
   const query = `
-    SELECT * FROM planning_periods 
+    SELECT
+      id,
+      name,
+      start_date::text AS start_date,
+      end_date::text AS end_date,
+      is_active,
+      description,
+      planned_tasks,
+      planned_effort,
+      board_id,
+      created_by,
+      created_at,
+      updated_at
+    FROM planning_periods
     WHERE id = $1
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
   return await stmt.get(sprintId);
 }
