@@ -101,7 +101,11 @@ If the browser loads an **old** `index.html` (cached) but the server only has **
 
 The app’s `lazyWithRetry` helper may retry and then force a reload; a **hard refresh** (or clearing site data) also fixes it for one session.
 
-**Prevention:** The production server must **not** apply long-lived cache headers to the HTML shell. Only paths under `/assets/` (content-hashed filenames) should use long cache. If you terminate TLS or cache in **nginx / Ingress / CDN**, ensure `index.html` and `/` are **not** cached aggressively (or bypass cache for those paths).
+**Same symptom as 404 on the main bundle:** `GET …/assets/index-xxxxx.js` **404** means the document you have still points at a hash that no longer exists (stale HTML or a CDN edge holding an old `index.html`). Fix the **HTML cache policy**, not necessarily `/assets/*` (hashed files are safe to cache long).
+
+**Prevention:** The production server must **not** apply long-lived cache headers to the HTML shell. Only paths under `/assets/` (content-hashed filenames) should use long cache. If you terminate TLS or cache in **nginx / Ingress / CDN**, ensure `index.html` and `/` are **not** cached aggressively. You do **not** need “disable cache for the entire site”: configure the edge so **documents** (`/`, `/index.html`, or “HTML” content type) are **no-store** or very short TTL, while **`/assets/*` stays cacheable** (immutable filenames).
+
+Express sets `Cache-Control: no-store` on the SPA shell and `immutable` long cache on `/assets/`; direct requests to `dist/*.html` also get `no-store` via `setHeaders` in `server/index.js`.
 
 **Kubernetes rolling restart with `image: …:latest` and `imagePullPolicy: Always`:** While old pods are still running, new pods may pull a **new** digest for `:latest`. The Service load-balances across both — the browser can get `index-*.js` from one build and a lazy chunk from another pod where that filename does not exist → same `Failed to fetch dynamically imported module` loop until the rollout finishes (or forever if something keeps skewing pulls). Prefer an **immutable tag per release** (e.g. git SHA) in the Deployment, or scale to one replica during cutover, or use a `Recreate` deploy strategy if brief downtime is acceptable.
 

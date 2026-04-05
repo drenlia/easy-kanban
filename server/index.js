@@ -272,14 +272,19 @@ if (process.env.NODE_ENV === 'production' && !process.env.VITE_PREVIEW_RUNNING) 
       })
     );
   }
-  // Other dist files (favicon, etc.). Do NOT long-cache index.html: stale HTML references removed
-  // chunks after deploy → "Failed to fetch dynamically imported module". SPA shell is sent via catch-all below.
+  // Other dist files (favicon, etc.). Do NOT long-cache any HTML: stale HTML references removed
+  // chunks after deploy → 404 on /assets/*.js or failed dynamic import(). SPA shell uses catch-all below.
   app.use(
     express.static(distPath, {
       maxAge: 0,
       etag: true,
       lastModified: true,
-      index: false
+      index: false,
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+        }
+      }
     })
   );
   console.log(`📦 Serving static files from: ${distPath} (/assets immutable 1y, HTML revalidated)`);
