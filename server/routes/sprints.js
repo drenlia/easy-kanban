@@ -120,7 +120,7 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
 });
 
 // PUT /api/admin/sprints/:id - Update a sprint
-router.put("/:id", authenticateToken, async (req, res) => {
+router.put("/:id", authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { id } = req.params;

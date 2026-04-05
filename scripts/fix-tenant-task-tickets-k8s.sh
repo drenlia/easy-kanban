@@ -8,7 +8,7 @@
 #
 # Environment overrides:
 #   NAMESPACE=easy-kanban-pg     (default: easy-kanban-pg)
-#   TENANT_ID=drenlia-pg         (default: drenlia-pg) → schema tenant_<TENANT_ID>
+#   TENANT_ID=drenlia         (default: drenlia-pg) → schema tenant_<TENANT_ID>
 #   POSTGRES_DEPLOYMENT=postgres (default: postgres)
 #   DB_NAME=easykanban           (default: easykanban)
 #   DB_USER=kanban               (default: kanban)
@@ -20,7 +20,7 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-easy-kanban-pg}"
-TENANT_ID="${TENANT_ID:-drenlia-pg}"
+TENANT_ID="${TENANT_ID:-drenlia}"
 POSTGRES_DEPLOYMENT="${POSTGRES_DEPLOYMENT:-postgres}"
 DB_NAME="${DB_NAME:-easykanban}"
 DB_USER="${DB_USER:-kanban}"

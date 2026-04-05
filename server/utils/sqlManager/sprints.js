@@ -16,16 +16,17 @@ import { wrapQuery } from '../queryLogger.js';
  * @returns {Promise<Array>} Array of sprint objects
  */
 export async function getAllSprints(db) {
+  // Use DB column names (snake_case) — frontend and PUT /api/admin/sprints/:id expect start_date, end_date, is_active.
   const query = `
     SELECT 
-      id, 
-      name, 
-      start_date as "startDate",
-      end_date as "endDate", 
-      is_active as "isActive", 
-      description, 
-      created_at as "createdAt", 
-      updated_at as "updatedAt"
+      id,
+      name,
+      start_date,
+      end_date,
+      is_active,
+      description,
+      created_at,
+      updated_at
     FROM planning_periods
     ORDER BY start_date DESC
   `;
@@ -42,14 +43,14 @@ export async function getAllSprints(db) {
  */
 export async function getActiveSprint(db) {
   const query = `
-    SELECT 
-      id, 
-      name, 
-      start_date as "startDate",
-      end_date as "endDate", 
-      is_active as "isActive", 
-      description, 
-      created_at as "createdAt"
+    SELECT
+      id,
+      name,
+      start_date,
+      end_date,
+      is_active,
+      description,
+      created_at
     FROM planning_periods
     WHERE is_active = 1
     ORDER BY start_date DESC
