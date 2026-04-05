@@ -302,7 +302,18 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
     const handleSettingsUpdated = async (data: any) => {
       try {
         // Update the specific setting directly from WebSocket data instead of fetching all settings
-        if (data.key && data.value !== undefined) {
+        if (data.key && data.value === null) {
+          setSettings(prev => {
+            const next = { ...prev };
+            delete next[data.key];
+            return next;
+          });
+          setEditingSettings(prev => {
+            const next = { ...prev };
+            delete next[data.key];
+            return next;
+          });
+        } else if (data.key && data.value !== undefined) {
           setSettings(prev => ({
             ...prev,
             [data.key]: data.value

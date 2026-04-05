@@ -131,6 +131,13 @@ router.put('/owner', authenticateAdminPortal, async (req, res) => {
     await settingsQueries.upsertSettingWithTimestamp(db, 'OWNER', email, new Date().toISOString());
     
     console.log(`✅ Admin portal set instance owner to: ${email}`);
+
+    const tenantIdOwner = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key: 'OWNER', value: email, timestamp: new Date().toISOString() },
+      tenantIdOwner
+    ).catch((err) => console.error('Failed to publish settings-updated (OWNER):', err));
     
     res.json({
       success: true,
@@ -200,6 +207,13 @@ router.put('/settings/:key', authenticateAdminPortal, async (req, res) => {
     }
 
     console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
+
+    const tenantIdSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value, timestamp: new Date().toISOString() },
+      tenantIdSetting
+    ).catch((err) => console.error('Failed to publish settings-updated:', err));
     
     res.json({
       success: true,
@@ -245,6 +259,15 @@ router.put('/settings', authenticateAdminPortal, async (req, res) => {
         results.push({ key, value });
         console.log(`✅ Admin portal updated setting: ${key} = ${value}`);
       }
+    }
+
+    const tenantIdBulk = getTenantId(req);
+    for (const { key, value } of results) {
+      await notificationService.publish(
+        'settings-updated',
+        { key, value, timestamp: new Date().toISOString() },
+        tenantIdBulk
+      ).catch((err) => console.error(`Failed to publish settings-updated (${key}):`, err));
     }
     
     res.json({
@@ -437,60 +460,91 @@ router.post('/users', authenticateAdminPortal, async (req, res) => {
   }
 });
 
-// Update user
+// Update user (single handler — keeps member display name in sync and publishes realtime events)
 router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
     const { email, firstName, lastName, role, isActive } = req.body;
-    
-    // MIGRATED: Check if user exists using sqlManager
-    const user = await userQueries.getUserByIdForAdmin(db, userId);
-    if (!user) {
-      return res.status(404).json({ 
+    const t = await getTranslator(db);
+
+    const existingUser = await userQueries.getUserByIdForAdmin(db, userId);
+    if (!existingUser) {
+      return res.status(404).json({
         success: false,
-        error: 'User not found' 
+        error: t('errors.userNotFound')
       });
     }
-    
-    // MIGRATED: Update user fields using sqlManager
-    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
-    
-    // MIGRATED: Update role if provided using sqlManager
+
+    const effectiveEmail = email !== undefined ? email : existingUser.email;
+    const effectiveFirst = firstName !== undefined ? firstName : existingUser.first_name;
+    const effectiveLast = lastName !== undefined ? lastName : existingUser.last_name;
+    const effectiveActive = isActive !== undefined ? isActive : Boolean(existingUser.is_active);
+
+    if (!effectiveEmail || !effectiveFirst || !effectiveLast) {
+      return res.status(400).json({
+        success: false,
+        error: t('errors.emailFirstNameLastNameRequired')
+      });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(String(effectiveEmail))) {
+      return res.status(400).json({
+        success: false,
+        error: t('errors.invalidEmailAddressFormat')
+      });
+    }
+
+    const emailChanged = String(effectiveEmail).trim() !== String(existingUser.email || '').trim();
+    if (emailChanged) {
+      const emailTaken = await userQueries.checkEmailExists(db, effectiveEmail, userId);
+      if (emailTaken) {
+        return res.status(400).json({
+          success: false,
+          error: t('errors.emailAlreadyTakenByAnotherUser')
+        });
+      }
+    }
+
+    await userQueries.updateUser(db, userId, {
+      email: effectiveEmail,
+      firstName: effectiveFirst,
+      lastName: effectiveLast,
+      isActive: effectiveActive
+    });
+
     let roleChanged = false;
     if (role !== undefined) {
-      // Get current role to check if it changed
       const currentRole = await userQueries.getUserRole(db, userId);
-      
       if (currentRole !== role) {
         roleChanged = true;
-        // Remove existing roles
         await userQueries.deleteUserRoles(db, userId);
-        
-        // Add new role
         const roleObj = await userQueries.getRoleByName(db, role);
         if (roleObj) {
           await userQueries.addUserRole(db, userId, roleObj.id);
         }
       }
     }
-    
-    // MIGRATED: Get updated user data using sqlManager
+
+    const memberRow = await userQueries.getMemberByUserIdWithColor(db, userId);
+    const displayName = `${effectiveFirst} ${effectiveLast}`.trim();
+    if (memberRow) {
+      await userQueries.updateMemberName(db, userId, displayName);
+    }
+
     const updatedUser = await userQueries.getUserByIdForAdmin(db, userId);
-    
-    // Get user's roles as comma-separated string (matching GET /users format)
     const userRolesResult = await userQueries.getUserRole(db, userId);
     const rolesArray = userRolesResult ? [userRolesResult] : [];
-    
-    // Publish to Redis for real-time updates
+
     const tenantId = getTenantId(req);
-    console.log('📤 Publishing user-updated to Redis for admin portal user update');
+    console.log('📤 Publishing user-updated for admin portal user update');
     await notificationService.publish('user-updated', {
       user: {
         id: updatedUser.id,
-        email: updatedUser.email || email,
-        firstName: updatedUser.first_name || firstName,
-        lastName: updatedUser.last_name || lastName,
+        email: updatedUser.email || effectiveEmail,
+        firstName: updatedUser.first_name || effectiveFirst,
+        lastName: updatedUser.last_name || effectiveLast,
         isActive: Boolean(updatedUser.is_active),
         authProvider: updatedUser.auth_provider || null,
         googleAvatarUrl: updatedUser.google_avatar_url || null,
@@ -498,33 +552,44 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
         joined: updatedUser.created_at
       },
       timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
+    }, tenantId).catch((err) => {
       console.error('Failed to publish user-updated event:', err);
     });
-    
-    // Publish role update if role changed
-    if (roleChanged) {
-      console.log('📤 Publishing user-role-updated to Redis for admin portal role change');
+
+    if (roleChanged && role !== undefined) {
+      console.log('📤 Publishing user-role-updated for admin portal role change');
       await notificationService.publish('user-role-updated', {
-        userId: userId,
-        role: role,
+        userId,
+        role,
         timestamp: new Date().toISOString()
-      }, tenantId).catch(err => {
+      }, tenantId).catch((err) => {
         console.error('Failed to publish user-role-updated event:', err);
       });
     }
-    
+
+    if (memberRow) {
+      const memberAfter = await userQueries.getMemberByUserIdWithColor(db, userId);
+      if (memberAfter) {
+        await notificationService.publish('member-updated', {
+          memberId: memberAfter.id,
+          member: { id: memberAfter.id, name: memberAfter.name, color: memberAfter.color },
+          timestamp: new Date().toISOString()
+        }, tenantId).catch((err) => {
+          console.error('Failed to publish member-updated event:', err);
+        });
+      }
+    }
+
     console.log(`✅ Admin portal updated user: ${userId}`);
-    
-    const t = await getTranslator(db);
+
     res.json({
       success: true,
       message: t('success.userUpdatedSuccessfully'),
       data: {
         id: updatedUser.id,
-        email: updatedUser.email || email,
-        firstName: updatedUser.first_name || firstName,
-        lastName: updatedUser.last_name || lastName,
+        email: updatedUser.email || effectiveEmail,
+        firstName: updatedUser.first_name || effectiveFirst,
+        lastName: updatedUser.last_name || effectiveLast,
         roles: rolesArray,
         isActive: Boolean(updatedUser.is_active),
         createdAt: updatedUser.created_at
@@ -534,15 +599,15 @@ router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
     console.error('Error updating user:', error);
     try {
       const db = getRequestDatabase(req);
-      const t = await getTranslator(db);
-      res.status(500).json({ 
+      const tr = await getTranslator(db);
+      res.status(500).json({
         success: false,
-        error: t('errors.failedToUpdateUser') 
+        error: tr('errors.failedToUpdateUser')
       });
     } catch (fallbackError) {
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to update user' 
+        error: 'Failed to update user'
       });
     }
   }
@@ -553,34 +618,62 @@ router.delete('/users/:userId', authenticateAdminPortal, async (req, res) => {
   try {
     const db = getRequestDatabase(req);
     const { userId } = req.params;
-    
+
     const t = await getTranslator(db);
-    
-    // MIGRATED: Check if user exists using sqlManager
+
     const user = await userQueries.getUserByIdForAdmin(db, userId);
     if (!user) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        error: t('errors.userNotFound') 
+        error: t('errors.userNotFound')
       });
     }
-    
-    // MIGRATED: Delete user using adminUsers.deleteUser
+
+    const userMember = await userQueries.getMemberByUserId(db, userId);
+
     await adminUserQueries.deleteUser(db, userId);
-    
+
     console.log(`✅ Admin portal deleted user: ${userId} (${user.email})`);
-    
+
+    const tenantIdDel = getTenantId(req);
+    if (userMember) {
+      await notificationService.publish('member-deleted', {
+        memberId: userMember.id,
+        timestamp: new Date().toISOString()
+      }, tenantIdDel).catch((err) => console.error('Failed to publish member-deleted:', err));
+    }
+    await notificationService.publish('user-deleted', {
+      userId,
+      user: {
+        id: userId,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        isActive: !!user.is_active,
+        authProvider: user.auth_provider
+      },
+      timestamp: new Date().toISOString()
+    }, tenantIdDel).catch((err) => console.error('Failed to publish user-deleted:', err));
+
     res.json({
       success: true,
       message: t('success.userDeletedSuccessfully')
     });
   } catch (error) {
     console.error('Error deleting user:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToDeleteUser') 
-    });
+    try {
+      const dbErr = getRequestDatabase(req);
+      const t = await getTranslator(dbErr);
+      res.status(500).json({
+        success: false,
+        error: t('errors.failedToDeleteUser')
+      });
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to delete user'
+      });
+    }
   }
 });
 
@@ -957,6 +1050,13 @@ router.delete('/settings/:key', authenticateAdminPortal, async (req, res) => {
 
     console.log(`✅ Admin portal deleted setting: ${key}`);
 
+    const tenantIdDelSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value: null, timestamp: new Date().toISOString() },
+      tenantIdDelSetting
+    ).catch((err) => console.error('Failed to publish settings-updated (delete):', err));
+
     res.json({
       success: true,
       message: t('success.settingDeletedSuccessfully')
@@ -1008,6 +1108,13 @@ router.post('/settings', authenticateAdminPortal, async (req, res) => {
 
     console.log(`✅ Admin portal created setting: ${key} = ${value}`);
 
+    const tenantIdCreateSetting = getTenantId(req);
+    await notificationService.publish(
+      'settings-updated',
+      { key, value, timestamp: new Date().toISOString() },
+      tenantIdCreateSetting
+    ).catch((err) => console.error('Failed to publish settings-updated (create):', err));
+
     res.json({
       success: true,
       message: t('success.settingCreatedSuccessfully'),
@@ -1058,12 +1165,17 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
 
     console.log(`✅ Admin portal updated instance status to: ${status}`);
 
-    // Publish instance status update to Redis for real-time updates
     const tenantId = getTenantId(req);
-    notificationService.publish('instance-status-updated', {
+    await notificationService.publish('instance-status-updated', {
       status,
       timestamp: new Date().toISOString()
-    }, tenantId);
+    }, tenantId).catch((err) => console.error('Failed to publish instance-status-updated:', err));
+
+    await notificationService.publish(
+      'settings-updated',
+      { key: 'INSTANCE_STATUS', value: status, timestamp: new Date().toISOString() },
+      tenantId
+    ).catch((err) => console.error('Failed to publish settings-updated (INSTANCE_STATUS):', err));
 
     res.json({
       success: true,
@@ -1072,11 +1184,19 @@ router.put('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating instance status:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToUpdateInstanceStatus') 
-    });
+    try {
+      const dbErr = getRequestDatabase(req);
+      const tr = await getTranslator(dbErr);
+      res.status(500).json({
+        success: false,
+        error: tr('errors.failedToUpdateInstanceStatus')
+      });
+    } catch (fallbackError) {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update instance status'
+      });
+    }
   }
 });
 
@@ -1094,136 +1214,17 @@ router.get('/instance-status', authenticateAdminPortal, async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching instance status:', error);
-    const t = await getTranslator(db);
-    res.status(500).json({ 
-      success: false,
-      error: t('errors.failedToFetchInstanceStatus') 
-    });
-  }
-});
-
-// ================================
-// USER MANAGEMENT ENHANCEMENTS
-// ================================
-
-// Update user
-router.put('/users/:userId', authenticateAdminPortal, async (req, res) => {
-  try {
-    const db = getRequestDatabase(req);
-    const { userId } = req.params;
-    const { email, firstName, lastName, role, isActive } = req.body;
-    
-    const t = await getTranslator(db);
-    
-    // Validate required fields
-    if (!email || !firstName || !lastName || !role) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.emailFirstNameLastNameRoleRequired') 
-      });
-    }
-    
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.invalidEmailAddressFormat') 
-      });
-    }
-    
-    // MIGRATED: Check if user exists using sqlManager
-    const existingUser = await userQueries.getUserByIdForAdmin(db, userId);
-    if (!existingUser) {
-      return res.status(404).json({ 
-        success: false,
-        error: t('errors.userNotFound') 
-      });
-    }
-    
-    // MIGRATED: Check if email is already taken using sqlManager
-    const emailTaken = await userQueries.checkEmailExists(db, email, userId);
-    if (emailTaken) {
-      return res.status(400).json({ 
-        success: false,
-        error: t('errors.emailAlreadyTakenByAnotherUser') 
-      });
-    }
-    
-    // MIGRATED: Update user using sqlManager
-    await userQueries.updateUser(db, userId, { email, firstName, lastName, isActive });
-    
-    // MIGRATED: Update role using sqlManager
-    const roleObj = await userQueries.getRoleByName(db, role);
-    if (roleObj) {
-      // Remove existing roles
-      await userQueries.deleteUserRoles(db, userId);
-      // Add new role
-      await userQueries.addUserRole(db, userId, roleObj.id);
-    }
-    
-    // MIGRATED: Update member name using sqlManager
-    await userQueries.updateMemberName(db, userId, `${firstName} ${lastName}`);
-    
-    // MIGRATED: Get updated user data using sqlManager
-    const updatedUser = await userQueries.getUserByIdForAdmin(db, userId);
-    
-    // Publish to Redis for real-time updates
-    const tenantId = getTenantId(req);
-    console.log('📤 Publishing user-updated and user-role-updated to Redis for admin portal user update');
-    await notificationService.publish('user-updated', {
-      user: {
-        id: updatedUser.id,
-        email: updatedUser.email,
-        firstName: updatedUser.first_name,
-        lastName: updatedUser.last_name,
-        isActive: Boolean(updatedUser.is_active),
-        authProvider: updatedUser.auth_provider || null,
-        googleAvatarUrl: updatedUser.google_avatar_url || null,
-        createdAt: updatedUser.created_at,
-        joined: updatedUser.created_at
-      },
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
-      console.error('Failed to publish user-updated event:', err);
-    });
-    
-    // Publish role update
-    await notificationService.publish('user-role-updated', {
-      userId: userId,
-      role: role,
-      timestamp: new Date().toISOString()
-    }, tenantId).catch(err => {
-      console.error('Failed to publish user-role-updated event:', err);
-    });
-    
-    console.log(`✅ Admin portal updated user: ${email} (${firstName} ${lastName})`);
-    
-    res.json({
-      success: true,
-      message: t('success.userUpdatedSuccessfully'),
-      data: {
-        id: userId,
-        email,
-        firstName,
-        lastName,
-        role,
-        isActive: !!isActive
-      }
-    });
-  } catch (error) {
-    console.error('Error updating user:', error);
     try {
-      const db = getRequestDatabase(req);
-      const t = await getTranslator(db);
-      res.status(500).json({ 
+      const dbErr = getRequestDatabase(req);
+      const tr = await getTranslator(dbErr);
+      res.status(500).json({
         success: false,
-        error: t('errors.failedToUpdateUser') 
+        error: tr('errors.failedToFetchInstanceStatus')
       });
     } catch (fallbackError) {
-      res.status(500).json({ 
+      res.status(500).json({
         success: false,
-        error: 'Failed to update user' 
+        error: 'Failed to fetch instance status'
       });
     }
   }

@@ -210,54 +210,56 @@ const AdminSprintSettingsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string, event?: React.MouseEvent<HTMLButtonElement>) => {
+    // Capture button geometry before any await — after await, React's synthetic event
+    // target is cleared, so the confirmation portal (which requires positions) never mounted.
+    let position: { top: number; left: number; maxHeight?: number } | null = null;
+    const target = event?.currentTarget;
+    if (target) {
+      const buttonRect = target.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const modalHeight = 150;
+      const spacing = 5;
+
+      let top = buttonRect.bottom + window.scrollY + spacing;
+      let left = buttonRect.left + window.scrollX;
+      let maxHeight: number | undefined;
+
+      if (buttonRect.bottom + modalHeight > viewportHeight) {
+        top = buttonRect.top + window.scrollY - modalHeight - spacing;
+        if (top < window.scrollY) {
+          top = window.scrollY + spacing;
+          maxHeight = viewportHeight - (top - window.scrollY) - spacing * 2;
+        }
+      }
+
+      const modalWidth = 250;
+      if (left + modalWidth > window.innerWidth) {
+        left = window.innerWidth - modalWidth - spacing;
+      }
+      if (left < 0) {
+        left = spacing;
+      }
+
+      position = { top, left, maxHeight };
+    }
+
     try {
-      // Fetch usage count for this sprint
       const usageData = await getSprintUsage(id);
       setSprintUsageCounts(prev => ({ ...prev, [id]: usageData.count }));
-      
-      // Calculate position for confirmation modal
-      if (event && event.currentTarget) {
-        const buttonRect = event.currentTarget.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        const modalHeight = 150; // Approximate modal height
-        const spacing = 5;
-        
-        let top = buttonRect.bottom + window.scrollY + spacing;
-        let left = buttonRect.left + window.scrollX;
-        let maxHeight: number | undefined;
-        
-        // Check if modal would go below viewport
-        if (buttonRect.bottom + modalHeight > viewportHeight) {
-          // Position above button instead
-          top = buttonRect.top + window.scrollY - modalHeight - spacing;
-          // Ensure it doesn't go above viewport
-          if (top < window.scrollY) {
-            top = window.scrollY + spacing;
-            maxHeight = viewportHeight - (top - window.scrollY) - spacing * 2;
-          }
-        }
-        
-        // Ensure modal doesn't go off right edge
-        const modalWidth = 250; // Approximate modal width
-        if (left + modalWidth > window.innerWidth) {
-          left = window.innerWidth - modalWidth - spacing;
-        }
-        
-        // Ensure modal doesn't go off left edge
-        if (left < 0) {
-          left = spacing;
-        }
-        
-        setDeleteButtonPositions(prev => ({ ...prev, [id]: { top, left, maxHeight } }));
-      }
-      
-      setShowDeleteSprintConfirm(id);
     } catch (error) {
       console.error('Failed to get sprint usage:', error);
-      // Still show confirmation even if usage count fails
       setSprintUsageCounts(prev => ({ ...prev, [id]: 0 }));
-      setShowDeleteSprintConfirm(id);
     }
+
+    const fallbackPosition = {
+      top: window.scrollY + Math.max(16, window.innerHeight / 2 - 75),
+      left: window.scrollX + Math.max(16, window.innerWidth / 2 - 125)
+    };
+    setDeleteButtonPositions(prev => ({
+      ...prev,
+      [id]: position ?? fallbackPosition
+    }));
+    setShowDeleteSprintConfirm(id);
   };
 
   const confirmDeleteSprint = async (id: string) => {
