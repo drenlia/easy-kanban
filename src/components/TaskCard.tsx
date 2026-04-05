@@ -142,7 +142,6 @@ const TaskCard = React.memo(function TaskCard({
   const [tagRemovalPosition, setTagRemovalPosition] = useState<{left: number, top: number}>({left: 0, top: 0});
   const [isHoveringTitle, setIsHoveringTitle] = useState(false);
   const [isHoveringDescription, setIsHoveringDescription] = useState(false);
-  const [isHoveringCard, setIsHoveringCard] = useState(false);
   
   // Get project identifier from the board this task belongs to
   const getProjectIdentifier = () => {
@@ -492,7 +491,6 @@ const TaskCard = React.memo(function TaskCard({
   // Clear hover state when card becomes unselected to prevent light gray appearance
   useEffect(() => {
     if (!isSelected) {
-      setIsHoveringCard(false);
       setIsHoveringTitle(false);
       setIsHoveringDescription(false);
     }
@@ -1193,7 +1191,7 @@ const TaskCard = React.memo(function TaskCard({
           // Prevent clicks on tag areas from reaching card
           position: 'relative'
         }}
-        className={`task-card sortable-item cursor-pointer ${
+        className={`group task-card sortable-item cursor-pointer ${
           isSelected ? 'bg-gray-100 dark:bg-gray-700' : 
           member.id === SYSTEM_MEMBER_ID ? 'bg-yellow-50 dark:bg-yellow-900' : 
           '' // Background now handled by CSS variable in style to prevent flash
@@ -1424,7 +1422,6 @@ const TaskCard = React.memo(function TaskCard({
                 // Use the latest IDs to avoid stale closure issues
                 if (latestSelectedTaskId === latestTaskId) {
                   // Clear hover state before unselecting to prevent light gray appearance
-                  setIsHoveringCard(false);
                   setIsHoveringTitle(false);
                   setIsHoveringDescription(false);
                   cardLog('[TaskCard] Closing TaskDetails (same task clicked)');
@@ -1441,7 +1438,6 @@ const TaskCard = React.memo(function TaskCard({
                 isSelectingRef.current = false;
               } else {
                 // Selection was blocked - ensure hover state is cleared to prevent light gray appearance
-                setIsHoveringCard(false);
                 setIsHoveringTitle(false);
                 setIsHoveringDescription(false);
                 // Reset selection flag since we're not selecting
@@ -1492,7 +1488,6 @@ const TaskCard = React.memo(function TaskCard({
           // Don't set hover state if we're in the process of selecting
           // Also don't set hover if the card is currently selected (it has its own styling)
           if (!isSelectingRef.current && !isSelected) {
-            setIsHoveringCard(true);
             setIsHoveringTitle(true);
             setIsHoveringDescription(true);
           }
@@ -1500,7 +1495,6 @@ const TaskCard = React.memo(function TaskCard({
         onMouseLeave={() => {
           // Only clear hover if card is not selected (selected cards have their own styling)
           if (!isSelected) {
-            setIsHoveringCard(false);
             setIsHoveringTitle(false);
             setIsHoveringDescription(false);
           }
@@ -1624,8 +1618,7 @@ const TaskCard = React.memo(function TaskCard({
           onLinkToolHover={onLinkToolHover}
           onLinkToolHoverEnd={onLinkToolHoverEnd}
           
-          // Show toolbar on hover, when editing, or when task is selected
-          isHoveringCard={isHoveringCard}
+          // Toolbar visibility: CSS group-hover on card (survives list reorder without mouseenter)
           isEditingTitle={isEditingTitle}
           isEditingDescription={isEditingDescription}
           isSelected={isSelected}

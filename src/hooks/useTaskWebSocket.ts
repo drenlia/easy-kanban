@@ -16,7 +16,9 @@ interface UseTaskWebSocketProps {
   // Refs
   selectedBoardRef: RefObject<string | null>;
   pendingTaskRefreshesRef: RefObject<Set<string>>;
-  refreshBoardDataRef: RefObject<(() => Promise<void>) | null>;
+  refreshBoardDataRef: RefObject<
+    ((options?: { force?: boolean; forBoardId?: string }) => Promise<void>) | null
+  >;
   recentlyDeletedTasksRef: RefObject<Set<string>>;
   
   // Task filters hook

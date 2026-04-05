@@ -44,8 +44,7 @@ interface TaskCardToolbarProps {
   onLinkToolHover?: (task: Task) => void;
   onLinkToolHoverEnd?: () => void;
   
-  // Show/hide toolbar based on hover, editing state, or selection
-  isHoveringCard?: boolean;
+  // Toolbar pinned open when editing or selected; hover uses parent `group` + group-hover
   isEditingTitle?: boolean;
   isEditingDescription?: boolean;
   isSelected?: boolean;
@@ -83,8 +82,6 @@ export default function TaskCardToolbar({
   onLinkToolHover,
   onLinkToolHoverEnd,
   
-  // Show/hide toolbar props
-  isHoveringCard = false,
   isEditingTitle = false,
   isEditingDescription = false,
   isSelected = false
@@ -98,10 +95,8 @@ export default function TaskCardToolbar({
   const quickTagDropdownRef = useRef<HTMLDivElement>(null);
   const memberButtonRef = useRef<HTMLButtonElement>(null);
   
-  // Determine if toolbar should be visible
-  // Show toolbar when hovering, editing, or when task is selected (e.g., after page refresh)
-  const shouldShowToolbar = isHoveringCard || isEditingTitle || isEditingDescription || isSelected;
-  
+  const toolbarPinnedOpen =
+    isEditingTitle || isEditingDescription || isSelected;
 
   const handleCopy = () => {
     onCopy(task);
@@ -372,9 +367,15 @@ export default function TaskCardToolbar({
         </div>
       </KanbanChromeTooltip>
 
-      {/* Unified Toolbar - All action buttons left-justified after drag handle */}
-      {shouldShowToolbar && (
-        <div className="absolute top-0 left-4 px-2 py-1 transition-opacity duration-200 z-[5]" data-tour-id="task-card-toolbar">
+      {/* Unified Toolbar - visibility via parent `group` hover so reorder under cursor still shows toolbar */}
+      <div
+        className={`absolute top-0 left-4 z-[5] px-2 py-1 transition-opacity duration-200 ${
+          toolbarPinnedOpen
+            ? 'pointer-events-auto opacity-100'
+            : 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100'
+        }`}
+        data-tour-id="task-card-toolbar"
+      >
           <div className="flex gap-0">
               {/* Add Comment Button */}
             {onAddComment && (
@@ -518,7 +519,6 @@ export default function TaskCardToolbar({
             </KanbanChromeTooltip>
         </div>
       </div>
-      )}
 
       {/* Watchers & Collaborators Icons - Right side between buttons and avatar */}
       <div className="absolute top-0 right-[40px] flex gap-1 z-30 px-2 py-1" style={{ top: '7px' }}>

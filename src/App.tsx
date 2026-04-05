@@ -994,7 +994,9 @@ function AppContent() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
   // Store the latest refreshBoardData function in a ref so we always call the current version
-  const refreshBoardDataRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshBoardDataRef = useRef<
+    ((options?: { force?: boolean; forBoardId?: string }) => Promise<void>) | null
+  >(null);
   
   // Track pending task refreshes (to cancel fallback if WebSocket event arrives)
   const pendingTaskRefreshesRef = useRef<Set<string>>(new Set());
@@ -2000,9 +2002,8 @@ function AppContent() {
         // Board data not in state yet — clear columns immediately so the previous board's tasks
         // are not shown while refresh runs (e.g. new board or slow network).
         setColumns({});
-        // CRITICAL: refreshBoardData already checks the flag, so it's safe to call
-        refreshBoardData().finally(() => {
-          // Clear switching state after data is loaded
+        // Force refresh: otherwise justUpdatedFromWebSocket can skip and leave stale columns visible.
+        refreshBoardData({ force: true }).finally(() => {
           setIsSwitchingBoard(false);
         });
       }
@@ -2152,14 +2153,17 @@ function AppContent() {
       // Create the board first (backend automatically creates default columns)
       await createBoard(newBoard);
 
-      // Refresh and hydrate columns for the NEW board. Do not use refreshBoardData() alone here:
-      // it keys off selectedBoard, which is still the previous board until the next line — that
-      // re-applied the old board's tasks onto the UI (bug).
+      // Refresh and hydrate columns for the NEW board (forBoardId: selectedBoard is still the previous board).
+      // force: true avoids skipping while justUpdatedFromWebSocket is set after a WS batch.
       await refreshBoardData({ force: true, forBoardId: boardId });
 
-      // Set the new board as selected and update URL
       setSelectedBoard(boardId);
-      window.location.hash = boardId;
+      updateCurrentUserPreference('lastSelectedBoard', boardId);
+      // Defer hash update until after React applies setBoards/setColumns from refresh (avoids hashchange
+      // seeing a stale boards list and clearing selection).
+      queueMicrotask(() => {
+        window.location.hash = `#kanban#${boardId}`;
+      });
       
       await fetchQueryLogs();
       

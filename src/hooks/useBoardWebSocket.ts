@@ -9,7 +9,9 @@ interface UseBoardWebSocketProps {
   
   // Refs
   selectedBoardRef: RefObject<string | null>;
-  refreshBoardDataRef: RefObject<(() => Promise<void>) | null>;
+  refreshBoardDataRef: RefObject<
+    ((options?: { force?: boolean; forBoardId?: string }) => Promise<void>) | null
+  >;
 }
 
 export const useBoardWebSocket = ({
@@ -87,7 +89,7 @@ export const useBoardWebSocket = ({
       // Use a small delay to allow columns to be created first
       setTimeout(() => {
         if (refreshBoardDataRef.current) {
-          refreshBoardDataRef.current();
+          refreshBoardDataRef.current({ force: true });
         }
       }, 500);
     }
