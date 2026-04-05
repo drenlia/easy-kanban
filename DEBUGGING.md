@@ -93,6 +93,18 @@ These are read with `await serverDebug(db, 'SERVER_DEBUG_…')` (`server/utils/s
 
 ---
 
+## Stale frontend after deploy (`Failed to fetch dynamically imported module`)
+
+If the browser loads an **old** `index.html` (cached) but the server only has **new** hashed chunks under `/assets/`, lazy-loaded routes fail with:
+
+`TypeError: Failed to fetch dynamically imported module: …/assets/SomeChunk-xxxxx.js`
+
+The app’s `lazyWithRetry` helper may retry and then force a reload; a **hard refresh** (or clearing site data) also fixes it for one session.
+
+**Prevention:** The production server must **not** apply long-lived cache headers to the HTML shell. Only paths under `/assets/` (content-hashed filenames) should use long cache. If you terminate TLS or cache in **nginx / Ingress / CDN**, ensure `index.html` and `/` are **not** cached aggressively (or bypass cache for those paths).
+
+---
+
 ## Practical tips
 
 - **Production:** Leave all debug flags `false` unless you are actively investigating an issue; turn them off afterward.

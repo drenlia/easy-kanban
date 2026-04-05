@@ -87,14 +87,23 @@ export const useTaskWebSocket = ({
       clearTimeout(batchTimeoutRef.current);
       batchTimeoutRef.current = null;
     }
+
+    // `columns` state only holds the SELECTED board. Applying task-updated batches for other
+    // boards corrupts the UI (e.g. new empty board briefly shows the previous board's tasks).
+    const currentBoardId = selectedBoardRef.current;
+    const updatesForVisibleBoard =
+      currentBoardId != null && currentBoardId !== ''
+        ? updates.filter((d: any) => d?.boardId === currentBoardId)
+        : updates;
     
-    // Set flag to prevent polling/refresh from interfering
-    // Also use a longer timeout to ensure filtering waits for state to settle
-    window.justUpdatedFromWebSocket = true;
-    (window as any).lastWebSocketUpdateTime = Date.now();
-    setTimeout(() => {
-      window.justUpdatedFromWebSocket = false;
-    }, 2000); // Keep flag for 2 seconds to prevent refresh interference and allow filtering to wait
+    // Set flag only when we actually mutate visible columns (avoids blocking refresh for unrelated boards)
+    if (updatesForVisibleBoard.length > 0) {
+      window.justUpdatedFromWebSocket = true;
+      (window as any).lastWebSocketUpdateTime = Date.now();
+      setTimeout(() => {
+        window.justUpdatedFromWebSocket = false;
+      }, 2000);
+    }
     
     // Use requestAnimationFrame + setTimeout to break up the work and avoid blocking the main thread
     // This prevents "message handler took Xms" violations
@@ -111,7 +120,8 @@ export const useTaskWebSocket = ({
     // Track which task IDs were updated (for selectedTask update check)
     const updatedTaskIds = new Set<string>();
     
-    // Process all updates in a single setColumns call
+    // Process visible-board updates only (skip when batch is entirely for other boards)
+    if (updatesForVisibleBoard.length > 0) {
     setColumns(prevColumns => {
       // OPTIMIZED: Use shallow copy - only copy columns we actually modify
       // This is 10-100x faster than JSON.parse(JSON.stringify()) for large datasets
@@ -146,8 +156,8 @@ export const useTaskWebSocket = ({
       });
       
       
-      // Collect all updates
-      updates.forEach(data => {
+      // Collect all updates for the board currently on screen
+      updatesForVisibleBoard.forEach(data => {
         if (!data.task || !data.boardId) return;
         const taskId = data.task.id;
         if (!taskId) return;
@@ -383,6 +393,7 @@ export const useTaskWebSocket = ({
       
       return updatedColumns;
     });
+    }
     
     // CRITICAL: Also update boards state for all boards (not just selected board)
     // This ensures task position/column changes are reflected even when board is not currently viewed

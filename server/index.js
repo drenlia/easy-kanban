@@ -259,13 +259,30 @@ app.use(express.urlencoded({ limit: '100mb', extended: true }));
 // This code is kept for backward compatibility but won't be used when vite preview is active
 if (process.env.NODE_ENV === 'production' && !process.env.VITE_PREVIEW_RUNNING) {
   const distPath = path.join(__dirname, '../dist');
-  // Serve static assets (JS, CSS, images, etc.)
-  app.use(express.static(distPath, {
-    maxAge: '1y', // Cache static assets for 1 year
-    etag: true,
-    lastModified: true
-  }));
-  console.log(`📦 Serving static files from: ${distPath}`);
+  const assetsPath = path.join(distPath, 'assets');
+  // Hashed JS/CSS chunks live under /assets — safe to cache long-term (filename changes each build).
+  if (fs.existsSync(assetsPath)) {
+    app.use(
+      '/assets',
+      express.static(assetsPath, {
+        maxAge: '1y',
+        immutable: true,
+        etag: true,
+        lastModified: true
+      })
+    );
+  }
+  // Other dist files (favicon, etc.). Do NOT long-cache index.html: stale HTML references removed
+  // chunks after deploy → "Failed to fetch dynamically imported module". SPA shell is sent via catch-all below.
+  app.use(
+    express.static(distPath, {
+      maxAge: 0,
+      etag: true,
+      lastModified: true,
+      index: false
+    })
+  );
+  console.log(`📦 Serving static files from: ${distPath} (/assets immutable 1y, HTML revalidated)`);
 }
 
 // Tenant routing middleware (must be before routes that need database)
@@ -475,7 +492,9 @@ app.get('/*splat', (req, res) => {
   }
   
   // For all other routes (including /project/, /task/, etc.), serve the React app
-  res.sendFile(path.join(__dirname, '../dist/index.html'));
+  const htmlPath = path.join(__dirname, '../dist/index.html');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.sendFile(htmlPath);
 });
 
 // ================================

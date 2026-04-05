@@ -100,11 +100,9 @@ export const useTaskFilters = ({
         return;
       }
       
-      // CRITICAL: Check if columns have tasks - if all columns are empty, something is wrong
-      const totalTasks = Object.values(columnsToFilter).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-      if (totalTasks === 0) {
-        return;
-      }
+      // Do not bail when all columns have zero tasks — that is valid (e.g. newly created board).
+      // Previously we returned here, which left filteredColumns stuck on the previous board until
+      // another event forced a refresh.
       
       // Always filter by selectedMembers if any are selected, or if any checkboxes are checked
       const isFiltering = isSearchActive || selectedMembers.length > 0 || includeAssignees || includeWatchers || includeCollaborators || includeRequesters;
@@ -250,20 +248,8 @@ export const useTaskFilters = ({
         };
       }
       
-      const filteredTaskCount = Object.values(filteredColumns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-      const originalTaskCount = Object.values(columnsToFilter).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-      
-      // CRITICAL: If filtering resulted in all tasks being removed, but we had tasks before,
-      // this might indicate a bug. However, we should still set filteredColumns to avoid
-      // showing stale data. The filtering logic should be correct.
-      // 
-      // But if we had NO tasks to begin with, don't update filteredColumns (might be during batch update)
-      if (originalTaskCount === 0 && filteredTaskCount === 0) {
-        return;
-      }
-      
-      // CRITICAL: Always set filteredColumns, even if some columns are empty
-      // This ensures the UI reflects the current filter state
+      // Always commit filteredColumns (including all-empty boards). Skipping when both counts
+      // were 0 left filteredColumns showing the previous board's tasks after create-board / switch.
       setFilteredColumns(filteredColumns);
     };
 
@@ -288,33 +274,15 @@ export const useTaskFilters = ({
         // the latest value. The ref should be updated by now, but let's also check the
         // current columns value from the closure to be safe.
         //
-        // Actually, the real issue is that we're delaying the effect, but when it runs,
-        // it uses the `columns` value from when the effect was set up, not the current value.
-        // So we need to use the ref OR trigger the effect to run again.
-        //
-        // The simplest solution: Don't delay if columns has already changed. Or use a
-        // different approach - use a state variable to track when batch update completes.
-        //
-        // For now, let's use the ref but also add a check to ensure it's up to date.
-        const latestColumns = columnsRef.current;
-        
-        // Also check the current columns from closure - if they're different, use the newer one
-        const currentColumnsFromClosure = columns;
-        const refTaskCount = Object.values(latestColumns).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-        const closureTaskCount = Object.values(currentColumnsFromClosure).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-        
-        // Use whichever has more tasks (likely the updated one)
-        const columnsToUse = refTaskCount >= closureTaskCount ? latestColumns : currentColumnsFromClosure;
+        // Always use the latest columns from the ref (updated every render). Never prefer an
+        // older snapshot just because it had more tasks — that resurrected the previous board's
+        // tasks on a new empty board after switching.
+        const columnsToUse = columnsRef.current;
         
         if (!columnsToUse || Object.keys(columnsToUse).length === 0) {
           return;
         }
-        const totalTasks = Object.values(columnsToUse).reduce((sum, col) => sum + (col?.tasks?.length || 0), 0);
-        if (totalTasks === 0) {
-          return;
-        }
         
-        // CRITICAL: Pass the columns we determined to use
         performFiltering(columnsToUse);
       }, 400); // 400ms delay - enough for batch update to complete and React state to settle
       
