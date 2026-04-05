@@ -10,6 +10,18 @@
 import { wrapQuery } from '../queryLogger.js';
 
 /**
+ * Qualified settings table name for PostgreSQL multi-tenant (avoids relying on search_path alone).
+ * @param {object} db
+ * @returns {string}
+ */
+function settingsTableRef(db) {
+  if (db?.schema && typeof db.schema === 'string' && db.schema !== 'public') {
+    return `"${db.schema.replace(/"/g, '""')}".settings`;
+  }
+  return 'settings';
+}
+
+/**
  * Get settings by keys
  * 
  * @param {Database} db - Database connection
@@ -22,9 +34,10 @@ export async function getSettingsByKeys(db, keys) {
   }
   
   const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+  const table = settingsTableRef(db);
   const query = `
     SELECT key, value 
-    FROM settings 
+    FROM ${table} 
     WHERE key IN (${placeholders})
   `;
   
@@ -39,9 +52,10 @@ export async function getSettingsByKeys(db, keys) {
  * @returns {Promise<Array>} Array of setting objects with key and value
  */
 export async function getAllSettings(db) {
+  const table = settingsTableRef(db);
   const query = `
     SELECT key, value 
-    FROM settings
+    FROM ${table}
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -56,9 +70,10 @@ export async function getAllSettings(db) {
  * @returns {Promise<Object|null>} Setting object or null
  */
 export async function getSettingByKey(db, key) {
+  const table = settingsTableRef(db);
   const query = `
     SELECT key, value 
-    FROM settings 
+    FROM ${table} 
     WHERE key = $1
   `;
   
@@ -75,8 +90,9 @@ export async function getSettingByKey(db, key) {
  * @returns {Promise<Object>} Result object
  */
 export async function upsertSetting(db, key, value) {
+  const table = settingsTableRef(db);
   const query = `
-    INSERT INTO settings (key, value, updated_at)
+    INSERT INTO ${table} (key, value, updated_at)
     VALUES ($1, $2, CURRENT_TIMESTAMP)
     ON CONFLICT (key) 
     DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
@@ -96,8 +112,9 @@ export async function upsertSetting(db, key, value) {
  * @returns {Promise<Object>} Result object
  */
 export async function upsertSettingWithTimestamp(db, key, value, timestamp) {
+  const table = settingsTableRef(db);
   const query = `
-    INSERT INTO settings (key, value, updated_at)
+    INSERT INTO ${table} (key, value, updated_at)
     VALUES ($1, $2, $3)
     ON CONFLICT (key) 
     DO UPDATE SET value = $2, updated_at = $3
@@ -116,8 +133,9 @@ export async function upsertSettingWithTimestamp(db, key, value, timestamp) {
  * @returns {Promise<Object>} Result object
  */
 export async function createSetting(db, key, value) {
+  const table = settingsTableRef(db);
   const query = `
-    INSERT INTO settings (key, value, updated_at)
+    INSERT INTO ${table} (key, value, updated_at)
     VALUES ($1, $2, CURRENT_TIMESTAMP)
   `;
   
@@ -134,8 +152,9 @@ export async function createSetting(db, key, value) {
  * @returns {Promise<Object>} Result object
  */
 export async function updateSetting(db, key, value) {
+  const table = settingsTableRef(db);
   const query = `
-    UPDATE settings 
+    UPDATE ${table} 
     SET value = $1, updated_at = CURRENT_TIMESTAMP 
     WHERE key = $2
   `;
@@ -152,8 +171,9 @@ export async function updateSetting(db, key, value) {
  * @returns {Promise<Object>} Result object
  */
 export async function deleteSetting(db, key) {
+  const table = settingsTableRef(db);
   const query = `
-    DELETE FROM settings 
+    DELETE FROM ${table} 
     WHERE key = $1
   `;
   
@@ -169,9 +189,10 @@ export async function deleteSetting(db, key) {
  * @returns {Promise<Object|null>} Setting object or null
  */
 export async function checkSettingExists(db, key) {
+  const table = settingsTableRef(db);
   const query = `
     SELECT key 
-    FROM settings 
+    FROM ${table} 
     WHERE key = $1
   `;
   

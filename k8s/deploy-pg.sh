@@ -523,6 +523,9 @@ fi
 
 echo ""
 echo "✅ Deployment completed successfully!"
+echo ""
+echo "🔎 Verify DNS → Ingress → Service → pods for ${FULL_HOSTNAME}:"
+echo "   ${SCRIPT_DIR}/verify-tenant-routing-pg.sh ${INSTANCE_NAME}"
 
 # Clean up temporary files
 rm -rf "${TEMP_DIR}"

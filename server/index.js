@@ -377,6 +377,8 @@ app.use('/api/files', filesRouter);
 app.use('/api/attachments', filesRouter);
 app.use('/api/debug', lazyRouteLoader('./routes/debug.js'));
 app.use('/health', healthRouter);
+// Alias for probes and scripts that expect /api/health (same handler as /health)
+app.use('/api/health', healthRouter);
 // Mount ready endpoint at both /ready and /api/ready for flexibility
 app.get('/ready', readyHandler);
 app.get('/api/ready', readyHandler);
