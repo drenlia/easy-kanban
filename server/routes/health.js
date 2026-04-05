@@ -100,9 +100,34 @@ router.get('/', async (req, res) => {
     // MIGRATED: Check database connection using sqlManager
     await healthQueries.checkDatabaseConnection(db);
     const usePostgres = process.env.DB_TYPE === 'postgresql';
-    // Check email service status
-    const emailServiceImplemented = false; // Email notification service not yet implemented
-    
+
+    let emailServicePayload = {
+      implemented: true,
+      available: false,
+      message: 'No database on request (cannot read SMTP settings)'
+    };
+    if (db) {
+      try {
+        const EmailService = (await import('../services/emailService.js')).default;
+        const emailSvc = new EmailService(db);
+        const v = await emailSvc.validateEmailConfig();
+        emailServicePayload = {
+          implemented: true,
+          available: v.valid,
+          message: v.valid
+            ? 'MAIL_ENABLED and required SMTP settings are present'
+            : (v.error || 'Email not configured')
+        };
+      } catch (emailErr) {
+        emailServicePayload = {
+          implemented: true,
+          available: false,
+          message: 'Failed to evaluate email configuration',
+          error: emailErr.message
+        };
+      }
+    }
+
     res.status(200).json({ 
       status: 'healthy', 
       timestamp: new Date().toISOString(),
@@ -111,13 +136,7 @@ router.get('/', async (req, res) => {
       redis: redisService.isRedisConnected(),
       postgresNotifications: usePostgres ? postgresNotificationService.isServiceConnected() : null,
       websocket: websocketService.getClientCount(),
-      emailService: {
-        implemented: emailServiceImplemented,
-        available: emailServiceImplemented,
-        message: emailServiceImplemented 
-          ? 'Email service is available' 
-          : 'Email notification service not yet implemented'
-      },
+      emailService: emailServicePayload,
       ready: isServerReady
     });
   } catch (error) {

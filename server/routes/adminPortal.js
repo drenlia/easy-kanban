@@ -1264,51 +1264,47 @@ router.post('/send-invitation', authenticateAdminPortal, async (req, res) => {
     const invitationId = crypto.randomUUID();
     await adminUserQueries.createUserInvitation(db, invitationId, user.id, inviteToken, expiresAt.toISOString());
     
-    // MIGRATED: Get site name from settings using sqlManager
-    const siteNameSetting = await helpers.getSetting(db, 'SITE_NAME');
-    const siteName = siteNameSetting || 'Easy Kanban';
-    
-    // MIGRATED: Generate invitation URL using tenant-specific URL using sqlManager
-    // Priority: 1) APP_URL from database (tenant-specific, set by frontend), 2) Construct from tenantId, 3) Fallback
+    // Priority: BASE_URL env, APP_URL in DB, tenant hostname, instance fallback
     const appUrlSetting = await helpers.getSetting(db, 'APP_URL');
     let baseUrl = process.env.BASE_URL;
-    
+
     if (!baseUrl) {
-      if (appUrlSetting) {
-        // Use APP_URL from database (most reliable - tenant-specific)
-        baseUrl = appUrlSetting;
+      if (appUrlSetting?.value) {
+        baseUrl = appUrlSetting.value.replace(/\/$/, '');
       } else {
-        // Construct from tenantId if available (multi-tenant mode)
         const tenantId = req.tenantId;
         if (tenantId) {
           const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
           baseUrl = `https://${tenantId}.${domain}`;
         } else {
-          // Single-tenant fallback
           const instanceName = process.env.INSTANCE_NAME || 'easy-kanban-app';
           const domain = process.env.TENANT_DOMAIN || 'ezkan.cloud';
           baseUrl = `https://${instanceName}.${domain}`;
         }
       }
     }
-    
-    // Remove trailing slash if present
-    baseUrl = baseUrl.replace(/\/$/, '');
-    const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
-    
-    // Send invitation email using a fresh notification service instance
-    // This ensures it reads the latest email settings from the database
-    try {
-      const { NotificationService } = await import('../services/notificationService.js');
-      const notificationService = new NotificationService(db);
-      await notificationService.sendUserInvitation(user.id, inviteToken, adminName || 'Admin', baseUrl);
-    } catch (importError) {
-      console.error('Error importing NotificationService:', importError);
-      // Note: Email notification service (getNotificationService) is not yet implemented
-      // Fallback is not available - email service needs to be implemented
-      console.warn('⚠️ Email notification service not available - invitation email not sent');
+
+    baseUrl = String(baseUrl).replace(/\/$/, '');
+    const inviteUrl = `${baseUrl}/#activate-account?token=${encodeURIComponent(inviteToken)}&email=${encodeURIComponent(user.email)}`;
+
+    const EmailService = (await import('../services/emailService.js')).default;
+    const emailService = new EmailService(db);
+    const emailResult = await emailService.sendUserInvitation(
+      user,
+      inviteToken,
+      adminName || 'Admin',
+      baseUrl
+    );
+
+    if (!emailResult.success) {
+      const errMsg = emailResult.reason || 'Failed to send invitation email';
+      console.error('⚠️ Admin portal invitation email failed:', errMsg);
+      return res.status(500).json({
+        success: false,
+        error: errMsg
+      });
     }
-    
+
     console.log(`✅ Invitation sent to user: ${email}`);
     
     res.json({

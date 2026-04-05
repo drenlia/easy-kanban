@@ -1,12 +1,10 @@
 /**
- * Unified Notification Service
- * 
- * Automatically uses PostgreSQL LISTEN/NOTIFY when DB_TYPE=postgresql,
- * otherwise falls back to Redis pub/sub.
- * 
- * This provides a single interface for publishing notifications regardless
- * of the underlying database type.
- * 
+ * Unified Notification Service — real-time pub/sub only (WebSockets / cross-pod fan-out).
+ *
+ * Uses PostgreSQL LISTEN/NOTIFY when DB_TYPE=postgresql, otherwise Redis pub/sub.
+ * This is NOT for SMTP: do not use this module to send email. Outbound mail lives in
+ * EmailService (server/services/emailService.js) — invitations, password reset, test email, etc.
+ *
  * Usage:
  *   import notificationService from './services/notificationService.js';
  *   await notificationService.publish('task-updated', data, tenantId);

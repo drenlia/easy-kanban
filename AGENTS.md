@@ -50,11 +50,38 @@
   - Routes: `server/routes/*.js` (Express.js router pattern)
   - Database queries: `server/utils/sqlManager/*.js` (abstracted SQL with dual SQLite/PostgreSQL support)
   - Auth flow: `server/middleware/auth.js` (JWT with 24h expiration)
-  - Real-time updates: `server/services/notificationService.js` (Redis pub/sub + Socket.IO)
+  - **Real-time (WebSockets / cross-pod)**: `server/services/notificationService.js` — `publish()` / `subscribe()` only; uses Redis or PostgreSQL `LISTEN/NOTIFY` when `DB_TYPE=postgresql`. **Not for SMTP.**
+  - **Outbound email (SMTP)**: `server/services/emailService.js` — Nodemailer, tenant `settings` (`MAIL_ENABLED`, `SMTP_*`). Used for test email, password reset, user invitations, admin portal invites. Do not send mail through `notificationService`.
 - Use database transactions for multi-step operations (see `server/utils/dbAsync.js`)
 - Publish real-time events via `notificationService.publish()` for WebSocket updates
 - Support both single-tenant (Docker) and multi-tenant (Kubernetes) modes
 - Run migrations via `server/migrations/index.js` for schema changes
+
+## Task activity email notifications (queue) — implementation notes
+
+When restoring **task/comment email** notifications (throttled queue in `notification_queue`, processed by `notificationThrottler.js`, sent via `EmailService`), design for **multi-tenant** and **multiple K8s pods** as follows.
+
+### One shared queue per tenant (not per pod)
+
+- Use the **tenant database’s** `notification_queue` table as the **single** queue for that tenant. **All pods** share the same DB and thus the **same** queue.
+- Do **not** introduce a separate queue per pod; that fragments work and does not fix duplication.
+
+### Avoid duplicate emails with multiple replicas
+
+- With **more than one pod**, two workers can otherwise read the same `pending` rows and **send the same email twice**.
+- **Require atomic claiming** before send: e.g. PostgreSQL `SELECT … FOR UPDATE SKIP LOCKED`, or an `UPDATE … WHERE status = 'pending' … RETURNING` that flips to a `processing` / `claimed` state in one statement, then send SMTP, then mark `sent` or `failed`.
+- Alternatives: run the queue consumer as a **single** replica (Deployment replicas=1 for a worker) or an external work queue with consumer-group semantics—only if DB-level claiming is not used.
+
+### Multi-tenant processing
+
+- **Enqueue** using the **request-scoped tenant DB** (`getRequestDatabase(req)` / `additionalData.db` from activity logging), same as today’s activity logger pattern.
+- **Process** by iterating **each tenant database** that the instance knows about (same idea as `getAllTenantDatabases()` in `tenantRouting.js` for cron), not only `defaultDb`.
+
+### New tenants must be visible on every pod (onboarding caveat)
+
+- Tenant DB handles are typically held in a **per-process cache** (`dbCache` in `tenantRouting.js`). **`getAllTenantDatabases()` only returns tenants already cached on that pod** (usually after at least one HTTP request opened that tenant).
+- **Implication:** background jobs (queue processor, cleanup, etc.) on a given pod may **not** see **newly onboarded** tenants until that pod has loaded their DB (first request to that host, explicit warm-up, or a future **tenant registry** that opens connections per known tenant ID).
+- When implementing or changing onboarding, **always consider**: ensuring **every pod** eventually has the new tenant in cache, or providing a **registry-driven** iteration path so scheduled work is not skipped for new tenants.
 
 ## Security Checklist (agent must verify)
 - No hardcoded secrets (use environment variables: `JWT_SECRET`, `INSTANCE_TOKEN`, `SMTP_*`)

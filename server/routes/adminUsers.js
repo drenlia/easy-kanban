@@ -460,20 +460,27 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
       const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
       
-      // Send invitation email
-      // Note: Email notification service (getNotificationService) is not yet implemented
       try {
-        // TODO: Implement email notification service when needed
-        // const notificationService = getNotificationService();
-        // const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-        // if (emailResult.success) {
-        //   emailSent = true;
-        //   console.log('✅ Invitation email sent for new user:', email);
-        // } else {
-        //   emailError = emailResult.reason || 'Email service unavailable';
-        //   console.warn('⚠️ Failed to send invitation email:', emailError);
-        // }
-        console.log('⚠️ Email notification service not implemented - invitation email not sent');
+        const EmailService = (await import('../services/emailService.js')).default;
+        const emailService = new EmailService(db);
+        const inviteUser = {
+          email,
+          first_name: firstName,
+          last_name: lastName
+        };
+        const emailResult = await emailService.sendUserInvitation(
+          inviteUser,
+          inviteToken,
+          adminName,
+          baseUrl
+        );
+        if (emailResult.success) {
+          emailSent = true;
+          console.log('✅ Invitation email sent for new user:', email);
+        } else {
+          emailError = emailResult.reason || 'Email service unavailable';
+          console.warn('⚠️ Failed to send invitation email:', emailError);
+        }
       } catch (emailErr) {
         console.warn('⚠️ Failed to send invitation email:', emailErr.message);
         emailError = emailErr.message;
@@ -600,51 +607,35 @@ router.post('/:userId/resend-invitation', authenticateToken, requireRole(['admin
       const adminUser = await userQueries.getUserByIdForAdmin(db, req.user.userId);
       const adminName = adminUser ? `${adminUser.first_name} ${adminUser.last_name}` : 'Administrator';
     
-    // Send invitation email
-    // Note: Email notification service (getNotificationService) is not yet implemented
     try {
-      // TODO: Implement email notification service when needed
-      // const notificationService = getNotificationService();
-      // const emailResult = await notificationService.sendUserInvitation(userId, inviteToken, adminName, baseUrl);
-      // 
-      // if (emailResult && emailResult.success) {
-      //   console.log('✅ Invitation resent successfully for user:', user.email);
-      //   res.json({ 
-      //     success: true,
-      //     message: 'Invitation email sent successfully',
-      //     email: user.email
-      //   });
-      //   return;
-      // }
-      console.log('⚠️ Email notification service not implemented - invitation email not sent');
-      res.json({ 
-        success: true,
-        message: 'User invitation prepared (email service not available)',
-        email: user.email
+      const EmailService = (await import('../services/emailService.js')).default;
+      const emailService = new EmailService(db);
+      const emailResult = await emailService.sendUserInvitation(
+        user,
+        inviteToken,
+        adminName,
+        baseUrl
+      );
+
+      if (emailResult.success) {
+        console.log('✅ Invitation resent successfully for user:', user.email);
+        return res.json({
+          success: true,
+          message: 'Invitation email sent successfully',
+          email: user.email
+        });
+      }
+
+      const errorMessage = emailResult.reason || 'Failed to send invitation email';
+      console.error('⚠️ Failed to send invitation email:', errorMessage);
+      return res.status(500).json({
+        success: false,
+        error: errorMessage,
+        details: emailResult.details || null
       });
-      
-      // Original code (commented out until email service is implemented):
-      // if (emailResult && emailResult.success) {
-      //   console.log('✅ Invitation resent successfully for user:', user.email);
-      //   res.json({ 
-      //     success: true,
-      //     message: 'Invitation email sent successfully',
-      //     email: user.email
-      //   });
-      //   return;
-      // } else {
-      //   // Email service returned a failure result
-      //   const errorMessage = emailResult?.reason || emailResult?.error || 'Failed to send invitation email';
-      //   console.error('⚠️ Failed to send invitation email:', errorMessage);
-      //   res.status(500).json({ 
-      //     success: false,
-      //     error: errorMessage,
-      //     details: emailResult?.details || null
-      //   });
-      // }
     } catch (emailError) {
       console.error('⚠️ Failed to send invitation email:', emailError.message);
-      res.status(500).json({ 
+      return res.status(500).json({
         success: false,
         error: emailError.message || 'Failed to send invitation email'
       });

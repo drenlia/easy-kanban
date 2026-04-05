@@ -3,7 +3,10 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { EmailTemplates } from './emailTemplates.js';
 
 /**
- * Email Service - Handles all email functionality across the app
+ * Email Service — all SMTP / outbound email (Nodemailer).
+ * Reads SMTP_* and MAIL_ENABLED from the tenant DB settings table.
+ * Used by: test email, password reset, user invitations, admin portal invites.
+ * Real-time board updates use notificationService.js (Redis or PG NOTIFY), not this class.
  */
 class EmailService {
   constructor(db) {
@@ -289,6 +292,70 @@ class EmailService {
       messageId: info.messageId,
       timestamp: new Date().toISOString()
     };
+  }
+
+  /**
+   * Send user invitation (inactive local user). Activation link matches SPA hash routing:
+   * /#activate-account?token=...&email=...
+   * @param {object} user - Row shape from users table: email, first_name, last_name
+   * @param {string} inviteToken
+   * @param {string} adminName
+   * @param {string} baseUrl - App origin, no trailing slash (e.g. https://tenant.example.com)
+   * @returns {Promise<{ success: boolean, messageId?: string, reason?: string }>}
+   */
+  async sendUserInvitation(user, inviteToken, adminName, baseUrl) {
+    try {
+      if (!user?.email) {
+        return { success: false, reason: 'User email missing' };
+      }
+
+      const validation = await this.validateEmailConfig();
+      if (!validation.valid) {
+        return {
+          success: false,
+          reason: validation.error,
+          details: validation.details
+        };
+      }
+
+      const settings = validation.settings;
+      const transporter = await this.createTransporter(settings);
+      const normalizedBase = String(baseUrl || '').replace(/\/$/, '');
+      if (!normalizedBase) {
+        return { success: false, reason: 'Base URL is required for invitation links' };
+      }
+
+      const inviteUrl = `${normalizedBase}/#activate-account?token=${encodeURIComponent(inviteToken)}&email=${encodeURIComponent(user.email)}`;
+      const siteName = settings.SITE_NAME || 'Easy Kanban';
+      const emailTemplate = await EmailTemplates.userInvite({
+        user,
+        inviteUrl,
+        adminName: adminName || 'Administrator',
+        siteName,
+        db: this.db
+      });
+
+      const mail = {
+        from: `"${settings.SMTP_FROM_NAME || 'Easy Kanban'}" <${settings.SMTP_FROM_EMAIL}>`,
+        to: user.email,
+        subject: emailTemplate.subject,
+        text: emailTemplate.text,
+        html: emailTemplate.html
+      };
+
+      console.log('📧 Sending invitation email to:', user.email);
+      const info = await transporter.sendMail(mail);
+      console.log('✅ Invitation email sent:', info.messageId);
+
+      return {
+        success: true,
+        messageId: info.messageId,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error('❌ Failed to send user invitation:', error);
+      return { success: false, reason: error.message || 'Failed to send invitation email' };
+    }
   }
 }
 
