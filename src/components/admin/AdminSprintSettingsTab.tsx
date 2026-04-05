@@ -43,6 +43,15 @@ const AdminSprintSettingsTab: React.FC = () => {
     fetchSprints();
   }, []);
 
+  // Other tabs / browsers: sprint WebSocket triggers `sprints-updated` on this window too
+  useEffect(() => {
+    const onSprintsUpdated = () => {
+      void fetchSprints();
+    };
+    window.addEventListener('sprints-updated', onSprintsUpdated);
+    return () => window.removeEventListener('sprints-updated', onSprintsUpdated);
+  }, []);
+
   // Handle click outside to close delete confirmation
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

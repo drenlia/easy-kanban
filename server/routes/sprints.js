@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import notificationService from '../services/notificationService.js';
-import { getRequestDatabase } from '../middleware/tenantRouting.js';
+import { getRequestDatabase, getTenantId } from '../middleware/tenantRouting.js';
 import { dbTransaction } from '../utils/dbAsync.js';
 import { sprints as sprintQueries, tasks as taskQueries } from '../utils/sqlManager/index.js';
 
@@ -104,13 +104,13 @@ router.post('/', authenticateToken, requireRole(['admin']), async (req, res) => 
       description
     );
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing sprint-created to Redis');
-    await notificationService.publish('sprint-created', {
-      sprint: newSprint,
-      timestamp: new Date().toISOString()
-    });
-    console.log('✅ Sprint-created published to Redis');
+    console.log('📤 Publishing sprint-created');
+    await notificationService.publish(
+      'sprint-created',
+      { sprint: newSprint, timestamp: new Date().toISOString() },
+      getTenantId(req)
+    );
+    console.log('✅ Sprint-created published');
     
     res.status(201).json(newSprint);
   } catch (error) {
@@ -163,13 +163,13 @@ router.put("/:id", authenticateToken, requireRole(['admin']), async (req, res) =
       description
     );
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing sprint-updated to Redis');
-    await notificationService.publish('sprint-updated', {
-      sprint: updated,
-      timestamp: new Date().toISOString()
-    });
-    console.log('✅ Sprint-updated published to Redis');
+    console.log('📤 Publishing sprint-updated');
+    await notificationService.publish(
+      'sprint-updated',
+      { sprint: updated, timestamp: new Date().toISOString() },
+      getTenantId(req)
+    );
+    console.log('✅ Sprint-updated published');
     
     res.json(updated);
   } catch (error) {
@@ -209,14 +209,13 @@ router.delete('/:id', authenticateToken, requireRole(['admin']), async (req, res
       await sprintQueries.deleteSprint(db, id);
     });
     
-    // Publish to Redis for real-time updates
-    console.log('📤 Publishing sprint-deleted to Redis');
-    await notificationService.publish('sprint-deleted', {
-      sprintId: id,
-      sprint: existing,
-      timestamp: new Date().toISOString()
-    });
-    console.log('✅ Sprint-deleted published to Redis');
+    console.log('📤 Publishing sprint-deleted');
+    await notificationService.publish(
+      'sprint-deleted',
+      { sprintId: id, sprint: existing, timestamp: new Date().toISOString() },
+      getTenantId(req)
+    );
+    console.log('✅ Sprint-deleted published');
     
     // If tasks were updated, publish task updates for each affected board
     if (tasksUsingSprint.length > 0) {

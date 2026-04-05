@@ -9,6 +9,7 @@
 
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
+import notificationService from '../services/notificationService.js';
 import postgresNotificationService from '../services/postgresNotificationService.js';
 import { getTenantId } from '../middleware/tenantRouting.js';
 
@@ -22,11 +23,15 @@ router.post('/notifications', authenticateToken, async (req, res) => {
 
     console.log(`🧪 [Test] Publishing notification to channel: ${channel}, tenant: ${tenantId || 'single'}`);
 
-    await postgresNotificationService.publish(channel, {
-      message,
-      timestamp: new Date().toISOString(),
-      test: true
-    }, tenantId);
+    await notificationService.publish(
+      channel,
+      {
+        message,
+        timestamp: new Date().toISOString(),
+        test: true
+      },
+      tenantId
+    );
 
     res.json({
       success: true,

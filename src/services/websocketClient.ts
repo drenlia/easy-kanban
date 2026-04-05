@@ -1,6 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { handleAuthError } from '../utils/authErrorHandler';
 import { feDebug } from '../utils/clientDebug';
+import { prepareRealtimeSocketArgs } from '../utils/realtimeDedupe';
 
 function wsDebug(...args: unknown[]) {
   if (feDebug('FE_DEBUG_WEBSOCKET')) console.log(...args);
@@ -317,7 +318,9 @@ class WebSocketClient {
         wsDebug(`🔧 [WebSocket] Registering Socket.IO listener for event: ${eventName}`, { socketConnected: this.socket.connected });
         this.socket.on(eventName, (...args) => {
           wsDebug(`📨 [WebSocket] Socket.IO event received: ${eventName}`, args);
-          callback(...args);
+          const { deliver, args: out } = prepareRealtimeSocketArgs(eventName, args);
+          if (!deliver) return;
+          callback(...out);
         });
       } else {
         wsDebug(`⚠️ [WebSocket] Socket not available, callback stored for event: ${eventName}`);
@@ -353,7 +356,9 @@ class WebSocketClient {
           if (eventName.includes('tag')) {
             wsDebug(`📨 [WebSocket] Re-registered listener received: ${eventName}`, args);
           }
-          callback(...args);
+          const { deliver, args: out } = prepareRealtimeSocketArgs(eventName, args);
+          if (!deliver) return;
+          callback(...out);
         });
       });
     });

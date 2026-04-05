@@ -32,6 +32,62 @@ class PostgresNotificationService {
     this.subscriptions = new Map(); // Map of channel -> Set of callbacks
     this.tenantId = null; // Current tenant context for multi-tenant mode
     this.allTenantsCallbacks = new Map(); // Map of base channel -> Set of callbacks (for subscribeToAllTenants)
+    /** @type {ReturnType<typeof setTimeout> | null} */
+    this._reconnectTimer = null;
+  }
+
+  /**
+   * Tear down the LISTEN client (listeners + connection) before replacing it.
+   */
+  async disposeListenerClient() {
+    if (!this.listenerClient) {
+      return;
+    }
+    const client = this.listenerClient;
+    this.listenerClient = null;
+    client.removeAllListeners();
+    try {
+      await client.end();
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Re-issue LISTEN for every channel in `subscriptions` (required after listener reconnect).
+   */
+  async restoreListenSubscriptions() {
+    if (!this.listenerClient || this.subscriptions.size === 0) {
+      return;
+    }
+    const channels = [...this.subscriptions.keys()];
+    for (const escapedChannel of channels) {
+      try {
+        await this.listenerClient.query(`LISTEN ${escapedChannel}`);
+      } catch (error) {
+        console.error(`❌ LISTEN ${escapedChannel} failed after reconnect:`, error);
+      }
+    }
+    console.log(`📡 Restored ${channels.length} PostgreSQL LISTEN subscription(s)`);
+  }
+
+  scheduleListenReconnect() {
+    if (this._reconnectTimer) {
+      return;
+    }
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      if (!this.isConnected) {
+        console.log('🔄 Attempting to reconnect PostgreSQL LISTEN client...');
+        this.connect(this.publisherPool).catch(console.error);
+      }
+    }, 5000);
+  }
+
+  onListenerClientError(err) {
+    console.error('❌ PostgreSQL LISTEN client error:', err);
+    this.isConnected = false;
+    this.scheduleListenReconnect();
   }
 
   /**
@@ -44,9 +100,8 @@ class PostgresNotificationService {
       if (pool) {
         this.publisherPool = pool;
         this.poolWasPassed = true;
-      } else {
+      } else if (!this.publisherPool) {
         this.poolWasPassed = false;
-        // Create a pool for publishing if not provided
         this.publisherPool = new pg.Pool({
           host: process.env.POSTGRES_HOST || 'localhost',
           port: parseInt(process.env.POSTGRES_PORT || '5432'),
@@ -57,7 +112,8 @@ class PostgresNotificationService {
         });
       }
 
-      // Create a dedicated client for LISTEN (must be separate from pool)
+      await this.disposeListenerClient();
+
       this.listenerClient = new Client({
         host: process.env.POSTGRES_HOST || 'localhost',
         port: parseInt(process.env.POSTGRES_PORT || '5432'),
@@ -67,31 +123,24 @@ class PostgresNotificationService {
       });
 
       await this.listenerClient.connect();
-      
-      // Set up notification handler
+
       this.listenerClient.on('notification', (msg) => {
         this.handleNotification(msg);
       });
 
-      // Handle connection errors
       this.listenerClient.on('error', (err) => {
-        console.error('❌ PostgreSQL LISTEN client error:', err);
-        this.isConnected = false;
-        // Attempt to reconnect after a delay
-        setTimeout(() => {
-          if (!this.isConnected) {
-            console.log('🔄 Attempting to reconnect PostgreSQL LISTEN client...');
-            this.connect(this.publisherPool).catch(console.error);
-          }
-        }, 5000);
+        this.onListenerClientError(err);
       });
+
+      await this.restoreListenSubscriptions();
 
       this.isConnected = true;
       console.log('✅ PostgreSQL Notification Service connected');
     } catch (error) {
       console.error('❌ PostgreSQL Notification Service connection failed:', error);
       this.isConnected = false;
-      // Don't throw - app should continue without notifications
+      await this.disposeListenerClient();
+      this.scheduleListenReconnect();
     }
   }
 
@@ -100,6 +149,10 @@ class PostgresNotificationService {
    */
   async disconnect() {
     try {
+      if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
       if (this.listenerClient) {
         // Unlisten from all channels
         for (const channel of this.subscriptions.keys()) {
@@ -166,9 +219,16 @@ class PostgresNotificationService {
       const MAX_PAYLOAD_SIZE = 8000;
       
       if (payloadSize > MAX_PAYLOAD_SIZE) {
+        // Preserve _rtId (client dedupe) and _notifyTenantId (room routing) when shrinking — same
+        // logical NOTIFY must dedupe and must not rely on broken channel-name tenant parsing.
+        const shrinkMeta = {
+          ...(typeof data._rtId === 'string' ? { _rtId: data._rtId } : {}),
+          ...(typeof data._notifyTenantId === 'string' ? { _notifyTenantId: data._notifyTenantId } : {})
+        };
         // For activity-updated, send minimal payload (clients can fetch full data)
         if (channel === 'activity-updated' && data.activities) {
           payload = JSON.stringify({
+            ...shrinkMeta,
             timestamp: data.timestamp,
             count: data.activities.length,
             message: 'Activity feed updated - fetch latest from API'
@@ -177,6 +237,7 @@ class PostgresNotificationService {
           // For other channels, truncate or send minimal notification
           console.warn(`⚠️ Payload too large (${payloadSize} bytes) for ${channel}, sending minimal notification`);
           payload = JSON.stringify({
+            ...shrinkMeta,
             timestamp: data.timestamp || new Date().toISOString(),
             message: 'Update available - payload too large for notification'
           });
@@ -315,6 +376,20 @@ class PostgresNotificationService {
   }
 
   /**
+   * Best-effort tenant id from NOTIFY channel name (fragile for hyphenated tenant ids).
+   * Prefer `_notifyTenantId` on the payload (set in notificationService.publish).
+   * @private
+   */
+  extractTenantIdFromChannel(channel) {
+    const escapedMatch = channel.match(/^tenant_([^_]+)_/);
+    if (escapedMatch) {
+      return escapedMatch[1];
+    }
+    const unescapedMatch = channel.match(/^tenant-([^-]+)-/);
+    return unescapedMatch ? unescapedMatch[1] : null;
+  }
+
+  /**
    * Handle incoming notification from PostgreSQL
    * @private
    */
@@ -326,32 +401,28 @@ class PostgresNotificationService {
       // Parse JSON payload
       const data = JSON.parse(payload);
 
-      // Extract tenantId from channel name if multi-tenant
-      // Handle both escaped (underscores) and unescaped (hyphens) channel names
+      const notifyTenantId =
+        typeof data._notifyTenantId === 'string' && data._notifyTenantId.length > 0
+          ? data._notifyTenantId
+          : null;
+
       let tenantId = null;
       if (process.env.MULTI_TENANT === 'true') {
-        // Try to extract from escaped channel name (tenant_amanda_pg_task_updated)
-        const escapedMatch = channel.match(/^tenant_([^_]+)_/);
-        if (escapedMatch) {
-          tenantId = escapedMatch[1];
-        } else {
-          // Try to extract from unescaped channel name (tenant-amanda-pg-task-updated)
-          const unescapedMatch = channel.match(/^tenant-([^-]+)-/);
-          tenantId = unescapedMatch ? unescapedMatch[1] : null;
-        }
-        
-        // If tenantId not found in channel name, try to get it from payload
-        if (!tenantId && data.tenantId) {
-          tenantId = data.tenantId;
-        }
+        tenantId =
+          notifyTenantId ||
+          (typeof data.tenantId === 'string' && data.tenantId.length > 0 ? data.tenantId : null) ||
+          this.extractTenantIdFromChannel(channel);
       }
+
+      const rest = { ...data };
+      delete rest._notifyTenantId;
 
       // Call all callbacks for this channel
       const callbacks = this.subscriptions.get(channel);
       if (callbacks) {
         callbacks.forEach(callback => {
           try {
-            callback(data, tenantId);
+            callback(rest, tenantId);
           } catch (error) {
             console.error(`❌ Error in notification callback for ${channel}:`, error);
           }

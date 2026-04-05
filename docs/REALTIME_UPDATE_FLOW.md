@@ -1,5 +1,7 @@
 # Real-Time Update Flow Explanation
 
+> **Multi-tenant PostgreSQL on Kubernetes** (multiple pods, Redis Socket.IO adapter, NOTIFY fan-out): see [`REALTIME_UPDATE_FLOW-MULTI-TENANCY.md`](./REALTIME_UPDATE_FLOW-MULTI-TENANCY.md).
+
 ## How Display Name Updates Reach Other Users
 
 When you update a user's display name in the admin panel, here's the complete flow of how another logged-in user receives the update in real-time:
