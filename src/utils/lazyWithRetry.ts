@@ -45,9 +45,10 @@ export function lazyWithRetry<T extends ComponentType<any>>(
           console.error('❌ Version mismatch detected: Old bundle references non-existent chunk files');
           console.error('   Forcing hard reload to get new JavaScript bundles...');
           
-          // Force a hard reload (bypass cache) to ensure we get the new JavaScript bundles
-          const baseUrl = window.location.origin + window.location.pathname;
-          window.location.href = baseUrl;
+          // Bypass CDN/browser document cache (plain same-URL navigation often reuses a stale shell).
+          const u = new URL(window.location.href);
+          u.searchParams.set('_cb', String(Date.now()));
+          window.location.href = u.toString();
           
           // Return a promise that never resolves (page will reload before this completes)
           return new Promise(() => {});

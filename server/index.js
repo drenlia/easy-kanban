@@ -483,8 +483,12 @@ app.get('/api/version', async (req, res) => {
 app.get('/*splat', (req, res) => {
   // Skip API routes, file serving routes, and source file requests
   // NOTE: /assets/ should NOT be blocked - it's served by express.static middleware above
-  if (req.path.startsWith('/api/') || 
-      req.path.startsWith('/attachments/') || 
+  // Missing hashed chunks must 404 — never fall through to index.html (breaks debugging and confuses import()).
+  if (req.path.startsWith('/assets/')) {
+    return res.status(404).type('text/plain').send('Not Found');
+  }
+  if (req.path.startsWith('/api/') ||
+      req.path.startsWith('/attachments/') ||
       req.path.startsWith('/avatars/') ||
       req.path.startsWith('/src/') ||
       req.path.startsWith('/node_modules/')) {

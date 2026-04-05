@@ -103,6 +103,8 @@ The app’s `lazyWithRetry` helper may retry and then force a reload; a **hard r
 
 **Prevention:** The production server must **not** apply long-lived cache headers to the HTML shell. Only paths under `/assets/` (content-hashed filenames) should use long cache. If you terminate TLS or cache in **nginx / Ingress / CDN**, ensure `index.html` and `/` are **not** cached aggressively (or bypass cache for those paths).
 
+**Kubernetes rolling restart with `image: …:latest` and `imagePullPolicy: Always`:** While old pods are still running, new pods may pull a **new** digest for `:latest`. The Service load-balances across both — the browser can get `index-*.js` from one build and a lazy chunk from another pod where that filename does not exist → same `Failed to fetch dynamically imported module` loop until the rollout finishes (or forever if something keeps skewing pulls). Prefer an **immutable tag per release** (e.g. git SHA) in the Deployment, or scale to one replica during cutover, or use a `Recreate` deploy strategy if brief downtime is acceptable.
+
 ---
 
 ## Practical tips

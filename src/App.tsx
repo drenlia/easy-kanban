@@ -4067,9 +4067,9 @@ export default function App() {
               // Prevent default error handling
               event.preventDefault();
               
-              // Force a hard reload (bypass cache)
-              const baseUrl = window.location.origin + window.location.pathname;
-              window.location.href = baseUrl;
+              const u = new URL(window.location.href);
+              u.searchParams.set('_cb', String(Date.now()));
+              window.location.href = u.toString();
             }
           }
         }
@@ -4093,9 +4093,9 @@ export default function App() {
           // Prevent default error handling
           event.preventDefault();
           
-          // Force a hard reload (bypass cache)
-          const baseUrl = window.location.origin + window.location.pathname;
-          window.location.href = baseUrl;
+          const u = new URL(window.location.href);
+          u.searchParams.set('_cb', String(Date.now()));
+          window.location.href = u.toString();
         }
       }
     };
