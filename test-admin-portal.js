@@ -15,9 +15,56 @@
  * 
  * Example:
  *   node test-admin-portal.js https://my-company.ezkan.cloud kanban-token-12345
+ * 
+ * SMTP credentials are loaded from .env (see .env.example). Required variables:
+ *   ADMIN_PORTAL_TEST_SMTP_USERNAME, ADMIN_PORTAL_TEST_SMTP_PASSWORD,
+ *   ADMIN_PORTAL_TEST_SMTP_FROM_EMAIL
  */
 
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import EasyKanbanAdminClient from './admin-portal-client.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function loadEnvFile() {
+  const envPath = join(__dirname, '.env');
+  if (!existsSync(envPath)) return;
+
+  for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex <= 0) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+function requireEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(
+      `Missing ${name}. Copy .env.example to .env and set SMTP credentials before running this script.`
+    );
+  }
+  return value;
+}
+
+loadEnvFile();
 
 async function testAdminPortal(instanceUrl, instanceToken) {
   console.log('🚀 Testing Easy Kanban Admin Portal Integration');
@@ -59,9 +106,9 @@ async function testAdminPortal(instanceUrl, instanceToken) {
     await client.configureSMTP({
       host: 'smtp.gmail.com',
       port: '587',
-      username: 'support@drenlia.com',
-      password: 'zgie ysqo zjeu brar',
-      fromEmail: 'support@drenlia.com',
+      username: requireEnv('ADMIN_PORTAL_TEST_SMTP_USERNAME'),
+      password: requireEnv('ADMIN_PORTAL_TEST_SMTP_PASSWORD'),
+      fromEmail: requireEnv('ADMIN_PORTAL_TEST_SMTP_FROM_EMAIL'),
       secure: 'tls',
       enabled: true
     });
