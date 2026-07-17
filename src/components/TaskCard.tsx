@@ -748,16 +748,18 @@ const TaskCard = React.memo(function TaskCard({
 
   const handleSprintSelect = (sprint: any | null) => {
     if (sprint === null) {
-      // "None (Backlog)" selected - clear sprint association
+      // "None (Backlog)" selected - clear sprint association (keep existing dates)
       onEdit({ 
         ...task, 
         sprintId: null
       });
     } else {
-      // Sprint selected - only set sprint_id, don't modify dates
+      // Align task dates with the selected sprint's date range
       onEdit({ 
         ...task, 
-        sprintId: sprint.id
+        sprintId: sprint.id,
+        startDate: sprint.start_date ? formatToYYYYMMDD(sprint.start_date) : task.startDate,
+        dueDate: sprint.end_date ? formatToYYYYMMDD(sprint.end_date) : task.dueDate
       });
     }
     setShowSprintSelector(false);

@@ -56,6 +56,7 @@ import { useMemberWebSocket } from './hooks/useMemberWebSocket';
 import { useSettingsWebSocket } from './hooks/useSettingsWebSocket';
 import { useWebSocketConnection } from './hooks/useWebSocketConnection';
 import { generateUUID } from './utils/uuid';
+import { formatToYYYYMMDD } from './utils/dateUtils';
 import websocketClient from './services/websocketClient';
 import { loadUserPreferences, loadUserPreferencesAsync, mergeClearedKanbanVisibilityFilters, saveUserPreferences, updateUserPreference, updateActivityFeedPreference, loadAdminDefaults, TaskViewMode, ViewMode, isGloballySavingPreferences, registerSavingStateCallback, UserPreferences } from './utils/userPreferences';
 import { versionDetection } from './utils/versionDetection';
@@ -3383,7 +3384,17 @@ function AppContent() {
         return;
       }
       try {
-        const updated: Task = { ...task, sprintId };
+        const sprint = availableSprints.find((s: any) => s.id === sprintId);
+        const updated: Task = {
+          ...task,
+          sprintId,
+          ...(sprint?.start_date
+            ? { startDate: formatToYYYYMMDD(sprint.start_date) }
+            : {}),
+          ...(sprint?.end_date
+            ? { dueDate: formatToYYYYMMDD(sprint.end_date) }
+            : {}),
+        };
         await updateTask(updated);
         setColumns(prev => ({
           ...prev,
@@ -3427,6 +3438,7 @@ function AppContent() {
     [
       columns,
       selectedBoard,
+      availableSprints,
       handleDismissColumnWarning,
       t,
       buildColumnVisibilityWarningForTask,
