@@ -62,7 +62,7 @@ interface Settings {
 
 const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsChanged }) => {
   const { t } = useTranslation('admin');
-  const { systemSettings, refreshSettings } = useSettings(); // Use SettingsContext for admin settings
+  const { systemSettings, refreshSettings, updateSiteSetting } = useSettings(); // Use SettingsContext for admin settings
   const [activeTab, setActiveTab] = useState(() => {
     // Get tab from URL hash, fallback to default
     const fullHash = window.location.hash;
@@ -759,10 +759,14 @@ const Admin: React.FC<AdminProps> = ({ currentUser, onUsersChanged, onSettingsCh
       
       // Update the settings state
       setSettings(prev => ({ ...prev, [key]: value }));
+      // Keep header/branding in sync immediately (empty logo → default ico without full reload)
+      updateSiteSetting(key, value);
       
       // Update the parent component's site settings immediately
       if (onSettingsChanged) {
-        onSettingsChanged();
+        await onSettingsChanged();
+      } else {
+        await refreshSettings();
       }
       
       // Show brief success message for auto-save

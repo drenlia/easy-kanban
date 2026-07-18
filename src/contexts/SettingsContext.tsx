@@ -12,6 +12,8 @@ interface SettingsContextType {
   systemSettings: SiteSettings;
   isLoading: boolean;
   refreshSettings: () => Promise<void>;
+  /** Optimistic single-key update (e.g. after admin auto-save) so the header reacts before refetch. */
+  updateSiteSetting: (key: string, value: string) => void;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
@@ -198,6 +200,18 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     await fetchSettings();
   }, [fetchSettings]);
 
+  const updateSiteSetting = useCallback((key: string, value: string) => {
+    setSiteSettings(prev => {
+      const next = { ...prev, [key]: value };
+      syncClientDebugFromSettings(next);
+      return next;
+    });
+    setSystemSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  }, []);
+
   // Listen for WebSocket settings updates (only when authenticated)
   useEffect(() => {
     if (!hasInitialized) return;
@@ -212,16 +226,17 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     const handleSettingsUpdate = (data: any) => {
       if (feDebug('FE_DEBUG_SETTINGS_CONTEXT')) console.log('📨 [SettingsContext] Settings updated via WebSocket:', data);
 
-      // Update the specific setting directly from WebSocket data
-      if (data.key && data.value !== undefined) {
+      // Update the specific setting directly from WebSocket data (including empty string clears)
+      if (data.key && Object.prototype.hasOwnProperty.call(data, 'value')) {
+        const value = data.value == null ? '' : String(data.value);
         setSiteSettings(prev => {
-          const next = { ...prev, [data.key]: data.value };
+          const next = { ...prev, [data.key]: value };
           syncClientDebugFromSettings(next);
           return next;
         });
         setSystemSettings(prev => ({
           ...prev,
-          [data.key]: data.value
+          [data.key]: value
         }));
       } else {
         // Fallback: refresh all settings if WebSocket data is incomplete
@@ -242,6 +257,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
     systemSettings,
     isLoading,
     refreshSettings,
+    updateSiteSetting,
   };
 
   return (

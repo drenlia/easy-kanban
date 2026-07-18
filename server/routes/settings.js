@@ -8,6 +8,9 @@ import { settings as settingsQueries, users as userQueries } from '../utils/sqlM
 import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 import { serverDebug } from '../utils/serverDebug.js';
+import { avatarUpload } from '../config/multer.js';
+import path from 'path';
+import fs from 'fs';
 
 const router = express.Router();
 
@@ -24,6 +27,11 @@ router.get('/', async (req, res, next) => {
     const publicKeys = [
       'SITE_NAME',
       'SITE_URL',
+      'SITE_LOGO',
+      'SITE_LOGO_DARK',
+      'HIDE_GITHUB_LINK',
+      'HIDE_SITE_LOGO',
+      'SITE_OPENS_NEW_TAB',
       'MAIL_ENABLED',
       'GOOGLE_CLIENT_ID',
       'HIGHLIGHT_OVERDUE_TASKS',
@@ -151,6 +159,66 @@ router.put('/', authenticateToken, requireRole(['admin']), async (req, res, next
     console.error('❌ Error details:', { key: req.body.key, value: req.body.value, error: error.message, stack: error.stack });
     res.status(500).json({ error: 'Failed to update setting', details: error.message });
   }
+});
+
+// Upload site logo (light or dark). Stores under avatars/ and upserts SITE_LOGO or SITE_LOGO_DARK.
+router.post('/logo', authenticateToken, requireRole(['admin']), (req, res, next) => {
+  if (req.baseUrl !== '/api/admin/settings') {
+    return res.status(404).json({ error: 'Not Found' });
+  }
+  avatarUpload.single('logo')(req, res, async (err) => {
+    if (err) {
+      console.error('Site logo upload error:', err);
+      return res.status(400).json({ error: err.message || 'Failed to upload logo' });
+    }
+    try {
+      const db = getRequestDatabase(req);
+      if (!req.file) {
+        return res.status(400).json({ error: 'No logo file uploaded' });
+      }
+
+      const variant = (req.query.variant === 'dark' || req.body?.variant === 'dark') ? 'dark' : 'light';
+      const settingKey = variant === 'dark' ? 'SITE_LOGO_DARK' : 'SITE_LOGO';
+      const logoPath = `/avatars/${req.file.filename}`;
+
+      // Best-effort: remove previous uploaded logo file if it was a local /avatars/ path
+      try {
+        const previous = await settingsQueries.getSettingByKey(db, settingKey);
+        const prevValue = previous?.value || '';
+        if (prevValue.startsWith('/avatars/') && prevValue !== logoPath) {
+          const storagePaths = req.locals?.tenantStoragePaths
+            || req.app.locals?.tenantStoragePaths
+            || null;
+          if (storagePaths?.avatars) {
+            const prevFile = path.join(storagePaths.avatars, path.basename(prevValue));
+            if (fs.existsSync(prevFile)) {
+              fs.unlinkSync(prevFile);
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        console.warn('Could not remove previous site logo file:', cleanupErr.message);
+      }
+
+      await settingsQueries.upsertSetting(db, settingKey, logoPath);
+
+      const tenantId = getTenantId(req);
+      await notificationService.publish('settings-updated', {
+        key: settingKey,
+        value: logoPath,
+        timestamp: new Date().toISOString()
+      }, tenantId);
+
+      res.json({
+        message: 'Logo uploaded successfully',
+        key: settingKey,
+        value: logoPath
+      });
+    } catch (error) {
+      console.error('Error saving site logo:', error);
+      res.status(500).json({ error: 'Failed to save logo' });
+    }
+  });
 });
 
 // Update APP_URL endpoint (owner only)

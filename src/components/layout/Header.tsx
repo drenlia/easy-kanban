@@ -3,6 +3,7 @@ import { Github, HelpCircle, LogOut, User, RefreshCw, UserPlus, Mail, X, Send, M
 import { useTranslation } from 'react-i18next';
 import { CurrentUser, SiteSettings, TeamMember } from '../../types';
 import ThemeToggle from '../ThemeToggle';
+import { useTheme } from '../../contexts/ThemeContext';
 import { getSystemInfo } from '../../api';
 import SprintSelector from '../SprintSelector';
 import { loadUserPreferences, loadUserPreferencesAsync, updateUserPreference, updateAppSettingsPreference } from '../../utils/userPreferences';
@@ -86,6 +87,7 @@ const Header: React.FC<HeaderProps> = ({
   boards = [],
   sprints: propSprints,
 }) => {
+  const { theme } = useTheme();
   // Extract all tasks from all boards for sprint counting
   const allTasks = useMemo(() => {
     const tasks: Array<{ id: string; sprintId?: string | null }> = [];
@@ -440,9 +442,60 @@ const Header: React.FC<HeaderProps> = ({
                 handleSiteTitleNavigation(e);
               }
             }}
-            className="text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+            className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
           >
-            {siteSettings.SITE_NAME || 'Easy Kanban'}
+            {(() => {
+              const hideLogo = siteSettings.HIDE_SITE_LOGO === 'true';
+              const isDark = theme === 'dark';
+              const configuredLight = siteSettings.SITE_LOGO?.trim() || '';
+              const configuredDark = siteSettings.SITE_LOGO_DARK?.trim() || '';
+              const defaultLogo = '/kanban.ico';
+              const rawLogo = hideLogo
+                ? ''
+                : isDark
+                  ? (configuredDark || configuredLight || defaultLogo)
+                  : (configuredLight || defaultLogo);
+
+              const resolveBrandLogo = (value: string) => {
+                // Public static / external URLs — do not rewrite through avatar file auth
+                if (
+                  value.startsWith('http://') ||
+                  value.startsWith('https://') ||
+                  value.startsWith('/kanban') ||
+                  value.startsWith('/assets/')
+                ) {
+                  return value;
+                }
+                return getAuthenticatedAvatarUrl(value) || value;
+              };
+
+              const logoSrc = rawLogo ? resolveBrandLogo(rawLogo) : undefined;
+              // Missing SITE_NAME → "Easy Kanban"; explicit empty string → hide name
+              const siteName = siteSettings.SITE_NAME === undefined
+                ? 'Easy Kanban'
+                : siteSettings.SITE_NAME;
+              const showName = siteName.trim().length > 0;
+
+              if (!logoSrc && !showName) {
+                return null;
+              }
+
+              return (
+                <>
+                  {logoSrc && (
+                    <img
+                      key={logoSrc}
+                      src={logoSrc}
+                      alt={showName ? siteName : 'Easy Kanban'}
+                      className="h-7 max-w-[140px] object-contain"
+                    />
+                  )}
+                  {showName && (
+                    <span>{siteName}</span>
+                  )}
+                </>
+              );
+            })()}
           </a>
           {/* Sprint Selector - only show in Kanban view, hide on TaskPage */}
           {currentUser && currentPage === 'kanban' && !hideSprintSelector && (
@@ -460,10 +513,50 @@ const Header: React.FC<HeaderProps> = ({
           )}
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {currentUser && (
             <>
-              {/* Invite Button */}
+              {/* 1. App navigation */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => onPageChange('kanban')}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    currentPage === 'kanban'
+                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                >
+                  {t('navigation.kanban')}
+                </button>
+                {reportsEnabled && (reportsVisibleTo === 'all' || currentUser.roles?.includes('admin')) && (
+                  <button
+                    onClick={() => onPageChange('reports')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      currentPage === 'reports'
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                    data-tour-id="reports-button"
+                  >
+                    {t('navigation.reports')}
+                  </button>
+                )}
+                {currentUser.roles?.includes('admin') && (
+                  <button
+                    onClick={() => onPageChange('admin')}
+                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                      currentPage === 'admin'
+                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                      }`}
+                    data-tour-id="admin-tab"
+                  >
+                    {t('navigation.admin')}
+                  </button>
+                )}
+              </div>
+
+              {/* 2. Team action */}
               {currentUser.roles?.includes('admin') && onInviteUser && (
                 <div className="relative" ref={inviteDropdownRef}>
                   <button
@@ -476,7 +569,6 @@ const Header: React.FC<HeaderProps> = ({
                     {t('navigation.invite')}
                   </button>
 
-                  {/* Invite Dropdown */}
                   {showInviteDropdown && (
                     <div className="absolute right-0 top-full mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
                       <div className="p-4">
@@ -539,188 +631,138 @@ const Header: React.FC<HeaderProps> = ({
                   )}
                 </div>
               )}
-              
-              <div className="flex items-center gap-2">
-                {/* User Avatar */}
-                <div className="relative group">
-                  <button
-                    className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
-                    onClick={onProfileClick}
-                    data-tour-id="profile-menu"
-                  >
-                    {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
-                      <img
-                        src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl || currentUser.avatarUrl)}
-                        alt="Profile"
-                        className="h-8 w-8 rounded-full object-cover"
-                        onError={(e) => {
-                          // Fallback to initials if image fails to load
-                          const target = e.target as HTMLImageElement;
-                          target.style.display = 'none';
-                          const parent = target.parentElement;
-                          if (parent) {
-                            const fallback = document.createElement('div');
-                            fallback.className = 'h-8 w-8 rounded-full flex items-center justify-center';
-                            fallback.style.backgroundColor = members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4';
-                            const initials = document.createElement('span');
-                            initials.className = 'text-sm font-medium text-white';
-                            initials.textContent = `${currentUser.firstName?.[0] || ''}${currentUser.lastName?.[0] || ''}`;
-                            fallback.appendChild(initials);
-                            parent.appendChild(fallback);
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div 
-                        className="h-8 w-8 rounded-full flex items-center justify-center"
-                        style={{ 
-                          backgroundColor: members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4' 
-                        }}
-                      >
-                        <span className="text-sm font-medium text-white">
-                          {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
-                        </span>
-                      </div>
-                    )}
-                  </button>
-                  
-                  {/* Profile Dropdown */}
-                  <div className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
-                    <div className="py-1">
-                      <button
-                        onClick={onProfileClick}
-                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
-                      >
-                        <User size={18} />
-                        {t('navigation.profile')}
-                      </button>
-                      <button
-                        onClick={onLogout}
-                        className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
-                      >
-                        <LogOut size={18} />
-                        {t('navigation.logout')}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Navigation */}
-              <div className="flex items-center gap-2 ml-4">
-                <button
-                  onClick={() => onPageChange('kanban')}
-                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                    currentPage === 'kanban'
-                      ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                      : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
-                >
-                  {t('navigation.kanban')}
-                </button>
-                {reportsEnabled && (reportsVisibleTo === 'all' || currentUser.roles?.includes('admin')) && (
-                  <button
-                    onClick={() => onPageChange('reports')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      currentPage === 'reports'
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                    }`}
-                    data-tour-id="reports-button"
-                  >
-                    {t('navigation.reports')}
-                  </button>
-                )}
-                {currentUser.roles?.includes('admin') && (
-                  <button
-                    onClick={() => onPageChange('admin')}
-                    className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                      currentPage === 'admin'
-                        ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                        : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
-                    data-tour-id="admin-tab"
-                  >
-                    {t('navigation.admin')}
-                  </button>
-                )}
-              </div>
+
+              <div className="w-px h-5 bg-gray-200 dark:bg-gray-600 mx-1" aria-hidden="true" />
             </>
           )}
-          
-          {/* Auto-refresh toggle */}
-          {/* Auto-refresh toggle - DISABLED (using real-time updates) */}
-          {/* <button
-            onClick={onToggleAutoRefresh}
-            className="p-1 hover:bg-gray-50 dark:hover:bg-gray-800 rounded transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title={isAutoRefreshEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh'}
-          >
-            {isAutoRefreshEnabled ? (
-              <ToggleRight size={16} className="text-blue-500" />
-            ) : (
-              <ToggleLeft size={16} className="text-gray-400" />
+
+          {/* 3. Preferences */}
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            {currentUser && (
+              <button
+                onClick={handleLanguageToggle}
+                className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
+                title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
+              >
+                {currentLanguage === 'en' ? 'FR' : 'EN'}
+              </button>
             )}
-          </button> */}
-          
-          {/* Theme toggle */}
-          <ThemeToggle />
-          
-          {/* Language toggle */}
-          {currentUser && (
+          </div>
+
+          <div className="w-px h-5 bg-gray-200 dark:bg-gray-600 mx-1" aria-hidden="true" />
+
+          {/* 4. Utilities */}
+          <div className="flex items-center gap-0.5">
             <button
-              onClick={handleLanguageToggle}
-              className="px-2 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition-colors border border-gray-300 dark:border-gray-600 hover:border-blue-400 dark:hover:border-blue-500"
-              title={currentLanguage === 'en' ? 'Switch to French' : 'Passer en anglais'}
-            >
-              {currentLanguage === 'en' ? 'FR' : 'EN'}
-            </button>
-          )}
-          
-          {/* Polling status indicator removed - using real-time WebSocket updates */}
-          
-          {/* Manual refresh button */}
-          <button
-            onClick={handleRefresh}
-            className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title={t('navigation.refreshDataNow')}
-          >
-            <RefreshCw size={16} />
-          </button>
-          
-          {/* System Panel Toggle - Admin only */}
-          {currentUser?.roles?.includes('admin') && (
-            <button
-              onClick={handleSystemPanelToggle}
+              onClick={handleRefresh}
               className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-              title={showSystemPanel ? t('navigation.hideSystemPanel') || 'Hide system panel' : t('navigation.showSystemPanel') || 'Show system panel'}
-              data-tour-id="system-panel-toggle"
+              title={t('navigation.refreshDataNow')}
             >
-              {showSystemPanel ? (
-                <Monitor size={16} />
-              ) : (
-                <MonitorOff size={16} />
-              )}
+              <RefreshCw size={16} />
             </button>
+
+            {currentUser?.roles?.includes('admin') && (
+              <button
+                onClick={handleSystemPanelToggle}
+                className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                title={showSystemPanel ? t('navigation.hideSystemPanel') || 'Hide system panel' : t('navigation.showSystemPanel') || 'Show system panel'}
+                data-tour-id="system-panel-toggle"
+              >
+                {showSystemPanel ? (
+                  <Monitor size={16} />
+                ) : (
+                  <MonitorOff size={16} />
+                )}
+              </button>
+            )}
+
+            <button
+              onClick={onHelpClick}
+              className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              title={t('navigation.help')}
+              data-tour-id="help-button"
+            >
+              <HelpCircle size={20} />
+            </button>
+          </div>
+
+          {/* 5. External */}
+          {siteSettings.HIDE_GITHUB_LINK !== 'true' && (
+            <a
+              href="https://github.com/drenlia/easy-kanban"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+              title="GitHub"
+            >
+              <Github size={20} />
+            </a>
           )}
-          
-          <button
-            onClick={onHelpClick}
-            className="p-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-full transition-colors text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-            title={t('navigation.help')}
-            data-tour-id="help-button"
-          >
-            <HelpCircle size={20} />
-          </button>
-          
-          <a
-            href="https://github.com/drenlia/easy-kanban"
-            {...(siteSettings.SITE_OPENS_NEW_TAB === undefined || siteSettings.SITE_OPENS_NEW_TAB === 'true' 
-              ? { target: '_blank', rel: 'noopener noreferrer' } 
-              : {})}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-          >
-            <Github size={20} />
-          </a>
+
+          {/* 6. Account — always last */}
+          {currentUser && (
+            <div className="relative group ml-1">
+              <button
+                className="flex items-center gap-2 p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors"
+                onClick={onProfileClick}
+                data-tour-id="profile-menu"
+              >
+                {currentUser?.googleAvatarUrl || currentUser?.avatarUrl ? (
+                  <img
+                    src={getAuthenticatedAvatarUrl(currentUser.googleAvatarUrl || currentUser.avatarUrl)}
+                    alt="Profile"
+                    className="h-8 w-8 rounded-full object-cover"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      const parent = target.parentElement;
+                      if (parent) {
+                        const fallback = document.createElement('div');
+                        fallback.className = 'h-8 w-8 rounded-full flex items-center justify-center';
+                        fallback.style.backgroundColor = members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4';
+                        const initials = document.createElement('span');
+                        initials.className = 'text-sm font-medium text-white';
+                        initials.textContent = `${currentUser.firstName?.[0] || ''}${currentUser.lastName?.[0] || ''}`;
+                        fallback.appendChild(initials);
+                        parent.appendChild(fallback);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="h-8 w-8 rounded-full flex items-center justify-center"
+                    style={{
+                      backgroundColor: members.find(m => m.user_id === currentUser?.id)?.color || '#4ECDC4'
+                    }}
+                  >
+                    <span className="text-sm font-medium text-white">
+                      {currentUser.firstName?.[0]}{currentUser.lastName?.[0]}
+                    </span>
+                  </div>
+                )}
+              </button>
+
+              <div className="absolute right-0 top-full mt-2 min-w-max bg-white dark:bg-gray-800 rounded-lg shadow-lg z-50 border border-gray-200 dark:border-gray-700 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all">
+                <div className="py-1">
+                  <button
+                    onClick={onProfileClick}
+                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
+                  >
+                    <User size={18} />
+                    {t('navigation.profile')}
+                  </button>
+                  <button
+                    onClick={onLogout}
+                    className="w-full text-left px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors whitespace-nowrap"
+                  >
+                    <LogOut size={18} />
+                    {t('navigation.logout')}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       
