@@ -24,6 +24,10 @@ export default defineConfig({
     minify: 'esbuild',
   },
   server: {
+    // Demo stacks disable HMR/watch to avoid churn + Socket.IO noise; normal dev keeps file watching
+    ...(process.env.DEMO_ENABLED === 'true'
+      ? { watch: { ignored: ['**/*'] } }
+      : {}),
     host: '0.0.0.0',
     port: 3010,
     hmr: false, // Disable Hot Module Reload to prevent Socket.IO connection loops
