@@ -2,6 +2,10 @@
 
 # Build script for Easy Kanban Docker application (Development Mode)
 
+# Run from project root so docker-compose templates and docker build . work
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(cd "$SCRIPT_DIR/.." && pwd)"
+
 echo "🚀 Building Easy Kanban application..."
 
 # Check if Docker is running

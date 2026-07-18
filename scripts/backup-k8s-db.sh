@@ -5,6 +5,10 @@
 
 set -e  # Exit on any error
 
+# Run from project root so ./backups stays consistent
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Configuration
 DB_PATH="/app/server/data/kanban.db"
 BACKUP_DIR="./backups"

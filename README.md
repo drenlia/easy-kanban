@@ -161,19 +161,19 @@ Use the included backup script for easy database management:
 
 ```bash
 # Create a timestamped backup with automatic cleanup
-./backup-db.sh
+./scripts/backup-db.sh
 
 # List all existing backups
-./backup-db.sh --list
+./scripts/backup-db.sh --list
 
 # Manual cleanup (keeps last 10 backups)
-./backup-db.sh --cleanup
+./scripts/backup-db.sh --cleanup
 
 # Create backup without auto-cleanup
-./backup-db.sh --no-cleanup
+./scripts/backup-db.sh --no-cleanup
 
 # Show help and options
-./backup-db.sh --help
+./scripts/backup-db.sh --help
 ```
 
 **Features:**

@@ -11,12 +11,12 @@
  * 5. Manage the instance
  * 
  * Usage:
- *   node test-admin-portal.js <instance_url> <instance_token>
+ *   node admin-tests/test-admin-portal.js <instance_url> <instance_token>
  * 
  * Example:
- *   node test-admin-portal.js https://my-company.ezkan.cloud kanban-token-12345
+ *   node admin-tests/test-admin-portal.js https://my-company.ezkan.cloud kanban-token-12345
  * 
- * SMTP credentials are loaded from .env (see .env.example). Required variables:
+ * SMTP credentials are loaded from the project-root .env (see .env.example). Required variables:
  *   ADMIN_PORTAL_TEST_SMTP_USERNAME, ADMIN_PORTAL_TEST_SMTP_PASSWORD,
  *   ADMIN_PORTAL_TEST_SMTP_FROM_EMAIL
  */
@@ -27,10 +27,12 @@ import { fileURLToPath } from 'node:url';
 import EasyKanbanAdminClient from './admin-portal-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const projectRoot = join(__dirname, '..');
 
 function loadEnvFile() {
-  const envPath = join(__dirname, '.env');
-  if (!existsSync(envPath)) return;
+  // Prefer project-root .env; fall back to admin-tests/.env
+  const envPath = [join(projectRoot, '.env'), join(__dirname, '.env')].find(existsSync);
+  if (!envPath) return;
 
   for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -186,10 +188,10 @@ async function main() {
   const args = process.argv.slice(2);
   
   if (args.length !== 2) {
-    console.log('Usage: node test-admin-portal.js <instance_url> <instance_token>');
+    console.log('Usage: node admin-tests/test-admin-portal.js <instance_url> <instance_token>');
     console.log('');
     console.log('Example:');
-    console.log('  node test-admin-portal.js https://my-company.ezkan.cloud kanban-token-12345');
+    console.log('  node admin-tests/test-admin-portal.js https://my-company.ezkan.cloud kanban-token-12345');
     console.log('');
     console.log('To get the instance URL and token, run:');
     console.log('  ./k8s/deploy-instance.sh my-company kanban-token-12345');

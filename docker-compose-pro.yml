@@ -18,7 +18,7 @@ services:
       - POSTGRES_DB=kanban
       - POSTGRES_USER=kanban_user
       - POSTGRES_PASSWORD=kanban_password
-      # JWT Secret for authentication (will be replaced by build.sh with random value)
+      # JWT Secret for authentication (will be replaced by scripts/build.sh with random value)
       - JWT_SECRET=your-super-secret-jwt-key-change-in-production
       # Allowed origins for CORS
       - ALLOWED_ORIGINS=localhost,127.0.0.1,kanban.drenlia.dev,admin.ezkan.cloud

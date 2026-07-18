@@ -5,6 +5,10 @@
 
 set -e  # Exit on any error
 
+# Run from project root so ./backups and docker paths stay consistent
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Configuration
 CONTAINER_NAME="easy-kanban"
 DB_PATH="/app/server/data/kanban.db"

@@ -5,6 +5,10 @@
 
 set -e  # Exit on any error
 
+# Run from project root so ./backups and docker paths stay consistent
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Configuration
 CONTAINER_NAME="easy-kanban"
 DB_PATH="/app/server/data/kanban.db"
@@ -54,7 +58,7 @@ check_container() {
 check_backup_dir() {
     if [ ! -d "$BACKUP_DIR" ]; then
         print_error "Backup directory '$BACKUP_DIR' not found."
-        print_status "Make sure you have created backups first using backup-db.sh"
+        print_status "Make sure you have created backups first using scripts/backup-db.sh"
         exit 1
     fi
 }
