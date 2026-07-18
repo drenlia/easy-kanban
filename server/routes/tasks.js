@@ -894,6 +894,25 @@ router.post('/add-at-top', authenticateToken, checkTaskLimit, async (req, res) =
     }, getTenantId(req));
     
     console.log(`✅ [${publishTimestamp}] task-created (at top) published to Redis successfully`);
+
+    // Broadcast full-column positions so all clients bump siblings (increment + insert at 0)
+    try {
+      const columnTasks = await taskQueries.getTasksForColumnBasic(db, task.columnId);
+      const positionUpdates = columnTasks.map((t) => ({
+        taskId: t.id,
+        position: typeof t.position === 'number' ? t.position : parseFloat(t.position) || 0,
+        columnId: task.columnId
+      }));
+      if (positionUpdates.length > 0) {
+        await notificationService.publish('tasks-positions-updated', {
+          boardId: task.boardId,
+          updates: positionUpdates,
+          timestamp: publishTimestamp
+        }, getTenantId(req));
+      }
+    } catch (posErr) {
+      console.warn('Failed to publish tasks-positions-updated after add-at-top:', posErr.message);
+    }
     
     res.json(task);
   } catch (error) {
@@ -981,16 +1000,16 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
     };
     
     // FRACTIONAL POSITIONING + BACKGROUND RENUMBERING
-    // 1. Insert copy with position = originalPosition + 0.5 (immediately in correct order)
+    // 1. Insert copy with position = originalPosition - 0.5 (immediately above original)
     // 2. Renumber all tasks in background to clean integers (0, 1, 2, 3...)
     // 3. WebSocket updates keep frontend in sync
     
-    // Calculate fractional position: originalPosition + 0.5
+    // Calculate fractional position: originalPosition - 0.5 (above original)
     const originalPos = typeof originalPosition === 'number' ? originalPosition : parseFloat(originalPosition) || 0;
-    let copyPosition = originalPos + 0.5;
+    let copyPosition = originalPos - 0.5;
     
     await dbTransaction(db, async () => {
-      // Create the copy with fractional position (places it right after original)
+      // Create the copy with fractional position (places it right above original)
       newTaskData.position = copyPosition;
       await taskQueries.createTask(db, newTaskData);
       
@@ -1066,7 +1085,7 @@ router.post('/copy', authenticateToken, checkTaskLimit, async (req, res) => {
       taskForWebSocket.boardId = boardId;
     }
     // CRITICAL: Always use the calculated copyPosition for WebSocket event
-    // This ensures the copy appears at the correct position (right after original)
+    // This ensures the copy appears at the correct position (right above original)
     // fetchTaskWithRelationships might return position in a different format or missing
     taskForWebSocket.position = copyPosition;
     

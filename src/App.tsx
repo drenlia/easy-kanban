@@ -90,7 +90,7 @@ import { customCollisionDetection, calculateGridStyle } from './utils/dragDropUt
 import { clearCustomCursor } from './utils/cursorUtils';
 import { generateUniqueBoardName } from './utils/boardUtils';
 import { renumberColumns } from './utils/columnUtils';
-import { handleSameColumnReorder, handleCrossColumnMove, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy } from './utils/taskReorderingUtils';
+import { handleSameColumnReorder, handleCrossColumnMove, moveTaskToPosition, calculatePositionForIndex, renumberColumnAfterCopy, resolveDropIndex, TaskDropPlacement } from './utils/taskReorderingUtils';
 import { handleInviteUser as handleInviteUserUtil } from './utils/userInvitationUtils';
 import { KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DndContext, DragOverlay } from '@dnd-kit/core';
 import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -1106,6 +1106,7 @@ function AppContent() {
     websocketClient.onTaskCreated(taskWebSocket.handleTaskCreated);
     websocketClient.onTaskUpdated(taskWebSocket.handleTaskUpdated);
     websocketClient.onTaskDeleted(taskWebSocket.handleTaskDeleted);
+    websocketClient.onTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
     websocketClient.onTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
     websocketClient.onTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
     websocketClient.onColumnUpdated(columnWebSocket.handleColumnUpdated);
@@ -1152,6 +1153,7 @@ function AppContent() {
       websocketClient.offTaskCreated(taskWebSocket.handleTaskCreated);
       websocketClient.offTaskUpdated(taskWebSocket.handleTaskUpdated);
       websocketClient.offTaskDeleted(taskWebSocket.handleTaskDeleted);
+      websocketClient.offTasksPositionsUpdated(taskWebSocket.handleTasksPositionsUpdated);
       websocketClient.offTaskRelationshipCreated(taskWebSocket.handleTaskRelationshipCreated);
       websocketClient.offTaskRelationshipDeleted(taskWebSocket.handleTaskRelationshipDeleted);
       websocketClient.offColumnUpdated(columnWebSocket.handleColumnUpdated);
@@ -2319,8 +2321,12 @@ function AppContent() {
       const targetColumn = prev[columnId];
       if (!targetColumn) return prev;
       
-      // Insert at top (position 0)
-      const updatedTasks = [newTask, ...targetColumn.tasks];
+      // Insert at top (position 0) and bump siblings so local positions match server
+      const bumpedTasks = targetColumn.tasks.map(t => ({
+        ...t,
+        position: (typeof t.position === 'number' ? t.position : parseFloat(String(t.position)) || 0) + 1
+      }));
+      const updatedTasks = [newTask, ...bumpedTasks];
       
       return {
         ...prev,
@@ -2340,11 +2346,14 @@ function AppContent() {
           const targetColumnId = newTask.columnId;
           
           if (updatedColumns[targetColumnId]) {
-            // Add new task at front
             const existingTasks = updatedColumns[targetColumnId].tasks || [];
+            const bumpedTasks = existingTasks.map(t => ({
+              ...t,
+              position: (typeof t.position === 'number' ? t.position : parseFloat(String(t.position)) || 0) + 1
+            }));
             updatedColumns[targetColumnId] = {
               ...updatedColumns[targetColumnId],
-              tasks: [newTask, ...existingTasks]
+              tasks: [newTask, ...bumpedTasks]
             };
             
             updatedBoard.columns = updatedColumns;
@@ -2550,7 +2559,7 @@ function AppContent() {
         // Use the dedicated copy endpoint which handles:
         // - Generating new ticket number (incrementing)
         // - Copying all task fields
-        // - Placing copy at +0.5 position (right after original)
+        // - Placing copy at originalPos - 0.5 (above original)
         // - Copying tags, watchers, and collaborators
         copiedTask = await copyTask(task.id, task.boardId);
       });
@@ -2873,7 +2882,8 @@ function AppContent() {
       columns,
       setColumns,
       setDragCooldown,
-      refreshBoardData
+      refreshBoardData,
+      taskFilters.setFilteredColumns
     );
   };
 
@@ -2886,16 +2896,21 @@ function AppContent() {
       columns,
       setColumns,
       setDragCooldown,
-      refreshBoardData
+      refreshBoardData,
+      taskFilters.setFilteredColumns
     );
   };
 
   // Handle moving task to different column via ListView dropdown or drag & drop
-  const handleMoveTaskToColumn = useCallback(async (taskId: string, targetColumnId: string, position?: number) => {
+  const handleMoveTaskToColumn = useCallback(async (
+    taskId: string,
+    targetColumnId: string,
+    placement?: TaskDropPlacement
+  ) => {
     dndLog('🎯 handleMoveTaskToColumn called:', {
       taskId,
       targetColumnId,
-      position,
+      placement,
       columnsCount: Object.keys(columns).length
     });
 
@@ -2927,26 +2942,16 @@ function AppContent() {
       return;
     }
 
-    // SIMPLIFIED APPROACH: SimpleDragDropManager now passes TARGET INDEX (0, 1, 2...)
-    // All tasks will be renumbered after the move
-    
-    // Determine the target index
-    let targetIndex: number;
-    if (position !== undefined) {
-      // Use the index directly from SimpleDragDropManager
-      targetIndex = Math.floor(position); // Ensure it's an integer
-    } else {
-      // No index specified, move to end of column
-      const tasksWithoutMoved = targetColumn.tasks.filter(t => t.id !== taskId);
-      targetIndex = tasksWithoutMoved.length;
-    }
+    // Resolve placement against FULL column (not filtered). Default: append to end (ListView).
+    const resolvedPlacement: TaskDropPlacement = placement || { kind: 'end' };
+    const targetIndex = resolveDropIndex(targetColumn.tasks, resolvedPlacement, taskId);
+
+    dndLog('🎯 Resolved drop index:', { resolvedPlacement, targetIndex });
 
     // Check if this is a same-column reorder or cross-column move
     if (sourceColumnId === targetColumnId) {
-      // Same column - reorder using index
       await moveTaskToPositionWrapper(sourceTask, sourceColumnId, targetIndex);
     } else {
-      // Different columns - cross-column move using index
       await handleCrossColumnMoveWrapper(sourceTask, sourceColumnId, targetColumnId, targetIndex);
     }
   }, [columns]);
@@ -2961,7 +2966,8 @@ function AppContent() {
       columns,
       setColumns,
       setDragCooldown,
-      refreshBoardData
+      refreshBoardData,
+      taskFilters.setFilteredColumns
     );
   };
 

@@ -1266,11 +1266,79 @@ export const useTaskWebSocket = ({
       });
     }
   }, [setColumns, setSelectedTask, selectedBoardRef, selectedTask, taskFilters, pendingTaskRefreshesRef, recentlyDeletedTasksRef]);
+
+  /**
+   * Apply authoritative column positions from server (add-at-top, delete renumber).
+   * Payload: { boardId, updates: [{ taskId, position, columnId }] }
+   */
+  const handleTasksPositionsUpdated = useCallback((data: any) => {
+    if (!data?.updates || !Array.isArray(data.updates) || data.updates.length === 0) {
+      return;
+    }
+
+    if ((window as any).reorderingInProgress) {
+      wsHookLog('🚫 [WebSocket] Skipping tasks-positions-updated - reordering in progress');
+      return;
+    }
+
+    const positionById = new Map<string, { position: number; columnId?: string }>();
+    for (const u of data.updates) {
+      if (!u?.taskId) continue;
+      positionById.set(u.taskId, {
+        position: typeof u.position === 'number' ? u.position : parseFloat(u.position) || 0,
+        columnId: u.columnId
+      });
+    }
+
+    const applyPositions = (cols: Columns): Columns => {
+      const next = { ...cols };
+      let changed = false;
+      for (const columnId of Object.keys(next)) {
+        const column = next[columnId];
+        if (!column?.tasks) continue;
+        let columnChanged = false;
+        const updatedTasks = column.tasks.map(task => {
+          const upd = positionById.get(task.id);
+          if (!upd) return task;
+          const targetCol = upd.columnId || columnId;
+          if (task.position !== upd.position || task.columnId !== targetCol) {
+            columnChanged = true;
+            return { ...task, position: upd.position, columnId: targetCol };
+          }
+          return task;
+        });
+        if (columnChanged) {
+          changed = true;
+          next[columnId] = {
+            ...column,
+            tasks: [...updatedTasks].sort((a, b) => (a.position || 0) - (b.position || 0))
+          };
+        }
+      }
+      // Move tasks that changed columnId between columns in this board snapshot
+      // (add/delete usually stay in-column; cross-column is via task-updated batch)
+      return changed ? next : cols;
+    };
+
+    if (data.boardId === selectedBoardRef.current) {
+      setColumns(prev => applyPositions(prev));
+    }
+
+    setBoards(prevBoards =>
+      prevBoards.map(board => {
+        if (data.boardId && board.id !== data.boardId) return board;
+        const updatedColumns = applyPositions(board.columns || {});
+        if (updatedColumns === board.columns) return board;
+        return { ...board, columns: updatedColumns };
+      })
+    );
+  }, [setColumns, setBoards, selectedBoardRef]);
   
   return {
     handleTaskCreated,
     handleTaskUpdated,
     handleTaskDeleted,
+    handleTasksPositionsUpdated,
     handleTaskRelationshipCreated,
     handleTaskRelationshipDeleted,
     handleTaskWatcherAdded,

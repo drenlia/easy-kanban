@@ -322,6 +322,18 @@ class WebSocketService {
       }
     });
 
+    // Full-column position sync (add-at-top, delete renumber, etc.)
+    postgresNotificationService.subscribeToAllTenants('tasks-positions-updated', (data, tenantId) => {
+      const timestamp = new Date().toISOString();
+      console.log(`📡 [${timestamp}] WebSocket broadcasting tasks-positions-updated (tenant: ${tenantId || 'single'}, updates: ${data?.updates?.length || 0})`);
+      
+      if (tenantId) {
+        this.io?.to(`tenant-${tenantId}`).emit('tasks-positions-updated', data);
+      } else {
+        this.io?.emit('tasks-positions-updated', data);
+      }
+    });
+
     // Task relationship created - broadcast to tenant-specific board room
     postgresNotificationService.subscribeToAllTenants('task-relationship-created', (data, tenantId) => {
       const room = tenantId 

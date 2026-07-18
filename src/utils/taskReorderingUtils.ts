@@ -1,9 +1,10 @@
 /**
  * Utility functions for task reordering within and across columns
- * 
+ *
  * APPROACH:
  * - MOVE: Frontend reorders to indices [0,1,2,3...], sends ALL positions
- * - COPY: Backend creates with +0.5, frontend receives, renumbers ALL, sends to backend
+ * - COPY: Backend creates with originalPos - 0.5 (above original), frontend renumbers ALL
+ * - Drop intent is anchor-relative (before/after/start/end), resolved against the FULL column
  * - Always use clean integer positions for reliability
  */
 
@@ -11,9 +12,98 @@ import { Task, Columns } from '../types';
 import { batchUpdateTaskPositions } from '../api';
 import { DRAG_COOLDOWN_DURATION } from '../constants';
 import { dndLog } from './dndDebug';
+import type { Dispatch, SetStateAction } from 'react';
 
 // Helper to parse position as number
 const parsePos = (pos: any): number => typeof pos === 'number' ? pos : parseFloat(String(pos)) || 0;
+
+/**
+ * Drop intent from DnD / UI. Resolved against the full column via resolveDropIndex.
+ */
+export type TaskDropPlacement =
+  | { kind: 'before'; taskId: string }
+  | { kind: 'after'; taskId: string }
+  | { kind: 'start' }
+  | { kind: 'end' };
+
+/**
+ * Resolve a drop placement to an insert index in the full column
+ * (index into the list with draggedTaskId removed, if present).
+ */
+export function resolveDropIndex(
+  fullTasks: Task[],
+  placement: TaskDropPlacement,
+  draggedTaskId?: string
+): number {
+  const sorted = [...fullTasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  const originalIndex = draggedTaskId
+    ? sorted.findIndex(t => t.id === draggedTaskId)
+    : -1;
+  const withoutDragged = draggedTaskId
+    ? sorted.filter(t => t.id !== draggedTaskId)
+    : sorted;
+
+  if (placement.kind === 'start') {
+    return 0;
+  }
+  if (placement.kind === 'end') {
+    return withoutDragged.length;
+  }
+
+  // Dropping before/after yourself (common when returning to the original slot):
+  // the anchor is removed with the dragged task, so findIndex fails and used to
+  // fall through to "append at end". Restore the original index instead.
+  if (draggedTaskId && placement.taskId === draggedTaskId) {
+    return originalIndex >= 0
+      ? Math.min(originalIndex, withoutDragged.length)
+      : withoutDragged.length;
+  }
+
+  const anchorIdx = withoutDragged.findIndex(t => t.id === placement.taskId);
+  if (anchorIdx < 0) {
+    return withoutDragged.length;
+  }
+  if (placement.kind === 'before') {
+    return anchorIdx;
+  }
+  // after
+  return anchorIdx + 1;
+}
+
+/** Keep filtered board list in lockstep with optimistic reorder (avoids post-drop flash). */
+function syncFilteredColumnPositions(
+  setFilteredColumns: Dispatch<SetStateAction<Columns>> | undefined,
+  columnId: string,
+  renumberedTasks: Task[]
+) {
+  if (!setFilteredColumns) return;
+  const positionById = new Map(renumberedTasks.map(t => [t.id, parsePos(t.position)]));
+  setFilteredColumns(prev => {
+    const col = prev[columnId];
+    if (!col) return prev;
+    return {
+      ...prev,
+      [columnId]: {
+        ...col,
+        tasks: col.tasks
+          .filter(t => positionById.has(t.id))
+          .map(t => ({ ...t, position: positionById.get(t.id)! }))
+          .sort((a, b) => parsePos(a.position) - parsePos(b.position))
+      }
+    };
+  });
+}
+
+/**
+ * Preview insert index among a visible (filtered) task list for the pink line.
+ */
+export function resolvePreviewInsertIndex(
+  visibleTasks: Task[],
+  placement: TaskDropPlacement,
+  draggedTaskId?: string
+): number {
+  return resolveDropIndex(visibleTasks, placement, draggedTaskId);
+}
 
 /**
  * Moves a task to a specific index within its column.
@@ -24,9 +114,10 @@ export const moveTaskToIndex = async (
   columnId: string,
   targetIndex: number,
   columns: Columns,
-  setColumns: React.Dispatch<React.SetStateAction<Columns>>,
+  setColumns: Dispatch<SetStateAction<Columns>>,
   setDragCooldown: (value: boolean) => void,
-  refreshBoardData: () => Promise<void>
+  refreshBoardData: () => Promise<void>,
+  setFilteredColumns?: Dispatch<SetStateAction<Columns>>
 ): Promise<void> => {
   const column = columns[columnId];
   if (!column) {
@@ -82,7 +173,8 @@ export const moveTaskToIndex = async (
   (window as any).lastOptimisticUpdateTime = Date.now();
   (window as any).reorderingInProgress = true;
 
-  // Optimistic update - INSTANT
+  // Optimistic update - INSTANT (columns + filtered, so the board does not flash old order
+  // while justUpdatedFromWebSocket delays the filter effect)
   setColumns(prev => ({
     ...prev,
     [columnId]: {
@@ -90,6 +182,7 @@ export const moveTaskToIndex = async (
       tasks: renumberedTasks
     }
   }));
+  syncFilteredColumnPositions(setFilteredColumns, columnId, renumberedTasks);
 
   // Send ALL task positions to backend
   try {
@@ -119,6 +212,7 @@ export const moveTaskToIndex = async (
       ...prev,
       [columnId]: previousColumnState
     }));
+    syncFilteredColumnPositions(setFilteredColumns, columnId, previousColumnState.tasks);
     window.justUpdatedFromWebSocket = false;
     (window as any).reorderingInProgress = false;
     refreshBoardData().catch(() => {});
@@ -139,9 +233,10 @@ export const handleCrossColumnMove = async (
   targetColumnId: string,
   targetIndex: number,
   columns: Columns,
-  setColumns: React.Dispatch<React.SetStateAction<Columns>>,
+  setColumns: Dispatch<SetStateAction<Columns>>,
   setDragCooldown: (value: boolean) => void,
-  refreshBoardData: () => Promise<void>
+  refreshBoardData: () => Promise<void>,
+  setFilteredColumns?: Dispatch<SetStateAction<Columns>>
 ): Promise<void> => {
   const sourceColumn = columns[sourceColumnId];
   const targetColumn = columns[targetColumnId];
@@ -188,12 +283,44 @@ export const handleCrossColumnMove = async (
   (window as any).lastOptimisticUpdateTime = Date.now();
   (window as any).reorderingInProgress = true;
 
-  // Optimistic update - INSTANT
+  // Optimistic update - INSTANT (columns + filtered)
   setColumns(prev => ({
     ...prev,
     [sourceColumnId]: { ...sourceColumn, tasks: sourceTasks },
     [targetColumnId]: { ...targetColumn, tasks: renumberedTargetTasks }
   }));
+  if (setFilteredColumns) {
+    setFilteredColumns(prev => {
+      const next = { ...prev };
+      const sourceFiltered = prev[sourceColumnId];
+      const targetFiltered = prev[targetColumnId];
+      if (sourceFiltered) {
+        const sourcePos = new Map(sourceTasks.map(t => [t.id, parsePos(t.position)]));
+        next[sourceColumnId] = {
+          ...sourceFiltered,
+          tasks: sourceFiltered.tasks
+            .filter(t => t.id !== task.id && sourcePos.has(t.id))
+            .map(t => ({ ...t, position: sourcePos.get(t.id)! }))
+            .sort((a, b) => parsePos(a.position) - parsePos(b.position))
+        };
+      }
+      if (targetFiltered) {
+        const byId = new Map(targetFiltered.tasks.map(t => [t.id, t]));
+        next[targetColumnId] = {
+          ...targetFiltered,
+          tasks: renumberedTargetTasks
+            .filter(t => t.id === task.id || byId.has(t.id))
+            .map(t => {
+              const existing = byId.get(t.id);
+              const base = existing || t;
+              return { ...base, ...t, position: parsePos(t.position), columnId: targetColumnId };
+            })
+            .sort((a, b) => parsePos(a.position) - parsePos(b.position))
+        };
+      }
+      return next;
+    });
+  }
 
   // Send ALL updates to backend
   try {
@@ -223,7 +350,7 @@ export const handleCrossColumnMove = async (
     }, DRAG_COOLDOWN_DURATION);
   } catch (error) {
     console.error('❌ [handleCrossColumnMove] Failed to move task:', error);
-    // Rollback
+    // Rollback columns; refresh restores filtered state
     setColumns(prev => ({
       ...prev,
       [sourceColumnId]: previousSourceState,
@@ -241,23 +368,24 @@ export const handleCrossColumnMove = async (
  */
 export const renumberColumnAfterCopy = async (
   columnId: string,
-  setColumns: React.Dispatch<React.SetStateAction<Columns>>
+  setColumns: Dispatch<SetStateAction<Columns>>
 ): Promise<void> => {
-  // Get current state using functional update pattern
-  let currentColumn: { tasks: Task[] } | null = null;
+  let columnTasks: Task[] | null = null;
   
   setColumns(prev => {
-    currentColumn = prev[columnId];
-    return prev; // Don't change anything, just read
+    columnTasks = prev[columnId]?.tasks ? [...prev[columnId].tasks] : null;
+    return prev;
   });
   
-  if (!currentColumn || !currentColumn.tasks) {
+  if (!columnTasks) {
     console.error('❌ [renumberColumnAfterCopy] Column not found:', columnId);
     return;
   }
 
   // Sort tasks by current position and renumber to sequential integers
-  const sortedTasks = [...currentColumn.tasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  // Cast: assignment happens inside setColumns updater; TS CFA still sees only null.
+  const tasksSnapshot = columnTasks as Task[];
+  const sortedTasks = [...tasksSnapshot].sort((a, b) => parsePos(a.position) - parsePos(b.position));
   const renumberedTasks = sortedTasks.map((t, index) => ({
     ...t,
     position: index

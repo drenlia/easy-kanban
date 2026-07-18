@@ -15,6 +15,10 @@ import { sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { Task, Column, Board } from '../../types';
 import { resetDndGlobalState } from '../../utils/globalDndState';
 import { dndLog } from '../../utils/dndDebug';
+import {
+  TaskDropPlacement,
+  resolvePreviewInsertIndex
+} from '../../utils/taskReorderingUtils';
 
 interface SimpleDragDropManagerProps {
   children: React.ReactNode;
@@ -22,7 +26,7 @@ interface SimpleDragDropManagerProps {
   columns: { [key: string]: Column };
   boards: Board[];
   isOnline?: boolean; // Network status - disable dragging when offline
-  onTaskMove: (taskId: string, targetColumnId: string, position: number) => Promise<void>;
+  onTaskMove: (taskId: string, targetColumnId: string, placement: TaskDropPlacement) => Promise<void>;
   onTaskMoveToDifferentBoard: (taskId: string, targetBoardId: string) => Promise<void>;
   onColumnReorder: (columnId: string, newPosition: number) => Promise<void>;
   // Callbacks to sync with external state
@@ -30,6 +34,42 @@ interface SimpleDragDropManagerProps {
   onDraggedColumnChange?: (column: Column | null) => void;
   onBoardTabHover?: (isHovering: boolean) => void;
   onDragPreviewChange?: (preview: { targetColumnId: string; insertIndex: number; isCrossColumn?: boolean } | null) => void;
+}
+
+const parsePos = (pos: any): number => (typeof pos === 'number' ? pos : parseFloat(pos) || 0);
+
+/** Before/after relative to an anchor, using order in the visible (filtered) column. */
+function placementRelativeToTask(
+  visibleTasks: Task[],
+  draggedTask: Task,
+  targetTask: Task
+): TaskDropPlacement {
+  const sorted = [...visibleTasks].sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  const draggedIndex = sorted.findIndex(t => t.id === draggedTask.id);
+  const targetIndex = sorted.findIndex(t => t.id === targetTask.id);
+  if (targetIndex < 0) {
+    return { kind: 'end' };
+  }
+  // Cross-column or unknown dragged index: insert before target
+  if (draggedIndex < 0 || draggedTask.columnId !== targetTask.columnId) {
+    return { kind: 'before', taskId: targetTask.id };
+  }
+  // Same column: moving up → before; moving down → after
+  if (draggedIndex > targetIndex) {
+    return { kind: 'before', taskId: targetTask.id };
+  }
+  return { kind: 'after', taskId: targetTask.id };
+}
+
+function placementForColumnEnd(visibleTasks: Task[], draggedTaskId?: string): TaskDropPlacement {
+  const sorted = [...visibleTasks]
+    .filter(t => t.id !== draggedTaskId)
+    .sort((a, b) => parsePos(a.position) - parsePos(b.position));
+  const last = sorted[sorted.length - 1];
+  if (last) {
+    return { kind: 'after', taskId: last.id };
+  }
+  return { kind: 'end' };
 }
 
 // Custom collision detection that prioritizes column areas over board tabs
@@ -438,31 +478,18 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
         const draggedTask = active.data?.current?.task;
         
         if (overData?.type === 'task') {
-          // Hovering over another task - insert BEFORE that task
+          // Hovering over another task - before/after based on drag direction in visible list
           const targetTask = overData.task;
-          if (targetTask) {
+          if (targetTask && draggedTask) {
             const targetColumn = columns[targetTask.columnId];
             if (targetColumn) {
-              // PERFORMANCE: Ultra-fast calculation - count tasks before target position
-              // No filtering, no sorting - just count based on position
-              const draggedTaskId = draggedTask?.id;
-              const targetPosition = targetTask.position || 0;
-              const taskCount = targetColumn.tasks.length;
-              
-              // Simple count - tasks with position < target position (excluding dragged task)
-              let insertIndex = 0;
-              const startTime = performance.now();
-              for (let i = 0; i < taskCount; i++) {
-                const t = targetColumn.tasks[i];
-                if (t.id === draggedTaskId) continue;
-                if ((t.position || 0) < targetPosition) {
-                  insertIndex++;
-                }
-              }
-              const calcTime = performance.now() - startTime;
-              const isCrossColumn = draggedTask && draggedTask.columnId !== targetTask.columnId;
-              
-              // Only update if preview actually changed
+              const placement = placementRelativeToTask(targetColumn.tasks, draggedTask, targetTask);
+              const insertIndex = resolvePreviewInsertIndex(
+                targetColumn.tasks,
+                placement,
+                draggedTask.id
+              );
+              const isCrossColumn = draggedTask.columnId !== targetTask.columnId;
               const newPreview = {
                 targetColumnId: targetTask.columnId,
                 insertIndex,
@@ -493,26 +520,17 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           }
         } else if (overData?.type === 'column-bottom' || overData?.type === 'column' || 
                    overData?.type === 'column-middle' || over.id.toString().includes('-middle')) {
-          // All column drop zones - insert at end
+          // All column drop zones - insert after last visible (or end)
           const targetColumnId = overData?.columnId || 
                                 (over.id.toString().includes('-middle') ? over.id.toString().replace('-middle', '') : over.id as string);
           const targetColumn = columns[targetColumnId];
-          const isCrossColumn = draggedTask && draggedTask.columnId !== targetColumnId;
-          // PERFORMANCE: Simple count - just use length, subtract 1 if dragged task is in column
-          const draggedTaskId = draggedTask?.id;
-          const taskCount = targetColumn ? targetColumn.tasks.length : 0;
-          let insertIndex = taskCount;
-          // Only subtract if dragged task is actually in this column
-          if (targetColumn && draggedTaskId) {
-            const startTime = performance.now();
-            for (let i = 0; i < taskCount; i++) {
-              if (targetColumn.tasks[i].id === draggedTaskId) {
-                insertIndex--;
-                break; // Found it, no need to continue
-              }
-            }
-            const calcTime = performance.now() - startTime;
-          }
+          const isCrossColumn = !!(draggedTask && draggedTask.columnId !== targetColumnId);
+          const placement = placementForColumnEnd(targetColumn?.tasks || [], draggedTask?.id);
+          const insertIndex = resolvePreviewInsertIndex(
+            targetColumn?.tasks || [],
+            placement,
+            draggedTask?.id
+          );
           
           const newPreview = {
             targetColumnId,
@@ -602,16 +620,9 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           await onTaskMoveToDifferentBoard(task.id, overData.boardId);
           dndLog('✅ Cross-board move completed');
         } else {
-          dndLog('🎯 Same board move - enhanced position calculation');
-          // Same board move - enhanced position calculation
-          let targetColumnId = task.columnId; // default to same column
-          let position = task.position || 0;
-          
-          // Helper to parse position as number
-          const parsePos = (pos: any): number => typeof pos === 'number' ? pos : parseFloat(pos) || 0;
-          
-          // **SIMPLIFIED: Calculate target INDEX, not fractional position**
-          // After the move, all tasks will be renumbered to clean integers (0, 1, 2, 3...)
+          dndLog('🎯 Same board move - anchor-relative placement');
+          let targetColumnId = task.columnId;
+          let placement: TaskDropPlacement | null = null;
           
           // Check if we're dropping on a task - either via overData.type or by checking if over.id is a task ID
           let targetTask: Task | null = null;
@@ -619,7 +630,6 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
             targetTask = overData.task;
           } else if (over.id) {
             // Fallback: over.id might be a task ID when using SortableContext
-            // Search all columns to find the task
             for (const column of Object.values(columns)) {
               const foundTask = column.tasks.find(t => t.id === over.id);
               if (foundTask) {
@@ -630,75 +640,61 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
           }
           
           if (targetTask) {
-            // Dropping on another task - need to determine insert position based on drag direction
+            // Dropping on yourself = cancel (pointer returned to original slot)
+            if (targetTask.id === task.id) {
+              dndLog('🎯 [handleDragEnd] Drop on self — no-op');
+              return;
+            }
             targetColumnId = targetTask.columnId;
-            
-            // Get all tasks in the column (excluding the dragged task)
             const targetColumn = columns[targetColumnId];
             if (targetColumn) {
-              const tasksWithoutDragged = targetColumn.tasks.filter(t => t.id !== task.id);
-              const sortedTasks = [...tasksWithoutDragged].sort((a, b) => parsePos(a.position) - parsePos(b.position));
-              
-              // Find the target task's index in the list without the dragged task
-              const targetIndex = sortedTasks.findIndex(t => t.id === targetTask.id);
-              
-              if (targetIndex < 0) {
-                position = 0;
-              } else {
-                const isSameColumn = targetColumnId === task.columnId;
-                
-                if (isSameColumn) {
-                  // Use sorted list indices so duplicate/stale `position` values still pick the right side (before vs after)
-                  const sortedAll = [...targetColumn.tasks].sort(
-                    (a, b) => parsePos(a.position) - parsePos(b.position)
-                  );
-                  const draggedIndexAll = sortedAll.findIndex(t => t.id === task.id);
-                  const targetIndexAll = sortedAll.findIndex(t => t.id === targetTask.id);
-                  if (draggedIndexAll > targetIndexAll) {
-                    position = targetIndex;
-                  } else {
-                    position = targetIndex + 1;
-                  }
-                } else {
-                  // Cross-column: always insert before target task (at target's current position)
-                  position = targetIndex;
-                }
-              }
+              placement = placementRelativeToTask(targetColumn.tasks, task, targetTask);
             } else {
-              position = 0;
+              placement = { kind: 'before', taskId: targetTask.id };
             }
           } else if (overData?.type === 'column-top') {
-            // Dropping at top of column - index 0
             targetColumnId = overData.columnId;
-            position = 0;
+            placement = { kind: 'start' };
           } else if (overData?.type === 'column-bottom') {
-            // Dropping at bottom of column - index = number of other tasks
+            // Same-column bottom zone while already last → no-op; otherwise append
             targetColumnId = overData.columnId;
-            const targetColumn = columns[targetColumnId];
-            if (targetColumn) {
-              const tasksWithoutDragged = targetColumn.tasks.filter(t => t.id !== task.id);
-              position = tasksWithoutDragged.length;
-            } else {
-              position = 0;
+            if (targetColumnId === task.columnId) {
+              const sourceCol = columns[task.columnId];
+              const sorted = [...(sourceCol?.tasks || [])].sort(
+                (a, b) => parsePos(a.position) - parsePos(b.position)
+              );
+              if (sorted[sorted.length - 1]?.id === task.id) {
+                dndLog('🎯 [handleDragEnd] Same-column bottom while already last — no-op');
+                return;
+              }
             }
+            const targetColumn = columns[targetColumnId];
+            placement = placementForColumnEnd(targetColumn?.tasks || [], task.id);
           } else if (overData?.type === 'column') {
-            // Dropping in column area - append to end (index = count of other tasks)
             targetColumnId = overData.columnId || over.id as string;
+            // Same column generic column hit often means cancel / ambiguous — treat as no-op
+            if (targetColumnId === task.columnId) {
+              dndLog('🎯 [handleDragEnd] Same-column drop on column body — no-op');
+              return;
+            }
             const targetColumn = columns[targetColumnId];
-            const tasksWithoutDragged = targetColumn?.tasks.filter(t => t.id !== task.id) || [];
-            position = tasksWithoutDragged.length;
+            placement = placementForColumnEnd(targetColumn?.tasks || [], task.id);
           } else if (overData?.type === 'column-middle' || over.id.toString().includes('-middle')) {
-            // Handle column-middle drops - insert at end
             targetColumnId = overData?.columnId || over.id.toString().replace('-middle', '');
+            if (targetColumnId === task.columnId) {
+              dndLog('🎯 [handleDragEnd] Same-column middle drop — no-op');
+              return;
+            }
             const targetColumn = columns[targetColumnId];
-            const tasksWithoutDragged = targetColumn?.tasks.filter(t => t.id !== task.id) || [];
-            position = tasksWithoutDragged.length;
+            placement = placementForColumnEnd(targetColumn?.tasks || [], task.id);
           } else if (columns[over.id as string]) {
-            // Dropping directly on column by ID - append to end
             targetColumnId = over.id as string;
+            if (targetColumnId === task.columnId) {
+              dndLog('🎯 [handleDragEnd] Same-column drop on column id — no-op');
+              return;
+            }
             const targetColumn = columns[targetColumnId];
-            const tasksWithoutDragged = targetColumn?.tasks.filter(t => t.id !== task.id) || [];
-            position = tasksWithoutDragged.length;
+            placement = placementForColumnEnd(targetColumn?.tasks || [], task.id);
           } else {
             dndLog('⚠️ [handleDragEnd] No valid drop target found:', {
               overId: over.id,
@@ -706,43 +702,21 @@ export const SimpleDragDropManager: React.FC<SimpleDragDropManagerProps> = React
               activeTaskId: task.id,
               activeTaskColumnId: task.columnId
             });
-            // Don't proceed with move if we can't determine target
-            return;
-          }
-          
-          // **ENHANCED VALIDATION: Skip redundant/micro-movements**
-          // CRITICAL: Parse sourcePosition as number to avoid string comparison issues
-          const sourcePosition = typeof task.position === 'number' ? task.position : parseFloat(task.position) || 0;
-          const isSameColumn = targetColumnId === task.columnId;
-          const isSamePosition = sourcePosition === position;
-          
-          // CRITICAL FIX: When dropping on another task, always allow the move to proceed
-          // This handles cases where:
-          // 1. Tasks are filtered and the visual order differs from the full list order
-          // 2. The dragged task is already at the target position but user wants to reorder
-          // 3. Edge cases where index calculation needs to be validated by the backend
-          if (targetTask) {
-            // Always proceed when explicitly dropping on another task
-            // The moveTaskToIndex function will handle the actual reordering logic
-          } else if (isSameColumn && isSamePosition) {
-            // Skip only if same position AND not dropping on a task
-            return;
-          }
-          
-          // For same-column moves, ensure there's meaningful position change
-          // BUT: Don't skip when dropping on another task (allows reordering)
-          if (isSameColumn && Math.abs(sourcePosition - position) < 1 && !targetTask) {
             return;
           }
 
+          if (!placement) {
+            return;
+          }
+
+          // Skip no-op: same column start when already first, etc. — App/moveTaskToIndex also guards
           dndLog('🎯 [handleDragEnd] onTaskMove', {
             taskId: task.id,
             targetColumnId,
-            position,
-            sourceColumnId: task.columnId,
-            sourcePosition
+            placement,
+            sourceColumnId: task.columnId
           });
-          await onTaskMove(task.id, targetColumnId, position);
+          await onTaskMove(task.id, targetColumnId, placement);
         }
       } else if (activeData?.type === 'column') {
         // Handle column reordering

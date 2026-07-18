@@ -385,6 +385,10 @@ class WebSocketClient {
     this.addEventListener('task-deleted', callback);
   }
 
+  onTasksPositionsUpdated(callback: (data: any) => void) {
+    this.addEventListener('tasks-positions-updated', callback);
+  }
+
   onTaskRelationshipCreated(callback: (data: any) => void) {
     this.addEventListener('task-relationship-created', callback);
   }
@@ -508,6 +512,10 @@ class WebSocketClient {
 
   offTaskDeleted(callback?: (data: any) => void) {
     this.removeEventListener('task-deleted', callback);
+  }
+
+  offTasksPositionsUpdated(callback?: (data: any) => void) {
+    this.removeEventListener('tasks-positions-updated', callback);
   }
 
   offTaskRelationshipCreated(callback?: (data: any) => void) {
