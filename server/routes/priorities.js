@@ -3,7 +3,7 @@ import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import notificationService from '../services/notificationService.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 import { priorities as priorityQueries } from '../utils/sqlManager/index.js';
 import { tasks as taskQueries } from '../utils/sqlManager/index.js';
 
@@ -11,7 +11,7 @@ const router = express.Router();
 
 // Helper to get the actual notification system being used (for accurate logging)
 const getNotificationSystem = () => {
-  return process.env.DB_TYPE === 'postgresql' ? 'PostgreSQL' : 'Redis';
+  return 'PostgreSQL';
 };
 
 // Get all priorities (authenticated users only) - must come BEFORE admin routes

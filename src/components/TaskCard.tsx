@@ -252,7 +252,7 @@ const TaskCard = React.memo(function TaskCard({
   const [isEditingEffort, setIsEditingEffort] = useState(false);
   const [isEditingDescription, setIsEditingDescription] = useState(false);
   const [showPrioritySelect, setShowPrioritySelect] = useState(false);
-  const [editedEffort, setEditedEffort] = useState(task.effort);
+  const [editedEffort, setEditedEffort] = useState(String(task.effort ?? 0));
   const [editedDescription, setEditedDescription] = useState(task.description);
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   const [dateRangePickerPosition, setDateRangePickerPosition] = useState<{ left: number; top: number } | null>(null);
@@ -302,7 +302,7 @@ const TaskCard = React.memo(function TaskCard({
   // Sync editedEffort with task.effort when task updates (but not while editing)
   useEffect(() => {
     if (!isEditingEffort) {
-      setEditedEffort(task.effort);
+      setEditedEffort(String(task.effort ?? 0));
     }
   }, [task.effort, isEditingEffort]);
 
@@ -860,15 +860,25 @@ const TaskCard = React.memo(function TaskCard({
     }
   }, [highlightedSprintIndex]);
 
+  const parseEffortInput = (raw: string): number => {
+    const trimmed = raw.trim();
+    if (trimmed === '') return 0;
+    const n = parseInt(trimmed, 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(n, 9999);
+  };
+
   const handleEffortSave = () => {
-    if (editedEffort !== task.effort) {
-      onEdit({ ...task, effort: editedEffort });
+    const effort = parseEffortInput(editedEffort);
+    setEditedEffort(String(effort));
+    if (effort !== task.effort) {
+      onEdit({ ...task, effort });
     }
     setIsEditingEffort(false);
   };
 
   const handleEffortCancel = () => {
-    setEditedEffort(task.effort);
+    setEditedEffort(String(task.effort ?? 0));
     setIsEditingEffort(false);
   };
 
@@ -2059,15 +2069,21 @@ const TaskCard = React.memo(function TaskCard({
               <Clock size={12} />
               {isEditingEffort ? (
                 <input
-                  type="number"
-                  min="0"
-                  max="100"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   value={editedEffort}
-                  onChange={(e) => setEditedEffort(parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '' || /^\d{0,4}$/.test(v)) {
+                      setEditedEffort(v);
+                    }
+                  }}
                   onBlur={handleEffortSave}
                   onKeyDown={handleEffortKeyDown}
                   className="text-xs bg-white border border-blue-400 rounded px-1 py-0.5 outline-none focus:border-blue-500 w-10"
                   autoFocus
+                  onFocus={(e) => e.currentTarget.select()}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
@@ -2718,12 +2734,36 @@ const TaskCard = React.memo(function TaskCard({
       prevProps.task.position !== nextProps.task.position ||
       prevProps.task.columnId !== nextProps.task.columnId ||
       prevProps.task.memberId !== nextProps.task.memberId ||
+      prevProps.task.requesterId !== nextProps.task.requesterId ||
       prevProps.task.priority !== nextProps.task.priority ||
       prevProps.task.sprintId !== nextProps.task.sprintId ||
       prevProps.task.effort !== nextProps.task.effort ||
       prevProps.task.startDate !== nextProps.task.startDate ||
-      prevProps.task.dueDate !== nextProps.task.dueDate) {
+      prevProps.task.dueDate !== nextProps.task.dueDate ||
+      prevProps.task.attachmentCount !== nextProps.task.attachmentCount) {
     return false; // Re-render
+  }
+
+  // Watchers / collaborators (icons + counts on the card toolbar)
+  const prevWatchers = prevProps.task.watchers || [];
+  const nextWatchers = nextProps.task.watchers || [];
+  if (prevWatchers.length !== nextWatchers.length) {
+    return false;
+  }
+  const prevWatcherIds = prevWatchers.map(w => w?.id).filter(Boolean).sort().join(',');
+  const nextWatcherIds = nextWatchers.map(w => w?.id).filter(Boolean).sort().join(',');
+  if (prevWatcherIds !== nextWatcherIds) {
+    return false;
+  }
+  const prevCollaborators = prevProps.task.collaborators || [];
+  const nextCollaborators = nextProps.task.collaborators || [];
+  if (prevCollaborators.length !== nextCollaborators.length) {
+    return false;
+  }
+  const prevCollaboratorIds = prevCollaborators.map(c => c?.id).filter(Boolean).sort().join(',');
+  const nextCollaboratorIds = nextCollaborators.map(c => c?.id).filter(Boolean).sort().join(',');
+  if (prevCollaboratorIds !== nextCollaboratorIds) {
+    return false;
   }
   
   // CRITICAL: Check if tags changed - tags array reference or content

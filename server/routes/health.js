@@ -99,7 +99,6 @@ router.get('/', async (req, res) => {
     const db = getRequestDatabase(req);
     // MIGRATED: Check database connection using sqlManager
     await healthQueries.checkDatabaseConnection(db);
-    const usePostgres = process.env.DB_TYPE === 'postgresql';
 
     let emailServicePayload = {
       implemented: true,
@@ -132,9 +131,9 @@ router.get('/', async (req, res) => {
       status: 'healthy', 
       timestamp: new Date().toISOString(),
       database: 'connected',
-      dbType: process.env.DB_TYPE || 'sqlite',
+      dbType: 'postgresql',
       redis: redisService.isRedisConnected(),
-      postgresNotifications: usePostgres ? postgresNotificationService.isServiceConnected() : null,
+      postgresNotifications: postgresNotificationService.isServiceConnected(),
       websocket: websocketService.getClientCount(),
       emailService: emailServicePayload,
       ready: isServerReady

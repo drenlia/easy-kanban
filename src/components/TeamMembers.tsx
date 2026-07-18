@@ -139,10 +139,13 @@ export default function TeamMembers({
           </h2>
           
           {/* Clear Members Button */}
-          {handleClearSelections && (
+          {onClearSelections && (
             <button
+              type="button"
               onClick={handleClearSelections}
-              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-red-600 dark:hover:text-red-400 border border-gray-300 dark:border-gray-600 hover:border-red-400 dark:hover:border-red-500 rounded transition-colors"
+              disabled={selectedMembers.length === 0}
+              aria-disabled={selectedMembers.length === 0}
+              className="px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-600 dark:disabled:hover:text-gray-300 disabled:hover:border-gray-300 dark:disabled:hover:border-gray-600 enabled:hover:text-red-600 dark:enabled:hover:text-red-400 enabled:hover:border-red-400 dark:enabled:hover:border-red-500"
               title={t('teamMembers.clearSelectionsTooltip')}
             >
               {t('teamMembers.clear')}

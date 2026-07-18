@@ -123,7 +123,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       return res.status(404).json({ error: t('errors.columnNotFound') });
     }
     
-    // MIGRATED: Get full column info including boardId and position using sqlManager
+    // MIGRATED: Get full column info including boardid and position using sqlManager
     // CRITICAL: Fetch AFTER any potential position changes to get the current position
     const fullColumn = await helpers.getColumnFullInfo(db, id);
     

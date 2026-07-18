@@ -10,8 +10,8 @@ description: Build features for Easy Kanban, a multi-tenant Kanban board applica
 Easy Kanban is a full-stack Kanban board application with:
 - **Backend**: Express.js with JWT authentication
 - **Frontend**: React + TypeScript with Vite
-- **Databases**: Dual support for SQLite (single-tenant/Docker) and PostgreSQL (multi-tenant/K8s)
-- **Real-time**: Redis pub/sub + Socket.IO for live updates
+- **Databases**: PostgreSQL only (all editions)
+- **Real-time**: PostgreSQL LISTEN/NOTIFY for app events; Redis for Socket.IO adapter
 - **Architecture**: Single-tenant (Docker) or multi-tenant (Kubernetes) deployment modes
 
 ## Core Architecture Patterns
@@ -28,12 +28,12 @@ const task = await taskQueries.getTaskById(db, taskId);
 await taskQueries.updateTask(db, taskId, { title: 'New Title' });
 
 // ❌ WRONG - No raw SQL in routes
-const task = await db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
+const task = await db.prepare('SELECT * FROM tasks WHERE id = $1').get(taskId);
 ```
 
 **Location**: `server/utils/sqlManager/[domain].js`
 
-Each domain file exports query functions that work with both SQLite and PostgreSQL.
+Each domain file exports PostgreSQL query functions (`$1` placeholders).
 
 ### 2. Multi-Tenant Database Access
 

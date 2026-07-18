@@ -1466,13 +1466,19 @@ export default function TaskPage({
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('labels.effort')}</label>
                   <input
-                    type="number"
-                    min="0"
-                    step="0.5"
-                    value={editedTask.effort || ''}
-                    onChange={(e) => handleTaskUpdate({ effort: e.target.value ? parseFloat(e.target.value) : null })}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={editedTask.effort ?? ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === '' || /^\d{0,4}$/.test(v)) {
+                        handleTaskUpdate({ effort: v === '' ? null : parseInt(v, 10) });
+                      }
+                    }}
+                    onFocus={(e) => e.currentTarget.select()}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
-                    placeholder="0.0"
+                    placeholder="0"
                   />
                 </div>
               </div>

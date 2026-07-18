@@ -5,7 +5,7 @@ import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { avatarUpload, createAttachmentUploadMiddleware } from '../config/multer.js';
 import { createDefaultAvatar } from '../utils/avatarGenerator.js';
-import { dbTransaction, dbExec, isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
+import { dbTransaction, dbExec } from '../utils/dbAsync.js';
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
@@ -240,7 +240,7 @@ router.delete("/account", authenticateToken, async (req, res) => {
           await wrapQuery(db.prepare(`
             INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path, auth_provider, is_active) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', 0);
+          `), 'INSERT').run(SYSTEM_USER_ID, 'system@local', systemPasswordHash, 'System', 'User', systemAvatarPath, 'local', false);
           
           // Assign user role to system account
           const userRole = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
@@ -264,17 +264,17 @@ router.delete("/account", authenticateToken, async (req, res) => {
       await wrapQuery(db.prepare('DELETE FROM user_roles WHERE user_id = ?'), 'DELETE').run(userId);
       
       // 2. Delete comments made by the user
-      await wrapQuery(db.prepare('DELETE FROM comments WHERE authorId = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
+      await wrapQuery(db.prepare('DELETE FROM comments WHERE authorid = (SELECT id FROM members WHERE user_id = ?)'), 'DELETE').run(userId);
       
       // 3. Reassign tasks assigned to the user to the system account (preserve task history)
       await wrapQuery(
-        db.prepare('UPDATE tasks SET memberId = ? WHERE memberId = (SELECT id FROM members WHERE user_id = ?)'), 
+        db.prepare('UPDATE tasks SET memberid = ? WHERE memberid = (SELECT id FROM members WHERE user_id = ?)'), 
         'UPDATE'
       ).run(systemMemberId, userId);
       
       // 4. Reassign tasks requested by the user to the system account
       await wrapQuery(
-        db.prepare('UPDATE tasks SET requesterId = ? WHERE requesterId = (SELECT id FROM members WHERE user_id = ?)'), 
+        db.prepare('UPDATE tasks SET requesterid = ? WHERE requesterid = (SELECT id FROM members WHERE user_id = ?)'), 
         'UPDATE'
       ).run(systemMemberId, userId);
       
@@ -375,20 +375,18 @@ router.get('/settings', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    const isPostgres = isPostgresDatabase(db);
     // Create user_settings table if it doesn't exist
-    const createTableSql = convertSqlToPostgres(`
+    await dbExec(db, `
       CREATE TABLE IF NOT EXISTS user_settings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId TEXT NOT NULL,
+        id SERIAL PRIMARY KEY,
+        userid TEXT NOT NULL,
         setting_key TEXT NOT NULL,
         setting_value TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(userId, setting_key)
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(userid, setting_key)
       )
-    `, isPostgres);
-    await dbExec(db, createTableSql);
+    `);
     
     // MIGRATED: Get user settings using sqlManager
     const settings = await userQueries.getUserSettings(db, userId);

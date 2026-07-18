@@ -4,7 +4,6 @@ import { wrapQuery } from '../utils/queryLogger.js';
 import { getStorageUsage, getStorageLimit, formatBytes } from '../utils/storageUtils.js';
 import notificationService from '../services/notificationService.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { isProxyDatabase, dbTransaction } from '../utils/dbAsync.js';
 import { settings as settingsQueries, users as userQueries } from '../utils/sqlManager/index.js';
 import { FE_PUBLIC_DEBUG_FLAG_KEYS } from '../constants/debugSettings.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
@@ -262,43 +261,31 @@ router.post('/clear-mail', authenticateToken, requireRole(['admin']), async (req
     ];
     
     // MIGRATED: Clear all mail-related settings using sqlManager
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      
-      // Clear SMTP fields (set to empty strings)
-      for (const key of mailSettingsToClear) {
-        batchQueries.push({
-          query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
-          params: [key, '']
-        });
-      }
-      
-      // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+    
+    // Collect queries and send as a batched transaction
+    const batchQueries = [];
+    
+    // Clear SMTP fields (set to empty strings)
+    for (const key of mailSettingsToClear) {
       batchQueries.push({
         query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
-        params: ['MAIL_MANAGED', 'false']
-      });
-      batchQueries.push({
-        query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
-        params: ['MAIL_ENABLED', 'false']
-      });
-      
-      // Execute all inserts in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      await dbTransaction(db, async () => {
-        // Clear SMTP fields (set to empty strings)
-        for (const key of mailSettingsToClear) {
-          await settingsQueries.upsertSetting(db, key, '');
-        }
-        
-        // Set MAIL_MANAGED to false and MAIL_ENABLED to false
-        await settingsQueries.upsertSetting(db, 'MAIL_MANAGED', 'false');
-        await settingsQueries.upsertSetting(db, 'MAIL_ENABLED', 'false');
+        params: [key, '']
       });
     }
+    
+    // Set MAIL_MANAGED to false and MAIL_ENABLED to false
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['MAIL_MANAGED', 'false']
+    });
+    batchQueries.push({
+      query: `INSERT INTO settings (key, value, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP`,
+      params: ['MAIL_ENABLED', 'false']
+    });
+    
+    // Execute all inserts in a single batched transaction
+    await db.executeBatchTransaction(batchQueries);
+
     
     // Publish to Redis for real-time updates (single message for all changes)
     const tenantId = getTenantId(req);

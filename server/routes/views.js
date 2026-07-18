@@ -41,7 +41,7 @@ const formatViewForResponse = (view) => {
   // PostgreSQL returns camelCase when quoted, SQLite might return lowercase
   const fieldMappings = {
     filtername: 'filterName',
-    userid: 'userId',
+    userId: 'userId',
     textfilter: 'textFilter',
     datefromfilter: 'dateFromFilter',
     datetofilter: 'dateToFilter',

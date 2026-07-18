@@ -5,7 +5,6 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { TAG_ACTIONS } from '../constants/activityActions.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -658,48 +657,32 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
     const insertedAttachments = [];
     
     if (attachments?.length > 0) {
-      if (isProxyDatabase(db)) {
-        // Proxy mode: Collect all queries and send as batch
-        const batchQueries = [];
-        const insertQuery = `
-          INSERT INTO attachments (id, taskId, name, url, type, size)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        
-        for (const attachment of attachments) {
-          batchQueries.push({
-            query: insertQuery,
-            params: [
-              attachment.id,
-              taskId,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            ]
-          });
-          insertedAttachments.push(attachment);
-        }
-        
-        // Execute all inserts in a single batched transaction
-        await db.executeBatchTransaction(batchQueries);
-      } else {
-        // Direct DB mode: Use standard transaction with sqlManager
-        await dbTransaction(db, async () => {
-          for (const attachment of attachments) {
-            await fileQueries.createAttachmentForTask(
-              db,
-              attachment.id,
-              taskId,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            );
-            insertedAttachments.push(attachment);
-          }
+      
+      // Collect queries and send as a batched transaction
+      const batchQueries = [];
+      const insertQuery = `
+        INSERT INTO attachments (id, taskid, name, url, type, size)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+      
+      for (const attachment of attachments) {
+        batchQueries.push({
+          query: insertQuery,
+          params: [
+            attachment.id,
+            taskId,
+            attachment.name,
+            attachment.url,
+            attachment.type,
+            attachment.size
+          ]
         });
+        insertedAttachments.push(attachment);
       }
+      
+      // Execute all inserts in a single batched transaction
+      await db.executeBatchTransaction(batchQueries);
+
     }
     
     // Update storage usage after adding attachments
@@ -722,7 +705,7 @@ router.post('/:taskId/attachments', authenticateToken, async (req, res) => {
             if (commentIds.length > 0) {
               const allAttachments = await fileQueries.getAttachmentsForComments(db, commentIds);
               
-              // Group attachments by commentId
+              // Group attachments by commentid
               const attachmentsByCommentId = new Map();
               allAttachments.forEach(att => {
                 const commentId = att.commentId;

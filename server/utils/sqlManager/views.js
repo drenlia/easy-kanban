@@ -4,7 +4,7 @@
  * Centralized PostgreSQL-native queries for saved filter view operations.
  * All queries use PostgreSQL syntax ($1, $2, $3 placeholders, etc.)
  *
- * Column names use lowercase (userid, filtername, …) to match PostgreSQL
+ * Column names use lowercase (userId, filtername, …) to match PostgreSQL
  * tables created from SQLite DDL (unquoted camelCase → lowercase). Quoted
  * "userId" would look for a case-sensitive column that does not exist.
  *
@@ -141,7 +141,7 @@ export async function createView(db, filterName, userId, shared, filters) {
   return await stmt.run(
     filterName,
     userId,
-    shared ? 1 : 0,
+    Boolean(shared),
     filters.textFilter || null,
     filters.dateFromFilter || null,
     filters.dateToFilter || null,
@@ -177,7 +177,7 @@ export async function updateView(db, viewId, userId, updates) {
 
   if (updates.shared !== undefined) {
     setClause.push(`shared = $${paramIndex++}`);
-    params.push(updates.shared ? 1 : 0);
+    params.push(updates.shared ? true : false);
   }
 
   Object.entries(FILTER_FIELD_PG).forEach(([camel, pgCol]) => {

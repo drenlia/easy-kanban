@@ -2,8 +2,6 @@
 let queryLogs = [];
 let queryId = 0;
 
-// Import async helpers to detect proxy databases
-import { isProxyDatabase } from './dbAsync.js';
 import { isServerDebugSqlEnabled } from './sqlDebugSettingsCache.js';
 
 function resolveStmtDb(stmt) {
@@ -64,254 +62,130 @@ async function runLoggedQuery(stmt, logType, queryText, args, executor) {
   }
 }
 
-// Function to wrap SQL queries with logging (supports both sync and async)
+// Wrap SQL statement methods with logging (async / PostgreSQL)
 export function wrapQuery(stmt, type) {
-  // Check if this is a proxy database (async) or direct DB (sync)
-  const isProxy = stmt.dbProxy ? isProxyDatabase(stmt.dbProxy) : false;
-
-  // For proxy databases, methods are already async
-  // For direct databases, methods are sync but we wrap them
   const originalRun = stmt.run;
   const originalGet = stmt.get;
   const originalAll = stmt.all;
 
-  if (isProxy) {
-    // Proxy mode: wrap async methods
-    stmt.run = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source || stmt.query;
-      const timestamp = new Date().toISOString();
-      const logType = type || 'RUN';
+  stmt.run = async function (...args) {
+    const id = (++queryId).toString();
+    const queryText = stmt.source || stmt.query;
+    const timestamp = new Date().toISOString();
+    const logType = type || 'RUN';
 
-      return runLoggedQuery(this, logType, queryText, args, async () => {
-        try {
-          const result = await originalRun.apply(this, args);
+    return runLoggedQuery(this, logType, queryText, args, async () => {
+      try {
+        const result = await originalRun.apply(this, args);
 
-          queryLogs.push({
-            id,
-            type: logType,
-            query: queryText,
-            timestamp,
-            params: args
-          });
-          trimQueryLogs();
-
-          return result;
-        } catch (error) {
-          queryLogs.push({
-            id,
-            type: 'ERROR',
-            query: queryText,
-            timestamp,
-            error: error.message,
-            params: args
-          });
-          trimQueryLogs();
-
-          throw error;
-        }
-      });
-    };
-
-    stmt.get = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source || stmt.query;
-      const timestamp = new Date().toISOString();
-
-      return runLoggedQuery(this, 'GET', queryText, args, async () => {
-        try {
-          const result = await originalGet.apply(this, args);
-
-          queryLogs.push({
-            id,
-            type: 'GET',
-            query: queryText,
-            timestamp,
-            params: args
-          });
-          trimQueryLogs();
-
-          return result;
-        } catch (error) {
-          queryLogs.push({
-            id,
-            type: 'ERROR',
-            query: queryText,
-            timestamp,
-            error: error.message,
-            params: args
-          });
-          trimQueryLogs();
-
-          throw error;
-        }
-      });
-    };
-
-    stmt.all = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source || stmt.query;
-      const timestamp = new Date().toISOString();
-
-      return runLoggedQuery(this, 'ALL', queryText, args, async () => {
-        try {
-          const result = await originalAll.apply(this, args);
-
-          queryLogs.push({
-            id,
-            type: 'ALL',
-            query: queryText,
-            timestamp,
-            params: args
-          });
-          trimQueryLogs();
-
-          return result;
-        } catch (error) {
-          queryLogs.push({
-            id,
-            type: 'ERROR',
-            query: queryText,
-            timestamp,
-            error: error.message,
-            params: args
-          });
-          trimQueryLogs();
-
-          throw error;
-        }
-      });
-    };
-  } else {
-    // Direct DB mode: wrap sync methods as async (for consistency with proxy mode)
-    stmt.run = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source;
-      const timestamp = new Date().toISOString();
-      const logType = type || 'RUN';
-
-      return runLoggedQuery(this, logType, queryText, args, async () => {
-        return new Promise((resolve, reject) => {
-          try {
-            const result = originalRun.apply(this, args);
-
-            queryLogs.push({
-              id,
-              type: logType,
-              query: queryText,
-              timestamp,
-              params: args
-            });
-            trimQueryLogs();
-
-            resolve(result);
-          } catch (error) {
-            queryLogs.push({
-              id,
-              type: 'ERROR',
-              query: queryText,
-              timestamp,
-              error: error.message,
-              params: args
-            });
-            trimQueryLogs();
-
-            reject(error);
-          }
+        queryLogs.push({
+          id,
+          type: logType,
+          query: queryText,
+          timestamp,
+          params: args
         });
-      });
-    };
+        trimQueryLogs();
 
-    stmt.get = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source;
-      const timestamp = new Date().toISOString();
-
-      return runLoggedQuery(this, 'GET', queryText, args, async () => {
-        return new Promise((resolve, reject) => {
-          try {
-            const result = originalGet.apply(this, args);
-
-            queryLogs.push({
-              id,
-              type: 'GET',
-              query: queryText,
-              timestamp,
-              params: args
-            });
-            trimQueryLogs();
-
-            resolve(result);
-          } catch (error) {
-            queryLogs.push({
-              id,
-              type: 'ERROR',
-              query: queryText,
-              timestamp,
-              error: error.message,
-              params: args
-            });
-            trimQueryLogs();
-
-            reject(error);
-          }
+        return result;
+      } catch (error) {
+        queryLogs.push({
+          id,
+          type: 'ERROR',
+          query: queryText,
+          timestamp,
+          error: error.message,
+          params: args
         });
-      });
-    };
+        trimQueryLogs();
 
-    stmt.all = async function (...args) {
-      const id = (++queryId).toString();
-      const queryText = stmt.source;
-      const timestamp = new Date().toISOString();
+        throw error;
+      }
+    });
+  };
 
-      return runLoggedQuery(this, 'ALL', queryText, args, async () => {
-        return new Promise((resolve, reject) => {
-          try {
-            const result = originalAll.apply(this, args);
+  stmt.get = async function (...args) {
+    const id = (++queryId).toString();
+    const queryText = stmt.source || stmt.query;
+    const timestamp = new Date().toISOString();
 
-            queryLogs.push({
-              id,
-              type: 'ALL',
-              query: queryText,
-              timestamp,
-              params: args
-            });
-            trimQueryLogs();
+    return runLoggedQuery(this, 'GET', queryText, args, async () => {
+      try {
+        const result = await originalGet.apply(this, args);
 
-            resolve(result);
-          } catch (error) {
-            queryLogs.push({
-              id,
-              type: 'ERROR',
-              query: queryText,
-              timestamp,
-              error: error.message,
-              params: args
-            });
-            trimQueryLogs();
-
-            reject(error);
-          }
+        queryLogs.push({
+          id,
+          type: 'GET',
+          query: queryText,
+          timestamp,
+          params: args
         });
-      });
-    };
-  }
+        trimQueryLogs();
+
+        return result;
+      } catch (error) {
+        queryLogs.push({
+          id,
+          type: 'ERROR',
+          query: queryText,
+          timestamp,
+          error: error.message,
+          params: args
+        });
+        trimQueryLogs();
+
+        throw error;
+      }
+    });
+  };
+
+  stmt.all = async function (...args) {
+    const id = (++queryId).toString();
+    const queryText = stmt.source || stmt.query;
+    const timestamp = new Date().toISOString();
+
+    return runLoggedQuery(this, 'ALL', queryText, args, async () => {
+      try {
+        const result = await originalAll.apply(this, args);
+
+        queryLogs.push({
+          id,
+          type: 'ALL',
+          query: queryText,
+          timestamp,
+          params: args
+        });
+        trimQueryLogs();
+
+        return result;
+      } catch (error) {
+        queryLogs.push({
+          id,
+          type: 'ERROR',
+          query: queryText,
+          timestamp,
+          error: error.message,
+          params: args
+        });
+        trimQueryLogs();
+
+        throw error;
+      }
+    });
+  };
 
   return stmt;
 }
 
-// Get query logs
 export function getQueryLogs() {
-  return [...queryLogs]; // Return a copy to prevent external modification
+  return [...queryLogs];
 }
 
-// Clear query logs
 export function clearQueryLogs() {
   queryLogs = [];
   queryId = 0;
 }
 
-// Add manual log entry
 export function addQueryLog(type, query, error = null) {
   const id = (++queryId).toString();
   const timestamp = new Date().toISOString();

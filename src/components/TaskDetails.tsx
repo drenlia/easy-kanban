@@ -121,6 +121,7 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   const [isDeletingAttachment, setIsDeletingAttachment] = useState(false);
   const recentlyDeletedAttachmentsRef = useRef<Set<string>>(new Set());
   const [lastSavedDescription, setLastSavedDescription] = useState(task.description || '');
+  const [effortDraft, setEffortDraft] = useState(String(task.effort ?? 0));
   const isUploadingRef = useRef(false);
   const taskAttachmentsRef = useRef(taskAttachments);
   const editedTaskRef = useRef(editedTask);
@@ -133,6 +134,11 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
   useEffect(() => {
     editedTaskRef.current = editedTask;
   }, [editedTask]);
+
+  // Keep effort text draft in sync when switching tasks or external updates
+  useEffect(() => {
+    setEffortDraft(String(editedTask.effort ?? 0));
+  }, [editedTask.id]);
   
   // Watchers and Collaborators state
   const [taskWatchers, setTaskWatchers] = useState<TeamMember[]>(task.watchers || []);
@@ -1658,10 +1664,32 @@ export default function TaskDetails({ task, members, currentUser, onClose, onUpd
                   {t('labels.effort')}
                 </label>
                 <input
-                  type="number"
-                  min="0"
-                  value={editedTask.effort}
-                  onChange={e => handleUpdate({ effort: Number(e.target.value) })}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={effortDraft}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '' || /^\d{0,4}$/.test(v)) {
+                      setEffortDraft(v);
+                    }
+                  }}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onBlur={() => {
+                    const trimmed = effortDraft.trim();
+                    const n = trimmed === '' ? 0 : parseInt(trimmed, 10);
+                    const effort = Number.isFinite(n) && n >= 0 ? Math.min(n, 9999) : 0;
+                    setEffortDraft(String(effort));
+                    if (effort !== editedTask.effort) {
+                      handleUpdate({ effort });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
                   className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-gray-100"
                   disabled={isSubmitting}
                 />

@@ -5,7 +5,6 @@ import { dirname } from 'path';
 import fs from 'fs';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 import { updateStorageUsage } from '../utils/storageUtils.js';
 import { logCommentActivity } from '../services/activityLogger.js';
 import * as reportingLogger from '../services/reportingLogger.js';
@@ -25,78 +24,50 @@ router.post('/', authenticateToken, async (req, res) => {
   const db = getRequestDatabase(req);
   
   try {
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
+    
+    // Collect queries and send as a batched transaction
+    const batchQueries = [];
+    
+    // Add comment INSERT
+    batchQueries.push({
+      query: `
+        INSERT INTO comments (id, taskid, text, authorid, createdat)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      params: [
+        comment.id,
+        comment.taskId,
+        comment.text,
+        comment.authorId,
+        comment.createdAt
+      ]
+    });
+    
+    // Add attachment INSERTs if any
+    if (comment.attachments?.length > 0) {
+      const attachmentQuery = `
+        INSERT INTO attachments (id, commentid, name, url, type, size)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
       
-      // Add comment INSERT
-      batchQueries.push({
-        query: `
-          INSERT INTO comments (id, taskId, text, authorId, createdAt)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-        params: [
-          comment.id,
-          comment.taskId,
-          comment.text,
-          comment.authorId,
-          comment.createdAt
-        ]
-      });
-      
-      // Add attachment INSERTs if any
-      if (comment.attachments?.length > 0) {
-        const attachmentQuery = `
-          INSERT INTO attachments (id, commentId, name, url, type, size)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `;
-        
-        for (const attachment of comment.attachments) {
-          batchQueries.push({
-            query: attachmentQuery,
-            params: [
-              attachment.id,
-              comment.id,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            ]
-          });
-        }
+      for (const attachment of comment.attachments) {
+        batchQueries.push({
+          query: attachmentQuery,
+          params: [
+            attachment.id,
+            comment.id,
+            attachment.name,
+            attachment.url,
+            attachment.type,
+            attachment.size
+          ]
+        });
       }
-      
-      // Execute all inserts in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      // MIGRATED: Use sqlManager to create comment
-      await dbTransaction(db, async () => {
-        await commentQueries.createComment(
-          db,
-          comment.id,
-          comment.taskId,
-          comment.text,
-          comment.authorId,
-          comment.createdAt
-        );
-        
-        // MIGRATED: Insert attachments using sqlManager
-        if (comment.attachments?.length > 0) {
-          for (const attachment of comment.attachments) {
-            await fileQueries.createAttachmentForComment(
-              db,
-              attachment.id,
-              comment.id,
-              attachment.name,
-              attachment.url,
-              attachment.type,
-              attachment.size
-            );
-          }
-        }
-      });
     }
+    
+    // Execute all inserts in a single batched transaction
+    await db.executeBatchTransaction(batchQueries);
+
     
     // Update storage usage if attachments were added
     if (comment.attachments?.length > 0) {
@@ -160,7 +131,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
     
     // Publish to Redis for real-time updates
-    // Note: getTaskBoardId returns boardId string or null
+    // Note: getTaskBoardId returns boardid string or null
     if (task) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-created to Redis for board:', task);
@@ -229,7 +200,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     updatedComment.attachments = attachments || [];
     
     // Publish to Redis for real-time updates
-    // Note: getTaskBoardId returns boardId string or null
+    // Note: getTaskBoardId returns boardid string or null
     const taskId = originalComment.taskid || originalComment.taskId;
     if (task) {
       const tenantId = getTenantId(req);
@@ -322,7 +293,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     const task = await taskQueries.getTaskBoardId(db, taskId);
     
     // Publish to Redis for real-time updates
-    // Note: getTaskBoardId returns boardId string or null
+    // Note: getTaskBoardId returns boardid string or null
     if (task) {
       const tenantId = getTenantId(req);
       console.log('📤 Publishing comment-deleted to Redis for board:', task);

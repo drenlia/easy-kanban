@@ -17,7 +17,7 @@ export const checkAndAwardAchievements = async (db) => {
     
     // Get all active badges from database
     const badges = await wrapQuery(
-      db.prepare('SELECT * FROM badges WHERE is_active = 1 ORDER BY condition_value ASC'),
+      db.prepare('SELECT * FROM badges WHERE is_active = true ORDER BY condition_value ASC'),
       'SELECT'
     ).all();
     
@@ -30,7 +30,7 @@ export const checkAndAwardAchievements = async (db) => {
           m.name as user_name
         FROM users u
         LEFT JOIN members m ON u.id = m.user_id
-        WHERE u.is_active = 1
+        WHERE u.is_active = true
       `),
       'SELECT'
     ).all();

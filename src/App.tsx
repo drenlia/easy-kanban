@@ -2461,69 +2461,98 @@ function AppContent() {
   };
 
   const handleEditTask = useCallback(async (task: Task) => {
-    
     // Optimistic update
     const previousColumns = { ...columns };
+    const previousFilteredColumns = { ...(taskFilters.filteredColumns || {}) };
     const previousSelectedTask = selectedTask;
-    
-    // Update UI immediately
-    setColumns(prev => {
-      // Safety check: ensure the target column exists
-      if (!prev[task.columnId]) {
-        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
-        return prev; // Return unchanged state if column doesn't exist
+
+    const patchTaskInColumns = (prev: Columns): Columns => {
+      // Resolve column: prefer payload, else find where the task currently lives
+      let targetColumnId = task.columnId;
+      let existingTask: Task | undefined;
+      if (!targetColumnId || !prev[targetColumnId]) {
+        for (const columnId of Object.keys(prev)) {
+          const found = prev[columnId]?.tasks?.find((t) => t.id === task.id);
+          if (found) {
+            targetColumnId = columnId;
+            existingTask = found;
+            break;
+          }
+        }
+      } else {
+        existingTask = prev[targetColumnId]?.tasks?.find((t) => t.id === task.id);
       }
-      
-      const updatedColumns = { ...prev };
-      const taskId = task.id;
-      
-      // First, remove the task from all columns (in case it moved)
-      Object.keys(updatedColumns).forEach(columnId => {
+
+      if (!targetColumnId || !prev[targetColumnId]) {
+        console.warn('Column not found for task update:', task.columnId, 'Available columns:', Object.keys(prev));
+        return prev;
+      }
+
+      const mergedTask: Task = {
+        ...(existingTask || {}),
+        ...task,
+        columnId: targetColumnId,
+        boardId: task.boardId || existingTask?.boardId || '',
+      };
+
+      const updatedColumns: Columns = { ...prev };
+
+      // Same-column in-place update (preserves order; avoids remove/re-add flicker)
+      if (!task.columnId || task.columnId === targetColumnId || !existingTask) {
+        const column = updatedColumns[targetColumnId];
+        const taskIndex = column.tasks.findIndex((t) => t.id === task.id);
+        if (taskIndex !== -1) {
+          updatedColumns[targetColumnId] = {
+            ...column,
+            tasks: [
+              ...column.tasks.slice(0, taskIndex),
+              mergedTask,
+              ...column.tasks.slice(taskIndex + 1),
+            ],
+          };
+          return updatedColumns;
+        }
+        updatedColumns[targetColumnId] = {
+          ...column,
+          tasks: [...column.tasks, mergedTask],
+        };
+        return updatedColumns;
+      }
+
+      // Cross-column move: remove from all, then insert into target
+      Object.keys(updatedColumns).forEach((columnId) => {
         const column = updatedColumns[columnId];
-        const taskIndex = column.tasks.findIndex(t => t.id === taskId);
+        const taskIndex = column.tasks.findIndex((t) => t.id === task.id);
         if (taskIndex !== -1) {
           updatedColumns[columnId] = {
             ...column,
             tasks: [
               ...column.tasks.slice(0, taskIndex),
-              ...column.tasks.slice(taskIndex + 1)
-            ]
+              ...column.tasks.slice(taskIndex + 1),
+            ],
           };
         }
       });
-      
-      // Then, add or update the task in its column
-      if (updatedColumns[task.columnId]) {
-        const column = updatedColumns[task.columnId];
-        const existingTaskIndex = column.tasks.findIndex(t => t.id === task.id);
-        
-        if (existingTaskIndex !== -1) {
-          // Task already exists in this column - update it in place
-          updatedColumns[task.columnId] = {
-            ...column,
-            tasks: [
-              ...column.tasks.slice(0, existingTaskIndex),
-              task, // Use the updated task
-              ...column.tasks.slice(existingTaskIndex + 1)
-            ]
-          };
-        } else {
-          // Task doesn't exist in this column - add it
-          updatedColumns[task.columnId] = {
-            ...column,
-            tasks: [...column.tasks, task]
-          };
-        }
+
+      const targetColumn = updatedColumns[task.columnId];
+      if (targetColumn) {
+        updatedColumns[task.columnId] = {
+          ...targetColumn,
+          tasks: [...targetColumn.tasks, { ...mergedTask, columnId: task.columnId }],
+        };
       }
-      
       return updatedColumns;
-    });
-    
+    };
+
+    // Update both columns and filteredColumns so the visible card refreshes immediately
+    setColumns(patchTaskInColumns);
+    taskFilters.setFilteredColumns(patchTaskInColumns);
+
     // Update selectedTask if this is the selected task
     if (selectedTask && selectedTask.id === task.id) {
-      setSelectedTask(task);
+      setSelectedTask({ ...selectedTask, ...task, columnId: task.columnId || selectedTask.columnId });
     }
-    
+
     try {
       await withLoading('tasks', async () => {
         await updateTask(task);
@@ -2531,19 +2560,18 @@ function AppContent() {
       });
     } catch (error: any) {
       console.error('❌ [App] Failed to update task:', error);
-      
-      // Check if it's an instance unavailable error
+
       if (await handleInstanceStatusError(error)) {
-        return; // Don't rollback if instance is suspended
+        return;
       }
-      
-      // Rollback on error
+
       setColumns(previousColumns);
+      taskFilters.setFilteredColumns(previousFilteredColumns);
       if (previousSelectedTask) {
         setSelectedTask(previousSelectedTask);
       }
     }
-  }, [withLoading, fetchQueryLogs, columns, selectedTask]);
+  }, [withLoading, fetchQueryLogs, columns, selectedTask, taskFilters]);
 
   const handleCopyTask = async (task: Task) => {
     const originalPosition = task.position || 0;
@@ -3138,23 +3166,47 @@ function AppContent() {
   useEffect(() => {
     const current = taskFilters.filteredColumns || {};
     
-    // Create a stable signature based on column IDs, positions, and task order
-    // CRITICAL: Task list must reflect sort order (by position), not alphabetically by id.
-    // Same set of task ids in a column yields the same string if we only sort ids — so
-    // intra-column reorders never updated stableFilteredColumns and DnD saw stale order on the next drag.
+    // Signature must include order AND display fields. Task id lists alone miss title/description/
+    // effort/watchers/etc., so side-panel edits never refreshed Kanban (columns={stableFilteredColumns}).
+    // Structure-only signatures also hid intra-column reorder until position was included.
+    const taskContentKey = (t: Task) => {
+      const desc = t.description || '';
+      const watchers = (t.watchers || []).map((w: any) => w?.id ?? w).join(',');
+      const collaborators = (t.collaborators || []).map((c: any) => c?.id ?? c).join(',');
+      return [
+        t.id,
+        t.position ?? '',
+        t.title ?? '',
+        desc.length,
+        // Sample ends so long HTML edits still invalidate without hashing the whole body
+        desc.slice(0, 48),
+        desc.slice(-48),
+        t.effort ?? '',
+        t.memberId ?? '',
+        t.requesterId ?? '',
+        t.priorityId ?? t.priority ?? '',
+        t.attachmentCount ?? '',
+        t.dueDate ?? '',
+        t.startDate ?? '',
+        t.sprintId ?? '',
+        watchers,
+        collaborators,
+      ].join('~');
+    };
+
     const signature = Object.keys(current).sort().map(columnId => {
       const column = current[columnId];
-      const taskIds = [...(column?.tasks || [])]
+      const taskKeys = [...(column?.tasks || [])]
         .sort((a, b) => {
           const pa = typeof a.position === 'number' ? a.position : parseFloat(String(a.position)) || 0;
           const pb = typeof b.position === 'number' ? b.position : parseFloat(String(b.position)) || 0;
           if (pa !== pb) return pa - pb;
           return String(a.id).localeCompare(String(b.id));
         })
-        .map(t => t.id)
+        .map(taskContentKey)
         .join(',');
       const position = column?.position ?? 0;
-      return `${columnId}:${position}:${taskIds}`;
+      return `${columnId}:${position}:${taskKeys}`;
     }).join('|');
     
     // Only update state if signature changed (actual data changed)
@@ -3347,14 +3399,9 @@ function AppContent() {
 
 
 
-  const handleToggleTaskViewMode = () => {
-    const modes: TaskViewMode[] = ['compact', 'shrink', 'expand'];
-    const currentIndex = modes.indexOf(taskFilters.taskViewMode);
-    const nextIndex = (currentIndex + 1) % modes.length;
-    const newMode = modes[nextIndex];
-    
-    taskFilters.setTaskViewMode(newMode);
-    updateCurrentUserPreference('taskViewMode', newMode);
+  const handleTaskViewModeChange = (mode: TaskViewMode) => {
+    taskFilters.setTaskViewMode(mode);
+    updateCurrentUserPreference('taskViewMode', mode);
   };
 
   const handleViewModeChange = (mode: ViewMode) => {
@@ -3866,7 +3913,7 @@ function AppContent() {
         onToggleCollaborators={taskFilters.handleToggleCollaborators}
         onToggleRequesters={taskFilters.handleToggleRequesters}
         onToggleSystem={taskFilters.handleToggleSystem}
-        onToggleTaskViewMode={handleToggleTaskViewMode}
+        onTaskViewModeChange={handleTaskViewModeChange}
         viewMode={taskFilters.viewMode}
         onViewModeChange={handleViewModeChange}
         onToggleSearch={taskFilters.handleToggleSearch}

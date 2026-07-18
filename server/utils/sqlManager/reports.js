@@ -178,13 +178,13 @@ export async function getBurndownSnapshots(db, startDate, endDate, boardId = nul
     SELECT 
       ts.snapshot_date as "snapshotDate",
       COUNT(DISTINCT ts.task_id) as "totalTasks",
-      COUNT(DISTINCT CASE WHEN ts.is_completed = true OR ts.is_completed = 1 THEN ts.task_id END) as "completedTasks",
+      COUNT(DISTINCT CASE WHEN ts.is_completed = true THEN ts.task_id END) as "completedTasks",
       COALESCE(SUM(ts.effort_points), 0) as "totalEffort",
-      COALESCE(SUM(CASE WHEN ts.is_completed = true OR ts.is_completed = 1 THEN ts.effort_points ELSE 0 END), 0) as "completedEffort"
+      COALESCE(SUM(CASE WHEN ts.is_completed = true THEN ts.effort_points ELSE 0 END), 0) as "completedEffort"
     FROM task_snapshots ts
     LEFT JOIN columns c ON ts.column_id = c.id
     WHERE ts.snapshot_date BETWEEN $1::date AND $2::date
-    AND (ts.is_deleted = false OR ts.is_deleted = 0 OR ts.is_deleted IS NULL)
+    AND (ts.is_deleted IS NOT TRUE)
     AND (c.id IS NULL OR c.is_archived = false)
   `;
   
@@ -276,7 +276,7 @@ export async function getBoardsInDateRange(db, startDate, endDate) {
     LEFT JOIN columns c ON ts.column_id = c.id
     WHERE ts.snapshot_date BETWEEN $1::date AND $2::date
     AND ts.board_id IS NOT NULL
-    AND (ts.is_deleted = false OR ts.is_deleted = 0 OR ts.is_deleted IS NULL)
+    AND (ts.is_deleted IS NOT TRUE)
     AND (c.id IS NULL OR c.is_archived = false)
     ORDER BY ts.board_name
   `;
@@ -299,14 +299,14 @@ export async function getBoardBurndownSnapshots(db, startDate, endDate, boardId)
     SELECT 
       ts.snapshot_date as "snapshotDate",
       COUNT(DISTINCT ts.task_id) as "totalTasks",
-      COUNT(DISTINCT CASE WHEN ts.is_completed = true OR ts.is_completed = 1 THEN ts.task_id END) as "completedTasks",
+      COUNT(DISTINCT CASE WHEN ts.is_completed = true THEN ts.task_id END) as "completedTasks",
       COALESCE(SUM(ts.effort_points), 0) as "totalEffort",
-      COALESCE(SUM(CASE WHEN ts.is_completed = true OR ts.is_completed = 1 THEN ts.effort_points ELSE 0 END), 0) as "completedEffort"
+      COALESCE(SUM(CASE WHEN ts.is_completed = true THEN ts.effort_points ELSE 0 END), 0) as "completedEffort"
     FROM task_snapshots ts
     LEFT JOIN columns c ON ts.column_id = c.id
     WHERE ts.snapshot_date BETWEEN $1::date AND $2::date
     AND ts.board_id = $3
-    AND (ts.is_deleted = false OR ts.is_deleted = 0 OR ts.is_deleted IS NULL)
+    AND (ts.is_deleted IS NOT TRUE)
     AND (c.id IS NULL OR c.is_archived = false)
     GROUP BY ts.snapshot_date
     ORDER BY ts.snapshot_date ASC
@@ -409,8 +409,8 @@ export async function getTaskList(db, filters = {}) {
       t.priority,
       t.priority_id as "priorityId",
       p.priority as "priorityName",
-      t.startDate as "startDate",
-      t.dueDate as "dueDate",
+      t.startdate as "startDate",
+      t.duedate as "dueDate",
       t.created_at as "createdAt",
       t.updated_at as "updatedAt",
       b.title as "boardName",
@@ -418,14 +418,14 @@ export async function getTaskList(db, filters = {}) {
       c.is_finished as "isFinished",
       m.name as "assigneeName",
       r.name as "requesterName",
-      (SELECT COUNT(*) FROM comments WHERE taskId = t.id) as "commentCount",
-      (SELECT COUNT(*) FROM watchers WHERE taskId = t.id) as "watcherCount",
-      (SELECT COUNT(*) FROM collaborators WHERE taskId = t.id) as "collaboratorCount"
+      (SELECT COUNT(*) FROM comments WHERE taskid = t.id) as "commentCount",
+      (SELECT COUNT(*) FROM watchers WHERE taskid = t.id) as "watcherCount",
+      (SELECT COUNT(*) FROM collaborators WHERE taskid = t.id) as "collaboratorCount"
     FROM tasks t
-    LEFT JOIN boards b ON t.boardId = b.id
-    LEFT JOIN columns c ON t.columnId = c.id
-    LEFT JOIN members m ON t.memberId = m.id
-    LEFT JOIN members r ON t.requesterId = r.id
+    LEFT JOIN boards b ON t.boardid = b.id
+    LEFT JOIN columns c ON t.columnid = c.id
+    LEFT JOIN members m ON t.memberid = m.id
+    LEFT JOIN members r ON t.requesterid = r.id
     LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
     WHERE 1=1
     AND (c.is_archived IS NULL OR c.is_archived = false)
@@ -445,7 +445,7 @@ export async function getTaskList(db, filters = {}) {
   }
   
   if (filters.boardId) {
-    query += ` AND t.boardId = $${paramIndex++}`;
+    query += ` AND t.boardid = $${paramIndex++}`;
     params.push(filters.boardId);
   }
   
@@ -456,7 +456,7 @@ export async function getTaskList(db, filters = {}) {
   }
   
   if (filters.assigneeId) {
-    query += ` AND t.memberId = $${paramIndex++}`;
+    query += ` AND t.memberid = $${paramIndex++}`;
     params.push(filters.assigneeId);
   }
   
@@ -482,8 +482,8 @@ export async function getTagsForTask(db, taskId) {
   const query = `
     SELECT t.tag
     FROM task_tags tt
-    JOIN tags t ON tt.tagId = t.id
-    WHERE tt.taskId = $1
+    JOIN tags t ON tt.tagid = t.id
+    WHERE tt.taskid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');

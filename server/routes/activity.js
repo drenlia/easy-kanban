@@ -2,7 +2,6 @@ import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
 import { wrapQuery } from '../utils/queryLogger.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { isPostgresDatabase, convertSqlToPostgres } from '../utils/dbAsync.js';
 import { activity as activityQueries } from '../utils/sqlManager/index.js';
 
 const router = express.Router();

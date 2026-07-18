@@ -94,7 +94,7 @@ export async function getTagUsageCount(db, tagId) {
   const query = `
     SELECT COUNT(*) as count 
     FROM task_tags 
-    WHERE "tagId" = $1
+    WHERE tagid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -106,7 +106,7 @@ export async function getTagUsageCount(db, tagId) {
  * 
  * @param {Database} db - Database connection
  * @param {Array<number>} tagIds - Array of tag IDs
- * @returns {Promise<Array>} Array of objects with tagId and count
+ * @returns {Promise<Array>} Array of objects with tagid and count
  */
 export async function getBatchTagUsageCounts(db, tagIds) {
   if (!tagIds || tagIds.length === 0) {
@@ -115,10 +115,10 @@ export async function getBatchTagUsageCounts(db, tagIds) {
   
   const placeholders = tagIds.map((_, i) => `$${i + 1}`).join(', ');
   const query = `
-    SELECT "tagId", COUNT(*) as count 
+    SELECT tagid as "tagId", COUNT(*) as count 
     FROM task_tags 
-    WHERE "tagId" IN (${placeholders})
-    GROUP BY "tagId"
+    WHERE tagid IN (${placeholders})
+    GROUP BY tagid
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -135,7 +135,7 @@ export async function getBatchTagUsageCounts(db, tagIds) {
 export async function deleteTagAssociations(db, tagId) {
   const query = `
     DELETE FROM task_tags 
-    WHERE "tagId" = $1
+    WHERE tagid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');

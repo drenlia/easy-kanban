@@ -53,7 +53,7 @@ export async function getActiveSprint(db) {
       description,
       created_at
     FROM planning_periods
-    WHERE is_active = 1
+    WHERE is_active = true
     ORDER BY start_date DESC
     LIMIT 1
   `;
@@ -116,7 +116,7 @@ export async function getSprintUsageCount(db, sprintId) {
  * 
  * @param {Database} db - Database connection
  * @param {string} sprintId - Sprint ID
- * @returns {Promise<Array>} Array of task objects with id, ticket, title, boardid
+ * @returns {Promise<Array>} Array of task objects with id, ticket, title, boardId
  */
 export async function getTasksUsingSprint(db, sprintId) {
   const query = `
@@ -131,7 +131,7 @@ export async function getTasksUsingSprint(db, sprintId) {
 }
 
 /**
- * Deactivate all sprints (set is_active = 0 for all)
+ * Deactivate all sprints (set is_active = false for all)
  * 
  * @param {Database} db - Database connection
  * @returns {Promise<void>}
@@ -139,8 +139,8 @@ export async function getTasksUsingSprint(db, sprintId) {
 export async function deactivateAllSprints(db) {
   const query = `
     UPDATE planning_periods 
-    SET is_active = 0 
-    WHERE is_active = 1
+    SET is_active = false 
+    WHERE is_active = true
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
@@ -157,8 +157,8 @@ export async function deactivateAllSprints(db) {
 export async function deactivateAllSprintsExcept(db, sprintId) {
   const query = `
     UPDATE planning_periods 
-    SET is_active = 0 
-    WHERE is_active = 1 AND id != $1
+    SET is_active = false 
+    WHERE is_active = true AND id != $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
@@ -191,7 +191,7 @@ export async function createSprint(db, sprintId, name, startDate, endDate, isAct
     name.trim(),
     startDate,
     endDate,
-    isActive ? 1 : 0,
+    Boolean(isActive),
     description?.trim() || null,
     now,
     now
@@ -225,7 +225,7 @@ export async function updateSprint(db, sprintId, name, startDate, endDate, isAct
     name.trim(),
     startDate,
     endDate,
-    isActive ? 1 : 0,
+    Boolean(isActive),
     description?.trim() || null,
     new Date().toISOString(),
     sprintId

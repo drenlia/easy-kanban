@@ -5,7 +5,6 @@ import { authenticateToken } from '../middleware/auth.js';
 import { checkBoardLimit } from '../middleware/licenseCheck.js';
 import { getDefaultBoardColumns, getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, isProxyDatabase } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager
 import { boards as boardQueries, tasks as taskQueries, helpers } from '../utils/sqlManager/index.js';
 
@@ -24,7 +23,7 @@ router.get('/', authenticateToken, async (req, res) => {
       ? await helpers.getColumnsForAllBoards(db, allBoardIds)
       : [];
     
-    // Group columns by boardId
+    // Group columns by boardid
     const columnsByBoardId = {};
     allColumns.forEach(column => {
       if (!columnsByBoardId[column.boardId]) {
@@ -39,7 +38,7 @@ router.get('/', authenticateToken, async (req, res) => {
       ? await taskQueries.getTasksForColumns(db, allColumnIds)
       : [];
     
-    // Group tasks by columnId
+    // Group tasks by columnid
     const tasksByColumnId = {};
     allTasks.forEach(task => {
       if (!tasksByColumnId[task.columnId]) {
@@ -72,7 +71,7 @@ router.get('/', authenticateToken, async (req, res) => {
       ? await helpers.getAttachmentsForComments(db, allCommentIds)
       : [];
     
-    // Group attachments by commentId
+    // Group attachments by commentid
     const attachmentsByCommentId = {};
     allAttachments.forEach(att => {
       const commentId = att.commentId || att.commentid;
@@ -395,91 +394,59 @@ router.post('/reorder', authenticateToken, async (req, res) => {
     const normalizedBoards = allBoards.map((board, index) => ({ ...board, position: index }));
     const normalizedCurrentIndex = normalizedBoards.findIndex(b => b.id === boardId);
     
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
-      
-      // Only reset positions if there are gaps or inconsistencies
-      // Check if positions need normalization
-      const needsNormalization = allBoards.some((board, index) => {
-        const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
-        return pos !== index;
-      });
-      
-      if (needsNormalization) {
-        // Reset all positions to sequential integers
-        for (let index = 0; index < allBoards.length; index++) {
+    
+    // Collect queries and send as a batched transaction
+    const batchQueries = [];
+    const updateQuery = 'UPDATE boards SET position = ? WHERE id = ?';
+    
+    // Only reset positions if there are gaps or inconsistencies
+    // Check if positions need normalization
+    const needsNormalization = allBoards.some((board, index) => {
+      const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
+      return pos !== index;
+    });
+    
+    if (needsNormalization) {
+      // Reset all positions to sequential integers
+      for (let index = 0; index < allBoards.length; index++) {
+        batchQueries.push({
+          query: updateQuery,
+          params: [index, allBoards[index].id]
+        });
+      }
+    }
+    
+    // Swap positions if needed
+    if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
+      const targetBoard = normalizedBoards[newPosition];
+      if (targetBoard) {
+        // If we didn't normalize, we need to update the specific positions
+        if (!needsNormalization) {
           batchQueries.push({
             query: updateQuery,
-            params: [index, allBoards[index].id]
+            params: [newPosition, boardId]
+          });
+          batchQueries.push({
+            query: updateQuery,
+            params: [normalizedCurrentIndex, targetBoard.id]
+          });
+        } else {
+          // Positions were already reset, just swap the two
+          batchQueries.push({
+            query: updateQuery,
+            params: [newPosition, boardId]
+          });
+          batchQueries.push({
+            query: updateQuery,
+            params: [normalizedCurrentIndex, targetBoard.id]
           });
         }
       }
-      
-      // Swap positions if needed
-      if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
-        const targetBoard = normalizedBoards[newPosition];
-        if (targetBoard) {
-          // If we didn't normalize, we need to update the specific positions
-          if (!needsNormalization) {
-            batchQueries.push({
-              query: updateQuery,
-              params: [newPosition, boardId]
-            });
-            batchQueries.push({
-              query: updateQuery,
-              params: [normalizedCurrentIndex, targetBoard.id]
-            });
-          } else {
-            // Positions were already reset, just swap the two
-            batchQueries.push({
-              query: updateQuery,
-              params: [newPosition, boardId]
-            });
-            batchQueries.push({
-              query: updateQuery,
-              params: [normalizedCurrentIndex, targetBoard.id]
-            });
-          }
-        }
-      }
-      
-      // Execute all updates in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction
-      await dbTransaction(db, async () => {
-        // Check if positions need normalization
-        const needsNormalization = allBoards.some((board, index) => {
-          const pos = typeof board.position === 'number' ? board.position : parseInt(board.position) || 0;
-          return pos !== index;
-        });
-        
-        if (needsNormalization) {
-          // Reset all positions to sequential integers
-          for (let index = 0; index < allBoards.length; index++) {
-            await boardQueries.updateBoardPosition(db, allBoards[index].id, index);
-          }
-        }
-
-        // Swap positions if needed
-        if (normalizedCurrentIndex !== -1 && normalizedCurrentIndex !== newPosition) {
-          const targetBoard = normalizedBoards[newPosition];
-          if (targetBoard) {
-            if (!needsNormalization) {
-              // Just swap the two positions
-              await boardQueries.updateBoardPosition(db, boardId, newPosition);
-              await boardQueries.updateBoardPosition(db, targetBoard.id, normalizedCurrentIndex);
-            } else {
-              // Positions were reset, swap the two
-              await boardQueries.updateBoardPosition(db, boardId, newPosition);
-              await boardQueries.updateBoardPosition(db, targetBoard.id, normalizedCurrentIndex);
-            }
-          }
-        }
-      });
     }
+    
+    // Execute all updates in a single batched transaction
+    await db.executeBatchTransaction(batchQueries);
+
 
     // Publish to Redis for real-time updates
     const tenantId = getTenantId(req);

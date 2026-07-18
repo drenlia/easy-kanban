@@ -1,5 +1,5 @@
 import express from 'express';
-import { dbTransaction, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
+import { dbExec } from '../utils/dbAsync.js';
 import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -17,7 +17,7 @@ const passwordResetRequestLimiter = rateLimit({
     error: 'Too many password reset requests, please try again in 1 hour'
   },
   standardHeaders: true,
-  legacyHeaders: false,
+  legacyHeaders: false
 });
 
 // Password reset completion rate limiter: 6 attempts per hour (more generous)
@@ -28,7 +28,7 @@ const passwordResetCompletionLimiter = rateLimit({
     error: 'Too many password reset attempts, please try again in 1 hour'
   },
   standardHeaders: true,
-  legacyHeaders: false,
+  legacyHeaders: false
 });
 
 // Request password reset
@@ -65,22 +65,16 @@ router.post('/request', passwordResetRequestLimiter, async (req, res) => {
         console.error('⚠️ Password reset token sequence out of sync. Attempting to fix...');
         // Try to reset the sequence (PostgreSQL only)
         try {
-          const { isPostgresDatabase, dbExec } = await import('../utils/dbAsync.js');
-          if (isPostgresDatabase(db)) {
-            // MIGRATED: Get max id using sqlManager
-            const maxId = await passwordResetQueries.getMaxPasswordResetTokenId(db);
-            const nextId = maxId + 1;
-            
-            // Reset sequence using dbExec (raw SQL execution)
-            // setval returns the value, so we use SELECT to execute it
-            await dbExec(db, `SELECT setval('password_reset_tokens_id_seq', ${nextId}, false)`);
-            console.log(`✅ Reset password_reset_tokens_id_seq to ${nextId}`);
-            
-            // Retry the insert
-            await passwordResetQueries.createPasswordResetToken(db, user.id, resetToken, expiresAt.toISOString());
-          } else {
-            throw tokenError; // Re-throw if not PostgreSQL
-          }
+          // MIGRATED: Get max id using sqlManager
+          const maxId = await passwordResetQueries.getMaxPasswordResetTokenId(db);
+          const nextId = maxId + 1;
+
+          // Reset sequence using dbExec (raw SQL execution)
+          await dbExec(db, `SELECT setval('password_reset_tokens_id_seq', ${nextId}, false)`);
+          console.log(`✅ Reset password_reset_tokens_id_seq to ${nextId}`);
+
+          // Retry the insert
+          await passwordResetQueries.createPasswordResetToken(db, user.id, resetToken, expiresAt.toISOString());
         } catch (fixError) {
           console.error('❌ Failed to fix sequence:', fixError);
           throw tokenError; // Re-throw original error
@@ -174,56 +168,19 @@ router.post('/reset', passwordResetCompletionLimiter, async (req, res) => {
     // Hash new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
     
-    // MIGRATED: Use transaction to update password and mark token as used
-    const isPostgres = isPostgresDatabase(db);
-    
-    if (isProxyDatabase(db)) {
-      // Proxy mode: Collect all queries and send as batch
-      const batchQueries = [];
-      
-      // Update user password (use PostgreSQL syntax if PostgreSQL, SQLite syntax otherwise)
-      // Note: resetToken.userId is camelCase from sqlManager, but user_id is also available for compatibility
-      const userId = resetToken.userId || resetToken.user_id;
-      if (isPostgres) {
-        // PostgreSQL syntax
-        batchQueries.push({
-          query: 'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-          params: [passwordHash, userId]
-        });
-        
-        // Mark token as used (PostgreSQL syntax)
-        batchQueries.push({
-          query: 'UPDATE password_reset_tokens SET used = true WHERE id = $1',
-          params: [resetToken.id]
-        });
-      } else {
-        // SQLite syntax
-        batchQueries.push({
-          query: 'UPDATE users SET password_hash = ?, updated_at = datetime(\'now\') WHERE id = ?',
-          params: [passwordHash, userId]
-        });
-        
-        // Mark token as used (SQLite syntax)
-        batchQueries.push({
-          query: 'UPDATE password_reset_tokens SET used = 1 WHERE id = ?',
-          params: [resetToken.id]
-        });
+    // Update password and mark token as used in one batched transaction
+    const userId = resetToken.userId || resetToken.user_id;
+    await db.executeBatchTransaction([
+      {
+        query: 'UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        params: [passwordHash, userId]
+      },
+      {
+        query: 'UPDATE password_reset_tokens SET used = true WHERE id = $1',
+        params: [resetToken.id]
       }
-      
-      // Execute all updates in a single batched transaction
-      await db.executeBatchTransaction(batchQueries);
-    } else {
-      // Direct DB mode: Use standard transaction with sqlManager
-      await dbTransaction(db, async () => {
-        // MIGRATED: Update user password using sqlManager
-        // Note: resetToken.userId is camelCase from sqlManager, but user_id is also available for compatibility
-        const userId = resetToken.userId || resetToken.user_id;
-        await passwordResetQueries.updateUserPassword(db, userId, passwordHash);
-        
-        // MIGRATED: Mark token as used using sqlManager
-        await passwordResetQueries.markPasswordResetTokenAsUsed(db, resetToken.id);
-      });
-    }
+    ]);
+
     
     console.log('✅ Password reset successful for:', resetToken.email);
     

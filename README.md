@@ -155,65 +155,39 @@ npm run docker:dev
 
 ## Database Backup & Restore
 
+**Breaking change:** Easy Kanban is **PostgreSQL-only**. SQLite (`kanban.db`) is no longer supported. All Docker editions (free, demo, basic, pro) run Postgres + Redis. Existing SQLite data must be migrated out-of-band or you must start with a fresh Postgres volume.
+
 ### Automated Backup Script
 
-Use the included backup script for easy database management:
-
 ```bash
-# Create a timestamped backup with automatic cleanup
-./scripts/backup-db.sh
+# Create a timestamped pg_dump (gzipped) under ./backups
+./scripts/backup-postgres.sh
 
-# List all existing backups
-./scripts/backup-db.sh --list
-
-# Manual cleanup (keeps last 10 backups)
-./scripts/backup-db.sh --cleanup
-
-# Create backup without auto-cleanup
-./scripts/backup-db.sh --no-cleanup
-
-# Show help and options
-./scripts/backup-db.sh --help
+# Restore latest (or pass a specific .sql.gz)
+./scripts/restore-postgres.sh
+./scripts/restore-postgres.sh ./backups/kanban-backup-YYYYMMDD_HHMMSS.sql.gz
 ```
 
 **Features:**
-- Timestamped backups (`kanban-backup-YYYYMMDD_HHMMSS.db`)
-- Automatic cleanup (keeps last 10 backups)
-- Latest backup symlink (`kanban-latest.db`)
-- Colored output and error handling
-- Backup size reporting
+- Timestamped dumps (`kanban-backup-YYYYMMDD_HHMMSS.sql.gz`)
+- Keeps the last 10 dumps
+- Latest symlink (`kanban-latest.sql.gz`)
 
-### Manual Backup Methods
+### Manual Backup
 
-**From Docker Container:**
 ```bash
-# Quick backup
-docker cp easy-kanban:/app/server/data/kanban.db ./kanban-backup.db
-
-# Backup with timestamp
-docker cp easy-kanban:/app/server/data/kanban.db ./kanban-backup-$(date +%Y%m%d_%H%M%S).db
-```
-
-**From Docker Volume:**
-```bash
-# Using volume mount
-docker run --rm -v easy-kanban_kanban-data:/source -v $(pwd):/backup alpine cp /source/kanban.db /backup/kanban-backup.db
+docker exec easy-kanban-postgres pg_dump -U kanban_user -d kanban --clean --if-exists \
+  | gzip > ./backups/kanban-manual.sql.gz
 ```
 
 ### Restore Database
 
 ```bash
-# Stop the application gracefully (keeps container running)
-docker-compose stop
-
-# Replace database
-docker cp ./kanban-backup.db easy-kanban:/app/server/data/kanban.db
-
-# Restart application
-docker-compose start
+gunzip -c ./backups/kanban-latest.sql.gz \
+  | docker exec -i easy-kanban-postgres psql -U kanban_user -d kanban
 ```
 
-**Important:** Always stop the application before restoring to prevent data corruption.
+**Important:** Prefer restoring while the app is stopped or briefly unavailable to avoid concurrent writes during restore.
 
 ## Security
 

@@ -87,7 +87,7 @@ export async function createDemoUsers(db) {
     }
   ];
 
-  const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = ?'), 'SELECT').get('user');
+  const userRoleResult = await wrapQuery(db.prepare('SELECT id FROM roles WHERE name = $1'), 'SELECT').get('user');
   const userRoleId = userRoleResult.id;
   const createdUsers = [];
 
@@ -100,14 +100,14 @@ export async function createDemoUsers(db) {
     // Create user
     await wrapQuery(db.prepare(`
       INSERT INTO users (id, email, password_hash, first_name, last_name, avatar_path) 
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES ($1, $2, $3, $4, $5, $6)
     `), 'INSERT').run(userId, user.email, passwordHash, user.firstName, user.lastName, avatarPath);
 
     // Assign user role
-    await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES (?, ?)'), 'INSERT').run(userId, userRoleId);
+    await wrapQuery(db.prepare('INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)'), 'INSERT').run(userId, userRoleId);
 
     // Store password in settings for easy retrieval
-    await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'), 'INSERT').run(
+    await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value'), 'INSERT').run(
       `DEMO_PASSWORD_${user.email}`,
       password
     );
@@ -143,7 +143,7 @@ export async function initializeDemoData(db, boardId, columns) {
   console.log('🎭 Initializing demo data...');
   
   // Initialize demo settings
-  await wrapQuery(db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)'), 'INSERT').run('STORAGE_USED', '0');
+  await wrapQuery(db.prepare('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value'), 'INSERT').run('STORAGE_USED', '0');
   console.log('✅ Set STORAGE_USED=0 for demo');
   
   // Create demo users first
@@ -157,7 +157,7 @@ export async function initializeDemoData(db, boardId, columns) {
   const members = [];
   for (const user of demoUsers) {
     const memberId = crypto.randomUUID();
-    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES (?, ?, ?, ?)'), 'INSERT').run(
+    await wrapQuery(db.prepare('INSERT INTO members (id, name, color, user_id) VALUES ($1, $2, $3, $4)'), 'INSERT').run(
       memberId,
       `${user.firstName} ${user.lastName}`,
       user.color,
@@ -169,7 +169,7 @@ export async function initializeDemoData(db, boardId, columns) {
   console.log(`✅ Created ${members.length} team members`);
 
   // Get the project identifier for the board
-  const board = await wrapQuery(db.prepare('SELECT project FROM boards WHERE id = ?'), 'SELECT').get(boardId);
+  const board = await wrapQuery(db.prepare('SELECT project FROM boards WHERE id = $1'), 'SELECT').get(boardId);
   const projectIdentifier = board?.project || 'PROJ-0001';
 
   const now = new Date().toISOString();
@@ -188,7 +188,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'high',
       effort: 3,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
+      duedate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
       assignedTo: 0 // John Smith
     },
     {
@@ -197,7 +197,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'medium',
       effort: 2,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days from now
+      duedate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 5 days from now
       assignedTo: 1 // Sarah Johnson
     },
     {
@@ -216,7 +216,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'urgent',
       effort: 5,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
+      duedate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
       assignedTo: 2 // Mike Davis
     },
     {
@@ -225,7 +225,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'high',
       effort: 4,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
+      duedate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
       assignedTo: 0 // John Smith
     },
     {
@@ -234,7 +234,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'medium',
       effort: 3,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 4 days from now
+      duedate: new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 4 days from now
       assignedTo: 1 // Sarah Johnson
     },
     // Testing Column (3 tasks) - in testing phase
@@ -244,7 +244,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'high',
       effort: 2,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 day from now
+      duedate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 day from now
       assignedTo: 1 // Sarah Johnson
     },
     {
@@ -253,7 +253,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'urgent',
       effort: 3,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
+      duedate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2 days from now
       assignedTo: 2 // Mike Davis
     },
     {
@@ -262,7 +262,7 @@ export async function initializeDemoData(db, boardId, columns) {
       priority: 'medium',
       effort: 2,
       startDate: sprintStartForTasks, // Sprint start
-      dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
+      duedate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
       assignedTo: 0 // John Smith
     },
     // Completed Column (3 tasks)
@@ -331,8 +331,8 @@ export async function initializeDemoData(db, boardId, columns) {
 
   // Insert demo tasks
   const taskStmt = db.prepare(`
-    INSERT INTO tasks (id, title, description, ticket, memberId, requesterId, startDate, dueDate, effort, priority, columnId, boardId, position, created_at, updated_at) 
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tasks (id, title, description, ticket, memberid, requesterid, startdate, duedate, effort, priority, columnid, boardid, position, created_at, updated_at) 
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
   `);
 
   const createdTasks = []; // Store task info for later use (relationships, leaderboard, etc.)
@@ -384,7 +384,7 @@ export async function initializeDemoData(db, boardId, columns) {
   
   await wrapQuery(db.prepare(`
     INSERT INTO planning_periods (id, name, start_date, end_date, description, is_active, board_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
   `), 'INSERT').run(
     sprintId,
     'Sprint 1 - Demo Sprint',
@@ -403,9 +403,9 @@ export async function initializeDemoData(db, boardId, columns) {
   // TODO: Uncomment when sprint_tasks table is created
   /*
   // Assign all tasks to the sprint
-  const createdTaskIdsResult = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE boardId = ?'), 'SELECT').all(boardId);
+  const createdTaskIdsResult = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE boardid = $1'), 'SELECT').all(boardId);
   const createdTaskIds = createdTaskIdsResult.map(t => t.id);
-  const sprintTaskStmt = db.prepare('INSERT INTO sprint_tasks (sprint_id, task_id) VALUES (?, ?)');
+  const sprintTaskStmt = db.prepare('INSERT INTO sprint_tasks (sprint_id, task_id) VALUES ($1, $2)');
   for (const taskId of createdTaskIds) {
     await wrapQuery(sprintTaskStmt, 'INSERT').run(sprintId, taskId);
   }
@@ -415,14 +415,14 @@ export async function initializeDemoData(db, boardId, columns) {
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const completedColumnId = columns.find(c => c.title === 'Completed')?.id;
-  const completedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(completedColumnId, boardId);
+  const completedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnid = $1 AND boardid = $2'), 'SELECT').all(completedColumnId, boardId);
   
   for (const [index, task] of completedTasks.entries()) {
     // Spread completions: 10 days ago, 8 days ago, 5 days ago
     const daysAgo = [10, 8, 5][index] || 3;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = $1, updated_at = $2 WHERE id = $3'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
@@ -434,14 +434,14 @@ export async function initializeDemoData(db, boardId, columns) {
   // Disabled because completed_at column doesn't exist in tasks table yet
   /*
   const archiveColumnId = columns.find(c => c.title === 'Archive')?.id;
-  const archivedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnId = ? AND boardId = ?'), 'SELECT').all(archiveColumnId, boardId);
+  const archivedTasks = await wrapQuery(db.prepare('SELECT id FROM tasks WHERE columnid = $1 AND boardid = $2'), 'SELECT').all(archiveColumnId, boardId);
   
   for (const [index, task] of archivedTasks.entries()) {
     // Archived tasks completed 14, 12, 11 days ago
     const daysAgo = [14, 12, 11][index] || 10;
     const completedDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
     
-    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = ?, updated_at = ? WHERE id = ?'), 'UPDATE').run(
+    await wrapQuery(db.prepare('UPDATE tasks SET completed_at = $1, updated_at = $2 WHERE id = $3'), 'UPDATE').run(
       completedDate,
       completedDate,
       task.id
@@ -463,7 +463,7 @@ export async function initializeDemoData(db, boardId, columns) {
 
   const tagIds = {};
   for (const tagData of tags) {
-    const result = await wrapQuery(db.prepare('INSERT INTO tags (tag, color) VALUES (?, ?)'), 'INSERT').run(tagData.name, tagData.color);
+    const result = await wrapQuery(db.prepare('INSERT INTO tags (tag, color) VALUES ($1, $2)'), 'INSERT').run(tagData.name, tagData.color);
     tagIds[tagData.name] = result.lastInsertRowid;
   }
 
@@ -473,7 +473,7 @@ export async function initializeDemoData(db, boardId, columns) {
   const allTasks = await wrapQuery(db.prepare(`
     SELECT t.id, t.title 
     FROM tasks t 
-    WHERE t.boardId = ? 
+    WHERE t.boardid = $1 
     ORDER BY t.position
   `), 'SELECT').all(boardId);
 
@@ -492,7 +492,7 @@ export async function initializeDemoData(db, boardId, columns) {
     { taskIndex: 12, tags: ['backend'] }, // Deprecated API endpoint removal
   ];
 
-  const taskTagStmt = db.prepare('INSERT INTO task_tags (taskId, tagId) VALUES (?, ?)');
+  const taskTagStmt = db.prepare('INSERT INTO task_tags (taskid, tagid) VALUES ($1, $2)');
   for (const assignment of tagAssignments) {
     if (allTasks[assignment.taskIndex]) {
       for (const tagName of assignment.tags) {
@@ -517,7 +517,7 @@ export async function initializeDemoData(db, boardId, columns) {
 
   const relationshipStmt = db.prepare(`
     INSERT INTO task_rels (task_id, relationship, to_task_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5)
   `);
 
   let relationshipCount = 0;
@@ -610,8 +610,8 @@ export async function initializeDemoData(db, boardId, columns) {
   ];
 
   const commentStmt = db.prepare(`
-    INSERT INTO comments (id, taskId, authorId, text, createdAt, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO comments (id, taskid, authorid, text, createdat, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6)
   `);
 
   for (const comment of comments) {
@@ -636,7 +636,7 @@ export async function initializeDemoData(db, boardId, columns) {
   const activityEvents = [
     // Completed tasks (column 3 - indexes 9, 10, 11)
     { taskIndex: 9, memberId: members[0].id, action: 'completed', daysAgo: 6 }, // John completed Project planning
-    { taskIndex: 10, memberId: members[1].id, action: 'completed', daysAgo: 4 }, // Sarah completed Set up dev environment
+    { taskIndex: 10, memberid: members[1].id, action: 'completed', daysAgo: 4 }, // Sarah completed Set up dev environment
     { taskIndex: 11, memberId: members[2].id, action: 'completed', daysAgo: 3 }, // Mike completed Create initial structure
     
     // Archived tasks (column 4 - indexes 12, 13, 14)
@@ -667,7 +667,7 @@ export async function initializeDemoData(db, boardId, columns) {
       effort_points, priority_name, created_at,
       period_year, period_month, period_week
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
   `);
 
   let activityCount = 0;
@@ -677,7 +677,7 @@ export async function initializeDemoData(db, boardId, columns) {
       const member = members.find(m => m.id === event.memberId);
       if (!member) continue;
       
-      const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE id = ?'), 'SELECT').get(member.userId);
+      const user = await wrapQuery(db.prepare('SELECT id, email FROM users WHERE id = $1'), 'SELECT').get(member.userid);
       if (!user) continue;
       
       const eventTimestamp = new Date(Date.now() - event.daysAgo * 24 * 60 * 60 * 1000);
@@ -742,7 +742,7 @@ export async function initializeDemoData(db, boardId, columns) {
   const userPointsData = [];
   
   for (const member of members) {
-    const user = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = ?'), 'SELECT').get(member.userId);
+    const user = await wrapQuery(db.prepare('SELECT id FROM users WHERE id = $1'), 'SELECT').get(member.userid);
     if (!user) continue;
     
     // Count activities for this user
@@ -792,7 +792,7 @@ export async function initializeDemoData(db, boardId, columns) {
       total_effort_completed, comments_added, tasks_created, collaborations,
       period_year, period_month, last_updated
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
   `);
   
   for (const data of userPointsData) {
@@ -847,10 +847,10 @@ export async function initializeDemoData(db, boardId, columns) {
         const column = columns[task.columnIndex];
         
         // Get tags for this task
-        const taskTagsResult = await wrapQuery(db.prepare('SELECT tagId FROM task_tags WHERE taskId = ?'), 'SELECT').all(task.id);
+        const taskTagsResult = await wrapQuery(db.prepare('SELECT tagid FROM task_tags WHERE taskid = $1'), 'SELECT').all(task.id);
         const taskTagsList = [];
         for (const tt of taskTagsResult) {
-          const tag = await wrapQuery(db.prepare('SELECT tag, color FROM tags WHERE id = ?'), 'SELECT').get(tt.tagId);
+          const tag = await wrapQuery(db.prepare('SELECT tag, color FROM tags WHERE id = $1'), 'SELECT').get(tt.tagid);
           if (tag) {
             taskTagsList.push(tag.tag);
           }
@@ -861,13 +861,14 @@ export async function initializeDemoData(db, boardId, columns) {
         const assigneeName = assigneeMember ? assigneeMember.name : 'Unknown';
         
         await wrapQuery(db.prepare(`
-          INSERT OR IGNORE INTO task_snapshots (
+          INSERT INTO task_snapshots (
             id, snapshot_date, task_id, task_title, task_ticket, task_description,
             board_id, board_name, column_id, column_name,
             assignee_id, assignee_name, requester_id, requester_name,
             effort_points, priority_name, tags, status, is_completed, is_deleted, created_at, completed_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+          ON CONFLICT DO NOTHING
         `), 'INSERT').run(
           crypto.randomUUID(),
           snapshotDateStr,

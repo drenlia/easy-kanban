@@ -216,7 +216,7 @@ export async function getUserBasicInfo(db, userId) {
   const query = `
     SELECT id, email, first_name, last_name 
     FROM users 
-    WHERE id = $1 AND is_active = 1
+    WHERE id = $1 AND is_active = true
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'SELECT');
@@ -407,7 +407,7 @@ export async function createUser(db, userId, email, passwordHash, firstName, las
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'INSERT');
-  await stmt.run(userId, email, passwordHash, firstName, lastName, isActive ? 1 : 0, authProvider);
+  await stmt.run(userId, email, passwordHash, firstName, lastName, Boolean(isActive), authProvider);
   
   // Return created user
   return await getUserByIdForAdmin(db, userId);

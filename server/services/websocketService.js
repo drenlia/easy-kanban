@@ -249,17 +249,9 @@ class WebSocketService {
       });
     });
 
-    // Subscribe to notification channels (Redis or PostgreSQL)
-    // Use PostgreSQL if DB_TYPE is postgresql, otherwise use Redis
-    const usePostgres = process.env.DB_TYPE === 'postgresql';
-    console.log(`🔧 Setting up notification subscriptions (usePostgres: ${usePostgres}, DB_TYPE: ${process.env.DB_TYPE})`);
-    if (usePostgres) {
-      this.setupPostgresSubscriptions();
-    } else {
-      console.error('❌ setupRedisSubscriptions() is not implemented! Task tag events will not work with Redis.');
-      // TODO: Implement setupRedisSubscriptions() method
-      // For now, this will cause tag events to not work if using Redis
-    }
+    // Subscribe to notification channels via PostgreSQL LISTEN/NOTIFY
+    console.log('🔧 Setting up PostgreSQL notification subscriptions');
+    this.setupPostgresSubscriptions();
   }
 
   // Get tenant-prefixed room name (for multi-tenant isolation)

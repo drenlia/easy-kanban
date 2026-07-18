@@ -84,7 +84,7 @@ export async function getDefaultPriority(db) {
  */
 export async function getMaxPriorityPosition(db) {
   const query = `
-    SELECT MAX(position) as maxPos 
+    SELECT MAX(position) as "maxPos" 
     FROM priorities
   `;
   
@@ -271,7 +271,7 @@ export async function getBatchPriorityUsageCounts(db, priorityIds) {
  * 
  * @param {Database} db - Database connection
  * @param {number} priorityId - Priority ID
- * @returns {Promise<Array>} Array of task objects with id, ticket, title, boardid
+ * @returns {Promise<Array>} Array of task objects with id, ticket, title, boardId
  */
 export async function getTasksUsingPriority(db, priorityId) {
   const query = `

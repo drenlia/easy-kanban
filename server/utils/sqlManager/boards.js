@@ -247,8 +247,7 @@ export async function generateProjectIdentifier(db, prefix = 'PROJ-') {
  */
 export async function getBoardTaskRelationships(db, boardId) {
   // PostgreSQL converts unquoted identifiers to lowercase
-  // The tasks table has boardId (camelCase) which becomes boardid (lowercase) in PostgreSQL
-  // Use lowercase boardid to match PostgreSQL's behavior
+  // The tasks table has boardid (lowercase); alias to "boardId" for API consumers
   const query = `
     SELECT 
       tr.id,

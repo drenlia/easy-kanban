@@ -48,7 +48,7 @@ export async function getUserByIdForFileAccess(db, userId) {
  * 
  * @param {Database} db - Database connection
  * @param {string} taskId - Task ID
- * @returns {Promise<Object|null>} Task object with boardId or null
+ * @returns {Promise<Object|null>} Task object with boardid or null
  */
 export async function getTaskByIdForFiles(db, taskId) {
   const query = `

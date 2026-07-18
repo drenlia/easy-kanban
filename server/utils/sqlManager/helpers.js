@@ -101,7 +101,7 @@ export async function getColumnById(db, columnId) {
 }
 
 /**
- * Get full column info by ID (including boardId and position)
+ * Get full column info by ID (including boardid and position)
  */
 export async function getColumnFullInfo(db, columnId) {
   const query = `SELECT id, title, boardid as "boardId", position, is_finished, is_archived FROM columns WHERE id = $1`;
@@ -297,7 +297,7 @@ export async function updateColumn(db, columnId, title, isFinished, isArchived) 
     WHERE id = $4
   `;
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
-  return await stmt.run(title, isFinished ? 1 : 0, isArchived ? 1 : 0, columnId);
+  return await stmt.run(title, Boolean(isFinished), Boolean(isArchived), columnId);
 }
 
 /**
@@ -319,7 +319,7 @@ export async function createColumn(db, id, title, boardId, position, isFinished,
     RETURNING *
   `;
   const stmt = wrapQuery(db.prepare(query), 'INSERT');
-  return await stmt.run(id, title, boardId, position, isFinished ? 1 : 0, isArchived ? 1 : 0);
+  return await stmt.run(id, title, boardId, position, Boolean(isFinished), Boolean(isArchived));
 }
 
 /**
@@ -369,7 +369,7 @@ export async function getAttachmentsForComments(db, commentIds) {
   
   const placeholders = commentIds.map((_, i) => `$${i + 1}`).join(', ');
   const query = `
-    SELECT commentid, id, name, url, type, size, created_at as createdAt
+    SELECT commentid, id, name, url, type, size, created_at as createdat
     FROM attachments
     WHERE commentid IN (${placeholders})
   `;

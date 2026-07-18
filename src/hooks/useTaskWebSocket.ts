@@ -170,8 +170,9 @@ export const useTaskWebSocket = ({
       // This ensures we remove tasks from source columns before processing position updates
       const moves: Array<{ taskId: string; fromColumn: string; toColumn: string; data: any }> = [];
       taskUpdatesMap.forEach((data, taskId) => {
-        const targetColumnId = data.task.columnId;
+        const targetColumnId = data.task.columnId || data.task.columnid || taskSourceColumns.get(taskId);
         if (!targetColumnId) return;
+        if (!data.task.columnId) data.task.columnId = targetColumnId;
         
         const currentColumnId = taskSourceColumns.get(taskId);
         if (currentColumnId && currentColumnId !== targetColumnId) {
@@ -209,8 +210,13 @@ export const useTaskWebSocket = ({
       const updatesByColumn = new Map<string, Array<{ taskId: string; data: any; isMove: boolean }>>();
       
       taskUpdatesMap.forEach((data, taskId) => {
-        const targetColumnId = data.task.columnId;
+        // Resolve columnId from payload or from the task's current column on this board
+        const targetColumnId = data.task.columnId || data.task.columnid || taskSourceColumns.get(taskId);
         if (!targetColumnId) return;
+        // Ensure later merge steps see a columnId even when the server omitted it
+        if (!data.task.columnId) {
+          data.task.columnId = targetColumnId;
+        }
         
         if (!updatesByColumn.has(targetColumnId)) {
           updatesByColumn.set(targetColumnId, []);
@@ -312,19 +318,22 @@ export const useTaskWebSocket = ({
             // Handle previous location fields (for cross-column/board moves)
             previousColumnId: data.task.hasOwnProperty('previousColumnId') ? data.task.previousColumnId : fullTaskData.previousColumnId,
             previousBoardId: data.task.hasOwnProperty('previousBoardId') ? data.task.previousBoardId : fullTaskData.previousBoardId,
-            // Preserve arrays - only use update if it's a non-empty array, otherwise keep existing
-            comments: (data.task.comments && Array.isArray(data.task.comments) && data.task.comments.length > 0)
+            // Preserve arrays when omitted; apply when present (including empty = cleared)
+            comments: data.task.hasOwnProperty('comments') && Array.isArray(data.task.comments)
               ? data.task.comments
               : (fullTaskData.comments || []),
-            watchers: (data.task.watchers && Array.isArray(data.task.watchers) && data.task.watchers.length > 0)
+            watchers: data.task.hasOwnProperty('watchers') && Array.isArray(data.task.watchers)
               ? data.task.watchers
               : (fullTaskData.watchers || []),
-            collaborators: (data.task.collaborators && Array.isArray(data.task.collaborators) && data.task.collaborators.length > 0)
+            collaborators: data.task.hasOwnProperty('collaborators') && Array.isArray(data.task.collaborators)
               ? data.task.collaborators
               : (fullTaskData.collaborators || []),
-            tags: (data.task.tags && Array.isArray(data.task.tags) && data.task.tags.length > 0)
+            tags: data.task.hasOwnProperty('tags') && Array.isArray(data.task.tags)
               ? data.task.tags
-              : (fullTaskData.tags || [])
+              : (fullTaskData.tags || []),
+            attachmentCount: data.task.hasOwnProperty('attachmentCount')
+              ? (data.task.attachmentCount ?? 0)
+              : fullTaskData.attachmentCount
           } : {
             // No existing data - use minimal payload with defaults
             ...data.task,
@@ -337,6 +346,7 @@ export const useTaskWebSocket = ({
             watchers: data.task.watchers || [],
             collaborators: data.task.collaborators || [],
             tags: data.task.tags || [],
+            attachmentCount: data.task.attachmentCount ?? 0,
             memberId: data.task.memberId || null,
             requesterId: data.task.requesterId || null,
             effort: data.task.effort ?? 0,

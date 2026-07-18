@@ -571,7 +571,7 @@ export const generateTaskUpdateDetails = async (field, oldValue, newValue, addit
     }
   }
 
-  // Special handling for memberId and requesterId changes - resolve member IDs to member names
+  // Special handling for memberid and requesterid changes - resolve member IDs to member names
   if (field === 'memberId' || field === 'requesterId') {
     const getMemberName = async (memberId) => {
       if (!memberId || !finalDb) {

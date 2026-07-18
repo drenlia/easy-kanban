@@ -522,17 +522,13 @@ async function initializeServices() {
     // Initialize Redis (still needed for Socket.IO adapter in multi-pod deployments)
     await redisService.connect();
     
-    // Initialize PostgreSQL Notification Service if using PostgreSQL
-    const usePostgres = process.env.DB_TYPE === 'postgresql';
-    if (usePostgres) {
-      // Get the pool from the database instance if available
-      let pool = null;
-      if (defaultDb && defaultDb.constructor.name === 'PostgresDatabase' && defaultDb.pool) {
-        pool = defaultDb.pool;
-      }
-      await postgresNotificationService.connect(pool);
-      console.log('✅ PostgreSQL Notification Service initialized');
+    // Initialize PostgreSQL Notification Service (LISTEN/NOTIFY for realtime events)
+    let pool = null;
+    if (defaultDb && defaultDb.constructor.name === 'PostgresDatabase' && defaultDb.pool) {
+      pool = defaultDb.pool;
     }
+    await postgresNotificationService.connect(pool);
+    console.log('✅ PostgreSQL Notification Service initialized');
     
     // Initialize WebSocket (now async due to Redis adapter setup)
     // CRITICAL: This must happen BEFORE server.listen() to ensure adapter is ready

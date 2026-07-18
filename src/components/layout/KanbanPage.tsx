@@ -81,7 +81,7 @@ interface KanbanPageProps {
   onToggleCollaborators: (include: boolean) => void;
   onToggleRequesters: (include: boolean) => void;
   onToggleSystem: (include: boolean) => void;
-  onToggleTaskViewMode: () => void;
+  onTaskViewModeChange: (mode: TaskViewMode) => void;
   onViewModeChange: (mode: ViewMode) => void;
   onToggleSearch: () => void;
   onSearchFiltersChange: (filters: any) => void;
@@ -193,7 +193,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
   onToggleCollaborators,
   onToggleRequesters,
   onToggleSystem,
-  onToggleTaskViewMode,
+  onTaskViewModeChange,
   viewMode,
   onViewModeChange,
   onToggleSearch,
@@ -545,7 +545,7 @@ const KanbanPage: React.FC<KanbanPageProps> = ({
       <div className="flex gap-4 mb-4">
         <Tools 
           taskViewMode={taskViewMode}
-          onToggleTaskViewMode={onToggleTaskViewMode}
+          onTaskViewModeChange={onTaskViewModeChange}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
           isSearchActive={isSearchActive}

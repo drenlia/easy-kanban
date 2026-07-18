@@ -11,7 +11,6 @@ import { createDefaultAvatar, getRandomColor } from '../utils/avatarGenerator.js
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { isPostgresDatabase } from '../utils/dbAsync.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, tasks as taskQueries, adminUsers as adminUserQueries, auth as authQueries, helpers } from '../utils/sqlManager/index.js';
 
@@ -19,7 +18,7 @@ const router = express.Router();
 
 // Helper to get the actual notification system being used (for accurate logging)
 const getNotificationSystem = () => {
-  return process.env.DB_TYPE === 'postgresql' ? 'PostgreSQL' : 'Redis';
+  return 'PostgreSQL';
 };
 
 // Get all users (admin only)
@@ -60,7 +59,7 @@ router.get('/', authenticateToken, requireRole(['admin']), async (req, res) => {
   }
 });
 
-// Admin member name update endpoint (MUST come before /:userId route)
+// Admin member name update endpoint (MUST come before /:userid route)
 router.put('/:userId/member-name', authenticateToken, requireRole(['admin']), async (req, res) => {
   try {
     const db = getRequestDatabase(req);

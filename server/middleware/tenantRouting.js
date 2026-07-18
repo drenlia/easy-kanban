@@ -7,7 +7,7 @@
 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { initializeDatabase, getDbPath } from '../config/database.js';
+import { initializeDatabase } from '../config/database.js';
 import notificationService from '../services/notificationService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -70,11 +70,6 @@ const extractTenantId = (hostname) => {
   return null;
 };
 
-// Get database path for a tenant (uses database.js function)
-const getTenantDbPath = (tenantId) => {
-  return getDbPath(tenantId);
-};
-
 // Get tenant storage paths (attachments, avatars)
 const getTenantStoragePaths = (tenantId) => {
   const basePath = process.env.DOCKER_ENV === 'true'
@@ -118,16 +113,7 @@ const getTenantDatabase = async (tenantId) => {
     // Verify database is still open
     try {
       const { wrapQuery } = await import('../utils/queryLogger.js');
-      const { isPostgresDatabase } = await import('../utils/dbAsync.js');
-      
-      // For PostgreSQL, use a simple query to verify connection
-      if (isPostgresDatabase(cached.db)) {
-        const stmt = cached.db.prepare('SELECT 1');
-        await wrapQuery(stmt, 'SELECT').get();
-      } else {
-        // For SQLite, use the original method
-        await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
-      }
+      await wrapQuery(cached.db.prepare('SELECT 1'), 'SELECT').get();
       return cached;
     } catch (error) {
       // Database closed, remove from cache
@@ -206,10 +192,9 @@ export const tenantRouting = async (req, res, next) => {
     // Get or create tenant database
     const dbInfo = await getTenantDatabase(tenantId);
     
-    // Log database path for debugging
+    // Log schema for debugging
     if (isMultiTenant() && tenantId) {
-      const dbPath = getTenantDbPath(tenantId);
-      console.log(`📊 Using tenant database: ${dbPath}`);
+      console.log(`📊 Using tenant database schema: tenant_${tenantId}`);
     }
     
     // Make database available to routes
@@ -300,5 +285,5 @@ export const getRequestDatabase = (req, defaultDb = null) => {
 };
 
 // Export utility functions
-export { getTenantDbPath, getTenantStoragePaths, isMultiTenant, extractTenantId, getTenantDatabase };
+export { getTenantStoragePaths, isMultiTenant, extractTenantId, getTenantDatabase };
 

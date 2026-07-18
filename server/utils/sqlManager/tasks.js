@@ -8,7 +8,6 @@
  */
 
 import { wrapQuery } from '../queryLogger.js';
-import { dbTransaction, isProxyDatabase, isPostgresDatabase } from '../dbAsync.js';
 
 /**
  * Get task by ID with all relationships (comments, watchers, collaborators, tags, attachments)
@@ -25,7 +24,7 @@ export async function getTaskWithRelationships(db, taskId) {
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount,
+                ELSE NULL END as "attachmentCount",
            COALESCE(json_agg(json_build_object(
                'id', c.id,
                'text', c.text,
@@ -145,7 +144,7 @@ export async function getTaskByTicket(db, ticket) {
            c.title as status,
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount
+                ELSE NULL END as "attachmentCount"
     FROM tasks t
     LEFT JOIN attachments a ON a.taskid = t.id
     LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
@@ -193,7 +192,7 @@ export async function getTasksForColumn(db, columnId) {
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount,
+                ELSE NULL END as "attachmentCount",
            COALESCE(json_agg(json_build_object(
                'id', c.id,
                'text', c.text,
@@ -293,7 +292,7 @@ export async function getTasksForColumns(db, columnIds) {
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount,
+                ELSE NULL END as "attachmentCount",
            COALESCE(json_agg(json_build_object(
                'id', c.id,
                'text', c.text,
@@ -380,7 +379,7 @@ export async function getAllTasks(db) {
     SELECT t.*, 
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount
+                ELSE NULL END as "attachmentCount"
     FROM tasks t
     LEFT JOIN attachments a ON a.taskid = t.id
     GROUP BY t.id
@@ -456,7 +455,7 @@ export async function createTask(db, taskData) {
  * Update a task
  * 
  * @param {Database} db - Database connection
- * @param {string} taskId - Task ID to update
+ * @param {string} taskid - Task ID to update
  * @param {Object} updates - Fields to update (only include fields that changed)
  * @returns {Promise<Object>} Result object with changes count
  */
@@ -464,43 +463,58 @@ export async function updateTask(db, taskId, updates) {
   const setClauses = [];
   const values = [];
   let paramIndex = 1;
-  
-  // Build dynamic UPDATE query
-  const allowedFields = [
-    'title', 'description', 'memberid', 'requesterid', 'startdate', 'duedate',
-    'effort', 'priority', 'priority_id', 'columnid', 'boardid', 'position',
-    'sprint_id', 'pre_boardid', 'pre_columnid'
-  ];
-  
+
+  // API keys (camelCase or snake) → physical Postgres column names (lowercase)
+  const fieldToColumn = {
+    title: 'title',
+    description: 'description',
+    memberId: 'memberid',
+    memberid: 'memberid',
+    requesterId: 'requesterid',
+    requesterid: 'requesterid',
+    startDate: 'startdate',
+    startdate: 'startdate',
+    dueDate: 'duedate',
+    duedate: 'duedate',
+    effort: 'effort',
+    priority: 'priority',
+    priorityId: 'priority_id',
+    priority_id: 'priority_id',
+    columnId: 'columnid',
+    columnid: 'columnid',
+    boardId: 'boardid',
+    boardid: 'boardid',
+    position: 'position',
+    sprintId: 'sprint_id',
+    sprint_id: 'sprint_id',
+    pre_boardId: 'pre_boardid',
+    pre_boardid: 'pre_boardid',
+    pre_columnId: 'pre_columnid',
+    pre_columnid: 'pre_columnid',
+  };
+
   Object.entries(updates).forEach(([key, value]) => {
-    // Convert camelCase to snake_case for column names
-    const columnName = key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-    
-    if (allowedFields.includes(columnName) || allowedFields.includes(key)) {
-      const fieldName = allowedFields.includes(columnName) ? columnName : key;
-      setClauses.push(`${fieldName} = $${paramIndex++}`);
-      values.push(value);
-    }
+    const columnName = fieldToColumn[key];
+    if (!columnName) return;
+    setClauses.push(`${columnName} = $${paramIndex++}`);
+    values.push(value);
   });
-  
+
   if (setClauses.length === 0) {
     throw new Error('No valid fields to update');
   }
-  
-  // Always update updated_at
+
   setClauses.push(`updated_at = $${paramIndex++}`);
   values.push(new Date().toISOString());
-  
-  // Add taskId for WHERE clause
   values.push(taskId);
-  
+
   const query = `
     UPDATE tasks 
     SET ${setClauses.join(', ')}
     WHERE id = $${paramIndex}
     RETURNING *
   `;
-  
+
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
   return await stmt.run(...values);
 }
@@ -509,7 +523,7 @@ export async function updateTask(db, taskId, updates) {
  * Delete a task
  * 
  * @param {Database} db - Database connection
- * @param {string} taskId - Task ID to delete
+ * @param {string} taskid - Task ID to delete
  * @returns {Promise<Object>} Result object with changes count
  */
 export async function deleteTask(db, taskId) {
@@ -632,7 +646,7 @@ export async function getTasksByIds(db, taskIds) {
            p.color as "priorityColor",
            CASE WHEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) > 0 
                 THEN COUNT(DISTINCT CASE WHEN a.id IS NOT NULL THEN a.id END) 
-                ELSE NULL END as attachmentCount
+                ELSE NULL END as "attachmentCount"
     FROM tasks t
     LEFT JOIN attachments a ON a.taskid = t.id
     LEFT JOIN priorities p ON (p.id = t.priority_id OR (t.priority_id IS NULL AND p.priority = t.priority))
@@ -822,15 +836,12 @@ export async function renumberTasksInColumnByColumnId(db, columnId) {
   
   // Build batch update queries
   const batchQueries = [];
-  const isPostgres = isPostgresDatabase(db);
-  const updateQuery = isPostgres ? `
+  const updateQuery = `
     UPDATE tasks SET position = $1, updated_at = $2 WHERE id = $3
-  ` : `
-    UPDATE tasks SET position = ?, updated_at = ? WHERE id = ?
   `;
-  
+
   const now = new Date().toISOString();
-  
+
   // Renumber to sequential integers: 0, 1, 2, 3...
   tasks.forEach((task, index) => {
     const newPosition = index;
@@ -839,18 +850,9 @@ export async function renumberTasksInColumnByColumnId(db, columnId) {
       params: [newPosition, now, task.id]
     });
   });
-  
-  // Execute updates
-  if (isProxyDatabase(db)) {
-    await db.executeBatchTransaction(batchQueries);
-  } else {
-    await dbTransaction(db, async () => {
-      for (const batchQuery of batchQueries) {
-        await wrapQuery(db.prepare(batchQuery.query), 'UPDATE').run(...batchQuery.params);
-      }
-    });
-  }
-  
+
+  await db.executeBatchTransaction(batchQueries);
+
   return tasks.length;
 }
 

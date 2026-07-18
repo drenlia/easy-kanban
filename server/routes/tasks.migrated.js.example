@@ -20,7 +20,7 @@ import { checkTaskLimit } from '../middleware/licenseCheck.js';
 import notificationService from '../services/notificationService.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getRequestDatabase } from '../middleware/tenantRouting.js';
-import { dbTransaction, dbRun, isProxyDatabase, isPostgresDatabase } from '../utils/dbAsync.js';
+import { dbTransaction } from '../utils/dbAsync.js';
 // NEW: Import sqlManager
 import { tasks as taskQueries } from '../utils/sqlManager/index.js';
 

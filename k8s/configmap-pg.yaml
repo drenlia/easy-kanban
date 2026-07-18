@@ -42,10 +42,7 @@ data:
   POSTGRES_USER: "kanban"
   # POSTGRES_PASSWORD is set via Secret (not in ConfigMap for security)
   
-  # Remove SQLite proxy configuration (not needed with PostgreSQL)
-  # SQLITE_PROXY_URL: ""  # Explicitly empty - PostgreSQL doesn't need proxy
-  
-  # Real-time updates via PostgreSQL pub/sub (replaces Redis pub/sub for notifications)
-  # PostgreSQL LISTEN/NOTIFY will be used instead of Redis pub/sub for notifications
-  # However, Redis is still required for Socket.IO session sharing across pods
+  # Real-time updates via PostgreSQL pub/sub
+  # PostgreSQL LISTEN/NOTIFY is used for app notifications
+  # Redis is still required for Socket.IO session sharing across pods
   REDIS_URL: "redis://redis:6379"

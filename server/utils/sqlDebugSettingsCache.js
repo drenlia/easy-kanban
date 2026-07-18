@@ -3,8 +3,6 @@
  * TTL prevents per-query DB round-trips when SQL logging is off.
  */
 
-import { isProxyDatabase } from './dbAsync.js';
-
 const CACHE_TTL_MS = 15_000;
 const KEY = 'SERVER_DEBUG_SQL';
 
@@ -24,24 +22,7 @@ function settingsTableRef(db) {
  */
 export function getSqlDebugCacheKey(db) {
   if (!db) return 'unknown';
-  if (db.constructor?.name === 'DatabaseProxy') {
-    return `proxy:${db.tenantId ?? 'unknown'}`;
-  }
-  if (db.constructor?.name === 'PostgresDatabase') {
-    return `pg:${db.schema ?? 'public'}:${db.tenantId ?? ''}`;
-  }
-  return `sqlite:${db.name ?? 'memory'}`;
-}
-
-/**
- * @param {object} response
- * @returns {string|undefined}
- */
-function proxyRowValue(response) {
-  if (!response || response.result == null) return undefined;
-  const r = response.result;
-  if (Array.isArray(r)) return r[0]?.value;
-  return r.value;
+  return `pg:${db.schema ?? 'public'}:${db.tenantId ?? ''}`;
 }
 
 /**
@@ -52,24 +33,15 @@ function proxyRowValue(response) {
 async function readServerDebugSqlRaw(db) {
   if (!db) return false;
   try {
-    if (isProxyDatabase(db) && db.constructor?.name === 'DatabaseProxy') {
-      const res = await db.executeQuery('SELECT value FROM settings WHERE key = ?', [KEY]);
-      return proxyRowValue(res) === 'true';
+    const table = settingsTableRef(db);
+    const sql = `SELECT value FROM ${table} WHERE key = $1`;
+    const client = await db.getClient();
+    try {
+      const result = await client.query(sql, [KEY]);
+      return result.rows[0]?.value === 'true';
+    } finally {
+      db.releaseClient(client);
     }
-    if (db.constructor?.name === 'PostgresDatabase') {
-      const table = settingsTableRef(db);
-      const sql = `SELECT value FROM ${table} WHERE key = $1`;
-      const client = await db.getClient();
-      try {
-        const result = await client.query(sql, [KEY]);
-        return result.rows[0]?.value === 'true';
-      } finally {
-        db.releaseClient(client);
-      }
-    }
-    const stmt = db.prepare('SELECT value FROM settings WHERE key = ?');
-    const row = stmt.get(KEY);
-    return row?.value === 'true';
   } catch {
     return false;
   }

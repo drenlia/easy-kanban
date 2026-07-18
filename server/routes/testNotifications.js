@@ -51,13 +51,10 @@ router.post('/notifications', authenticateToken, async (req, res) => {
 // Check notification service status
 router.get('/notifications/status', authenticateToken, async (req, res) => {
   try {
-    const isConnected = postgresNotificationService.isServiceConnected();
-    const usePostgres = process.env.DB_TYPE === 'postgresql';
-
     res.json({
-      service: usePostgres ? 'PostgreSQL LISTEN/NOTIFY' : 'Redis pub/sub',
+      service: 'PostgreSQL LISTEN/NOTIFY',
       connected: isConnected,
-      dbType: process.env.DB_TYPE || 'sqlite',
+      dbType: 'postgresql',
       postgresHost: process.env.POSTGRES_HOST || 'not set',
       postgresPort: process.env.POSTGRES_PORT || 'not set',
       postgresDb: process.env.POSTGRES_DB || 'not set'

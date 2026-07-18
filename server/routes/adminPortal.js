@@ -10,7 +10,6 @@ import notificationService from '../services/notificationService.js';
 import { getLicenseManager } from '../config/license.js';
 import { getTranslator } from '../utils/i18n.js';
 import { getTenantId, getRequestDatabase } from '../middleware/tenantRouting.js';
-import { isPostgresDatabase } from '../utils/dbAsync.js';
 import { clearSqlDebugSettingsCache } from '../utils/sqlDebugSettingsCache.js';
 // MIGRATED: Import sqlManager modules
 import { users as userQueries, settings as settingsQueries, licenseSettings as licenseSettingsQueries, auth as authQueries, adminUsers as adminUserQueries, helpers } from '../utils/sqlManager/index.js';

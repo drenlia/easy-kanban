@@ -496,7 +496,7 @@ class NotificationThrottler {
       //   // Override notificationData.userId to be the recipient for sendEmailDirectly
       //   const notificationDataWithRecipient = {
       //     ...notificationData,
-      //     userId: userId  // Set userId to the recipient (not the actor)
+      //     userid: userid  // Set userid to the recipient (not the actor)
       //   };
       //   
       //   // Send email directly without going through the queue

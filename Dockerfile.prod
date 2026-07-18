@@ -12,9 +12,6 @@ ENV MULTI_TENANT=${MULTI_TENANT}
 
 WORKDIR /app
 
-# Install build dependencies for better-sqlite3 (needed for native compilation)
-RUN apk add --no-cache python3 make g++
-
 # Copy package files
 COPY package*.json ./
 
@@ -46,9 +43,8 @@ ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install runtime dependencies and build tools for better-sqlite3 (native module compilation)
-# better-sqlite3 is a native module that requires compilation
-RUN apk add --no-cache dumb-init curl python3 make g++
+# Install runtime dependencies
+RUN apk add --no-cache dumb-init curl
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \

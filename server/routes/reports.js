@@ -242,7 +242,7 @@ router.get('/burndown', authenticateToken, async (req, res) => {
     
     if (!startDate || !endDate) {
       return res.status(400).json({ 
-        error: 'startDate and endDate are required',
+        error: 'startdate and endDate are required',
         example: '?startDate=2025-01-01&endDate=2025-01-31'
       });
     }
@@ -387,7 +387,7 @@ router.get('/team-performance', authenticateToken, async (req, res) => {
     
     if (!startDate || !endDate) {
       return res.status(400).json({ 
-        error: 'startDate and endDate are required',
+        error: 'startdate and endDate are required',
         example: '?startDate=2025-01-01&endDate=2025-01-31'
       });
     }

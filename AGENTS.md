@@ -18,7 +18,7 @@
 ## Package Management (npm)
 - Always choose secure, actively maintained packages.
 - Packages currently used in this project:
-  - **Backend**: `express`, `better-sqlite3`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`
+  - **Backend**: `express`, `pg`, `redis`, `socket.io`, `bcrypt`, `jsonwebtoken`, `multer`, `nodemailer`, `node-cron`, `express-rate-limit`, `cors`, `axios`, `zod`
   - **Frontend**: `react`, `react-dom`, `react-i18next`, `i18next`, `i18next-browser-languagedetector`, `@tiptap/*` (rich text editor), `@dnd-kit/*` (drag-and-drop), `lucide-react`, `react-joyride`, `react-window`, `recharts`, `xlsx`, `dompurify`, `socket.io-client`
   - **Real-time**: `socket.io`, `socket.io-client`, `@socket.io/redis-adapter`, `redis`
   - **Build/Dev**: `vite`, `typescript`, `tailwindcss`, `eslint`, `concurrently`
@@ -48,9 +48,9 @@
 - Backend is JavaScript (ES modules), frontend is TypeScript + React
 - Follow existing patterns:
   - Routes: `server/routes/*.js` (Express.js router pattern)
-  - Database queries: `server/utils/sqlManager/*.js` (abstracted SQL with dual SQLite/PostgreSQL support)
+  - Database queries: `server/utils/sqlManager/*.js` (PostgreSQL parameterized queries)
   - Auth flow: `server/middleware/auth.js` (JWT with 24h expiration)
-  - **Real-time (WebSockets / cross-pod)**: `server/services/notificationService.js` — `publish()` / `subscribe()` only; uses Redis or PostgreSQL `LISTEN/NOTIFY` when `DB_TYPE=postgresql`. **Not for SMTP.**
+  - **Real-time (WebSockets / cross-pod)**: `server/services/notificationService.js` — `publish()` / `subscribe()` only; PostgreSQL `LISTEN/NOTIFY` for app events. Redis remains required for the Socket.IO adapter across pods. **Not for SMTP.**
   - **Outbound email (SMTP)**: `server/services/emailService.js` — Nodemailer, tenant `settings` (`MAIL_ENABLED`, `SMTP_*`). Used for test email, password reset, user invitations, admin portal invites. Do not send mail through `notificationService`.
 - Use database transactions for multi-step operations (see `server/utils/dbAsync.js`)
 - Publish real-time events via `notificationService.publish()` for WebSocket updates
@@ -104,7 +104,7 @@ When restoring **task/comment email** notifications (throttled queue in `notific
 
 ## Security Checklist (agent must verify)
 - No hardcoded secrets (use environment variables: `JWT_SECRET`, `INSTANCE_TOKEN`, `SMTP_*`)
-- All database queries go through sqlManager (dual SQLite/PostgreSQL support with parameterized queries)
+- All database queries go through sqlManager (PostgreSQL parameterized queries)
 - JWT tokens validated via `authenticateToken` middleware before accessing protected routes
 - Multi-tenant isolation: users can only access data from their tenant's database
 - Security headers set globally in `server/index.js` (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)

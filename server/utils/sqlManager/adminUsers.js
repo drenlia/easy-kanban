@@ -56,7 +56,7 @@ export async function deleteUserInvitations(db, userId) {
 export async function deleteUserActivity(db, userId) {
   const query = `
     DELETE FROM activity 
-    WHERE userId = $1
+    WHERE userid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');
@@ -73,7 +73,7 @@ export async function deleteUserActivity(db, userId) {
 export async function deleteCommentsByMember(db, memberId) {
   const query = `
     DELETE FROM comments 
-    WHERE authorId = $1
+    WHERE authorid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');
@@ -90,7 +90,7 @@ export async function deleteCommentsByMember(db, memberId) {
 export async function deleteWatchersByMember(db, memberId) {
   const query = `
     DELETE FROM watchers 
-    WHERE memberId = $1
+    WHERE memberid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');
@@ -107,7 +107,7 @@ export async function deleteWatchersByMember(db, memberId) {
 export async function deleteCollaboratorsByMember(db, memberId) {
   const query = `
     DELETE FROM collaborators 
-    WHERE memberId = $1
+    WHERE memberid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');
@@ -159,7 +159,7 @@ export async function deleteAllUserSettings(db, userId) {
 export async function deleteViewsByUser(db, userId) {
   const query = `
     DELETE FROM views 
-    WHERE userId = $1
+    WHERE userid = $1
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'DELETE');
@@ -194,8 +194,8 @@ export async function deletePasswordResetTokensByUser(db, userId) {
 export async function reassignTasksToSystemMember(db, systemMemberId, oldMemberId) {
   const query = `
     UPDATE tasks 
-    SET memberId = $1 
-    WHERE memberId = $2
+    SET memberid = $1 
+    WHERE memberid = $2
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
@@ -213,8 +213,8 @@ export async function reassignTasksToSystemMember(db, systemMemberId, oldMemberI
 export async function reassignTaskRequestersToSystemMember(db, systemMemberId, oldMemberId) {
   const query = `
     UPDATE tasks 
-    SET requesterId = $1 
-    WHERE requesterId = $2
+    SET requesterid = $1 
+    WHERE requesterid = $2
   `;
   
   const stmt = wrapQuery(db.prepare(query), 'UPDATE');
