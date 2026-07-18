@@ -54,7 +54,8 @@ export default function Login({ onLogin, siteSettings, hasDefaultAdmin = true, i
   };
 
   // Check if demo mode is enabled
-  const isDemoMode = process.env.DEMO_ENABLED === 'true';
+  const isDemoMode =
+    import.meta.env.DEMO_ENABLED === 'true' || process.env.DEMO_ENABLED === 'true';
 
   // Check backend availability on mount and periodically
   useEffect(() => {

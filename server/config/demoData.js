@@ -463,7 +463,7 @@ export async function initializeDemoData(db, boardId, columns) {
 
   const tagIds = {};
   for (const tagData of tags) {
-    const result = await wrapQuery(db.prepare('INSERT INTO tags (tag, color) VALUES ($1, $2)'), 'INSERT').run(tagData.name, tagData.color);
+    const result = await wrapQuery(db.prepare('INSERT INTO tags (tag, color) VALUES ($1, $2) RETURNING id'), 'INSERT').run(tagData.name, tagData.color);
     tagIds[tagData.name] = result.lastInsertRowid;
   }
 

@@ -3,12 +3,14 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  envPrefix: ['VITE_', 'DEMO_', 'MULTI_'] as string[],
   optimizeDeps: {
     include: ['lucide-react'],
   },
   define: {
-    'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED),
-    'process.env.MULTI_TENANT': JSON.stringify(process.env.MULTI_TENANT),
+    // Always emit string literals (undefined would skip replacement and break demo UI)
+    'process.env.DEMO_ENABLED': JSON.stringify(process.env.DEMO_ENABLED === 'true' ? 'true' : 'false'),
+    'process.env.MULTI_TENANT': JSON.stringify(process.env.MULTI_TENANT === 'true' ? 'true' : 'false'),
   },
   build: {
     // Ensure proper code splitting and asset handling

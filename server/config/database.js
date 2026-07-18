@@ -100,10 +100,13 @@ const isMultiTenant = () => {
 };
 
 
+/** node-pg returns COUNT(*) as a string; coerce so empty-DB seed checks work. */
+const asCount = (value) => Number(value ?? 0);
+
 // Initialize default priorities (called before migrations to ensure they exist)
 const initializeDefaultPriorities = async (db) => {
   const prioritiesCountResult = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM priorities'), 'SELECT').get();
-  const prioritiesCount = prioritiesCountResult.count;
+  const prioritiesCount = asCount(prioritiesCountResult.count);
   if (prioritiesCount === 0) {
     const defaultPriorities = [
       { priority: 'low', color: '#10B981', position: 0, initial: 0 },
@@ -121,7 +124,7 @@ const initializeDefaultPriorities = async (db) => {
     console.log('   Default priority: medium');
   } else {
     const defaultPriorityCountResult = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM priorities WHERE initial = 1'), 'SELECT').get();
-    const defaultPriorityCount = defaultPriorityCountResult.count;
+    const defaultPriorityCount = asCount(defaultPriorityCountResult.count);
     if (defaultPriorityCount === 0) {
       const mediumPriority = await wrapQuery(db.prepare('SELECT id FROM priorities WHERE priority = ?'), 'SELECT').get('medium');
       if (mediumPriority) {
@@ -727,7 +730,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
   
   // Initialize authentication data if no roles exist
   const rolesCountResult = await wrapQuery(db.prepare('SELECT COUNT(*) as count FROM roles'), 'SELECT').get();
-  const rolesCount = rolesCountResult.count;
+  const rolesCount = asCount(rolesCountResult.count);
   if (rolesCount === 0) {
     // Generate random password for admin user (only when creating users)
     const adminPassword = generateRandomPassword(12);
@@ -980,7 +983,7 @@ const initializeDefaultData = async (db, tenantId = null) => {
   // Initialize default data if no boards exist
   const boardsCountStmt = db.prepare('SELECT COUNT(*) as count FROM boards');
   const boardsCountResult = await dbGet(boardsCountStmt);
-  const boardsCount = boardsCountResult.count;
+  const boardsCount = asCount(boardsCountResult.count);
   if (boardsCount === 0) {
     // Always create a default board with columns
     const boardId = crypto.randomUUID();
@@ -1010,7 +1013,12 @@ const initializeDefaultData = async (db, tenantId = null) => {
 
     // Initialize demo data if DEMO_ENABLED=true
     // This will create demo users and tasks for the board
-    await initializeDemoData(db, boardId, defaultColumns);
+    try {
+      await initializeDemoData(db, boardId, defaultColumns);
+    } catch (error) {
+      // Demo seed must not prevent the server from starting (admin/board already created)
+      console.error('❌ Demo data initialization failed (continuing startup):', error);
+    }
   }
 
 
